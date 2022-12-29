@@ -26,5 +26,11 @@ setuptools.setup(
         'contextily',
         'h3 < 4',
         'mapclassify',
-        'weightedstats']
+        'weightedstats',
+        'pyyaml',
+        'pysal',
+        'folium',
+        'IPython',
+        'matplotlib-scalebar',
+        'mycolorpy']
  )
