@@ -58,8 +58,8 @@ def main():
     carto.infer_routes_geoms(plotear_lineas=False)
 
     # Compute and viz route section load by line
-    # kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
-    # viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
+    kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
+    viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
 
     # Create TAZs
     carto.create_zones_table()
