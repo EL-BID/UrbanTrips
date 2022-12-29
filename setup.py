@@ -8,18 +8,23 @@ with open('requirements.txt', 'r') as f:
 
 setuptools.setup(
      name='urbantrips',
-     version='__version__', # This will be replaced with the commit tag
+     version='0.0.1', 
      author="Felipe Gonzalez & Sebastian Anapolsky",
      author_email="",
      description="A library to process public transit smart card data.",
      long_description=long_description,
      long_description_content_type="text/markdown",
-     url="https://github.com/EL-BID/urbanpy",
+     url="https://github.com/EL-BID/UrbanTrips",
      packages=setuptools.find_packages(),
      classifiers=[
          "Programming Language :: Python :: 3",
          "Operating System :: OS Independent",
      ],
-     install_requires=install_requires,
-     python_requires='>=3.9'
+     python_requires='>=3.8',
+     install_requires=[
+        'osmnx',
+        'contextily',
+        'h3 < 4',
+        'mapclassify',
+        'weightedstats']
  )

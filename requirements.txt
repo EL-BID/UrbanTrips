@@ -1,20 +1,5 @@
-pandas
-numpy
-pyyaml
-h3<4
 osmnx
-networkx
-shapely
-geopandas
-seaborn
-jupyter
-matplotlib-scalebar
 contextily
+h3 < 4
 mapclassify
-openpyxl
-pysal
-folium
-mycolorpy
-statsmodels
 weightedstats
-IPython
