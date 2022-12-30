@@ -22,6 +22,7 @@ setuptools.setup(
      ],
      python_requires='>=3.8',
      install_requires=[
+        'openpyxl',
         'osmnx',
         'contextily',
         'h3 < 4',
