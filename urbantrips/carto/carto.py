@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import networkx as nx
 import osmnx as ox
 import pandas as pd
@@ -14,6 +14,7 @@ import h3
 from networkx import NetworkXNoPath
 import multiprocessing
 from itertools import repeat
+from math import ceil
 
 from geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
@@ -626,13 +627,35 @@ def calculo_distancias_osm(
 
         df = df.reset_index().rename(columns={"index": "idmatrix"})
 
-        n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
+        n_cores = max(int(multiprocessing.cpu_count() - 1), 1)
 
+        numero_corte = 10000
+        iteraciones = ceil(len(df) / numero_corte)
+        iteraciones = list(range(0, iteraciones+1))
+        distancias_wrapper = []
         print(f"Calculando distancias para modo {mode}")
-        distancias_par = parallelize_network_distance(
-            df, aplicar_distancia_a_df, G, n_cores=n_cores)
+        print('INICIO',datetime.now())
+        print('rows',len(df))
+        
+        for i in iteraciones:
+            
+            filas_principio = i * numero_corte
+            filas_fin = (i+1) * numero_corte
 
-        df[f"distance_osm_{mode}"] = distancias_par
+            print('Running from row', filas_principio, 'to', filas_fin)
+
+            df_sample = (
+                df.iloc[filas_principio:filas_fin, :].copy())
+            if len(df_sample) > 0:
+                print(datetime.now())
+                distancias_par = parallelize_network_distance(df_sample, aplicar_distancia_a_df, G, n_cores=n_cores)
+                print(datetime.now())
+                distancias_wrapper.append(distancias_par)
+       
+        distancias_wrapper = list(itertools.chain(*distancias_wrapper))
+        print('FIN',datetime.now())
+
+        df[f"distance_osm_{mode}"] = distancias_wrapper
         print(f"Fin calculo distancias para modo {mode}")
 
         var_distances += [f"distance_osm_{mode}"]
