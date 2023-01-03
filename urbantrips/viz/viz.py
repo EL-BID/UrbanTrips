@@ -1141,7 +1141,7 @@ def traigo_zonificacion(viajes,
             if var_zona in zonas.columns:
                 matriz_zonas += [[file_zona, var_zona, matriz_order]]
                 vars_zona += [var_zona]
-        except KeyError:
+        except:
             pass
 
     vars_o = [h3_o] + [f'{x}_o' for x in vars_zona]
