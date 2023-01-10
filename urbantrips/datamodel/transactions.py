@@ -43,7 +43,7 @@ def create_transactions():
         pass
 
     print("Leyendo archivo de transacciones")
-    if geolocalizar_trx_config:
+    if geolocalizar_trx_config:        
         nombre_archivo_gps = configs["nombre_archivo_gps"]
 
         nombres_variables_gps = configs["nombres_variables_gps"]
@@ -64,17 +64,20 @@ def create_transactions():
         print("desde archivo csv de transacciones")
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
         trx = pd.read_csv(ruta)
-
+        
+                
         print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
         # Filtrar transacciones invalidas
+        
         if tipo_trx_invalidas is not None:
             trx = filtrar_transacciones_invalidas(trx, tipo_trx_invalidas)
-
+        
         trx = renombrar_columnas_tablas(
             trx,
             nombres_variables,
             postfijo="_trx",
         )
+
         trx = trx.rename(columns={"orden": "orden_trx"})
 
         # Convertir fechas en dia y hora
@@ -83,12 +86,20 @@ def create_transactions():
         else:
             crear_hora = True
 
-        trx = convertir_fechas(
+            trx = convertir_fechas(
             trx,
             formato_fecha=formato_fecha,
             crear_hora=crear_hora,
-        )
+            )
+                
+        #####
+        ##### TUVE QUE CREAR ESTO PORQUE NO ME CREABA LA VARIABLE DIA ANTES Y ME TIRABA ERROR !!!!!!!!!!!!!!!!! 
+        #####
+        if 'dia' not in trx.columns:
+            trx['dia'] = trx['fecha'].str[8:10]
+        
         print(trx.shape)
+                        
         trx, tmp_trx_inicial = agrego_factor_expansion(trx)
 
         # Eliminar trx fuera del bbox
@@ -105,7 +116,7 @@ def create_transactions():
     # Elminar trx con NA en variables fundamentales
     subset = ["id_tarjeta", "fecha", "id_linea", "latitud", "longitud"]
     trx = eliminar_NAs_variables_fundamentales(trx, subset)
-
+    
     # crear un id original de las transacciones
     trx["id_original"] = trx["id"].copy()
 
@@ -114,6 +125,7 @@ def create_transactions():
     trx["id"] = crear_id_interno(
         conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
+    
     # Elminar transacciones unicas en el dia
     trx = eliminar_tarjetas_trx_unica(trx)
 
@@ -143,7 +155,7 @@ def create_transactions():
     # Si es float convierte a entero
     if trx.id_tarjeta.dtype == 'float':
         trx.id_tarjeta = pd.to_numeric(trx.id_tarjeta, downcast='integer')
-
+    
     # Asignar un largo fijo a las tarjetas
     trx.id_tarjeta = trx.id_tarjeta.map(lambda s: str(s))
     tmp_trx_inicial.id_tarjeta = tmp_trx_inicial.id_tarjeta.map(
@@ -223,14 +235,16 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
     con los atributos de interes de la app. Aquellos atributos que no
     tengan equivalente en nombres_variables apareceran con NULL
     """
+
     zipped = zip(nombres_variables.values(), nombres_variables.keys())
     renombrar_columnas = {k: v for k, v in zipped}
 
     print("Renombrando columnas:", nombres_variables)
-
     df = df.rename(columns=renombrar_columnas)
+    print(nombres_variables.keys)
     df = df.reindex(columns=nombres_variables.keys())
     df.columns = df.columns.map(lambda s: s.replace(postfijo, ""))
+    
     return df
 
 
@@ -241,10 +255,13 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     y un parametro para saber si la hora esta en una columna separada
     """
     print("Convirtiendo fechas")
+    
+    print(formato_fecha)
 
     df["fecha"] = pd.to_datetime(
         df["fecha"], format=formato_fecha, errors="coerce"
     )
+    
     # Chequear si el formato funciona
     checkeo = df["fecha"].isna().sum() / len(df)
     if checkeo > 0.8:

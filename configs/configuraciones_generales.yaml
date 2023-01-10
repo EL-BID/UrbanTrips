@@ -1,27 +1,22 @@
 
 geolocalizar_trx: False
 
-# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros.  Resolucion 9 tiene 174 metros y la  10 tiene  65 metros
+# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros. 
 resolucion_h3: 8
 #tolerancia parada destino en metros
 tolerancia_parada_destino: 2200
 
 #especificar el archivo con las transacciones a consumir
-nombre_archivo_trx: transacciones_amba_test.csv
+nombre_archivo_trx: transacciones_amba.csv
 
-alias_db_data: amba_test
+alias_db_data: amba
 
-alias_db_insumos: amba_test
-
-nombre_archivo_informacion_lineas:
-informacion_lineas_contiene_ramales: False
-
-imputar_destinos_min_distancia: False
+alias_db_insumos: amba
 
 #ingresar el nombre de las variables
 nombres_variables_trx:
     id_trx: id
-    fecha_trx: fecha 
+    fecha_trx: FECHA 
     id_tarjeta_trx: id_tarjeta
     modo_trx: modo
     hora_trx: hora
@@ -30,8 +25,8 @@ nombres_variables_trx:
     interno_trx: interno_bus
     orden_trx: etapa_red_sube 
     latitud_trx: lat 
-    longitud_trx: lon
-    factor_expansion:   
+    longitud_trx: lon 
+    factor_expansion:
     
 modos:
     autobus: COL
@@ -52,7 +47,7 @@ filtro_latlong_bbox:
 
     
 #Especificar el formato fecha
-formato_fecha: "%d/%m/%Y"
+formato_fecha: "%Y/%m/%d"
 
 #Indicar si la informacion sobre la hora está en una columna separada. En nombres_variables debe indicarse el nombre. Dejar vacío en caso contrario 
 columna_hora: True 
@@ -73,3 +68,9 @@ tipo_trx_invalidas:
 
 # Poner geo1 el nombre del archivo geojson, var1 el nombre de la variable que contiene la etiqueta a utilizar, orden1 el orden de las etiquetas en los graficos
 zonificaciones:
+    geo1: hexs_amba.geojson
+    var1: Corona
+    orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
+    geo2: hexs_amba.geojson
+    var2: Partido
+

@@ -36,6 +36,14 @@ def duracion(f):
 
     return wrap
 
+def check_config():
+    check_config = True
+    configs = utils.leer_configs_generales()
+    nombres_variables = configs["nombres_variables_trx"]
+    for i in nombres_variables:
+        if (nombres_variables[i] not in trx.columns)&(nombres_variables[i] != None):
+            print(f'ERROR - la variable {nombres_variables[i]} definida en config.yaml no se encuentra en la tabla de transacciones')
+    return check_config
 
 def crear_directorios():
     db_path = os.path.join("data", "db")
