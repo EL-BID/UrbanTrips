@@ -513,12 +513,6 @@ def create_distances_table():
             ['h3_o_norm', 'h3_d_norm'],
             as_index=False).size().drop(['size'], axis=1)
         
-        
-        print('')
-        print('salva agg2.csv')
-        print('')
-        agg2.to_csv('agg2.csv')
-        
         agg2 = calculo_distancias_osm(
             agg2,
             h3_o="h3_o_norm",
