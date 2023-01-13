@@ -7,12 +7,14 @@ import itertools
 import os
 
 
-sys.path.insert(0, os.path.join(os.getcwd(), "od_matrix"))
+#sys.path.insert(0, os.path.join(os.getcwd(), "od_matrix"))
+#from utils import utils as utils  # noqa
+#from utils import estructura as est  # noqa
+#from utils import destinos as dest  # noqa
+#from utils import limpieza as lmp  # noqa
+from destinations import destinations as dest
 
-from utils import utils as utils  # noqa
-from utils import estructura as est  # noqa
-from utils import destinos as dest  # noqa
-from utils import limpieza as lmp  # noqa
+
 
 
 @pytest.fixture
