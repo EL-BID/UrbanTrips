@@ -1,6 +1,6 @@
 
 import pandas as pd
-from utils.utils import (
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db)
 

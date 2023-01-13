@@ -2,13 +2,13 @@ import os
 import pandas as pd
 import warnings
 
-from geo import geo
-from utils.utils import (leer_configs_generales,
-                         duracion,
-                         iniciar_conexion_db,
-                         agrego_indicador,
-                         eliminar_tarjetas_trx_unica,
-                         crear_tablas_geolocalizacion)
+from urbantrips.geo import geo
+from urbantrips.utils.utils import (leer_configs_generales,
+                                    duracion,
+                                    iniciar_conexion_db,
+                                    agrego_indicador,
+                                    eliminar_tarjetas_trx_unica,
+                                    crear_tablas_geolocalizacion)
 
 
 @duracion

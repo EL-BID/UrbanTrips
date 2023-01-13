@@ -1,11 +1,11 @@
 from urbantrips.datamodel import legs, misc, legs, trips
 from urbantrips.datamodel import transactions as trx
-from kpi import kpi
-from destinations import destinations as dest
-from viz import viz
-from geo import geo
-from carto import carto
-from utils import utils
+from urbantrips.kpi import kpi
+from urbantrips.destinations import destinations as dest
+from urbantrips.viz import viz
+from urbantrips.geo import geo
+from urbantrips.carto import carto
+from urbantrips.utils import utils
 
 
 def main():

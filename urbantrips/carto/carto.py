@@ -18,14 +18,14 @@ from math import ceil
 from multiprocessing import Pool, Manager
 from functools import partial
 from math import sqrt
-from geo.geo import (
+from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
     create_voronoi, normalizo_lat_lon, h3dist
 )
-from viz.viz import (
+from urbantrips.viz.viz import (
     plotear_recorrido_lowess,
     plot_voronoi_zones)
-from utils.utils import (
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,

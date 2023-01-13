@@ -12,7 +12,7 @@ import os
 # from utils import estructura as est  # noqa
 # from utils import destinos as dest  # noqa
 # from utils import limpieza as lmp  # noqa
-from destinations import destinations as dest
+from urbantrips.destinations import destinations as dest
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def df_latlng():
 
 @pytest.fixture
 def path_test_data():
-    path = os.path.join(os.getcwd(), "od_matrix", "tests", "data")
+    path = os.path.join(os.getcwd(), "urbantrips", "tests", "data")
     return path
 
 

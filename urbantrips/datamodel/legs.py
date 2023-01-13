@@ -1,7 +1,7 @@
 import pandas as pd
 import itertools
-from geo.geo import referenciar_h3
-from utils.utils import (
+from urbantrips.geo.geo import referenciar_h3
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,

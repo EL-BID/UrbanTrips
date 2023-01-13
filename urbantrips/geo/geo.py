@@ -1,7 +1,7 @@
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from utils.utils import duracion
+from urbantrips.utils.utils import duracion
 from itertools import repeat
 import h3
 from h3 import H3CellError

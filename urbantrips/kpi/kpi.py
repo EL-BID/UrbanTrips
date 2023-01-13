@@ -5,9 +5,9 @@ import weightedstats as ws
 from math import floor
 from shapely import wkt
 from shapely.geometry import Point
-from geo.geo import h3_from_row
 
-from utils.utils import (
+from urbantrips.geo.geo import h3_from_row
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     crear_tablas_indicadores_operativos)
