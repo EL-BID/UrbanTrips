@@ -1,21 +1,22 @@
+
 geolocalizar_trx: False
 
-# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros. 9 174 metros. 10 65 metros
-resolucion_h3: 9
+# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros.  Resolucion 9 tiene 174 metros y la  10 tiene  65 metros
+resolucion_h3: 8
 #tolerancia parada destino en metros
-tolerancia_parada_destino: 1200
+tolerancia_parada_destino: 2200
 
 #especificar el archivo con las transacciones a consumir
-nombre_archivo_trx: transacciones_amba_10k_tarjetas.csv
+nombre_archivo_trx: transacciones_amba_test.csv
 
-alias_db_data: amba_10k_9res
+alias_db_data: amba_test
 
-alias_db_insumos: amba_res9
+alias_db_insumos: amba_test
 
-nombre_archivo_informacion_lineas: lineas_amba.csv
-informacion_lineas_contiene_ramales: True
+nombre_archivo_informacion_lineas:
+informacion_lineas_contiene_ramales: False
 
-imputar_destinos_min_distancia: True
+imputar_destinos_min_distancia: False
 
 #ingresar el nombre de las variables
 nombres_variables_trx:
@@ -29,8 +30,9 @@ nombres_variables_trx:
     interno_trx: interno_bus
     orden_trx: etapa_red_sube 
     latitud_trx: lat 
-    longitud_trx: lon 
-
+    longitud_trx: lon
+    factor_expansion:   
+    
 modos:
     autobus: COL
     tren: TRE
@@ -38,8 +40,8 @@ modos:
     tranvia:
     brt:
      
-     
-recorridos_geojson: recorridos_amba.geojson
+recorridos_geojson:
+
 
 # Filtro de coordenadas en formato minx, miny, maxx, maxy 
 filtro_latlong_bbox:
@@ -47,6 +49,7 @@ filtro_latlong_bbox:
     miny: -35.5
     maxx: -57.5
     maxy: -34.0 
+
     
 #Especificar el formato fecha
 formato_fecha: "%d/%m/%Y"
@@ -62,6 +65,7 @@ ordenamiento_transacciones: orden_trx #fecha_completa u orden_trx
 ventana_viajes: 
 ventana_duplicado: 
 
+
 tipo_trx_invalidas:
     tipo_trx_tren:
         - 'CHECK OUT SIN CHECKIN'
@@ -69,12 +73,3 @@ tipo_trx_invalidas:
 
 # Poner geo1 el nombre del archivo geojson, var1 el nombre de la variable que contiene la etiqueta a utilizar, orden1 el orden de las etiquetas en los graficos
 zonificaciones:
-    geo1: hexs_amba.geojson
-    var1: Corona
-    orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
-    geo2: hexs_amba.geojson
-    var2: Partido
-    geo3: hexs_amba.geojson
-    var3: Zona
-
-
