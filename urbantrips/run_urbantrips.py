@@ -58,8 +58,8 @@ def main():
     carto.infer_routes_geoms(plotear_lineas=False)
 
     # Compute and viz route section load by line
-    #kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
-    #viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
+    kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
+    viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
 
     # Create TAZs
     carto.create_zones_table()
@@ -68,7 +68,7 @@ def main():
     carto.create_voronoi_zones()
 
     # Create distances table
-    carto.create_distances_table()
+    carto.create_distances_table(use_parallel=True)
 
     # Persist datamodel into csv tables
     misc.persist_datamodel_tables()
