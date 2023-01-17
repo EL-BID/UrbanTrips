@@ -327,7 +327,7 @@ def create_zones_table():
 @duracion
 def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     """
-    This function
+    This function creates transport zones based on the points in the dataset
     """
     print('Crea zonas de transporte')
 
@@ -377,6 +377,9 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
     cant_zonas = len(hexs)+10
     k_ring = 1
+
+    if cant_zonas <= max_zonas:
+        hexs2 = hexs.copy()
 
     while cant_zonas > max_zonas:
         # Construye un set de hexagonos aun mas grandes
