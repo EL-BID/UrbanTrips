@@ -227,8 +227,76 @@ urbantrips
 ```
 virtualenv venv --python=python3.10
 source venv/bin/activate
-pip install urbantrips
+pip install git+https://github.com/EL-BID/UrbanTrips.git@dev
 ```
 
 ## Primeros pasos
-Como correr urbantrips con el proceso general o con algun notebook
+Una vez creado el ambiente, puede descargar el [dataset de transacciones SUBE de AMBA](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), guardarlo en `data/data_ciudad/transacciones.csv`. Este dataset no cuenta con un campo `fecha` con el formato `dd/mm/aaaa`, deberá agregar con una fecha cualquiera y utilizar las cofiguraciones especificadas más abajo. Por último ejecutar:
+```
+python urbantrips/run_urbantrips.py
+```
+
+
+### Configuraciones
+```yaml
+geolocalizar_trx: False
+resolucion_h3: 8
+#tolerancia parada destino en metros
+tolerancia_parada_destino: 2200
+
+nombre_archivo_trx: transacciones.csv
+
+alias_db_data: amba
+
+alias_db_insumos: amba
+
+nombre_archivo_informacion_lineas:
+informacion_lineas_contiene_ramales: False
+
+imputar_destinos_min_distancia: True
+
+#ingresar el nombre de las variables
+nombres_variables_trx:
+    id_trx: id
+    fecha_trx: fecha 
+    id_tarjeta_trx: id_tarjeta
+    modo_trx: modo
+    hora_trx: hora
+    id_linea_trx: id_linea
+    id_ramal_trx:  id_ramal
+    interno_trx: interno_bus
+    orden_trx: etapa_red_sube 
+    latitud_trx: lat 
+    longitud_trx: lon
+    factor_expansion:   
+    
+modos:
+    autobus: COL
+    tren: TRE
+    metro: SUB
+    tranvia:
+    brt:
+     
+recorridos_geojson:
+
+
+# Filtro de coordenadas en formato minx, miny, maxx, maxy 
+filtro_latlong_bbox:
+    minx: -59.3
+    miny: -35.5
+    maxx: -57.5
+    maxy: -34.0 
+
+    
+#Especificar el formato fecha
+formato_fecha: "%d/%m/%Y"
+
+columna_hora: True 
+ordenamiento_transacciones: orden_trx 
+
+
+tipo_trx_invalidas:
+    tipo_trx_tren:
+        - 'CHECK OUT SIN CHECKIN'
+        - 'CHECK OUT'
+```  
