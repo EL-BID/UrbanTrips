@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import networkx as nx
 import osmnx as ox
 import pandas as pd
@@ -14,15 +14,18 @@ import h3
 from networkx import NetworkXNoPath
 import multiprocessing
 from itertools import repeat
-
-from geo.geo import (
+from math import ceil
+from multiprocessing import Pool, Manager
+from functools import partial
+from math import sqrt
+from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
     create_voronoi, normalizo_lat_lon, h3dist
 )
-from viz.viz import (
+from urbantrips.viz.viz import (
     plotear_recorrido_lowess,
     plot_voronoi_zones)
-from utils.utils import (
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
@@ -324,7 +327,7 @@ def create_zones_table():
 @duracion
 def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     """
-    This function
+    This function creates transport zones based on the points in the dataset
     """
     print('Crea zonas de transporte')
 
@@ -374,6 +377,9 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
     cant_zonas = len(hexs)+10
     k_ring = 1
+
+    if cant_zonas <= max_zonas:
+        hexs2 = hexs.copy()
 
     while cant_zonas > max_zonas:
         # Construye un set de hexagonos aun mas grandes
@@ -457,7 +463,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
 
 @duracion
-def create_distances_table():
+def create_distances_table(use_parallel=False):
     """
     Esta tabla toma los h3 de la tablas de etapas y viajes
     y calcula diferentes distancias para cada par que no tenga
@@ -517,6 +523,7 @@ def create_distances_table():
             distancia_entre_hex=distancia_entre_hex,
             processing="osmnx",
             modes=["drive"],
+            use_parallel=use_parallel
         )
 
         distancias_new = pares_h3_norm.merge(agg2, how='left', on=[
@@ -543,6 +550,7 @@ def calculo_distancias_osm(
     processing="osmnx",
     modes=["drive", "walk"],
     distancia_entre_hex=1,
+    use_parallel=False
 ):
 
     cols = df.columns.tolist()
@@ -605,9 +613,11 @@ def calculo_distancias_osm(
         print("")
         print(f"Coords OSM {mode} - Download map")
         print("ymin, xmin, ymax, xmax", ymin, xmin, ymax, xmax)
+        print('Comienzo descarga de red', datetime.now())
 
         print("")
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
+        print('Fin descarga de red', datetime.now())
 
         G = ox.add_edge_speeds(G)
         G = ox.add_edge_travel_times(G)
@@ -616,24 +626,20 @@ def calculo_distancias_osm(
             G, df[lon_o_tmp].values, df[lat_o_tmp].values, return_dist=True
         )
 
-        df["node_from"] = nodes_from[0]
-
         nodes_to = ox.distance.nearest_nodes(
             G, df[lon_d_tmp].values, df[lat_d_tmp].values, return_dist=True
         )
+        nodes_from = nodes_from[0]
+        nodes_to = nodes_to[0]
 
-        df["node_to"] = nodes_to[0]
+        if use_parallel:
+            results = run_network_distance_parallel(
+                mode, G, nodes_from, nodes_to)
+            df[f"distance_osm_{mode}"] = results
 
-        df = df.reset_index().rename(columns={"index": "idmatrix"})
-
-        n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
-
-        print(f"Calculando distancias para modo {mode}")
-        distancias_par = parallelize_network_distance(
-            df, aplicar_distancia_a_df, G, n_cores=n_cores)
-
-        df[f"distance_osm_{mode}"] = distancias_par
-        print(f"Fin calculo distancias para modo {mode}")
+        else:
+            df = run_network_distance_not_parallel(
+                df, mode, G, nodes_from, nodes_to)
 
         var_distances += [f"distance_osm_{mode}"]
         df[f"distance_osm_{mode}"] = (
@@ -667,32 +673,70 @@ def calculo_distancias_osm(
     return df
 
 
-def aplicar_distancia_a_df(df, G):
-    distancias_vector = pd.Series(
-        map(network_distance_osmnx, df['node_from'], df['node_to'], repeat(G)))
-    return distancias_vector
+def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
+    """
+    This function will run the networkd distance using
+    pandas apply method
+    """
+    df["node_from"] = nodes_from
+    df["node_to"] = nodes_to
+
+    df = df.reset_index().rename(columns={"index": "idmatrix"})
+    df[f"distance_osm_{mode}"] = df.apply(
+        lambda x: distancias_osmnx(
+            x["idmatrix"],
+            x["node_from"],
+            x["node_to"],
+            G=G,
+            lenx=len(df),
+        ),
+        axis=1,
+    )
+    return df
 
 
-def network_distance_osmnx(node_from, node_to, G):
+def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
+    """
+    Función de apoyo de measure_distances_osm
+    """
+
+    if idmatrix % 2000 == 0:
+        date_str = datetime.now().strftime("%H:%M:%S")
+        print(f"{date_str} processing {int(idmatrix)} / {lenx}")
+
+    try:
+        ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
+    except:
+        ret = np.nan
+    return ret
+
+
+def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
+    """
+    This function runs the network distance in parallel
+    """
+    n_cores = max(int(multiprocessing.cpu_count() - 1), 1)
+    n = len(nodes_from)
+    chunksize = int(sqrt(n) * 10)
+
+    print(f'Comenzando a correr distancias para {n} pares OD',
+          datetime.now().strftime("%H:%M:%S"))
+    print("Este proceso puede demorar algunas horas dependiendo del tamaño de la ciudad" +
+          " y si se corre por primera vez por lo que en la base de insumos no estan estos pares")
+
+    with multiprocessing.Pool(processes=n_cores) as pool:
+        results = pool.map(partial(get_network_distance_osmnx, G=G), zip(
+            nodes_from, nodes_to), chunksize=chunksize)
+
+    print('Distancias calculadas:', datetime.now().strftime("%H:%M:%S"))
+
+    return results
+
+
+def get_network_distance_osmnx(par, G, *args, **kwargs):
+    node_from, node_to = par
     try:
         out = nx.shortest_path_length(G, node_from, node_to, weight="length")
     except NetworkXNoPath:
         out = np.nan
     return out
-
-
-def parallelize_network_distance(df, func, G, n_cores=4):
-    """
-    This function
-    """
-    df_split = np.array_split(df, n_cores)
-    pool = multiprocessing.Pool(n_cores)
-
-    out = pool.starmap(
-        func, zip(df_split, repeat(G)))
-
-    res = list(itertools.chain(*out))
-
-    pool.close()
-    pool.join()
-    return res

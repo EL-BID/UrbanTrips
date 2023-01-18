@@ -1,4 +1,4 @@
-#configuraciones_generales_amba_test
+
 geolocalizar_trx: False
 
 # Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros.  Resolucion 9 tiene 174 metros y la  10 tiene  65 metros

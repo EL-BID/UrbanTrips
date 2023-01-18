@@ -4,7 +4,7 @@ from math import ceil
 from itertools import repeat
 import multiprocessing
 import h3
-from utils.utils import (
+from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,

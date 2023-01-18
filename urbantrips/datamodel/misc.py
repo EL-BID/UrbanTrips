@@ -1,10 +1,10 @@
 import pandas as pd
 import os
 from pandas.io.sql import DatabaseError
-from utils.utils import (leer_configs_generales,
-                         duracion,
-                         iniciar_conexion_db,
-                         leer_alias, agrego_indicador)
+from urbantrips.utils.utils import (leer_configs_generales,
+                                    duracion,
+                                    iniciar_conexion_db,
+                                    leer_alias, agrego_indicador)
 
 
 @duracion
