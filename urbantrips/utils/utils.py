@@ -44,11 +44,55 @@ def check_config():
     ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
     trx = pd.read_csv(ruta, nrows=2)
 
-    for i in nombres_variables:
-        if (nombres_variables[i] not in trx.columns) & (nombres_variables[i] != None):
-            print(
-                f'ERROR - la variable {nombres_variables[i]} definida en config.yaml no se encuentra en la tabla de transacciones')
-    return check_config
+    # chequear que esten los atributos obligatorios
+    configs_obligatorios = ['geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
+                            'nombre_archivo_trx', 'nombres_variables_trx', 'imputar_destinos_min_distancia',
+                            'formato_fecha', 'columna_hora', 'ordenamiento_transacciones']
+
+    for param in configs_obligatorios:
+        if param not in configs:
+            raise KeyError(
+                f'Error: El archivo de configuracion no especifica el parámetro {param}')
+
+    # Chequear que los parametros tengan valor correcto
+    if not isinstance(configs['geolocalizar_trx'], bool):
+        raise TypeError("El parámetro geolocalizar_trx debe ser True o False")
+
+    assert isinstance(configs['resolucion_h3'], int) and configs['resolucion_h3'] >= 0 and configs[
+        'resolucion_h3'] <= 15, "El parámetro resolucion_h3 debe ser un entero entre 0 y 16"
+
+    assert isinstance(configs['tolerancia_parada_destino'], int) and configs['tolerancia_parada_destino'] >= 0 and configs[
+        'tolerancia_parada_destino'] <= 10000, "El parámetro tolerancia_parada_destino debe ser un entero entre 0 y 10000"
+
+    assert not isinstance(configs['nombre_archivo_trx'], type(
+        None)), "El parámetro nombre_archivo_trx no puede estar vacío"
+
+    nombres_variables_trx = configs['nombres_variables_trx']
+    assert isinstance(nombres_variables_trx,
+                      dict), "El parámetro nombres_variables_trx debe especificarse como un diccionario"
+
+    nombres_variables_trx = pd.DataFrame(
+        {'trx_name': nombres_variables_trx.keys(), 'csv_name': nombres_variables_trx.values()})
+
+    nombres_variables_trx_s = nombres_variables_trx.csv_name.dropna()
+    nombres_var_config_en_trx = nombres_variables_trx_s.isin(trx.columns)
+
+    if not nombres_var_config_en_trx.all():
+        raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
+                       nombres_variables_trx_s[~nombres_var_config_en_trx])
+
+    # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
+    atributos_trx_obligatorios = pd.Series(
+        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx', 'interno_trx', 'latitud_trx', 'longitud_trx'])
+    attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
+        nombres_variables_trx.trx_name)
+
+    assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
+        ','.join(atributos_trx_obligatorios[~attr_obligatorios_en_csv])
+
+    # chequear consistencias por ejemplo entre   'ordenamiento_transacciones': 'orden_trx', 'ventana_viajes': None,'ventana_duplicado': None
+
+    # chequear validez de fecha
 
 
 def duracion(f):
