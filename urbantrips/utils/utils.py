@@ -23,6 +23,22 @@ __all__ = [
 ]
 
 
+def check_config():
+    check_config = True
+    configs = leer_configs_generales()
+    nombres_variables = configs["nombres_variables_trx"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+
+    ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+    trx = pd.read_csv(ruta, nrows=2)
+
+    for i in nombres_variables:
+        if (nombres_variables[i] not in trx.columns) & (nombres_variables[i] != None):
+            print(
+                f'ERROR - la variable {nombres_variables[i]} definida en config.yaml no se encuentra en la tabla de transacciones')
+    return check_config
+
+
 def duracion(f):
     @wraps(f)
     def wrap(*args, **kw):
