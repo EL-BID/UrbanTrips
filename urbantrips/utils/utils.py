@@ -24,6 +24,18 @@ __all__ = [
 
 
 def check_config():
+    """
+    Esta funcion toma un archivo de configuracion en formato yaml y lee su contenido.
+    Luego, chequea si hay alguna inconsistencia en el archivo, imprimiendo un mensaje de error
+    si alguna es encontrada.
+
+    Args:
+    None
+
+    Returns:
+    None
+
+    """
     check_config = True
     configs = leer_configs_generales()
     nombres_variables = configs["nombres_variables_trx"]
@@ -325,10 +337,14 @@ def leer_configs_generales():
     Esta funcion lee los configs generales
     """
     path = os.path.join("configs", "configuraciones_generales.yaml")
-    with open(path, encoding="utf8") as file:
 
-        configs = yaml.load(file, Loader=yaml.FullLoader)
-    return configs
+    try:
+        with open(path, 'r', encoding="utf8") as file:
+            config = yaml.safe_load(file)
+    except yaml.YAMLError as error:
+        print(f'Error al leer el archivo de configuracion: {error}')
+
+    return config
 
 
 def crear_tablas_geolocalizacion():
