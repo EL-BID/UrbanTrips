@@ -180,6 +180,13 @@ zonificaciones:
 |`empresa`|str|Opcional. Nombre de la empresa.|
 |`descripcion`|str|Opcional. Descripción adicional de la linea o ramal.|
 
+### Recorridos lineas
+| Campo | Tipo de dato | Descripción |
+| -- | -- | -- |
+|`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
+|`nombre_linea`|str|**Obligatorio**. Nombre de la línea.|
+| `geometry`|2DLineString|Polilinea del recorrido. No puede ser multilinea|
+
 
 ## Estructura de directorios
 Al clonar `urbantrips` y correrlo, dejará la siguiente estructura de directorios:
