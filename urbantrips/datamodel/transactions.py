@@ -326,20 +326,23 @@ def eliminar_trx_fuera_bbox(trx):
     print("Eliminando trx con mal lat long")
 
     configs = leer_configs_generales()
-    configs = configs["filtro_latlong_bbox"]
-    print(configs)
+    try:
+        configs = configs["filtro_latlong_bbox"]
+        print(configs)
 
-    filtro = (
-        (trx.longitud > configs["minx"])
-        & (trx.latitud > configs["miny"])
-        & (trx.longitud < configs["maxx"])
-        & (trx.latitud < configs["maxy"])
-    )
+        filtro = (
+            (trx.longitud > configs["minx"])
+            & (trx.latitud > configs["miny"])
+            & (trx.longitud < configs["maxx"])
+            & (trx.latitud < configs["maxy"])
+        )
 
-    pre = len(trx)
-    trx = trx.loc[filtro, :]
-    post = len(trx)
-    print(pre - post, "casos elminados por latlong fuera del bbox")
+        pre = len(trx)
+        trx = trx.loc[filtro, :]
+        post = len(trx)
+        print(pre - post, "casos elminados por latlong fuera del bbox")
+    except KeyError:
+        print("No se especificó una ventana para la bbox")
     return trx
 
 
