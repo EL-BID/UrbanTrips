@@ -36,9 +36,7 @@ def check_config():
     None
 
     """
-    check_config = True
     configs = leer_configs_generales()
-    nombres_variables = configs["nombres_variables_trx"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
     ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
@@ -55,8 +53,11 @@ def check_config():
                 f'Error: El archivo de configuracion no especifica el parámetro {param}')
 
     # Chequear que los parametros tengan valor correcto
-    if not isinstance(configs['geolocalizar_trx'], bool):
-        raise TypeError("El parámetro geolocalizar_trx debe ser True o False")
+    assert isinstance(configs['geolocalizar_trx'],
+                      bool), "El parámetro geolocalizar_trx debe ser True o False"
+
+    assert isinstance(configs['columna_hora'],
+                      bool), "El parámetro columna_hora debe ser True o False"
 
     assert isinstance(configs['resolucion_h3'], int) and configs['resolucion_h3'] >= 0 and configs[
         'resolucion_h3'] <= 15, "El parámetro resolucion_h3 debe ser un entero entre 0 y 16"
@@ -90,13 +91,65 @@ def check_config():
     assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
         ','.join(atributos_trx_obligatorios[~attr_obligatorios_en_csv])
 
-    # chequear consistencias por ejemplo entre   'ordenamiento_transacciones': 'orden_trx', 'ventana_viajes': None,'ventana_duplicado': None
+    # chequear consistencias entre parametros
 
-    # chequear validez de fecha
+    if 'nombre_archivo_informacion_lineas' in configs:
+        if configs['nombre_archivo_informacion_lineas'] is not None:
+            assert configs['informacion_lineas_contiene_ramales'] is not None, "Si se especifica nombre_archivo_informacion_lineas debe especificarse informacion_lineas_contiene_ramales"
+            assert isinstance(configs['informacion_lineas_contiene_ramales'],
+                              bool), 'informacion_lineas_contiene_ramales debe ser True o False'
+
+    if configs['ordenamiento_transacciones'] == 'fecha_completa':
+        assert isinstance(configs['ventana_viajes'], int) and configs['ventana_viajes'] >= 1 and configs[
+            'ventana_viajes'] <= 1000, "El parámetro ventana_duplicado debe ser un entero mayor a 0"
+        assert isinstance(configs['ventana_duplicado'], int) and configs['ventana_duplicado'] >= 1 and configs[
+            'ventana_viajes'] <= 100, "El parámetro ventana_duplicado debe ser un entero mayor a 0"
+
+    # chequeo consistencia de geolocalizacion
+    if configs['geolocalizar_trx']:
+        mensaje = "Si geolocalizar_trx = True entonces se debe especificar un archivo con informacion gps"
+        assert 'nombre_archivo_gps' in configs, mensaje
+        assert configs['nombre_archivo_gps'] is not None, mensaje
+
+        assert 'nombres_variables_gps' in configs, mensaje
+        nombres_variables_gps = configs['nombres_variables_gps']
+
+        assert isinstance(nombres_variables_gps,
+                          dict), "El parámetro nombres_variables_gps debe especificarse como un diccionario"
+
+        ruta = os.path.join("data", "data_ciudad",
+                            configs['nombre_archivo_gps'])
+        gps = pd.read_csv(ruta, nrows=2)
+
+        nombres_variables_gps = pd.DataFrame(
+            {'trx_name': nombres_variables_gps.keys(), 'csv_name': nombres_variables_gps.values()})
+
+        nombres_variables_gps_s = nombres_variables_gps.csv_name.dropna()
+        nombres_var_config_en_gps = nombres_variables_gps_s.isin(gps.columns)
+
+        if not nombres_var_config_en_gps.all():
+            raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
+                           nombres_variables_gps_s[~nombres_var_config_en_gps])
+
+        # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
+        atributos_gps_obligatorios = pd.Series(
+            ['id_linea_gps',
+             'id_ramal_gps',
+             'interno_gps',
+             'fecha_gps',
+             'latitud_gps',
+             'longitud_gps'])
+        attr_obligatorios_en_csv = atributos_gps_obligatorios.isin(
+            nombres_variables_gps.trx_name)
+
+        assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
+            ','.join(atributos_gps_obligatorios[~attr_obligatorios_en_csv])
+
+        # chequear validez de fecha
 
 
 def duracion(f):
-    @wraps(f)
+    @ wraps(f)
     def wrap(*args, **kw):
         print(f"{f.__name__} [{args}, {kw}] ", end="", flush=True)
         print(f"{f.__name__} ", end="", flush=True)
@@ -176,7 +229,7 @@ def iniciar_conexion_db(tipo='data'):
     return conn
 
 
-@duracion
+@ duracion
 def crear_base():
     # Crear conexion con bases de data e insumos
     conn_data = iniciar_conexion_db(tipo='data')
