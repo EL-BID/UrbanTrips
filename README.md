@@ -155,7 +155,7 @@ zonificaciones:
 | `orden_trx` | int | Opcional a menos que `fecha_trx` no tenga información de la hora y minutos. Entero comenzando en 0 que esatblezca el orden de transacciones para una misma tarjeta en un mismo día. |
 | `latitud_trx` | float | **Obligatorio**. Latitud de la transacción. |
 | `longitud_trx` | float | **Obligatorio**. Longitud de la transacción. |
-| `factor_expansion` | float | **Obligatorio**. Factor de expansión en caso de tratarse de una muestra. |
+| `factor_expansion` | float | Opcional. Factor de expansión en caso de tratarse de una muestra. |
 
 ### GPS
 | Campo | Tipo de dato | Descripción |
