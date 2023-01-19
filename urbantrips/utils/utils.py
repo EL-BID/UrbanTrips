@@ -23,6 +23,23 @@ __all__ = [
 ]
 
 
+def check_config_fecha(df, columns_with_date, date_format):
+    """
+    Esta funcion toma un dataframe, una columna donde se guardan fechas,
+    un formato de fecha, intenta parsear las fechas y arroja un error
+    si mas del 80% de las fechas no pueden parsearse
+    """
+
+    fechas = pd.to_datetime(
+        df[columns_with_date], format=date_format, errors="coerce"
+    )
+
+    # Chequear si el formato funciona
+    checkeo = fechas.isna().sum() / len(df)
+    assert checkeo < 0.8, f"Corrija el formato de fecha en config. Actualmente se pierden {round((checkeo * 100),2)}"
+    + "por ciento de registros"
+
+
 def check_config():
     """
     Esta funcion toma un archivo de configuracion en formato yaml y lee su contenido.
@@ -40,7 +57,13 @@ def check_config():
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
     ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-    trx = pd.read_csv(ruta, nrows=2)
+    trx = pd.read_csv(ruta, nrows=1000)
+
+    # chequear validez de fecha
+    columns_with_date = configs['nombres_variables_trx']['fecha_trx']
+    date_format = configs['formato_fecha']
+    check_config_fecha(
+        df=trx, columns_with_date=columns_with_date, date_format=date_format)
 
     # chequear que esten los atributos obligatorios
     configs_obligatorios = ['geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
@@ -119,7 +142,7 @@ def check_config():
 
         ruta = os.path.join("data", "data_ciudad",
                             configs['nombre_archivo_gps'])
-        gps = pd.read_csv(ruta, nrows=2)
+        gps = pd.read_csv(ruta, nrows=1000)
 
         nombres_variables_gps = pd.DataFrame(
             {'trx_name': nombres_variables_gps.keys(), 'csv_name': nombres_variables_gps.values()})
@@ -146,12 +169,15 @@ def check_config():
             ','.join(atributos_gps_obligatorios[~attr_obligatorios_en_csv])
 
         # chequear validez de fecha
+        columns_with_date = configs['nombres_variables_gps']['fecha_gps']
+        check_config_fecha(
+            df=gps, columns_with_date=columns_with_date, date_format=date_format)
 
 
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
-        print(f"{f.__name__} [{args}, {kw}] ", end="", flush=True)
+        # print(f"{f.__name__} [{args}, {kw}] ", end="", flush=True)
         print(f"{f.__name__} ", end="", flush=True)
         ts = time.time()
         result = f(*args, **kw)
