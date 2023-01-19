@@ -9,6 +9,8 @@ from urbantrips.utils import utils
 
 
 def main():
+    # Check config file consistency
+    utils.check_config()
 
     # Read config file
     configs = utils.leer_configs_generales()
