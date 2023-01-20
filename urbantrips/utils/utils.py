@@ -346,23 +346,7 @@ def crear_tablas_geolocalizacion():
             """
     )
 
-    conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS gps
-                (
-                id INT PRIMARY KEY NOT NULL,
-                id_original int,
-                dia text,
-                id_linea int,
-                id_ramal int,
-                interno int,
-                fecha datetime,
-                latitud FLOAT,
-                longitud FLOAT
-                )
-            ;
-            """
-    )
+    crear_tabla_gps(conn_data)
 
     conn_data.execute(
         """
@@ -380,6 +364,27 @@ def crear_tablas_geolocalizacion():
         """
     )
     conn_data.close()
+
+
+def crear_tabla_gps(conn_data):
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS gps
+                (
+                id INT PRIMARY KEY NOT NULL,
+                id_original int,
+                dia text,
+                id_linea int,
+                id_ramal int,
+                interno int,
+                fecha datetime,
+                latitud FLOAT,
+                longitud FLOAT
+                )
+            ;
+            """
+    )
 
 
 def agrego_indicador(df_indicador,
