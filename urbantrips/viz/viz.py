@@ -21,6 +21,7 @@ from pathlib import Path
 from matplotlib import colors as mcolors
 from matplotlib.text import Text
 from mycolorpy import colorlist as mcp
+from requests.exceptions import ConnectionError as r_ConnectionError
 
 from geo.geo import (
     normalizo_lat_lon, crear_linestring)
@@ -344,11 +345,12 @@ def viz_etapas_x_tramo_recorrido(tabla, recorridos, rango_hrs,
     try:
         cx.add_basemap(ax1, crs=gdf_ida.crs.to_string(), source=prov)
         cx.add_basemap(ax2, crs=gdf_vuelta.crs.to_string(), source=prov)
-    except UnidentifiedImageError:
+    except (UnidentifiedImageError):
         prov = cx.providers.CartoDB.Positron
         cx.add_basemap(ax1, crs=gdf_ida.crs.to_string(), source=prov)
         cx.add_basemap(ax2, crs=gdf_vuelta.crs.to_string(), source=prov)
-
+    except (r_ConnectionError):
+        pass
     for frm in ['png', 'pdf']:
         archivo = f'segmentos_id_linea_{id_linea}_{indicador}{rango_str}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)

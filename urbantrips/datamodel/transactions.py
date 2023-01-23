@@ -44,17 +44,12 @@ def create_transactions():
 
     print("Leyendo archivo de transacciones")
     if geolocalizar_trx_config:
-        nombre_archivo_gps = configs["nombre_archivo_gps"]
-
-        nombres_variables_gps = configs["nombres_variables_gps"]
 
         print("desde transacciones geolocalizadas")
         # Cargar las transacciones geolocalizadas
         trx, tmp_trx_inicial = geolocalizar_trx(
             nombre_archivo_trx_eco,
-            nombre_archivo_gps,
             nombres_variables_trx,
-            nombres_variables_gps,
             id_tarjeta_trx,
             formato_fecha,
             conn,
@@ -393,9 +388,7 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
 @duracion
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
-    nombre_archivo_gps,
     nombres_variables_trx,
-    nombres_variables_gps,
     id_tarjeta_trx,
     formato_fecha,
     conn,
@@ -412,11 +405,9 @@ def geolocalizar_trx(
     crear_tablas_geolocalizacion()
     print("Fin crear tablas de trx_eco y gps para geolocalizacion")
 
-    # Leer archivos de trx_eco y gps
+    # Leer archivos de trx_eco
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
-    ruta_gps = os.path.join("data", "data_ciudad", nombre_archivo_gps)
-    gps = pd.read_csv(ruta_gps)
 
     # Formatear archivos trx
     trx_eco = renombrar_columnas_tablas(
@@ -470,53 +461,12 @@ def geolocalizar_trx(
             'factor_expansion']
     trx_eco = trx_eco.reindex(columns=cols)
 
-    # Formatear archivos gps
-    gps = renombrar_columnas_tablas(
-        gps,
-        nombres_variables_gps,
-        postfijo="_gps",
-    )
-
-    # parsear fechas
-    print("Parseando fechas gps")
-    gps = eliminar_trx_fuera_bbox(gps)
-
-    # Parsear fechas y crear atributo dia
-    # col_hora false para no crear tiempo y hora
-    gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
-
-    subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
-    gps = eliminar_NAs_variables_fundamentales(gps, subset)
-
-    # COnvertir fecha en segundos desde 1970
-    gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
-    gps = gps.drop_duplicates(subset=['dia', 'id_linea', 'id_ramal', 'interno',
-                                      'fecha', 'latitud', 'longitud'])
-
-    # crear un id original del gps
-    gps["id_original"] = gps["id"].copy()
-
-    # crear un id interno de la transaccion
-    n_rows_gps = len(gps)
-    gps["id"] = crear_id_interno(
-        conn, n_rows=n_rows_gps, tipo_tabla='gps')
-
-    cols = ['id',
-            'id_original',
-            'dia',
-            'id_linea',
-            'id_ramal',
-            'interno',
-            'fecha',
-            'latitud',
-            'longitud']
-    gps = gps.reindex(columns=cols)
-
-    # subir datos a tablas temporales
     print("Subiendo datos a tablas temporales")
-    gps.to_sql("gps", conn, if_exists="append", index=False)
     trx_eco.to_sql("trx_eco", conn, if_exists="append", index=False)
     print("Fin subida datos")
+
+    # procesar y subir tabla gps
+    process_and_upload_gps_table()
 
     # hacer el join por fecha
     print("Geolocalizando datos")
@@ -556,3 +506,67 @@ def geolocalizar_trx(
 
     conn.execute("""DROP TABLE IF EXISTS trx_eco;""")
     return trx, tmp_trx_inicial
+
+
+def process_and_upload_gps_table():
+    """
+    Esta función lee el archivo csv de información de gps
+    lo procesa y sube a la base de datos
+    """
+    print("Procesando tabla gps")
+    conn = iniciar_conexion_db(tipo='data')
+    configs = leer_configs_generales()
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+    formato_fecha = configs["formato_fecha"]
+
+    # crear tabla gps en la db
+    crear_tablas_geolocalizacion(conn)
+
+    ruta_gps = os.path.join("data", "data_ciudad", nombre_archivo_gps)
+    gps = pd.read_csv(ruta_gps)
+
+    # Formatear archivos gps
+    gps = renombrar_columnas_tablas(
+        gps,
+        nombres_variables_gps,
+        postfijo="_gps",
+    )
+
+    # parsear fechas
+    gps = eliminar_trx_fuera_bbox(gps)
+
+    # Parsear fechas y crear atributo dia
+    # col_hora false para no crear tiempo y hora
+    gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
+
+    subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
+    gps = eliminar_NAs_variables_fundamentales(gps, subset)
+
+    # COnvertir fecha en segundos desde 1970
+    gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
+    gps = gps.drop_duplicates(subset=['dia', 'id_linea', 'id_ramal', 'interno',
+                                      'fecha', 'latitud', 'longitud'])
+
+    # crear un id original del gps
+    gps["id_original"] = gps["id"].copy()
+
+    # crear un id interno de la transaccion
+    n_rows_gps = len(gps)
+    gps["id"] = crear_id_interno(
+        conn, n_rows=n_rows_gps, tipo_tabla='gps')
+
+    cols = ['id',
+            'id_original',
+            'dia',
+            'id_linea',
+            'id_ramal',
+            'interno',
+            'fecha',
+            'latitud',
+            'longitud']
+    gps = gps.reindex(columns=cols)
+
+    # subir datos a tablas temporales
+    print("Subiendo tabla gps")
+    gps.to_sql("gps", conn, if_exists="append", index=False)
