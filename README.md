@@ -5,7 +5,7 @@
 
 Para una discusión metodológica de como se imputan destinos y se construye la matriz de origen y destino se puede consultar este documento:
 
-![alt text](https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf "Documento metodológico")
+![Documento Metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf "Documento metodológico")
 
 Con `urbantrips` se pueden procesar en una corrida información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. `lunes.csv`, `martes.csv` o `semana1.csv`, `semana2.csv` pero no `lunes_a.csv`, `lunes_b.csv`). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.
 
