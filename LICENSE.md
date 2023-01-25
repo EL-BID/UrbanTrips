@@ -1,5 +1,5 @@
 ## AM-331-A3 Licencia de Software
-Effective: April 2018
+Effective: Octubre 2022
 Contenido de la página
 
 El Software, con excepción de los Documentos de Soporte y Uso, deberá estar sujetos a los siguientes términos y condiciones, los cuales se empaquetarán como parte de cada Software bajo un archivo que llevará el nombre de "LICENCIA" :   
