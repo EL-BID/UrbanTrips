@@ -521,7 +521,7 @@ def process_and_upload_gps_table():
     formato_fecha = configs["formato_fecha"]
 
     # crear tabla gps en la db
-    crear_tablas_geolocalizacion(conn)
+    crear_tablas_geolocalizacion()
 
     ruta_gps = os.path.join("data", "data_ciudad", nombre_archivo_gps)
     gps = pd.read_csv(ruta_gps)
