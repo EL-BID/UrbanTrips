@@ -572,6 +572,7 @@ def check_config():
     None
 
     """
+    print("Chequeando archivo de configuracion")
     configs = leer_configs_generales()
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
@@ -621,7 +622,13 @@ def check_config():
 
     # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
     atributos_trx_obligatorios = pd.Series(
-        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx', 'interno_trx', 'latitud_trx', 'longitud_trx'])
+        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx', 'interno_trx'])
+
+    if not configs['geolocalizar_trx']:
+        trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
+        atributos_trx_obligatorios = atributos_trx_obligatorios.append(
+            trx_coords)
+
     attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
         nombres_variables_trx.dropna().trx_name)
 
@@ -646,10 +653,12 @@ def check_config():
                               bool), '`informacion_lineas_contiene_ramales` debe ser True o False'
 
     if configs['ordenamiento_transacciones'] == 'fecha_completa':
+
         assert isinstance(configs['ventana_viajes'], int) and configs['ventana_viajes'] >= 1 and configs[
             'ventana_viajes'] <= 1000, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_viajes' debe ser un entero mayor a 0"
-        assert isinstance(configs['ventana_duplicado'], int) and configs['ventana_duplicado'] >= 1 and configs[
-            'ventana_viajes'] <= 100, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_duplicado' debe ser un entero mayor a 0"
+
+        assert isinstance(configs['ventana_duplicado'],
+                          int) and configs['ventana_duplicado'] >= 1, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_duplicado' debe ser un entero mayor a 0"
 
     # chequeo consistencia de geolocalizacion
     if configs['geolocalizar_trx']:
