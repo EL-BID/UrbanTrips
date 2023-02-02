@@ -23,9 +23,9 @@ from matplotlib.text import Text
 from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
 
-from geo.geo import (
+from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
-from utils.utils import (
+from urbantrips.utils.utils import (
     leer_configs_generales,
     traigo_db_path,
     iniciar_conexion_db,
@@ -403,7 +403,7 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
     fig.savefig(file_path, dpi=300)
     voi = voi.to_crs(4326)
 
-    file_path = os.path.join("data", "data_ciudad", f"{alias}Zona_voi.geojson")
+    file_path = os.path.join("resultados", "pdf", f"{alias}Zona_voi.geojson")
     voi[['Zona_voi', 'geometry']].to_file(file_path)
 
 
