@@ -32,6 +32,17 @@ nombres_variables_trx:
     latitud_trx: lat 
     longitud_trx: lon
     factor_expansion:   
+
+nombre_archivo_gps: 
+
+nombres_variables_gps:
+    id_gps: 
+    id_linea_gps: 
+    id_ramal_gps: 
+    interno_gps: 
+    fecha_gps: 
+    latitud_gps: 
+    longitud_gps:  
     
 modos:
     autobus: COL
