@@ -244,9 +244,10 @@ def test_cambiar_id_tarjeta_trx_simul_delta(df_test_id_viaje):
 
 
 def create_test_trx():
-    filePath = utils.traigo_db_path(tipo='data')
-    if os.path.exists(filePath):
-        os.remove(filePath)
+    for tipo in ['data', 'insumos']:
+        filePath = utils.traigo_db_path(tipo=tipo)
+        if os.path.exists(filePath):
+            os.remove(filePath)
 
     print("Abriendo archivos de configuracion")
     configs = utils.leer_configs_generales()
@@ -432,17 +433,31 @@ def test_viz_lowes():
     assert os.path.isfile(file_path)
 
 
-def test_carto_voronoi_zones():
+def test_carto(matriz_validacion_test_amba):
 
     configs = create_test_trx()
+
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
 
     legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
     dest.infer_destinations()
 
     # Fix trips with same OD
@@ -459,3 +474,21 @@ def test_carto_voronoi_zones():
 
     zonas = pd.read_sql("select * from zonas", conn_insumos)
     assert len(zonas) > 0
+
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    conn_data.execute(
+        """delete from viajes where id_tarjeta <> '0037030208';"""
+    )
+    conn_data.execute(
+        """delete from etapas where id_tarjeta <> '0037030208';"""
+    )
+    conn_data.commit()
+    conn_data.close()
+
+    carto.create_distances_table(use_parallel=True)
+    distancias = pd.read_sql("select * from distancias;", conn_insumos)
+
+    assert len(distancias) > 0
+
+    viz.create_visualizations()
