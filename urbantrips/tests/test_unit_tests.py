@@ -1,3 +1,4 @@
+from urbantrips.kpi import kpi
 from urbantrips.datamodel import legs, misc, legs, trips
 from urbantrips.datamodel import transactions
 from numpy import dtype
@@ -492,3 +493,42 @@ def test_carto(matriz_validacion_test_amba):
     assert len(distancias) > 0
 
     viz.create_visualizations()
+
+
+def test_section_load_viz(matriz_validacion_test_amba):
+
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    carto.infer_routes_geoms(plotear_lineas=False)
+
+    kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
+    viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
