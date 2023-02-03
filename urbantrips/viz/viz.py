@@ -403,7 +403,7 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
     fig.savefig(file_path, dpi=300)
     voi = voi.to_crs(4326)
 
-    file_path = os.path.join("resultados", "pdf", f"{alias}Zona_voi.geojson")
+    file_path = os.path.join("resultados", f"{alias}Zona_voi.geojson")
     voi[['Zona_voi', 'geometry']].to_file(file_path)
 
 
