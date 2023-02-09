@@ -532,3 +532,70 @@ def test_section_load_viz(matriz_validacion_test_amba):
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
     viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
+
+
+def test_viz(matriz_validacion_test_amba):
+
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    carto.create_zones_table()
+
+    carto.create_voronoi_zones()
+
+    viajes = pd.read_sql("select * from viajes", conn_data)
+    viajes['distance_osm_drive'] = 0
+    viajes['h3_o_norm'] = viajes.h3_o
+    viajes['h3_d_norm'] = viajes.h3_d
+    viajes['factor_expansion'] = 1
+
+    viz.imprimir_matrices_od(viajes,
+                             savefile='viajes',
+                             title='Matriz OD',
+                             var_fex="")
+
+    viz.imprime_lineas_deseo(df=viajes,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='factor_expansion',
+                             title=f'Lineas de deseo',
+                             savefile='Lineas de deseo')
+    viz.imprime_burbujas(viajes,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='flare',
+                         var_fex='factor_expansion',
+                         porc_viajes=100,
+                         title=f'Hogares',
+                         savefile=f'_burb_hogares',
+                         show_fig=False)
