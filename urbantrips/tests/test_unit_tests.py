@@ -1,3 +1,5 @@
+from urbantrips.kpi import kpi
+from urbantrips.datamodel import legs, misc, legs, trips
 from urbantrips.datamodel import transactions
 from numpy import dtype
 import pandas as pd
@@ -11,6 +13,8 @@ from urbantrips.destinations import destinations as dest
 from urbantrips.datamodel import legs
 from urbantrips.geo import geo
 from urbantrips.utils import utils
+from urbantrips.carto import carto
+from urbantrips.viz import viz
 
 
 @pytest.fixture
@@ -240,25 +244,14 @@ def test_cambiar_id_tarjeta_trx_simul_delta(df_test_id_viaje):
             'id_tarjeta'] == ['2_0', '2_1', '2_0']).all()
 
 
-def test_amba_integration(matriz_validacion_test_amba):
-    filePath = utils.traigo_db_path(tipo='data')
-    if os.path.exists(filePath):
-        os.remove(filePath)
+def create_test_trx():
+    for tipo in ['data', 'insumos']:
+        filePath = utils.traigo_db_path(tipo=tipo)
+        if os.path.exists(filePath):
+            os.remove(filePath)
 
     print("Abriendo archivos de configuracion")
     configs = utils.leer_configs_generales()
-    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
-    resolucion_h3 = configs["resolucion_h3"]
-
-    criterio_orden_transacciones = {
-        "criterio": configs["ordenamiento_transacciones"],
-        "ventana_viajes": configs["ventana_viajes"],
-        "ventana_duplicado": configs["ventana_duplicado"],
-    }
-
-    # calcular tolerancia parada destino en base a res
-    ring_size = geo.get_h3_buffer_ring_size(
-        resolucion_h3, tolerancia_parada_destino)
 
     # crear_directorios:
     utils.crear_directorios()
@@ -266,10 +259,21 @@ def test_amba_integration(matriz_validacion_test_amba):
     # crear base de datos:
     utils.crear_base()
 
+    transactions.create_transactions()
+    return configs
+
+
+def test_amba_integration(matriz_validacion_test_amba):
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
-
-    transactions.create_transactions()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
 
@@ -324,14 +328,8 @@ def test_amba_integration(matriz_validacion_test_amba):
 
 
 def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
-    filePath = utils.traigo_db_path(tipo='data')
-    if os.path.exists(filePath):
-        os.remove(filePath)
 
-    print("Abriendo archivos de configuracion")
-    configs = utils.leer_configs_generales()
-    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
-    resolucion_h3 = configs["resolucion_h3"]
+    configs = create_test_trx()
 
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
@@ -339,20 +337,8 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
         "ventana_duplicado": configs["ventana_duplicado"],
     }
 
-    # calcular tolerancia parada destino en base a res
-    ring_size = geo.get_h3_buffer_ring_size(
-        resolucion_h3, tolerancia_parada_destino)
-
-    # crear_directorios:
-    utils.crear_directorios()
-
-    # crear base de datos:
-    utils.crear_base()
-
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
-
-    transactions.create_transactions()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
 
@@ -401,6 +387,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     etapas = pd.read_sql(q, conn_data)
 
     etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
+
     # casos para armar tests con nuevos destinos
     # tarjeta 3839538659. la vuelta en tren que termine en la estacion de tren
     assert (etapa.loc[(etapa.id_viaje == 2) & (etapa.id_etapa == 2), 'h3_d']
@@ -418,3 +405,197 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     etapa = etapas.loc[etapas.id_tarjeta == '1939538599', :]
     assert (etapa.loc[(etapa.id_viaje == 3) & (
         etapa.id_etapa == 2), 'h3_d'].isna().iloc[0])
+
+
+def test_viz_lowes():
+
+    configs = create_test_trx()
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+    q = "select * from etapas"
+    etapas = pd.read_sql(q, conn_data)
+
+    recorridos_lowess = etapas.groupby(
+        'id_linea').apply(carto.lowess_linea).reset_index()
+
+    assert recorridos_lowess.geometry.type.unique()[0] == 'LineString'
+    alias = ''
+    id_linea = 16
+    viz.plotear_recorrido_lowess(
+        id_linea=id_linea, etapas=etapas, recorridos_lowess=recorridos_lowess, alias=alias)
+    file_path = os.path.join(
+        "resultados", "png", f"{alias}linea_{id_linea}.png")
+    assert os.path.isfile(file_path)
+
+
+def test_carto(matriz_validacion_test_amba):
+
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    # Create TAZs
+    carto.create_zones_table()
+
+    # Create voronoi TAZs
+    carto.create_voronoi_zones()
+
+    zonas = pd.read_sql("select * from zonas", conn_insumos)
+    assert len(zonas) > 0
+
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    conn_data.execute(
+        """delete from viajes where id_tarjeta <> '0037030208';"""
+    )
+    conn_data.execute(
+        """delete from etapas where id_tarjeta <> '0037030208';"""
+    )
+    conn_data.commit()
+    conn_data.close()
+
+    carto.create_distances_table(use_parallel=True)
+    distancias = pd.read_sql("select * from distancias;", conn_insumos)
+
+    assert len(distancias) > 0
+
+    viz.create_visualizations()
+
+
+def test_section_load_viz(matriz_validacion_test_amba):
+
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    carto.infer_routes_geoms(plotear_lineas=False)
+
+    kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
+    viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
+
+
+def test_viz(matriz_validacion_test_amba):
+
+    configs = create_test_trx()
+
+    criterio_orden_transacciones = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    carto.create_zones_table()
+
+    carto.create_voronoi_zones()
+
+    viajes = pd.read_sql("select * from viajes", conn_data)
+    viajes['distance_osm_drive'] = 0
+    viajes['h3_o_norm'] = viajes.h3_o
+    viajes['h3_d_norm'] = viajes.h3_d
+    viajes['factor_expansion'] = 1
+
+    viz.imprimir_matrices_od(viajes,
+                             savefile='viajes',
+                             title='Matriz OD',
+                             var_fex="")
+
+    viz.imprime_lineas_deseo(df=viajes,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='factor_expansion',
+                             title=f'Lineas de deseo',
+                             savefile='Lineas de deseo')
+    viz.imprime_burbujas(viajes,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='flare',
+                         var_fex='factor_expansion',
+                         porc_viajes=100,
+                         title=f'Hogares',
+                         savefile=f'_burb_hogares',
+                         show_fig=False)

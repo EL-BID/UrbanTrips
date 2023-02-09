@@ -23,9 +23,9 @@ from matplotlib.text import Text
 from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
 
-from geo.geo import (
+from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
-from utils.utils import (
+from urbantrips.utils.utils import (
     leer_configs_generales,
     traigo_db_path,
     iniciar_conexion_db,
@@ -403,7 +403,7 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
     fig.savefig(file_path, dpi=300)
     voi = voi.to_crs(4326)
 
-    file_path = os.path.join("data", "data_ciudad", f"{alias}Zona_voi.geojson")
+    file_path = os.path.join("resultados", f"{alias}Zona_voi.geojson")
     voi[['Zona_voi', 'geometry']].to_file(file_path)
 
 
@@ -1129,22 +1129,23 @@ def traigo_zonificacion(viajes,
         vars_zona += [f'h3_r6']
         vars_zona += [f'h3_r7']
 
-    for n in range(0, 5):
-
-        try:
-            file_zona = configs["zonificaciones"][f"geo{n+1}"]
-            var_zona = configs["zonificaciones"][f"var{n+1}"]
+    if configs["zonificaciones"]:
+        for n in range(0, 5):
 
             try:
-                matriz_order = configs["zonificaciones"][f"orden{n+1}"]
-            except KeyError:
-                matriz_order = ""
+                file_zona = configs["zonificaciones"][f"geo{n+1}"]
+                var_zona = configs["zonificaciones"][f"var{n+1}"]
 
-            if var_zona in zonas.columns:
-                matriz_zonas += [[file_zona, var_zona, matriz_order]]
-                vars_zona += [var_zona]
-        except KeyError:
-            pass
+                try:
+                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
+                except KeyError:
+                    matriz_order = ""
+
+                if var_zona in zonas.columns:
+                    matriz_zonas += [[file_zona, var_zona, matriz_order]]
+                    vars_zona += [var_zona]
+            except KeyError:
+                pass
 
     vars_o = [h3_o] + [f'{x}_o' for x in vars_zona]
     vars_d = [h3_d] + [f'{x}_d' for x in vars_zona]
