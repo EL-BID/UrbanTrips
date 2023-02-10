@@ -492,8 +492,6 @@ def test_carto(matriz_validacion_test_amba):
 
     assert len(distancias) > 0
 
-    viz.create_visualizations()
-
 
 def test_section_load_viz(matriz_validacion_test_amba):
 
@@ -572,30 +570,61 @@ def test_viz(matriz_validacion_test_amba):
 
     carto.create_voronoi_zones()
 
+    viz.create_visualizations()
+
     viajes = pd.read_sql("select * from viajes", conn_data)
     viajes['distance_osm_drive'] = 0
     viajes['h3_o_norm'] = viajes.h3_o
     viajes['h3_d_norm'] = viajes.h3_d
     viajes['factor_expansion'] = 1
 
-    viz.imprimir_matrices_od(viajes,
-                             savefile='viajes',
-                             title='Matriz OD',
-                             var_fex="")
-
-    viz.imprime_lineas_deseo(df=viajes,
-                             h3_o='',
-                             h3_d='',
-                             var_fex='factor_expansion',
-                             title=f'Lineas de deseo',
-                             savefile='Lineas de deseo')
     viz.imprime_burbujas(viajes,
                          res=7,
                          h3_o='h3_o',
                          alpha=.4,
                          cmap='flare',
-                         var_fex='factor_expansion',
+                         var_fex='',
                          porc_viajes=100,
                          title=f'Hogares',
-                         savefile=f'_burb_hogares',
-                         show_fig=False)
+                         savefile=f'testing_burb_hogares',
+                         show_fig=True,
+                         k_jenks=1)
+
+    viz.imprime_lineas_deseo(df=viajes,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='',
+                             title=f'Lineas de deseo',
+                             savefile='Lineas de deseo',
+                             k_jenks=1)
+
+    print('ACAAAAAA')
+
+    viz.imprimir_matrices_od(viajes,
+                             savefile='viajes',
+                             title='Matriz OD',
+                             var_fex="")
+
+    print(viajes)
+    zonas = pd.read_sql("select * from zonas;", conn_insumos)
+    df, matriz_zonas = viz.traigo_zonificacion(
+        viajes, zonas, h3_o='h3_o', h3_d='h3_d')
+
+    for i in matriz_zonas:
+        var_zona = i[1]
+        matriz_order = i[2]
+
+        viz.imprime_od(
+            df,
+            zona_origen=f"{var_zona}_o",
+            zona_destino=f"{var_zona}_d",
+            var_fex='',
+            x_rotation=90,
+            normalize=True,
+            cmap="Reds",
+            title='Matriz OD General',
+            figsize_tuple='',
+            matriz_order=matriz_order,
+            savefile=f"{var_zona}",
+            margins=True,
+        )
