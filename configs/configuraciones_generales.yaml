@@ -13,8 +13,8 @@ alias_db_data: amba_test
 
 alias_db_insumos: amba_test
 
-nombre_archivo_informacion_lineas:
-informacion_lineas_contiene_ramales: False
+nombre_archivo_informacion_lineas: lineas_amba_test.csv
+informacion_lineas_contiene_ramales: True
 
 imputar_destinos_min_distancia: False
 
@@ -51,7 +51,7 @@ modos:
     tranvia:
     brt:
      
-recorridos_geojson:
+recorridos_geojson: recorridos_amba.geojson
 
 
 # Filtro de coordenadas en formato minx, miny, maxx, maxy 
