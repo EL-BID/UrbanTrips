@@ -507,7 +507,8 @@ def create_visualizations():
                          porc_viajes=100,
                          title=f'Destinos de los viajes {desc_dia}',
                          savefile=f'{desc_dia_file}_burb_destinos',
-                         show_fig=False)
+                         show_fig=False,
+                         k_jenks=5)
 
         viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
         imprime_burbujas(viajes_n,
@@ -519,7 +520,8 @@ def create_visualizations():
                          porc_viajes=100,
                          title=f'Hogares {desc_dia}',
                          savefile=f'{desc_dia_file}_burb_hogares',
-                         show_fig=False)
+                         show_fig=False,
+                         k_jenks=5)
 
 
 def imprimir_matrices_od(viajes,
@@ -674,6 +676,7 @@ def imprime_lineas_deseo(df,
                          var_fex='',
                          title='Líneas de deseo',
                          savefile='lineas_deseo',
+                         k_jenks=5
                          ):
     """
     Esta funcion toma un df de viajes con destino validado
@@ -737,7 +740,8 @@ def imprime_lineas_deseo(df,
                      porc_viajes=100,
                      title=title,
                      savefile=f"{alias}{savefile}_{var_zona}",
-                     show_fig=False
+                     show_fig=False,
+                     k_jenks=k_jenks
                      )
 
         lineas_deseo(df[(df.cant_etapas > 1)],
@@ -751,7 +755,8 @@ def imprime_lineas_deseo(df,
                      porc_viajes=90,
                      title=f'{title}\nViajes con transferencias',
                      savefile=f"{alias}{savefile}_{var_zona}_transferencias",
-                     show_fig=False
+                     show_fig=False,
+                     k_jenks=k_jenks
                      )
 
         lineas_deseo(df[(df.distance_osm_drive <= 5)],
@@ -765,7 +770,8 @@ def imprime_lineas_deseo(df,
                      porc_viajes=90,
                      title=f'{title}\nViajes de corta distancia (<5kms)',
                      savefile=f"{alias}{savefile}_{var_zona}_corta_distancia",
-                     show_fig=False
+                     show_fig=False,
+                     k_jenks=k_jenks
                      )
 
         # Imprime hora punta manana, mediodia, tarde
@@ -809,7 +815,8 @@ def imprime_lineas_deseo(df,
                 title=f'{title}\nViajes en hora punta mañana',
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
                 show_fig=False,
-                normalizo_latlon=False)
+                normalizo_latlon=False,
+                k_jenks=k_jenks)
 
         if mediodia != np.nan:
             lineas_deseo(df[
@@ -826,7 +833,8 @@ def imprime_lineas_deseo(df,
                 title=f'{title}\nViajes en hora punta mediodia',
                 savefile=f"{alias}{savefile}_{var_zona}_punta_mediodia",
                 show_fig=False,
-                normalizo_latlon=False)
+                normalizo_latlon=False,
+                k_jenks=k_jenks)
 
         if tarde != np.nan:
             lineas_deseo(df[
@@ -843,7 +851,8 @@ def imprime_lineas_deseo(df,
                 title=f'{title}\nViajes en hora punta tarde',
                 savefile=f"{alias}{savefile}_{var_zona}_punta_tarde",
                 show_fig=False,
-                normalizo_latlon=False)
+                normalizo_latlon=False,
+                k_jenks=k_jenks)
 
 
 def imprime_graficos_hora(viajes,
@@ -995,7 +1004,8 @@ def imprime_burbujas(df,
                      porc_viajes=90,
                      title='burbujas',
                      savefile='burbujas',
-                     show_fig=False):
+                     show_fig=False,
+                     k_jenks=5):
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
@@ -1051,7 +1061,7 @@ def imprime_burbujas(df,
                                      markersize=df_agg[var_fex] / multip,
                                      column=var_fex,
                                      scheme='FisherJenks',
-                                     k=5,
+                                     k=k_jenks,
                                      legend=True,
                                      legend_kwds={
                                          'loc': 'upper right',
@@ -1458,7 +1468,8 @@ def lineas_deseo(df,
                  title='Líneas de deseo',
                  savefile='lineas_deseo',
                  show_fig=True,
-                 normalizo_latlon=True):
+                 normalizo_latlon=True,
+                 k_jenks=5):
 
     hexs = zonas.groupby(
         var_zona, as_index=False).size().drop(['size'], axis=1)
@@ -1557,7 +1568,7 @@ def lineas_deseo(df,
                                          lw=df_agg[var_fex]/multip,
                                          column=var_fex,
                                          scheme='FisherJenks',
-                                         k=5,
+                                         k=k_jenks,
                                          legend=True,
                                          legend_kwds={
                                              'loc': 'upper right',
@@ -1604,7 +1615,8 @@ def lineas_deseo(df,
                     crear_mapa_folium(df_agg,
                                       cmap,
                                       var_fex,
-                                      savefile=f"{savefile}.html")
+                                      savefile=f"{savefile}.html",
+                                      k_jenks=k_jenks)
 
                 if show_fig:
                     display(fig)
@@ -1671,10 +1683,11 @@ def crea_df_burbujas(df,
 def crear_mapa_folium(df_agg,
                       cmap,
                       var_fex,
-                      savefile):
+                      savefile,
+                      k_jenks=5):
 
     bins = [df_agg[var_fex].min()-1] + \
-        mapclassify.FisherJenks(df_agg[var_fex], k=5).bins.tolist()
+        mapclassify.FisherJenks(df_agg[var_fex], k=k_jenks).bins.tolist()
     range_bins = range(0, len(bins)-1)
     bins_labels = [
         f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
@@ -1692,7 +1705,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=5)
+    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:
