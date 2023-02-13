@@ -50,8 +50,10 @@ def create_transactions():
         trx, tmp_trx_inicial = geolocalizar_trx(
             nombre_archivo_trx_eco,
             nombres_variables_trx,
+            tipo_trx_invalidas,
             id_tarjeta_trx,
             formato_fecha,
+
             conn,
         )
 
@@ -389,6 +391,7 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,
+    tipo_trx_invalidas,
     id_tarjeta_trx,
     formato_fecha,
     conn,
@@ -409,6 +412,11 @@ def geolocalizar_trx(
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
 
+    print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
+    # Filtrar transacciones invalidas
+    if tipo_trx_invalidas is not None:
+        trx = filtrar_transacciones_invalidas(trx, tipo_trx_invalidas)
+
     # Formatear archivos trx
     trx_eco = renombrar_columnas_tablas(
         trx_eco,
@@ -420,17 +428,19 @@ def geolocalizar_trx(
     # Parsear fechas. Crear hora, si tiene gps tiene hora completa
     trx_eco = convertir_fechas(trx_eco, formato_fecha, crear_hora=True)
 
+    # Crear un id interno
     n_rows_trx = len(trx_eco)
     trx_eco["id"] = crear_id_interno(
         conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
+    # Agregar factor de expansion
     trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco)
 
     # Eliminar datos con faltantes en variables fundamentales
     subset = ["id_tarjeta", "fecha", "id_linea"]
     trx_eco = eliminar_NAs_variables_fundamentales(trx_eco, subset)
 
-    # Convertir id tarjet en int si son float y tienen .0
+    # Convertir id tarjeta en int si son float y tienen .0
     if trx_eco.id_tarjeta.dtype == 'float':
         trx_eco.id_tarjeta = pd.to_numeric(
             trx_eco.id_tarjeta, downcast='integer')
@@ -444,7 +454,7 @@ def geolocalizar_trx(
     trx_eco["fecha"] = trx_eco["fecha"].map(lambda s: s.timestamp())
     trx_eco = trx_eco.dropna(subset=["id_linea", "id_ramal", "interno"])
 
-    # TODO: Eliminar trx unica en el dia
+    # Eliminar trx unica en el dia
     trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
 
     cols = ['id',
@@ -543,7 +553,7 @@ def process_and_upload_gps_table():
     subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
     gps = eliminar_NAs_variables_fundamentales(gps, subset)
 
-    # COnvertir fecha en segundos desde 1970
+    # Convertir fecha en segundos desde 1970
     gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
     gps = gps.drop_duplicates(subset=['dia', 'id_linea', 'id_ramal', 'interno',
                                       'fecha', 'latitud', 'longitud'])
