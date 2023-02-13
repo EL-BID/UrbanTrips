@@ -274,6 +274,7 @@ def test_amba_integration(matriz_validacion_test_amba):
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+
     misc.create_line_and_branches_metadata()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
@@ -498,7 +499,6 @@ def test_carto(matriz_validacion_test_amba):
 
     assert len(distancias) > 0
 
-
 def test_section_load_viz(matriz_validacion_test_amba):
 
     configs = create_test_trx()
@@ -585,6 +585,7 @@ def test_viz(matriz_validacion_test_amba):
     viajes['h3_d_norm'] = viajes.h3_d
     viajes['factor_expansion'] = 1
 
+
     viz.imprime_burbujas(viajes,
                          res=7,
                          h3_o='h3_o',
@@ -632,3 +633,4 @@ def test_viz(matriz_validacion_test_amba):
             savefile=f"{var_zona}",
             margins=True,
         )
+
