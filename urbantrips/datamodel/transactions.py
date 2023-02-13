@@ -12,7 +12,7 @@ from urbantrips.utils.utils import (leer_configs_generales,
 
 
 @duracion
-def create_transactions():
+def create_transactions(geolocalizar_trx_config):
     """
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
@@ -28,10 +28,6 @@ def create_transactions():
     col_hora = configs["columna_hora"]
     tipo_trx_invalidas = configs["tipo_trx_invalidas"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
-    geolocalizar_trx_config = configs["geolocalizar_trx"]
-    nombre_archivo_trx_eco = configs["nombre_archivo_trx"]
-    nombres_variables_trx = configs["nombres_variables_trx"]
-    id_tarjeta_trx = configs['nombres_variables_trx']['id_tarjeta_trx']
 
     try:
         modos_homologados = configs["modos"]
@@ -44,17 +40,20 @@ def create_transactions():
 
     print("Leyendo archivo de transacciones")
     if geolocalizar_trx_config:
+        # gps configs
+        nombre_archivo_trx_eco = configs["nombre_archivo_trx"]
+        nombre_archivo_gps = configs["nombre_archivo_gps"]
+        nombres_variables_gps = configs["nombres_variables_gps"]
 
         print("desde transacciones geolocalizadas")
         # Cargar las transacciones geolocalizadas
         trx, tmp_trx_inicial = geolocalizar_trx(
-            nombre_archivo_trx_eco,
-            nombres_variables_trx,
-            tipo_trx_invalidas,
-            id_tarjeta_trx,
-            formato_fecha,
-
-            conn,
+            nombre_archivo_trx_eco=nombre_archivo_trx_eco,
+            nombres_variables_trx=nombres_variables,
+            tipo_trx_invalidas=tipo_trx_invalidas,
+            formato_fecha=formato_fecha,
+            nombre_archivo_gps=nombre_archivo_gps,
+            nombres_variables_gps=nombres_variables_gps,
         )
 
     else:
@@ -392,9 +391,9 @@ def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,
     tipo_trx_invalidas,
-    id_tarjeta_trx,
     formato_fecha,
-    conn,
+    nombre_archivo_gps,
+    nombres_variables_gps,
 ):
     """
     Esta función lee de dos csv las transacciones y los datos de
@@ -404,11 +403,13 @@ def geolocalizar_trx(
     transacciones con las trx_eco geolocalizadas
     """
     # crear tablas de trx_eco y gps
+    conn = iniciar_conexion_db(tipo='data')
     print("Creando tablas de trx_eco y gps para geolocalizacion")
     crear_tablas_geolocalizacion()
     print("Fin crear tablas de trx_eco y gps para geolocalizacion")
-
     # Leer archivos de trx_eco
+    id_tarjeta_trx = nombres_variables_trx['id_tarjeta_trx']
+
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
 
@@ -476,7 +477,10 @@ def geolocalizar_trx(
     print("Fin subida datos")
 
     # procesar y subir tabla gps
-    process_and_upload_gps_table()
+    process_and_upload_gps_table(
+        nombre_archivo_gps=nombre_archivo_gps,
+        nombres_variables_gps=nombres_variables_gps,
+        formato_fecha=formato_fecha)
 
     # hacer el join por fecha
     print("Geolocalizando datos")
@@ -515,20 +519,17 @@ def geolocalizar_trx(
     trx = trx.drop("delta_trx_gps_min", axis=1)
 
     conn.execute("""DROP TABLE IF EXISTS trx_eco;""")
+    conn.close()
     return trx, tmp_trx_inicial
 
 
-def process_and_upload_gps_table():
+def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, formato_fecha):
     """
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
     """
     print("Procesando tabla gps")
     conn = iniciar_conexion_db(tipo='data')
-    configs = leer_configs_generales()
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
-    nombres_variables_gps = configs["nombres_variables_gps"]
-    formato_fecha = configs["formato_fecha"]
 
     # crear tabla gps en la db
     crear_tablas_geolocalizacion()

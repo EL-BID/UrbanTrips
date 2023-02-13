@@ -14,6 +14,7 @@ def main():
 
     # Read config file
     configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
 
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
@@ -36,7 +37,7 @@ def main():
     misc.create_line_and_branches_metadata()
 
     # Produce transaction table
-    trx.create_transactions()
+    trx.create_transactions(geolocalizar_trx_config)
 
     # Turn transactions into legs
     legs.create_legs_from_transactions(criterio_orden_transacciones)
