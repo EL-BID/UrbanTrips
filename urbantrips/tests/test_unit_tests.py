@@ -274,6 +274,7 @@ def test_amba_integration(matriz_validacion_test_amba):
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    misc.create_line_and_branches_metadata()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
 
@@ -298,6 +299,8 @@ def test_amba_integration(matriz_validacion_test_amba):
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
         "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.upload_routes_geoms()
 
     # imputar destinos
     dest.infer_destinations()
@@ -490,6 +493,9 @@ def test_carto(matriz_validacion_test_amba):
     carto.create_distances_table(use_parallel=True)
     distancias = pd.read_sql("select * from distancias;", conn_insumos)
 
+    # Persist datamodel into csv tables
+    misc.persist_datamodel_tables()
+
     assert len(distancias) > 0
 
 
@@ -527,6 +533,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     trips.create_trips_from_legs()
 
     carto.infer_routes_geoms(plotear_lineas=False)
+    carto.create_zones_table()
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
     viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
@@ -598,14 +605,11 @@ def test_viz(matriz_validacion_test_amba):
                              savefile='Lineas de deseo',
                              k_jenks=1)
 
-    print('ACAAAAAA')
-
     viz.imprimir_matrices_od(viajes,
                              savefile='viajes',
                              title='Matriz OD',
                              var_fex="")
 
-    print(viajes)
     zonas = pd.read_sql("select * from zonas;", conn_insumos)
     df, matriz_zonas = viz.traigo_zonificacion(
         viajes, zonas, h3_o='h3_o', h3_d='h3_d')
