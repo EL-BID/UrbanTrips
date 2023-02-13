@@ -275,6 +275,8 @@ def test_amba_integration(matriz_validacion_test_amba):
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
 
+    misc.create_line_and_branches_metadata()
+
     trx = pd.read_sql("select * from transacciones", conn_data)
 
     # testear formateo de columnas
@@ -298,6 +300,8 @@ def test_amba_integration(matriz_validacion_test_amba):
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
         "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.upload_routes_geoms()
 
     # imputar destinos
     dest.infer_destinations()
@@ -490,10 +494,10 @@ def test_carto(matriz_validacion_test_amba):
     carto.create_distances_table(use_parallel=True)
     distancias = pd.read_sql("select * from distancias;", conn_insumos)
 
+    # Persist datamodel into csv tables
+    misc.persist_datamodel_tables()
+
     assert len(distancias) > 0
-
-    viz.create_visualizations()
-
 
 def test_section_load_viz(matriz_validacion_test_amba):
 
@@ -529,6 +533,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     trips.create_trips_from_legs()
 
     carto.infer_routes_geoms(plotear_lineas=False)
+    carto.create_zones_table()
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
     viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
@@ -572,30 +577,60 @@ def test_viz(matriz_validacion_test_amba):
 
     carto.create_voronoi_zones()
 
+    viz.create_visualizations()
+
     viajes = pd.read_sql("select * from viajes", conn_data)
     viajes['distance_osm_drive'] = 0
     viajes['h3_o_norm'] = viajes.h3_o
     viajes['h3_d_norm'] = viajes.h3_d
     viajes['factor_expansion'] = 1
 
-    viz.imprimir_matrices_od(viajes,
-                             savefile='viajes',
-                             title='Matriz OD',
-                             var_fex="")
 
-    viz.imprime_lineas_deseo(df=viajes,
-                             h3_o='',
-                             h3_d='',
-                             var_fex='factor_expansion',
-                             title=f'Lineas de deseo',
-                             savefile='Lineas de deseo')
     viz.imprime_burbujas(viajes,
                          res=7,
                          h3_o='h3_o',
                          alpha=.4,
                          cmap='flare',
-                         var_fex='factor_expansion',
+                         var_fex='',
                          porc_viajes=100,
                          title=f'Hogares',
-                         savefile=f'_burb_hogares',
-                         show_fig=False)
+                         savefile=f'testing_burb_hogares',
+                         show_fig=True,
+                         k_jenks=1)
+
+    viz.imprime_lineas_deseo(df=viajes,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='',
+                             title=f'Lineas de deseo',
+                             savefile='Lineas de deseo',
+                             k_jenks=1)
+
+    viz.imprimir_matrices_od(viajes,
+                             savefile='viajes',
+                             title='Matriz OD',
+                             var_fex="")
+
+    zonas = pd.read_sql("select * from zonas;", conn_insumos)
+    df, matriz_zonas = viz.traigo_zonificacion(
+        viajes, zonas, h3_o='h3_o', h3_d='h3_d')
+
+    for i in matriz_zonas:
+        var_zona = i[1]
+        matriz_order = i[2]
+
+        viz.imprime_od(
+            df,
+            zona_origen=f"{var_zona}_o",
+            zona_destino=f"{var_zona}_d",
+            var_fex='',
+            x_rotation=90,
+            normalize=True,
+            cmap="Reds",
+            title='Matriz OD General',
+            figsize_tuple='',
+            matriz_order=matriz_order,
+            savefile=f"{var_zona}",
+            margins=True,
+        )
+
