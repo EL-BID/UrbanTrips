@@ -12,7 +12,15 @@ from urbantrips.utils.utils import (leer_configs_generales,
 
 
 @duracion
-def create_transactions(geolocalizar_trx_config):
+def create_transactions(geolocalizar_trx_config,
+                        nombre_archivo_trx,
+                        nombres_variables_trx,
+                        formato_fecha,
+                        col_hora,
+                        tipo_trx_invalidas,
+                        nombre_archivo_gps,
+                        nombres_variables_gps
+                        ):
     """
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
@@ -23,11 +31,6 @@ def create_transactions(geolocalizar_trx_config):
 
     print("Abriendo archivos de configuracion")
     configs = leer_configs_generales()
-    nombres_variables = configs["nombres_variables_trx"]
-    formato_fecha = configs["formato_fecha"]
-    col_hora = configs["columna_hora"]
-    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
-    nombre_archivo_trx = configs["nombre_archivo_trx"]
 
     try:
         modos_homologados = configs["modos"]
@@ -40,16 +43,12 @@ def create_transactions(geolocalizar_trx_config):
 
     print("Leyendo archivo de transacciones")
     if geolocalizar_trx_config:
-        # gps configs
-        nombre_archivo_trx_eco = configs["nombre_archivo_trx"]
-        nombre_archivo_gps = configs["nombre_archivo_gps"]
-        nombres_variables_gps = configs["nombres_variables_gps"]
 
         print("desde transacciones geolocalizadas")
         # Cargar las transacciones geolocalizadas
         trx, tmp_trx_inicial = geolocalizar_trx(
-            nombre_archivo_trx_eco=nombre_archivo_trx_eco,
-            nombres_variables_trx=nombres_variables,
+            nombre_archivo_trx_eco=nombre_archivo_trx,
+            nombres_variables_trx=nombres_variables_trx,
             tipo_trx_invalidas=tipo_trx_invalidas,
             formato_fecha=formato_fecha,
             nombre_archivo_gps=nombre_archivo_gps,
@@ -68,7 +67,7 @@ def create_transactions(geolocalizar_trx_config):
 
         trx = renombrar_columnas_tablas(
             trx,
-            nombres_variables,
+            nombres_variables_trx,
             postfijo="_trx",
         )
         trx = trx.rename(columns={"orden": "orden_trx"})
@@ -386,7 +385,7 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
     return new_ids
 
 
-@duracion
+@ duracion
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,

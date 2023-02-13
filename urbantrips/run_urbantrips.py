@@ -15,6 +15,16 @@ def main():
     # Read config file
     configs = utils.leer_configs_generales()
     geolocalizar_trx_config = configs["geolocalizar_trx"]
+    # trx configs
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+
+    # gps configs
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
 
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
@@ -37,7 +47,14 @@ def main():
     misc.create_line_and_branches_metadata()
 
     # Produce transaction table
-    trx.create_transactions(geolocalizar_trx_config)
+    trx.create_transactions(geolocalizar_trx_config,
+                            nombre_archivo_trx,
+                            nombres_variables_trx,
+                            formato_fecha,
+                            col_hora,
+                            tipo_trx_invalidas,
+                            nombre_archivo_gps,
+                            nombres_variables_gps)
 
     # Turn transactions into legs
     legs.create_legs_from_transactions(criterio_orden_transacciones)
@@ -57,6 +74,7 @@ def main():
     # Upload route geometries
     carto.upload_routes_geoms()
 
+    '''
     # Inferir route geometries based on legs data
     carto.infer_routes_geoms(plotear_lineas=False)
 
@@ -81,6 +99,7 @@ def main():
 
     # Compute KPI
     kpi.compute_kpi()
+    '''
 
 
 if __name__ == "__main__":
