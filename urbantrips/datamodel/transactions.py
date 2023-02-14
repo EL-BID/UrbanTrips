@@ -93,21 +93,20 @@ def create_transactions(geolocalizar_trx_config,
             trx,
             'Cantidad de transacciones latlon válidos', 'transacciones', 1)
 
-    # chequear que no haya faltantes en id
-    if trx["id"].isna().any():
-        warnings.warn("Hay faltantes en el id que identifica a las trx")
+        # chequear que no haya faltantes en id
+        if trx["id"].isna().any():
+            warnings.warn("Hay faltantes en el id que identifica a las trx")
+        # crear un id original de las transacciones
+        trx["id_original"] = trx["id"].copy()
 
-    # Elminar trx con NA en variables fundamentales
-    subset = ["id_tarjeta", "fecha", "id_linea", "latitud", "longitud"]
-    trx = eliminar_NAs_variables_fundamentales(trx, subset)
+        # Elminar trx con NA en variables fundamentales
+        subset = ["id_tarjeta", "fecha", "id_linea", "latitud", "longitud"]
+        trx = eliminar_NAs_variables_fundamentales(trx, subset)
 
-    # crear un id original de las transacciones
-    trx["id_original"] = trx["id"].copy()
-
-    # crear un id interno de la transaccion
-    n_rows_trx = len(trx)
-    trx["id"] = crear_id_interno(
-        conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
+        # crear un id interno de la transaccion
+        n_rows_trx = len(trx)
+        trx["id"] = crear_id_interno(
+            conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
     # Elminar transacciones unicas en el dia
     trx = eliminar_tarjetas_trx_unica(trx)
@@ -415,7 +414,7 @@ def geolocalizar_trx(
     print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
     # Filtrar transacciones invalidas
     if tipo_trx_invalidas is not None:
-        trx = filtrar_transacciones_invalidas(trx, tipo_trx_invalidas)
+        trx_eco = filtrar_transacciones_invalidas(trx_eco, tipo_trx_invalidas)
 
     # Formatear archivos trx
     trx_eco = renombrar_columnas_tablas(
@@ -429,6 +428,7 @@ def geolocalizar_trx(
     trx_eco = convertir_fechas(trx_eco, formato_fecha, crear_hora=True)
 
     # Crear un id interno
+    trx_eco["id_original"] = trx_eco["id"].copy()
     n_rows_trx = len(trx_eco)
     trx_eco["id"] = crear_id_interno(
         conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
@@ -458,6 +458,7 @@ def geolocalizar_trx(
     trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
 
     cols = ['id',
+            'id_original',
             'id_tarjeta',
             'fecha',
             'dia',
@@ -485,7 +486,7 @@ def geolocalizar_trx(
     print("Geolocalizando datos")
     query = """
         WITH trx AS (
-        select t.id, t.id_tarjeta, datetime(t.fecha, 'unixepoch') as fecha,
+        select t.id,t.id_original, t.id_tarjeta, datetime(t.fecha, 'unixepoch') as fecha,
                 t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
                 t.id_ramal, t.interno, t.orden as orden, g.latitud, g.longitud,
                 (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
