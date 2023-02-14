@@ -26,7 +26,7 @@ nombres_variables_trx:
     modo_trx: modo
     hora_trx: hora
     id_linea_trx: id_linea
-    id_ramal_trx:  
+    id_ramal_trx: id_ramal 
     interno_trx: interno_bus
     orden_trx: etapa_red_sube 
     latitud_trx: lat 
