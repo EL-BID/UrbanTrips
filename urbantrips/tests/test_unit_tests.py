@@ -244,14 +244,19 @@ def test_cambiar_id_tarjeta_trx_simul_delta(df_test_id_viaje):
             'id_tarjeta'] == ['2_0', '2_1', '2_0']).all()
 
 
-def create_test_trx():
+def create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps):
+
     for tipo in ['data', 'insumos']:
         filePath = utils.traigo_db_path(tipo=tipo)
         if os.path.exists(filePath):
             os.remove(filePath)
-
-    print("Abriendo archivos de configuracion")
-    configs = utils.leer_configs_generales()
 
     # crear_directorios:
     utils.crear_directorios()
@@ -259,12 +264,35 @@ def create_test_trx():
     # crear base de datos:
     utils.crear_base()
 
-    transactions.create_transactions()
-    return configs
+    transactions.create_transactions(geolocalizar_trx_config,
+                                     nombre_archivo_trx,
+                                     nombres_variables_trx,
+                                     formato_fecha,
+                                     col_hora,
+                                     tipo_trx_invalidas,
+                                     nombre_archivo_gps,
+                                     nombres_variables_gps)
 
 
 def test_amba_integration(matriz_validacion_test_amba):
-    configs = create_test_trx()
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
 
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
@@ -333,7 +361,24 @@ def test_amba_integration(matriz_validacion_test_amba):
 
 def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
 
-    configs = create_test_trx()
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
 
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
@@ -413,7 +458,25 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
 
 def test_viz_lowes():
 
-    configs = create_test_trx()
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
+
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
@@ -438,70 +501,26 @@ def test_viz_lowes():
     assert os.path.isfile(file_path)
 
 
-def test_carto(matriz_validacion_test_amba):
-
-    configs = create_test_trx()
-
-    criterio_orden_transacciones = {
-        "criterio": configs["ordenamiento_transacciones"],
-        "ventana_viajes": configs["ventana_viajes"],
-        "ventana_duplicado": configs["ventana_duplicado"],
-    }
-    resolucion_h3 = configs["resolucion_h3"]
-    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
-    ring_size = geo.get_h3_buffer_ring_size(
-        resolucion_h3, tolerancia_parada_destino
-    )
-
-    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
-
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
-
-    # actualizar matriz de validacion
-    matriz_validacion_test_amba.to_sql(
-        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
-
-    carto.update_stations_catchment_area(ring_size=ring_size)
-
-    dest.infer_destinations()
-
-    # Fix trips with same OD
-    trips.rearrange_trip_id_same_od()
-
-    # Produce trips and users tables from legs
-    trips.create_trips_from_legs()
-
-    # Create TAZs
-    carto.create_zones_table()
-
-    # Create voronoi TAZs
-    carto.create_voronoi_zones()
-
-    zonas = pd.read_sql("select * from zonas", conn_insumos)
-    assert len(zonas) > 0
-
-    conn_data = utils.iniciar_conexion_db(tipo='data')
-
-    conn_data.execute(
-        """delete from viajes where id_tarjeta <> '0037030208';"""
-    )
-    conn_data.execute(
-        """delete from etapas where id_tarjeta <> '0037030208';"""
-    )
-    conn_data.commit()
-    conn_data.close()
-
-    carto.create_distances_table(use_parallel=True)
-    distancias = pd.read_sql("select * from distancias;", conn_insumos)
-
-    # Persist datamodel into csv tables
-    misc.persist_datamodel_tables()
-
-    assert len(distancias) > 0
-
 def test_section_load_viz(matriz_validacion_test_amba):
 
-    configs = create_test_trx()
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
 
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
@@ -541,7 +560,24 @@ def test_section_load_viz(matriz_validacion_test_amba):
 
 def test_viz(matriz_validacion_test_amba):
 
-    configs = create_test_trx()
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = configs["geolocalizar_trx"]
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = configs["formato_fecha"]
+    col_hora = configs["columna_hora"]
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
 
     criterio_orden_transacciones = {
         "criterio": configs["ordenamiento_transacciones"],
@@ -584,7 +620,6 @@ def test_viz(matriz_validacion_test_amba):
     viajes['h3_o_norm'] = viajes.h3_o
     viajes['h3_d_norm'] = viajes.h3_d
     viajes['factor_expansion'] = 1
-
 
     viz.imprime_burbujas(viajes,
                          res=7,
@@ -634,3 +669,112 @@ def test_viz(matriz_validacion_test_amba):
             margins=True,
         )
 
+
+def test_gps(matriz_validacion_test_amba):
+
+    configs = utils.leer_configs_generales()
+    geolocalizar_trx_config = True
+    nombres_variables_trx = configs["nombres_variables_trx"]
+    formato_fecha = "%d/%m/%Y %H:%M:%S"
+    col_hora = False
+    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
+    nombre_archivo_trx = "transacciones_amba_test_geocode.csv"
+    nombre_archivo_gps = "gps_amba_test.csv"
+    nombres_variables_gps = {
+        'id_gps': 'id_gps',
+        'id_linea_gps': 'id_linea_gps',
+        'id_ramal_gps': 'id_ramal_gps',
+        'interno_gps': 'interno_gps',
+        'fecha_gps': 'fecha_gps',
+        'latitud_gps': 'latitud_gps',
+        'longitud_gps': 'longitud_gps',
+    }
+    criterio_orden_transacciones = {
+        "criterio": "fecha_completa",
+        "ventana_viajes": 120,
+        "ventana_duplicado": 5,
+    }
+    resolucion_h3 = configs["resolucion_h3"]
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    ring_size = geo.get_h3_buffer_ring_size(
+        resolucion_h3, tolerancia_parada_destino
+    )
+
+    create_test_trx(geolocalizar_trx_config,
+                    nombre_archivo_trx,
+                    nombres_variables_trx,
+                    formato_fecha,
+                    col_hora,
+                    tipo_trx_invalidas,
+                    nombre_archivo_gps,
+                    nombres_variables_gps)
+
+    legs.create_legs_from_transactions(criterio_orden_transacciones)
+
+    # confirm latlong for card_id 37030208
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    trx = pd.read_sql("select * from transacciones", conn_data)
+    gps = pd.read_sql("select * from gps", conn_data)
+
+    assert len(trx) == 2
+
+    gps_latlong = gps.loc[gps.id_original == 2, ['latitud', 'longitud']]
+    trx_latlong = trx.loc[trx.id_original ==
+                          '2189303', ['latitud', 'longitud']]
+
+    assert gps_latlong.latitud.item() == trx_latlong.latitud.item()
+    assert gps_latlong.longitud.item() == trx_latlong.longitud.item()
+
+    gps_latlong = gps.loc[gps.id_original == 13, ['latitud', 'longitud']]
+    trx_latlong = trx.loc[trx.id_original ==
+                          '2189304', ['latitud', 'longitud']]
+
+    assert gps_latlong.latitud.item() == trx_latlong.latitud.item()
+    assert gps_latlong.longitud.item() == trx_latlong.longitud.item()
+
+    # actualizar matriz de validacion
+    matriz_validacion_test_amba.to_sql(
+        "matriz_validacion", conn_insumos, if_exists="replace", index=False)
+
+    carto.update_stations_catchment_area(ring_size=ring_size)
+
+    dest.infer_destinations()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    carto.create_distances_table(use_parallel=True)
+
+    distancias = pd.read_sql("select * from distancias;", conn_insumos)
+    mean_distances = distancias.distance_osm_drive.mean()
+    assert len(distancias) > 0
+
+    kpi.compute_kpi()
+
+    q = """
+        SELECT e.dia,e.id_tarjeta,f.factor_expansion
+        from etapas e
+        LEFT JOIN factores_expansion f
+        ON e.id_tarjeta = f.id_tarjeta
+        AND e.dia = f.dia
+    """
+    fe = pd.read_sql(q, conn_data)
+    tot_pax = fe.factor_expansion.sum()
+
+    kpi_df = pd.read_sql(
+        "select * from indicadores_operativos_linea;", conn_data)
+
+    assert round(kpi_df.tot_km.item()) == 16
+    assert kpi_df.tot_veh.item() == 2
+    assert kpi_df.dmt_mean.item() == mean_distances
+    assert kpi_df.tot_pax.item() == tot_pax
+
+    carto.create_zones_table()
+
+    # Persist datamodel into csv tables
+    misc.persist_datamodel_tables()

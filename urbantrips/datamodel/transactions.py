@@ -12,7 +12,15 @@ from urbantrips.utils.utils import (leer_configs_generales,
 
 
 @duracion
-def create_transactions():
+def create_transactions(geolocalizar_trx_config,
+                        nombre_archivo_trx,
+                        nombres_variables_trx,
+                        formato_fecha,
+                        col_hora,
+                        tipo_trx_invalidas,
+                        nombre_archivo_gps,
+                        nombres_variables_gps
+                        ):
     """
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
@@ -23,15 +31,6 @@ def create_transactions():
 
     print("Abriendo archivos de configuracion")
     configs = leer_configs_generales()
-    nombres_variables = configs["nombres_variables_trx"]
-    formato_fecha = configs["formato_fecha"]
-    col_hora = configs["columna_hora"]
-    tipo_trx_invalidas = configs["tipo_trx_invalidas"]
-    nombre_archivo_trx = configs["nombre_archivo_trx"]
-    geolocalizar_trx_config = configs["geolocalizar_trx"]
-    nombre_archivo_trx_eco = configs["nombre_archivo_trx"]
-    nombres_variables_trx = configs["nombres_variables_trx"]
-    id_tarjeta_trx = configs['nombres_variables_trx']['id_tarjeta_trx']
 
     try:
         modos_homologados = configs["modos"]
@@ -48,11 +47,12 @@ def create_transactions():
         print("desde transacciones geolocalizadas")
         # Cargar las transacciones geolocalizadas
         trx, tmp_trx_inicial = geolocalizar_trx(
-            nombre_archivo_trx_eco,
-            nombres_variables_trx,
-            id_tarjeta_trx,
-            formato_fecha,
-            conn,
+            nombre_archivo_trx_eco=nombre_archivo_trx,
+            nombres_variables_trx=nombres_variables_trx,
+            tipo_trx_invalidas=tipo_trx_invalidas,
+            formato_fecha=formato_fecha,
+            nombre_archivo_gps=nombre_archivo_gps,
+            nombres_variables_gps=nombres_variables_gps,
         )
 
     else:
@@ -67,7 +67,7 @@ def create_transactions():
 
         trx = renombrar_columnas_tablas(
             trx,
-            nombres_variables,
+            nombres_variables_trx,
             postfijo="_trx",
         )
         trx = trx.rename(columns={"orden": "orden_trx"})
@@ -93,21 +93,20 @@ def create_transactions():
             trx,
             'Cantidad de transacciones latlon válidos', 'transacciones', 1)
 
-    # chequear que no haya faltantes en id
-    if trx["id"].isna().any():
-        warnings.warn("Hay faltantes en el id que identifica a las trx")
+        # chequear que no haya faltantes en id
+        if trx["id"].isna().any():
+            warnings.warn("Hay faltantes en el id que identifica a las trx")
+        # crear un id original de las transacciones
+        trx["id_original"] = trx["id"].copy()
 
-    # Elminar trx con NA en variables fundamentales
-    subset = ["id_tarjeta", "fecha", "id_linea", "latitud", "longitud"]
-    trx = eliminar_NAs_variables_fundamentales(trx, subset)
+        # Elminar trx con NA en variables fundamentales
+        subset = ["id_tarjeta", "fecha", "id_linea", "latitud", "longitud"]
+        trx = eliminar_NAs_variables_fundamentales(trx, subset)
 
-    # crear un id original de las transacciones
-    trx["id_original"] = trx["id"].copy()
-
-    # crear un id interno de la transaccion
-    n_rows_trx = len(trx)
-    trx["id"] = crear_id_interno(
-        conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
+        # crear un id interno de la transaccion
+        n_rows_trx = len(trx)
+        trx["id"] = crear_id_interno(
+            conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
     # Elminar transacciones unicas en el dia
     trx = eliminar_tarjetas_trx_unica(trx)
@@ -385,13 +384,14 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
     return new_ids
 
 
-@duracion
+@ duracion
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,
-    id_tarjeta_trx,
+    tipo_trx_invalidas,
     formato_fecha,
-    conn,
+    nombre_archivo_gps,
+    nombres_variables_gps,
 ):
     """
     Esta función lee de dos csv las transacciones y los datos de
@@ -401,13 +401,20 @@ def geolocalizar_trx(
     transacciones con las trx_eco geolocalizadas
     """
     # crear tablas de trx_eco y gps
+    conn = iniciar_conexion_db(tipo='data')
     print("Creando tablas de trx_eco y gps para geolocalizacion")
     crear_tablas_geolocalizacion()
     print("Fin crear tablas de trx_eco y gps para geolocalizacion")
-
     # Leer archivos de trx_eco
+    id_tarjeta_trx = nombres_variables_trx['id_tarjeta_trx']
+
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
+
+    print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
+    # Filtrar transacciones invalidas
+    if tipo_trx_invalidas is not None:
+        trx_eco = filtrar_transacciones_invalidas(trx_eco, tipo_trx_invalidas)
 
     # Formatear archivos trx
     trx_eco = renombrar_columnas_tablas(
@@ -420,17 +427,20 @@ def geolocalizar_trx(
     # Parsear fechas. Crear hora, si tiene gps tiene hora completa
     trx_eco = convertir_fechas(trx_eco, formato_fecha, crear_hora=True)
 
+    # Crear un id interno
+    trx_eco["id_original"] = trx_eco["id"].copy()
     n_rows_trx = len(trx_eco)
     trx_eco["id"] = crear_id_interno(
         conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
+    # Agregar factor de expansion
     trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco)
 
     # Eliminar datos con faltantes en variables fundamentales
     subset = ["id_tarjeta", "fecha", "id_linea"]
     trx_eco = eliminar_NAs_variables_fundamentales(trx_eco, subset)
 
-    # Convertir id tarjet en int si son float y tienen .0
+    # Convertir id tarjeta en int si son float y tienen .0
     if trx_eco.id_tarjeta.dtype == 'float':
         trx_eco.id_tarjeta = pd.to_numeric(
             trx_eco.id_tarjeta, downcast='integer')
@@ -444,10 +454,11 @@ def geolocalizar_trx(
     trx_eco["fecha"] = trx_eco["fecha"].map(lambda s: s.timestamp())
     trx_eco = trx_eco.dropna(subset=["id_linea", "id_ramal", "interno"])
 
-    # TODO: Eliminar trx unica en el dia
+    # Eliminar trx unica en el dia
     trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
 
     cols = ['id',
+            'id_original',
             'id_tarjeta',
             'fecha',
             'dia',
@@ -466,13 +477,16 @@ def geolocalizar_trx(
     print("Fin subida datos")
 
     # procesar y subir tabla gps
-    process_and_upload_gps_table()
+    process_and_upload_gps_table(
+        nombre_archivo_gps=nombre_archivo_gps,
+        nombres_variables_gps=nombres_variables_gps,
+        formato_fecha=formato_fecha)
 
     # hacer el join por fecha
     print("Geolocalizando datos")
     query = """
         WITH trx AS (
-        select t.id, t.id_tarjeta, datetime(t.fecha, 'unixepoch') as fecha,
+        select t.id,t.id_original, t.id_tarjeta, datetime(t.fecha, 'unixepoch') as fecha,
                 t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
                 t.id_ramal, t.interno, t.orden as orden, g.latitud, g.longitud,
                 (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
@@ -505,20 +519,17 @@ def geolocalizar_trx(
     trx = trx.drop("delta_trx_gps_min", axis=1)
 
     conn.execute("""DROP TABLE IF EXISTS trx_eco;""")
+    conn.close()
     return trx, tmp_trx_inicial
 
 
-def process_and_upload_gps_table():
+def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, formato_fecha):
     """
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
     """
     print("Procesando tabla gps")
     conn = iniciar_conexion_db(tipo='data')
-    configs = leer_configs_generales()
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
-    nombres_variables_gps = configs["nombres_variables_gps"]
-    formato_fecha = configs["formato_fecha"]
 
     # crear tabla gps en la db
     crear_tablas_geolocalizacion()
@@ -543,7 +554,7 @@ def process_and_upload_gps_table():
     subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
     gps = eliminar_NAs_variables_fundamentales(gps, subset)
 
-    # COnvertir fecha en segundos desde 1970
+    # Convertir fecha en segundos desde 1970
     gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
     gps = gps.drop_duplicates(subset=['dia', 'id_linea', 'id_ramal', 'interno',
                                       'fecha', 'latitud', 'longitud'])

@@ -21,7 +21,7 @@ El archivo csv con las transacciones debe tener los siguientes campos obligatori
 - 	`hora_trx`: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
 -	`id_tarjeta_trx`: un id único para cada tarjeta para cada día.
 -	`id_linea_trx`: un id único para cada linea de transporte
--	`orden_trx`: un entero secuencial que establezcla el orden de transacciones para una misma tarjeta en el día. Solo el obligatorio cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
+-	`orden_trx`: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día. Solo el obligatorio cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
 -	`latitud_trx`: Latitud de la transacción.
 -	`longitud_trx`: Longitud de la transacción.
 
@@ -150,7 +150,7 @@ zonificaciones:
 ### Transacciones
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
-| `id_trx` | int | Opcional. Id unico que identifique cada registro. |
+| `id_trx` | int | Opcional. Id único que identifique cada registro. |
 | `fecha_trx` | strftime | **Obligatorio**. Timestamp de la transaccion. Puede ser solo el día o el dia, hora y minuto.|
 | `id_tarjeta_trx` | int/str | **Obligatorio**. Un id que identifique a cada tarjeta. |
 | `modo_trx` | str | Opcional. Se estandarizará con lo especificado en `modos` en el archivo de configuración. Si no hay información en la tabla, se imputará todo como `autobus`. |
@@ -166,10 +166,10 @@ zonificaciones:
 ### GPS
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
-|`id_gps`|int|  **Obligatorio**. Id unico que identifique cada registro. |
-|`id_linea_gps`|int|**Obligatorio**. Id unico que identifique la linea.|
-|`id_ramal_gps`|int|**Obligatorio si hay ramales**. Id unico que identifique cada ramal.|
-|`interno_gps`|int|**Obligatorio**. Id unico que identifique cada interno.|
+|`id_gps`|int|  **Obligatorio**. Id único que identifique cada registro. |
+|`id_linea_gps`|int|**Obligatorio**. Id único que identifique la linea.|
+|`id_ramal_gps`|int|**Obligatorio si hay ramales**. Id único que identifique cada ramal.|
+|`interno_gps`|int|**Obligatorio**. Id único que identifique cada interno.|
 |`fecha_gps`|strftime|**Obligatorio**. Dia, hora y minuto de la posición GPS del interno.|
 |`latitud_gps`|float|**Obligatorio**. Latitud.| 
 |`longitud_gps`|float|**Obligatorio**. Longitud.|

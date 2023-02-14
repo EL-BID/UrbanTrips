@@ -116,7 +116,7 @@ def crear_base():
         """
         CREATE TABLE IF NOT EXISTS transacciones
             (id INT PRIMARY KEY     NOT NULL,
-            id_original text NOT NULL,
+            id_original text,
             id_tarjeta text,
             fecha datetime,
             dia text,
@@ -330,6 +330,7 @@ def crear_tablas_geolocalizacion():
             CREATE TABLE IF NOT EXISTS trx_eco
                 (
                 id INT PRIMARY KEY NOT NULL,
+                id_original int,
                 id_tarjeta text,
                 fecha datetime,
                 dia text,
