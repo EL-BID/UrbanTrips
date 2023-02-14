@@ -21,7 +21,7 @@ El archivo csv con las transacciones debe tener los siguientes campos obligatori
 - 	`hora_trx`: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
 -	`id_tarjeta_trx`: un id único para cada tarjeta para cada día.
 -	`id_linea_trx`: un id único para cada linea de transporte
--	`orden_trx`: un entero secuencial que establezcla el orden de transacciones para una misma tarjeta en el día. Solo el obligatorio cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
+-	`orden_trx`: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día. Solo el obligatorio cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
 -	`latitud_trx`: Latitud de la transacción.
 -	`longitud_trx`: Longitud de la transacción.
 
