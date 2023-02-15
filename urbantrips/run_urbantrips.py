@@ -22,10 +22,6 @@ def main():
     tipo_trx_invalidas = configs["tipo_trx_invalidas"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
-    # gps configs
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
-    nombres_variables_gps = configs["nombres_variables_gps"]
-
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
     criterio_orden_transacciones = {
@@ -33,6 +29,14 @@ def main():
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
+
+    # gps configs
+    if geolocalizar_trx_config:
+        nombre_archivo_gps = configs["nombre_archivo_gps"]
+        nombres_variables_gps = configs["nombres_variables_gps"]
+    else:
+        nombre_archivo_gps = None
+        nombres_variables_gps = None
 
     # Compute tolerance in h3 ring
     ring_size = geo.get_h3_buffer_ring_size(
@@ -74,7 +78,6 @@ def main():
     # Upload route geometries
     carto.upload_routes_geoms()
 
-    '''
     # Inferir route geometries based on legs data
     carto.infer_routes_geoms(plotear_lineas=False)
 
@@ -99,7 +102,6 @@ def main():
 
     # Compute KPI
     kpi.compute_kpi()
-    '''
 
 
 if __name__ == "__main__":
