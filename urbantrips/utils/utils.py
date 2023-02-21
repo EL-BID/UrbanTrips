@@ -707,6 +707,13 @@ def check_config():
         check_config_fecha(
             df=gps, columns_with_date=columns_with_date, date_format=date_format)
 
+    # Checkear que existan los archivos de zonficación especificados en el archivo de configuración
+    if configs['zonificaciones']:
+        for i in configs['zonificaciones']:
+            if 'geo' in i:
+                geo_file = os.path.join("data", "data_ciudad", configs['zonificaciones'][i])        
+                assert os.path.exists(geo_file), f"File {geo_file} does not exist"
+
     print("Proceso de chequeo de archivo de configuración concluido con éxito")
     return None
 
