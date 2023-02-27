@@ -10,19 +10,6 @@ import weightedstats as ws
 from pandas.io.sql import DatabaseError
 
 
-__all__ = [
-    'duracion',
-    'crear_directorios',
-    'leer_alias',
-    'traigo_db_path',
-    'iniciar_conexion_db',
-    'crear_base',
-    'leer_configs_generales',
-    'crear_tablas_geolocalizacion',
-    'agrego_indicador'
-]
-
-
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
