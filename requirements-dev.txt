@@ -1,0 +1,5 @@
+# Additional requirements for development and testing
+
+# testing
+pytest
+pycodestyle
