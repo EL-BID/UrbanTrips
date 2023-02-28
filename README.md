@@ -246,7 +246,7 @@ urbantrips
 ```
 virtualenv venv --python=python3.10
 source venv/bin/activate
-pip install git+https://github.com/EL-BID/UrbanTrips.git@dev
+pip install urbantrips
 ```
 
 ## Primeros pasos
