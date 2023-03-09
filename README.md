@@ -9,9 +9,7 @@
 # README
 `urbantrips` es una biblioteca de código abierto que toma información de un sistema de pago con tarjeta inteligente de transporte público y, a través de un procesamiento de la información que infiere destinos de los viajes y construye las cadenas de viaje para cada usuario, produce matrices de origen-destino y otros indicadores (KPI) para rutas de autobús. El principal objetivo de la librería es producir insumos útiles para la gestión del transporte público a partir de requerimientos mínimos de información y pre-procesamiento. Con sólo una tabla geolocalizada de transacciones económicas proveniente de un sistema de pago electrónico, se podrán generar resultados, que serán más precisos cuanto más información adicional se incorpore al proceso a través de los archivos opcionales. El proceso elabora las matrices, los indicadores y construye una serie de gráficos y mapas de transporte.
 
-Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este documento:
-
-![Documento Metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf "Documento metodológico")
+Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este ![documento metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf "Documento metodológico")
 
 Con `urbantrips` se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. `lunes.csv`, `martes.csv` o `semana1.csv`, `semana2.csv` pero no `lunes_a.csv`, `lunes_b.csv`). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.
 
@@ -153,7 +151,10 @@ zonificaciones:
 ```
 
 ## Esquema de datos
-### Transacciones
+
+Este es el esquema de datos que deben seguir los archivos `csv` suministrados como insumos a `urbantrips`.
+
+### transacciones
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 | `id_trx` | int | Opcional. Id único que identifique cada registro. |
@@ -169,7 +170,7 @@ zonificaciones:
 | `longitud_trx` | float | **Obligatorio**. Longitud de la transacción. |
 | `factor_expansion` | float | Opcional. Factor de expansión en caso de tratarse de una muestra. |
 
-### GPS
+### gps
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_gps`|int|  **Obligatorio**. Id único que identifique cada registro. |
@@ -181,7 +182,7 @@ zonificaciones:
 |`longitud_gps`|float|**Obligatorio**. Longitud.|
     
     
-### Información lineas
+### Información de lineas y ramales
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
@@ -243,9 +244,20 @@ urbantrips
 ```
 
 ## Configuración del ambiente
+
+Para poder instalar la librería se aconseja crear un ambiente y luego instalar la librería con `pip`. Si desea hacerlo con `virtualenv` puede ejecutar los siguientes pasos:
+
 ```
 virtualenv venv --python=python3.10
 source venv/bin/activate
+pip install urbantrips
+```
+
+Si desea hacerlo con `conda` entonces:
+
+```
+conda create -n env_urbantrips -c conda-forge python=3.10 rvlib
+conda activate env_urbantrips
 pip install urbantrips
 ```
 
@@ -256,7 +268,7 @@ python urbantrips/run_urbantrips.py
 ```
 
 
-### Configuraciones
+### Configuraciones para el dataset de transacciones SUBE de AMBA
 ```yaml
 geolocalizar_trx: False
 resolucion_h3: 8
