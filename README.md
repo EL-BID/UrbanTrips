@@ -80,6 +80,7 @@ El siguiente conjunto de parámetros de configuración definen el procesamiento 
 - `tipo_trx_invalidas`: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
 - `modos`: urbantrips estandariza en 5 categorias (`autobus`,`tren`,`metro`,`tranvia` y `brt`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
 - `filtro_latlong_bbox`: Establece un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.
+
 ```
 formato_fecha: "%d/%m/%Y"
 columna_hora: True
@@ -170,7 +171,7 @@ Este es el esquema de datos que deben seguir los archivos `csv` suministrados co
 | `longitud_trx` | float | **Obligatorio**. Longitud de la transacción. |
 | `factor_expansion` | float | Opcional. Factor de expansión en caso de tratarse de una muestra. |
 
-### gps
+### GPS
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_gps`|int|  **Obligatorio**. Id único que identifique cada registro. |
@@ -267,8 +268,8 @@ Una vez creado el ambiente, puede descargar el [dataset de transacciones SUBE de
 python urbantrips/run_urbantrips.py
 ```
 
-
 ### Configuraciones para el dataset de transacciones SUBE de AMBA
+
 ```yaml
 geolocalizar_trx: False
 resolucion_h3: 8
