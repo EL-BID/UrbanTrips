@@ -11,7 +11,7 @@
 
 Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar el documento metodológico:
 
-[Documento Metodológico](https://github.com/EL-BID/UrbanTrips/blob/eed8dec61089fb46269e392600d641444440820b/Metodologia_UrbanTrips.pdf)
+[Link al Documento Metodológico](https://github.com/EL-BID/UrbanTrips/blob/eed8dec61089fb46269e392600d641444440820b/Metodologia_UrbanTrips.pdf)
 
 Con `urbantrips` se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. `lunes.csv`, `martes.csv` o `semana1.csv`, `semana2.csv` pero no `lunes_a.csv`, `lunes_b.csv`). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.
 
@@ -332,9 +332,10 @@ ordenamiento_transacciones: orden_trx
 tipo_trx_invalidas:
     tipo_trx_tren:
         - 'CHECK OUT SIN CHECKIN'
-	
-### Agradecimientos
+        - 'CHECK OUT'	
+```  
+## Agradecimientos
 Queremos agradecer la colaboración de los gobiernos de Ciudad de Buenos Aires, Córdoba, Mendoza y Bariloche que proveyeron datos y participaron de valiosas conversaciones para mejorar esta librería.
 
-        - 'CHECK OUT'
-```  
+
+
