@@ -337,5 +337,13 @@ tipo_trx_invalidas:
 ## Agradecimientos
 Queremos agradecer la colaboración de los gobiernos de Ciudad de Buenos Aires, Córdoba, Mendoza y Bariloche que proveyeron datos y participaron de valiosas conversaciones para mejorar esta librería.
 
+## Licencia
 
+Copyright© 2023. Banco Interamericano de Desarrollo ("BID"). Uso autorizado. [AM-331-A3](/LICENSE.md)
+
+
+## Autores
+
+Felipe González ([@alephcero](https://github.com/alephcero/)) 
+Sebastián Anaposlky([@sanapolsky](https://github.com/sanapolsky/))
 
