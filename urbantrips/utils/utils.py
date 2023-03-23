@@ -224,8 +224,11 @@ def crear_base():
         """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        section_meters int,
         sentido text not null,
-        tramos float not null,
+        section_id float not null,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
@@ -549,9 +552,9 @@ def crear_tablas_indicadores_operativos():
 
 def check_config():
     """
-    Esta funcion toma un archivo de configuracion en formato yaml y lee su contenido.
-    Luego, chequea si hay alguna inconsistencia en el archivo, imprimiendo un mensaje de error
-    si alguna es encontrada.
+    Esta funcion toma un archivo de configuracion en formato yaml
+    y lee su contenido. Luego, chequea si hay alguna inconsistencia
+    en el archivo,imprimiendo un mensaje de error si alguna es encontrada.
 
     Args:
     None
@@ -568,9 +571,11 @@ def check_config():
     trx = pd.read_csv(ruta, nrows=1000)
 
     # chequear que esten los atributos obligatorios
-    configs_obligatorios = ['geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
-                            'nombre_archivo_trx', 'nombres_variables_trx', 'imputar_destinos_min_distancia',
-                            'formato_fecha', 'columna_hora', 'ordenamiento_transacciones']
+    configs_obligatorios = [
+        'geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
+        'nombre_archivo_trx', 'nombres_variables_trx',
+        'imputar_destinos_min_distancia', 'formato_fecha', 'columna_hora',
+        'ordenamiento_transacciones']
 
     for param in configs_obligatorios:
         if param not in configs:
@@ -614,8 +619,8 @@ def check_config():
 
     if not configs['geolocalizar_trx']:
         trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
-        atributos_trx_obligatorios = atributos_trx_obligatorios.append(
-            trx_coords)
+        atributos_trx_obligatorios = pd.concat(
+            [atributos_trx_obligatorios, trx_coords])
 
     attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
         nombres_variables_trx.dropna().trx_name)
@@ -666,7 +671,11 @@ def check_config():
         gps = pd.read_csv(ruta, nrows=1000)
 
         nombres_variables_gps = pd.DataFrame(
-            {'trx_name': nombres_variables_gps.keys(), 'csv_name': nombres_variables_gps.values()})
+            {
+                'trx_name': nombres_variables_gps.keys(),
+                'csv_name': nombres_variables_gps.values()
+            }
+        )
 
         nombres_variables_gps_s = nombres_variables_gps.csv_name.dropna()
         nombres_var_config_en_gps = nombres_variables_gps_s.isin(gps.columns)
@@ -675,7 +684,8 @@ def check_config():
             raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
                            nombres_variables_gps_s[~nombres_var_config_en_gps])
 
-        # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
+        # chequear que todos los atributos obligatorios de trx
+        # tengan un atributo en el csv
         atributos_gps_obligatorios = pd.Series(
             ['id_linea_gps',
              'id_ramal_gps',
@@ -692,14 +702,17 @@ def check_config():
         # chequear validez de fecha
         columns_with_date = configs['nombres_variables_gps']['fecha_gps']
         check_config_fecha(
-            df=gps, columns_with_date=columns_with_date, date_format=date_format)
+            df=gps,
+            columns_with_date=columns_with_date, date_format=date_format)
 
-    # Checkear que existan los archivos de zonficación especificados en el archivo de configuración
+    # Checkear que existan los archivos de zonficación especificados config
     if configs['zonificaciones']:
         for i in configs['zonificaciones']:
             if 'geo' in i:
-                geo_file = os.path.join("data", "data_ciudad", configs['zonificaciones'][i])        
-                assert os.path.exists(geo_file), f"File {geo_file} does not exist"
+                geo_file = os.path.join(
+                    "data", "data_ciudad", configs['zonificaciones'][i])
+                assert os.path.exists(
+                    geo_file), f"File {geo_file} does not exist"
 
     print("Proceso de chequeo de archivo de configuración concluido con éxito")
     return None
@@ -717,4 +730,6 @@ def check_config_fecha(df, columns_with_date, date_format):
 
     # Chequear si el formato funciona
     checkeo = fechas.isna().sum() / len(df)
-    assert checkeo < 0.8, f"Corrija el formato de fecha en config. Actualmente se pierden {round((checkeo * 100),2)} por ciento de registros"
+    string = "Corrija el formato de fecha en config. Actualmente se pierden" +\
+        f"{round((checkeo * 100),2)} por ciento de registros"
+    assert checkeo < 0.8, string
