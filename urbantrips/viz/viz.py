@@ -339,14 +339,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     ax1.set_title('IDA', fontdict=font_dicc)
     ax2.set_title('VUELTA', fontdict=font_dicc)
 
-    sns.barplot(data=df_d0, x="section_id",
-                y=indicator, ax=ax3, color='Purple',
-                order=df_d0.section_id.values)
-
-    sns.barplot(data=df_d1, x="section_id",
-                y=indicator, ax=ax4, color='Orange',
-                order=df_d1.section_id.values)
-
     # Set title and plot axis
     if indicator == 'cantidad_etapas':
         title = 'Segmentos del recorrido - Cantidad de etapas'
@@ -394,7 +386,11 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         flecha_vuelta_xy = flecha_oe_xy
         flecha_vuelta_text_xy = flecha_oe_text_xy
         labels_vuelta = labels_oe
-
+        
+        # direction 0 east to west
+        df_d0 = df_d0.sort_values('section_id', ascending=True)
+        df_d1 = df_d1.sort_values('section_id', ascending=True)
+    
     else:
         flecha_ida_xy = flecha_oe_xy
         flecha_ida_text_xy = flecha_oe_text_xy
@@ -403,6 +399,17 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         flecha_vuelta_xy = flecha_eo_xy
         flecha_vuelta_text_xy = flecha_eo_text_xy
         labels_vuelta = labels_eo
+        
+        df_d0 = df_d0.sort_values('section_id', ascending=False)
+        df_d1 = df_d1.sort_values('section_id', ascending=False)
+        
+    sns.barplot(data=df_d0, x="section_id",
+                y=indicator, ax=ax3, color='Purple',
+                order=df_d0.section_id.values)
+
+    sns.barplot(data=df_d1, x="section_id",
+                y=indicator, ax=ax4, color='Orange',
+                order=df_d1.section_id.values)
 
     # Axis
     ax3.set_xticklabels(labels_ida)
@@ -411,11 +418,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     ax3.set_ylabel(y_axis_lable)
     ax3.set_xlabel('')
 
-    ax3.spines.right.set_visible(False)
-    ax3.spines.top.set_visible(False)
-    ax4.spines.left.set_visible(False)
-    ax4.spines.right.set_visible(False)
-    ax4.spines.top.set_visible(False)
     ax4.get_yaxis().set_visible(False)
 
     ax4.set_ylabel('')
@@ -423,6 +425,12 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     max_y_barplot = max(df_d0[indicator].max(), df_d1[indicator].max())
     ax3.set_ylim(0, max_y_barplot)
     ax4.set_ylim(0, max_y_barplot)
+
+    ax3.spines.right.set_visible(False)
+    ax3.spines.top.set_visible(False)
+    ax4.spines.left.set_visible(False)
+    ax4.spines.right.set_visible(False)
+    ax4.spines.top.set_visible(False)
 
     # For direction 0, get the last section of the route geom
     flecha_ida = gdf.loc[gdf.section_id == max(gdf.section_id), 'geometry']
