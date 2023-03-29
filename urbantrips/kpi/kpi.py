@@ -157,11 +157,14 @@ def compute_route_section_load(
         recorridos["n_sections"] = n_sections
 
     print("Computing section load per route ...")
+
     section_load_table = etapas.groupby("id_linea").apply(
         compute_section_load_table,
         recorridos=recorridos,
         rango_hrs=rango_hrs,
         day_type=day_type,
+        n_sections=n_sections
+
     )
 
     section_load_table = section_load_table.reset_index(drop=True)
@@ -240,7 +243,7 @@ def delete_old_route_section_load_data_q(
 
 
 def compute_section_load_table(
-        df, recorridos, rango_hrs, day_type, *args, **kwargs):
+        df, recorridos, rango_hrs, day_type, n_sections, *args, **kwargs):
     """
     Computes for a route a table with the load per section
 
@@ -252,6 +255,14 @@ def compute_section_load_table(
         routes geoms with a n_sections column
     rango_hrs : tuple
         tuple holding hourly range (from,to).
+    n_sections: int
+        number of sections to split the route geom
+
+    Parameters
+    ----------
+    legs_by_sections_full : pandas.DataFrame
+        table of section load stats per route id, hour range
+        and day type
 
     """
 
@@ -280,20 +291,25 @@ def compute_section_load_table(
         )
 
         # Assign a direction based on line progression
-        df = df.reindex(columns=["o_proj", "d_proj", "factor_expansion"])
+        df = df.reindex(
+            columns=["dia", "o_proj", "d_proj", "factor_expansion"])
         df["sentido"] = [
             "ida" if row.o_proj <= row.d_proj
             else "vuelta" for _, row in df.iterrows()
         ]
 
         # Compute total legs per direction
-        totals_by_direction = df.groupby("sentido", as_index=False).agg(
+        # First totals per day
+        totals_by_direction = df.groupby(["dia", "sentido"], as_index=False).agg(
             cant_etapas_sentido=("factor_expansion", "sum")
         )
+        # then average for weekdays
+        totals_by_direction = totals_by_direction.groupby(["sentido"], as_index=False).agg(
+            cant_etapas_sentido=("cant_etapas_sentido", "mean")
+        )
 
-        step = 1 / n_sections
-        sections = np.arange(0, 1 + step, step)
-        section_ids = pd.Series(map(floor_rounding, sections))
+        # compute section ids based on amount of sections
+        section_ids = create_route_section_ids(n_sections)
 
         # For each leg, build traversed route segments ids
         legs_dict = df.to_dict("records")
@@ -303,9 +319,15 @@ def compute_section_load_table(
         )
 
         # compute total legs by section and direction
+        # first adding totals per day
         legs_by_sections = leg_route_sections_df.groupby(
-            ["sentido", "section_id"], as_index=False
+            ["dia", "sentido", "section_id"], as_index=False
         ).agg(size=("factor_expansion", "sum"))
+
+        # then computing average across days
+        legs_by_sections = legs_by_sections.groupby(
+            ["sentido", "section_id"], as_index=False
+        ).agg(size=("size", "mean"))
 
         # If there is no information for all sections in both directions
         if len(legs_by_sections) < len(section_ids) * 2:
@@ -386,9 +408,32 @@ def compute_section_load_table(
         print("No existe recorrido para id_linea:", id_linea)
 
 
+def create_route_section_ids(n_sections):
+    step = 1 / n_sections
+    sections = np.arange(0, 1 + step, step)
+    section_ids = pd.Series(map(floor_rounding, sections))
+    return section_ids
+
+
 def build_leg_route_sections_df(row, section_ids):
-    lim_inf = row["o_proj"]
-    lim_sup = row["d_proj"]
+    """
+    Computes for a route a table with the load per section
+
+    Parameters
+    ----------
+    row : dict
+        row in a legs df with origin, destination and direction
+    section_ids : list
+        list of sections ids into which classify legs trajectory
+
+    Returns
+    ----------
+    leg_route_sections_df: pandas.DataFrame
+        a dataframe with all section ids traversed by the leg's
+        trajectory
+
+    """
+
     sentido = row["sentido"]
     f_exp = row["factor_expansion"]
 
