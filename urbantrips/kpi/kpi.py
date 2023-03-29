@@ -60,9 +60,10 @@ def compute_route_section_load(
             "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
         )
 
-    if n_sections > 1000:
-        raise Exception(
-            "No se puede utilizar una cantidad de secciones > 1000")
+    if n_sections is not None:
+        if n_sections > 1000:
+            raise Exception(
+                "No se puede utilizar una cantidad de secciones > 1000")
 
     conn_data = iniciar_conexion_db(tipo="data")
     conn_insumos = iniciar_conexion_db(tipo="insumos")
@@ -435,6 +436,7 @@ def build_leg_route_sections_df(row, section_ids):
     """
 
     sentido = row["sentido"]
+    dia = row["dia"]
     f_exp = row["factor_expansion"]
 
     if sentido == "ida":
@@ -455,6 +457,7 @@ def build_leg_route_sections_df(row, section_ids):
     leg_route_sections = section_ids[o_id: d_id + 1]
     leg_route_sections_df = pd.DataFrame(
         {
+            "dia": [dia] * len(leg_route_sections),
             "sentido": [sentido] * len(leg_route_sections),
             "section_id": leg_route_sections,
             "factor_expansion": [f_exp] * len(leg_route_sections),
