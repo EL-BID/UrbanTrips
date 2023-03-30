@@ -9,7 +9,7 @@ from math import floor
 from shapely import wkt
 from shapely.geometry import Point
 import re
-from urbantrips.geo.geo import h3_from_row
+from urbantrips.geo.geo import h3_from_row, create_point_from_h3
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -243,6 +243,39 @@ def delete_old_route_section_load_data_q(
     return q_delete
 
 
+def add_od_lrs_to_legs_from_route(legs_df, route_geom):
+    """
+    Computes for a legs df with origin and destinarion in h3 (h3_o and h3_d)
+    the proyected lrs over a route geom
+
+    Parameters
+    ----------
+    legs : pandas.DataFrame
+        table of legs in a route with columns h3_o and h3_d
+    route_geom : shapely LineString
+        route geom 
+
+    Returns
+    ----------
+    legs_df : pandas.DataFrame
+        table of legs with projected od
+
+    """
+    # create Points for origins and destination
+    legs_df["o"] = legs_df['h3_o'].map(create_point_from_h3)
+    legs_df["d"] = legs_df['h3_d'].map(create_point_from_h3)
+
+    # Assign a route section id
+    legs_df["o_proj"] = list(
+        map(get_route_section_id, legs_df["o"], itertools.repeat(route_geom))
+    )
+    legs_df["d_proj"] = list(
+        map(get_route_section_id, legs_df["d"], itertools.repeat(route_geom))
+    )
+
+    return legs_df
+
+
 def compute_section_load_table(
         df, recorridos, rango_hrs, day_type, n_sections, *args, **kwargs):
     """
@@ -253,13 +286,13 @@ def compute_section_load_table(
     df : pandas.DataFrame
         table of legs in a route
     recorridos : geopandas.GeoDataFrame
-        routes geoms with a n_sections column
+        routes geoms 
     rango_hrs : tuple
         tuple holding hourly range (from,to).
     n_sections: int
         number of sections to split the route geom
 
-    Parameters
+    Returns
     ----------
     legs_by_sections_full : pandas.DataFrame
         table of section load stats per route id, hour range
@@ -276,17 +309,7 @@ def compute_section_load_table(
         recorrido = recorridos.loc[recorridos.id_linea ==
                                    id_linea, "geometry"].item()
 
-        # create Points for origins and destination
-        df["o"] = df.h3_o.map(lambda h: Point(h3.h3_to_geo(h)[::-1]))
-        df["d"] = df.h3_d.map(lambda h: Point(h3.h3_to_geo(h)[::-1]))
-
-        # Assign a route section id
-        df["o_proj"] = list(
-            map(get_route_section_id, df["o"], itertools.repeat(recorrido))
-        )
-        df["d_proj"] = list(
-            map(get_route_section_id, df["d"], itertools.repeat(recorrido))
-        )
+        df = add_od_lrs_to_legs_from_route(legs_df=df, route_geom=recorrido)
 
         # Assign a direction based on line progression
         df = df.reindex(
@@ -298,13 +321,14 @@ def compute_section_load_table(
 
         # Compute total legs per direction
         # First totals per day
-        totals_by_direction = df.groupby(["dia", "sentido"], as_index=False).agg(
-            cant_etapas_sentido=("factor_expansion", "sum")
-        )
+        totals_by_direction = df\
+            .groupby(["dia", "sentido"], as_index=False)\
+            .agg(cant_etapas_sentido=("factor_expansion", "sum"))
+
         # then average for weekdays
-        totals_by_direction = totals_by_direction.groupby(["sentido"], as_index=False).agg(
-            cant_etapas_sentido=("cant_etapas_sentido", "mean")
-        )
+        totals_by_direction = totals_by_direction\
+            .groupby(["sentido"], as_index=False)\
+            .agg(cant_etapas_sentido=("cant_etapas_sentido", "mean"))
 
         # compute section ids based on amount of sections
         section_ids = create_route_section_ids(n_sections)
@@ -318,14 +342,14 @@ def compute_section_load_table(
 
         # compute total legs by section and direction
         # first adding totals per day
-        legs_by_sections = leg_route_sections_df.groupby(
-            ["dia", "sentido", "section_id"], as_index=False
-        ).agg(size=("factor_expansion", "sum"))
+        legs_by_sections = leg_route_sections_df\
+            .groupby(["dia", "sentido", "section_id"], as_index=False)\
+            .agg(size=("factor_expansion", "sum"))
 
         # then computing average across days
-        legs_by_sections = legs_by_sections.groupby(
-            ["sentido", "section_id"], as_index=False
-        ).agg(size=("size", "mean"))
+        legs_by_sections = legs_by_sections\
+            .groupby(["sentido", "section_id"], as_index=False)\
+            .agg(size=("size", "mean"))
 
         # If there is no information for all sections in both directions
         if len(legs_by_sections) < len(section_ids) * 2:
