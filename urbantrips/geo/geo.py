@@ -241,6 +241,10 @@ def normalizo_lat_lon(df,
     return df
 
 
+def create_point_from_h3(h):
+    return Point(h3.h3_to_geo(h)[::-1])
+
+
 def crear_linestring(df,
                      lon_o,
                      lat_o,
