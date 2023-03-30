@@ -275,9 +275,6 @@ def compute_section_load_table(
 
         recorrido = recorridos.loc[recorridos.id_linea ==
                                    id_linea, "geometry"].item()
-        n_sections = recorridos.loc[
-            recorridos.id_linea == id_linea, "n_sections"
-        ].item()
 
         # create Points for origins and destination
         df["o"] = df.h3_o.map(lambda h: Point(h3.h3_to_geo(h)[::-1]))
