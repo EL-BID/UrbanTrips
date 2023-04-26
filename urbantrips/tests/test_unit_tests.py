@@ -534,6 +534,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     )
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    misc.create_line_and_branches_metadata()
 
     legs.create_legs_from_transactions(criterio_orden_transacciones)
 
