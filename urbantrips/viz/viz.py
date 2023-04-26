@@ -519,7 +519,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
-    plt.close(f)
 
     if return_gdfs:
         return gdf_d0, gdf_d1
