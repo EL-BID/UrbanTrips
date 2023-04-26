@@ -156,7 +156,10 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
             id_linea = [id_linea]
 
         lineas_str = ",".join(map(str, id_linea))
+    else:
+        lineas_str = ''
 
+    # create query to get data from db
     q = load_route_section_load_data_q(
         lineas_str, rango_hrs, n_sections, section_meters, day_type
     )
@@ -189,6 +192,31 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
 def load_route_section_load_data_q(
     lineas_str, rango_hrs, n_sections, section_meters, day_type
 ):
+    """
+    Creates a query that gets route section load data from the db
+    for a specific set of lineas, hours, section meters and day type
+
+    Parameters
+    ----------
+    lineas_str : str
+        list of lines to query in a string format separated by comma
+    rango_hrs : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+
+    Returns
+    -------
+    str
+        query that gets data
+
+    """
 
     # hour range filter
     if rango_hrs:
@@ -205,10 +233,12 @@ def load_route_section_load_data_q(
         and day_type = '{day_type}'
         """
 
-    q = q + f" and id_linea in ({lineas_str})"
+    if lineas_str != '':
+        q = q + f" and id_linea in ({lineas_str})"
 
     if section_meters:
         q = q + f" and  section_meters = {section_meters}"
+
     else:
         q = (
             q +
@@ -386,11 +416,11 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         flecha_vuelta_xy = flecha_oe_xy
         flecha_vuelta_text_xy = flecha_oe_text_xy
         labels_vuelta = labels_oe
-        
+
         # direction 0 east to west
         df_d0 = df_d0.sort_values('section_id', ascending=True)
         df_d1 = df_d1.sort_values('section_id', ascending=True)
-    
+
     else:
         flecha_ida_xy = flecha_oe_xy
         flecha_ida_text_xy = flecha_oe_text_xy
@@ -399,10 +429,10 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         flecha_vuelta_xy = flecha_eo_xy
         flecha_vuelta_text_xy = flecha_eo_text_xy
         labels_vuelta = labels_eo
-        
+
         df_d0 = df_d0.sort_values('section_id', ascending=False)
         df_d1 = df_d1.sort_values('section_id', ascending=False)
-        
+
     sns.barplot(data=df_d0, x="section_id",
                 y=indicator, ax=ax3, color='Purple',
                 order=df_d0.section_id.values)
