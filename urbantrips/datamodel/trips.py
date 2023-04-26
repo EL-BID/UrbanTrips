@@ -275,7 +275,7 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
         .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
         .groupby(['id_tarjeta', 'dia'])\
         .apply(crear_cumsum_mismo_od)['mismo_od']
-    df['cumsum'] = cumsum_mismo_od
+    df['cumsum'] = cumsum_mismo_od.values
 
     # crear nuevos id viaje y etapa
     df['nuevo_id_viaje'] = (df.id_viaje + df['cumsum']).map(int)
