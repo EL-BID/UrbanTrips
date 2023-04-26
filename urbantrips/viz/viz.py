@@ -284,7 +284,11 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     s = f"select nombre_linea from metadata_lineas" +\
         f" where id_linea = {id_linea};"
     id_linea_str = pd.read_sql(s, conn_insumos)
-    id_linea_str = id_linea_str.nombre_linea.item()
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+    else:
+        id_linea_str = ''
 
     route_geom = route_geoms.loc[id_linea]
 
