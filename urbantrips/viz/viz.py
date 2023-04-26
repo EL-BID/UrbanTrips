@@ -361,11 +361,14 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
 
     gdf.plot(ax=ax1, color='black')
     gdf.plot(ax=ax2, color='black')
-
-    gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
-                scheme='fisherjenks', k=5, alpha=.6)
-    gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges',
-                scheme='fisherjenks', k=5, alpha=.6)
+    try:
+        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
+                    scheme='fisherjenks', k=5, alpha=.6)
+        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges',
+                    scheme='fisherjenks', k=5, alpha=.6)
+    except ValueError:
+        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu', alpha=.6)
+        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges', alpha=.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
