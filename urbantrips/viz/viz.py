@@ -514,7 +514,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    plt.show()
+
     for frm in ['png', 'pdf']:
         archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)
