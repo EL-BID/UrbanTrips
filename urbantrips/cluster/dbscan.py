@@ -239,7 +239,7 @@ def cluster_legs(X, w, type_k='lrs'):
     elif type_k == '4d':
         eps_range = np.arange(100, 1000, 50)
     else:
-        eps_range = eps_range
+        pass
 
     for eps in eps_range:
         for min_samples in min_samples_range:
