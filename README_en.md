@@ -282,10 +282,25 @@ pip install urbantrips
 ```
 
 ## First steps
-After creating the environment, you can download the [Buenos Aires SUBE transactions dataset](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), save it in `data/data_ciudad/transacciones.csv`. This dataset does not have a `fecha` field with the format `dd/mm/yyyy`, so you will need to add one with any date and use the configurations specified below. Finally, run:
+After creating the environment, you can download the [Buenos Aires SUBE transactions dataset](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), save it in `data/data_ciudad/transacciones.csv`. This dataset does not have a `fecha` field with the format `dd/mm/yyyy`, so you will need to add one with any date and use the configurations specified below. Also, an `id_linea` must be specified with the criteria already explained previously. For that, you can take the line information from [this file](https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv) (which can be used for the parameter `nombre_archivo_informacion_lineas`). In this file, each `id_ramal` has an `id_linea` assigned, with that information an `id_linea` can be added to transactions table.
+
+
+Once the transaction file and line information is available, it is possible to start using `urbantrips`. First of all it is necessary to initialize the directories and the database that the library needs. This step is only run once.
 
 ```
-python urbantrips/run_urbantrips.py
+python urbantrips/initialize_environment.py
+```
+
+Then, the transaction information can be processed. This transaction file can have the information of a day, a week or a month (as long as there is not too much information). This step processes the transactions in stages and trips, imputing destinations. Then it can be run for each new dataset they want to process (`week_1.csv`, `week_2.csv`, etc) adjusting what is necessary in the `configuraciones_generales.yaml` file.
+
+```
+python urbantrips/process_transactions.py
+```
+
+Finally, once all the transactions that are of interest have been processed and loaded into the liberty database, it is possible to run the subsequent processing steps on that information, such as KPIs, visualizations and export of results.
+
+```
+python urbantrips/run_postprocessing.py
 ```
 
 
@@ -302,8 +317,8 @@ alias_db_data: amba
 
 alias_db_insumos: amba
 
-nombre_archivo_informacion_lineas:
-informacion_lineas_contiene_ramales: False
+nombre_archivo_informacion_lineas: lineas_amba.csv
+informacion_lineas_contiene_ramales: True
 
 imputar_destinos_min_distancia: True
 

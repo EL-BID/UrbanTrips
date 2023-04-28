@@ -24,7 +24,11 @@ def duracion(f):
     return wrap
 
 
-def crear_directorios():
+def create_directories():
+    """
+    This function creates the basic directory structure
+    for Urbantrips to work
+    """
     db_path = os.path.join("data", "db")
     os.makedirs(db_path, exist_ok=True)
 
@@ -92,7 +96,7 @@ def iniciar_conexion_db(tipo='data'):
 
 
 @ duracion
-def crear_base():
+def create_db():
     # Crear conexion con bases de data e insumos
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')

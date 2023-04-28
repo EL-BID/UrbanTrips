@@ -259,10 +259,10 @@ def create_test_trx(geolocalizar_trx_config,
             os.remove(filePath)
 
     # crear_directorios:
-    utils.crear_directorios()
+    utils.create_directories()
 
     # crear base de datos:
-    utils.crear_base()
+    utils.create_db()
 
     transactions.create_transactions(geolocalizar_trx_config,
                                      nombre_archivo_trx,
