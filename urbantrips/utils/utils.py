@@ -24,7 +24,11 @@ def duracion(f):
     return wrap
 
 
-def crear_directorios():
+def create_directories():
+    """
+    This function creates the basic directory structure
+    for Urbantrips to work
+    """
     db_path = os.path.join("data", "db")
     os.makedirs(db_path, exist_ok=True)
 
@@ -92,7 +96,7 @@ def iniciar_conexion_db(tipo='data'):
 
 
 @ duracion
-def crear_base():
+def create_db():
     # Crear conexion con bases de data e insumos
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
@@ -552,9 +556,9 @@ def crear_tablas_indicadores_operativos():
 
 def check_config():
     """
-    Esta funcion toma un archivo de configuracion en formato yaml
-    y lee su contenido. Luego, chequea si hay alguna inconsistencia
-    en el archivo,imprimiendo un mensaje de error si alguna es encontrada.
+    This function takes a configuration file in yaml format
+    and read its content. Then check for any inconsistencies
+    in the file, printing an error message if one is found.
 
     Args:
     None
@@ -615,12 +619,16 @@ def check_config():
 
     # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
     atributos_trx_obligatorios = pd.Series(
-        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx', 'interno_trx'])
+        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx'])
 
     if not configs['geolocalizar_trx']:
         trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
         atributos_trx_obligatorios = pd.concat(
             [atributos_trx_obligatorios, trx_coords])
+    else:
+        interno_col = pd.Series(['interno_trx'])
+        atributos_trx_obligatorios = pd.concat(
+            [atributos_trx_obligatorios, interno_col])
 
     attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
         nombres_variables_trx.dropna().trx_name)

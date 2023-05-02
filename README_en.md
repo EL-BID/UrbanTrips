@@ -5,6 +5,7 @@
 ![analytics](https://www.google-analytics.com/collect?v=1&cid=555&t=pageview&ec=repo&ea=open&dp=/urbantrips/readme&dt=&tid=UA-4677001-16)
 
 
+![logo](https://github.com/EL-BID/UrbanTrips/blob/feature/issue_4/docs/logo_readme.png)
 
 # README
 `urbantrips` is an open-source library that takes information from a smart card payment system for public transportation and, through information processing that infers trip destinations and constructs travel chains for each user, produces origin-destination matrices and other indicators (KPI) for bus routes. The main objective of the library is to produce useful inputs for public transport management from minimal information and pre-processing requirements. With only a geolocalized table of economic transactions from an electronic payment system, results can be generated, which will be more accurate the more additional information is incorporated into the process through optional files. The process elaborates the matrices, indicators, and constructs a series of transport graphs and maps.
@@ -282,10 +283,25 @@ pip install urbantrips
 ```
 
 ## First steps
-After creating the environment, you can download the [Buenos Aires SUBE transactions dataset](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), save it in `data/data_ciudad/transacciones.csv`. This dataset does not have a `fecha` field with the format `dd/mm/yyyy`, so you will need to add one with any date and use the configurations specified below. Finally, run:
+After creating the environment, you can download the [Buenos Aires SUBE transactions dataset](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), save it in `data/data_ciudad/transacciones.csv`. This dataset does not have a `fecha` field with the format `dd/mm/yyyy`, so you will need to add one with any date and use the configurations specified below. Also, an `id_linea` must be specified with the criteria already explained previously. For that, you can take the line information from [this file](https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv) (which can be used for the parameter `nombre_archivo_informacion_lineas`). In this file, each `id_ramal` has an `id_linea` assigned, with that information an `id_linea` can be added to transactions table.
+
+
+Once the transaction file and line information is available, it is possible to start using `urbantrips`. First of all it is necessary to initialize the directories and the database that the library needs. This step is only run once.
 
 ```
-python urbantrips/run_urbantrips.py
+python urbantrips/initialize_environment.py
+```
+
+Then, the transaction information can be processed. This transaction file can have the information of a day, a week or a month (as long as there is not too much information). This step processes the transactions in stages and trips, imputing destinations. Then it can be run for each new dataset they want to process (`week_1.csv`, `week_2.csv`, etc) adjusting what is necessary in the `configuraciones_generales.yaml` file.
+
+```
+python urbantrips/process_transactions.py
+```
+
+Finally, once all the transactions that are of interest have been processed and loaded into the liberty database, it is possible to run the subsequent processing steps on that information, such as KPIs, visualizations and export of results.
+
+```
+python urbantrips/run_postprocessing.py
 ```
 
 
@@ -302,8 +318,8 @@ alias_db_data: amba
 
 alias_db_insumos: amba
 
-nombre_archivo_informacion_lineas:
-informacion_lineas_contiene_ramales: False
+nombre_archivo_informacion_lineas: lineas_amba.csv
+informacion_lineas_contiene_ramales: True
 
 imputar_destinos_min_distancia: True
 
