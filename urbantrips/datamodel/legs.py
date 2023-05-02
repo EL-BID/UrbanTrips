@@ -143,7 +143,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params):
         transactions data 
 
     trx_order_params : dict
-        parameters for 
+        parameters that define order of transactions and concurrent criteria 
 
     Returns
     ----------
