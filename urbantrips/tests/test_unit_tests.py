@@ -294,7 +294,7 @@ def test_amba_integration(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -323,7 +323,7 @@ def test_amba_integration(matriz_validacion_test_amba):
     # longitud del string igual para todas las tarjetas
     assert trx.id_tarjeta.str.len().std() == 0
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -380,7 +380,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -407,7 +407,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     # longitud del string igual para todas las tarjetas
     assert trx.id_tarjeta.str.len().std() == 0
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -477,12 +477,12 @@ def test_viz_lowes():
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
     q = "select * from etapas"
@@ -522,7 +522,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -536,7 +536,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
     misc.create_line_and_branches_metadata()
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -580,7 +580,7 @@ def test_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -594,7 +594,7 @@ def test_viz(matriz_validacion_test_amba):
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
     conn_data = utils.iniciar_conexion_db(tipo='data')
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -690,7 +690,7 @@ def test_gps(matriz_validacion_test_amba):
         'latitud_gps': 'latitud_gps',
         'longitud_gps': 'longitud_gps',
     }
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": "fecha_completa",
         "ventana_viajes": 120,
         "ventana_duplicado": 5,
@@ -710,7 +710,7 @@ def test_gps(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # confirm latlong for card_id 37030208
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')

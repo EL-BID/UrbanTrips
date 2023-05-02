@@ -23,7 +23,7 @@ def main():
 
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -53,7 +53,7 @@ def main():
                             nombres_variables_gps)
 
     # Turn transactions into legs
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # Update destination validation matrix
     carto.update_stations_catchment_area(ring_size=ring_size)
