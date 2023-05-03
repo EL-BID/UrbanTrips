@@ -39,5 +39,6 @@ setuptools.setup(
         'seaborn',
         'IPython',
         'matplotlib-scalebar',
+        'numba',
         'mycolorpy']
  )
