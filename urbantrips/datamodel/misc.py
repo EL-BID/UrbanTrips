@@ -18,7 +18,7 @@ def create_line_and_branches_metadata():
     configs = leer_configs_generales()
     try:
         tabla_lineas = configs["nombre_archivo_informacion_lineas"]
-        con_ramales = configs["informacion_lineas_contiene_ramales"]
+        con_ramales = configs["lineas_contienen_ramales"]
 
         if tabla_lineas is not None:
             crear_tabla_metadata_lineas(conn_insumos)

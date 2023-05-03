@@ -401,6 +401,8 @@ def geolocalizar_trx(
     transacciones con las trx_eco geolocalizadas
     """
     # crear tablas de trx_eco y gps
+    configs = leer_configs_generales()
+
     conn = iniciar_conexion_db(tipo='data')
     print("Creando tablas de trx_eco y gps para geolocalizacion")
     crear_tablas_geolocalizacion()
@@ -437,7 +439,11 @@ def geolocalizar_trx(
     trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco)
 
     # Eliminar datos con faltantes en variables fundamentales
-    subset = ["id_tarjeta", "fecha", "id_linea"]
+    if configs['lineas_contienen_ramales']:
+        subset = ["id_tarjeta", "fecha", "id_linea", "id_ramal"]
+    else:
+        subset = ["id_tarjeta", "fecha", "id_linea"]
+
     trx_eco = eliminar_NAs_variables_fundamentales(trx_eco, subset)
 
     # Convertir id tarjeta en int si son float y tienen .0
@@ -452,7 +458,13 @@ def geolocalizar_trx(
     print("Parseando fechas trx_eco")
 
     trx_eco["fecha"] = trx_eco["fecha"].map(lambda s: s.timestamp())
-    trx_eco = trx_eco.dropna(subset=["id_linea", "id_ramal", "interno"])
+
+    if configs['lineas_contienen_ramales']:
+        cols = ["id_linea", "id_ramal", "interno"]
+    else:
+        cols = ["id_linea",  "interno"]
+
+    trx_eco = trx_eco.dropna(subset=cols)
 
     # Eliminar trx unica en el dia
     trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
@@ -484,26 +496,52 @@ def geolocalizar_trx(
 
     # hacer el join por fecha
     print("Geolocalizando datos")
-    query = """
-        WITH trx AS (
-        select t.id,t.id_original, t.id_tarjeta, datetime(t.fecha, 'unixepoch') as fecha,
-                t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                t.id_ramal, t.interno, t.orden as orden, g.latitud, g.longitud,
-                (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
-                t.factor_expansion,
-            ROW_NUMBER() OVER(
-                PARTITION BY t."id"
-                ORDER BY g.fecha DESC) AS n_row
-        from trx_eco t, gps g
-        where  t."id_linea" = g."id_linea"
-        and  t."id_ramal" = g."id_ramal"
-        and  t."interno" = g."interno"
-        and t.fecha > g.fecha
-        )
-        SELECT *
-        FROM trx
-        WHERE n_row = 1;
-    """
+
+    if configs['lineas_contienen_ramales']:
+        query = """
+            WITH trx AS (
+            select t.id,t.id_original, t.id_tarjeta,
+                    datetime(t.fecha, 'unixepoch') as fecha,
+                    t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
+                    t.id_ramal, t.interno, t.orden as orden,
+                    g.latitud, g.longitud,
+                    (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
+                    t.factor_expansion,
+                ROW_NUMBER() OVER(
+                    PARTITION BY t."id"
+                    ORDER BY g.fecha DESC) AS n_row
+            from trx_eco t, gps g
+            where  t."id_linea" = g."id_linea"
+            and  t."id_ramal" = g."id_ramal"
+            and  t."interno" = g."interno"
+            and t.fecha > g.fecha
+            )
+            SELECT *
+            FROM trx
+            WHERE n_row = 1;
+        """
+    else:
+        query = """
+            WITH trx AS (
+            select t.id,t.id_original, t.id_tarjeta,
+                    datetime(t.fecha, 'unixepoch') as fecha,
+                    t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
+                    t.interno, t.orden as orden, g.latitud, g.longitud,
+                    (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
+                    t.factor_expansion,
+                ROW_NUMBER() OVER(
+                    PARTITION BY t."id"
+                    ORDER BY g.fecha DESC) AS n_row
+            from trx_eco t, gps g
+            where  t."id_linea" = g."id_linea"
+            and  t."interno" = g."interno"
+            and t.fecha > g.fecha
+            )
+            SELECT *
+            FROM trx
+            WHERE n_row = 1;
+        """
+
     trx = pd.read_sql_query(
         query,
         conn,

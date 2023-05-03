@@ -16,8 +16,11 @@ alias_db_data: amba_test
 
 alias_db_insumos: amba_test
 
+lineas_contienen_ramales: True
 nombre_archivo_informacion_lineas: lineas_amba_test.csv
-informacion_lineas_contiene_ramales: True
+
+
+
 
 imputar_destinos_min_distancia: False
 
