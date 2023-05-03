@@ -1,10 +1,10 @@
 from urbantrips.cluster import dbscan
-from urbantrips.carto.carto import get_espg_m
+from urbantrips.carto.carto import get_epsg_m
 
 
 def main():
     day_type = 'weekday'
-    epsg_m = get_espg_m()
+    epsg_m = get_epsg_m()
 
     id_linea = 1
     rango_hrs = [7, 9]
