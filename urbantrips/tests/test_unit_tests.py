@@ -15,6 +15,7 @@ from urbantrips.geo import geo
 from urbantrips.utils import utils
 from urbantrips.carto import carto
 from urbantrips.viz import viz
+from urbantrips.datamodel.misc import create_line_and_branches_metadata
 
 
 @pytest.fixture
@@ -276,6 +277,7 @@ def create_test_trx(geolocalizar_trx_config,
 
 def test_amba_integration(matriz_validacion_test_amba):
     configs = utils.leer_configs_generales()
+    create_line_and_branches_metadata()
     geolocalizar_trx_config = configs["geolocalizar_trx"]
     nombres_variables_trx = configs["nombres_variables_trx"]
     formato_fecha = configs["formato_fecha"]
@@ -512,6 +514,8 @@ def test_section_load_viz(matriz_validacion_test_amba):
     nombre_archivo_trx = configs["nombre_archivo_trx"]
     nombre_archivo_gps = configs["nombre_archivo_gps"]
     nombres_variables_gps = configs["nombres_variables_gps"]
+
+    create_line_and_branches_metadata()
 
     create_test_trx(geolocalizar_trx_config,
                     nombre_archivo_trx,

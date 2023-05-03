@@ -42,7 +42,7 @@ Con sólo esos archivos podrá correr el proceso de imputación de destinos, con
 
 El esquema de datos de estos archivos se especifica en el apartado [Esquema de datos](#Esquema-de-datos).
 
-## Aclaración sobre el concepto de lineas y ramales en urbantrips
+## Sobre el concepto de lineas y ramales en urbantrips
 Una linea de transporte público puede tener un recorrido principal en torno al cual hay pequeñas variantes. Estas son consideradas ramales dentro de una misma linea. En muchas ciudades no existen estas diferencias y cada recorrido tiene un nombre y id únicos. Pero en otras no es así. A su vez, puede darse una situación donde una persona utiliza por ej el metro, subiendo a la estación del recorrido A y bajarse en el recorrido B, sin que ese transbordo sea identificado como transacción en la tarjeta. Por lo tanto, para imputar el destino consideramos como puntos de descenso posible todas las estaciones del metro. En este caso, el metro funcionará como una única línea y cada recorrido un ramal dentro del mismo. También puede suceder que una linea de autobuses tenga varios ramales, pero no siempre se identifica en los datos el ramal que realmente dicho interno está recorriendo. Con lo cual podría ser cualquier recorrido de cualquiera de los ramales y al imputar el destino deberiamos considerar todas las estaciones potenciales de toda esa linea de autobus. Esta forma de tratar a las líneas y ramales permite que `urbantrips` se acomode a estas situaciones. 
 
 Si en una ciudad no existen estas situaciones, simplemente se utiliza la linea para identificar cada recorrido. Si alguna de las situaciones que se identificaron aquí se presenta en una ciudad, se puede utilizar ese criterio de linea y ramal que debe estar de ese modo en la tabla de transacciones a utilizar. La diferencia fundamental es que el proceso de imputación de destinos considerará como posible punto de destino todas las estaciones de la linea y no del ramal.
@@ -142,13 +142,20 @@ También es necesario especificar una proyección de coordenadas en metros, pasa
 epsg_m: 9265
 ```
 
+Es necesario que se especifique si en el sistema de transporte existen lineas con ramales, tal como los entiende `urbantrips` y se especifica en [Sobre el concepto de lineas y ramales en urbantrips](#Sobre-el-concepto-de-lineas-y-ramales-en-urbantrips). Esto debe indicarse en el parámetro correspondiente.
+
+```
+lineas_contienen_ramales: True
+```
+
 
 Por último, se pueden especificar tablas adicionales de utilidad para el proceso. Por un lado se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece.  La misma puede identificar una linea o una linea-ramal (siendo los ramales pequeñas desviaciones con respecto a un recorrido principal). En este último caso `urbantrips` creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales. 
 
 Tambien permite agregar cartografías como los recorridos, que deben ser una única Linestring en 2d (no permite multilineas), o diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera `urbantrips`. 
+
+
 ```
 nombre_archivo_informacion_lineas: lineas_amba.csv
-informacion_lineas_contiene_ramales: True
 recorridos_geojson: recorridos_amba.geojson
 
 zonificaciones:
@@ -307,8 +314,8 @@ alias_db_data: amba
 
 alias_db_insumos: amba
 
+lineas_contienen_ramales: True
 nombre_archivo_informacion_lineas: lineas_amba.csv
-informacion_lineas_contiene_ramales: True
 
 imputar_destinos_min_distancia: True
 
