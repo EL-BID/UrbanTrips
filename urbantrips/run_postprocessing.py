@@ -24,12 +24,8 @@ def main():
     # Persist datamodel into csv tables
     persist_datamodel_tables()
 
-    # Poduce main viz
-    viz.create_visualizations()
-
     # Compute KPI
     kpi.compute_kpi()
-
 
 if __name__ == "__main__":
     main()

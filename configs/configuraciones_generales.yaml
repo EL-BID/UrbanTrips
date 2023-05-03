@@ -1,51 +1,39 @@
 
 geolocalizar_trx: False
 
-# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros.  Resolucion 9 tiene 174 metros y la  10 tiene  65 metros
+# Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros. 
 resolucion_h3: 8
-# tolerancia parada destino en metros
+#tolerancia parada destino en metros
 tolerancia_parada_destino: 2200
+
+imputar_destinos_min_distancia: False
 
 # Proyeccion de coordenadas en metros a utilizar  
 epsg_m: 9265
 
 #especificar el archivo con las transacciones a consumir
-nombre_archivo_trx: transacciones_amba_test.csv
+nombre_archivo_trx: transacciones_amba_muestra10.csv
+# nombre_archivo_trx: muestra_amba5000.csv
 
-alias_db_data: amba_test
+# alias_db_data: muestra_amba5000
+alias_db_data: amba2_muestra10
 
-alias_db_insumos: amba_test
-
-nombre_archivo_informacion_lineas: lineas_amba_test.csv
-informacion_lineas_contiene_ramales: True
-
-imputar_destinos_min_distancia: False
+alias_db_insumos: amba
 
 #ingresar el nombre de las variables
 nombres_variables_trx:
     id_trx: id
-    fecha_trx: fecha 
+    fecha_trx: FECHA 
     id_tarjeta_trx: id_tarjeta
     modo_trx: modo
     hora_trx: hora
     id_linea_trx: id_linea
-    id_ramal_trx: id_ramal 
+    id_ramal_trx:  
     interno_trx: interno_bus
     orden_trx: etapa_red_sube 
     latitud_trx: lat 
     longitud_trx: lon
-    factor_expansion:   
-
-nombre_archivo_gps: 
-
-nombres_variables_gps:
-    id_gps: 
-    id_linea_gps: 
-    id_ramal_gps: 
-    interno_gps: 
-    fecha_gps: 
-    latitud_gps: 
-    longitud_gps:  
+    factor_expansion: fex 
     
 modos:
     autobus: COL
@@ -54,7 +42,7 @@ modos:
     tranvia:
     brt:
      
-recorridos_geojson: recorridos_amba.geojson
+recorridos_geojson:
 
 
 # Filtro de coordenadas en formato minx, miny, maxx, maxy 
@@ -79,7 +67,6 @@ ordenamiento_transacciones: orden_trx #fecha_completa u orden_trx
 ventana_viajes: 
 ventana_duplicado: 
 
-
 tipo_trx_invalidas:
     tipo_trx_tren:
         - 'CHECK OUT SIN CHECKIN'
@@ -87,3 +74,9 @@ tipo_trx_invalidas:
 
 # Poner geo1 el nombre del archivo geojson, var1 el nombre de la variable que contiene la etiqueta a utilizar, orden1 el orden de las etiquetas en los graficos
 zonificaciones:
+    geo1: hexs_amba.geojson
+    var1: Corona
+    orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
+    geo2: hexs_amba.geojson
+    var2: Partido
+
