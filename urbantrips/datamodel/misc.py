@@ -88,7 +88,7 @@ def create_line_and_branches_metadata():
 
 def crear_tabla_metadata_lineas(conn_insumos):
 
-    conn_insumos.execute("DROP TABLE metadata_lineas;")
+    conn_insumos.execute("DROP TABLE IF EXISTS metadata_lineas;")
 
     conn_insumos.execute(
         """
@@ -105,7 +105,7 @@ def crear_tabla_metadata_lineas(conn_insumos):
 
 
 def crear_tabla_metadata_ramales(conn_insumos):
-    conn_insumos.execute("DROP TABLE metadata_ramales;")
+    conn_insumos.execute("DROP TABLE IF EXISTS metadata_ramales;")
 
     conn_insumos.execute(
         """
