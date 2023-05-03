@@ -136,6 +136,13 @@ Este otro grupo de parámetros controla el método de imputación de destinos. P
 tolerancia_parada_destino: 2200
 imputar_destinos_min_distancia: True
 ```
+
+También es necesario especificar una proyección de coordenadas en metros, pasando un id de [EPSG](https://epsg.io/).
+```
+epsg_m: 9265
+```
+
+
 Por último, se pueden especificar tablas adicionales de utilidad para el proceso. Por un lado se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece.  La misma puede identificar una linea o una linea-ramal (siendo los ramales pequeñas desviaciones con respecto a un recorrido principal). En este último caso `urbantrips` creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales. 
 
 Tambien permite agregar cartografías como los recorridos, que deben ser una única Linestring en 2d (no permite multilineas), o diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera `urbantrips`. 
