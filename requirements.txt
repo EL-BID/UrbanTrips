@@ -1,12 +1,19 @@
 openpyxl
-osmnx
+osmnx>=1.3.0
+geopandas>=0.12.2
+shapely>=2.0.1
+pandas>=2.0.1
 contextily
 h3 < 4
 mapclassify
 weightedstats
 pyyaml
-pysal
+libpysal
+statsmodels
+patsy
 folium
+seaborn
 IPython
 matplotlib-scalebar
+numba
 mycolorpy
