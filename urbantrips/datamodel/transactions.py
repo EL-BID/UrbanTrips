@@ -566,6 +566,8 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
     """
+    configs = leer_configs_generales()
+
     print("Procesando tabla gps")
     conn = iniciar_conexion_db(tipo='data')
 
@@ -589,13 +591,24 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
     # col_hora false para no crear tiempo y hora
     gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
 
-    subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
+    if configs['lineas_contienen_ramales']:
+        subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
+    else:
+        subset = ["interno", "id_linea", "latitud", "longitud"]
+
     gps = eliminar_NAs_variables_fundamentales(gps, subset)
 
     # Convertir fecha en segundos desde 1970
     gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
-    gps = gps.drop_duplicates(subset=['dia', 'id_linea', 'id_ramal', 'interno',
-                                      'fecha', 'latitud', 'longitud'])
+
+    if configs['lineas_contienen_ramales']:
+        subset = ['dia', 'id_linea', 'id_ramal', 'interno',
+                  'fecha', 'latitud', 'longitud']
+    else:
+        subset = ['dia', 'id_linea', 'interno',
+                  'fecha', 'latitud', 'longitud']
+
+    gps = gps.drop_duplicates(subset=subset)
 
     # crear un id original del gps
     gps["id_original"] = gps["id"].copy()
