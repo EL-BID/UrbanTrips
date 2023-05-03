@@ -714,6 +714,8 @@ def check_config():
             columns_with_date=columns_with_date, date_format=date_format)
 
     # Checkear que existan los archivos de zonficación especificados config
+    assert 'zonificaciones' in configs, "Debe haber un atributo `zonificaciones` en config aunque este vacío"
+
     if configs['zonificaciones']:
         for i in configs['zonificaciones']:
             if 'geo' in i:
