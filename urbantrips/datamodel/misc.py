@@ -31,12 +31,12 @@ def create_line_and_branches_metadata():
             if con_ramales:
                 crear_tabla_metadata_ramales(conn_insumos)
 
-                var_obligatorias = ['id_linea', 'nombre_linea',
+                cols = ['id_linea', 'nombre_linea',
                                     'id_ramal', 'nombre_ramal', 'modo']
             else:
-                var_obligatorias = ['id_linea', 'nombre_linea', 'modo']
+                cols = ['id_linea', 'nombre_linea', 'modo']
 
-            assert pd.Series(var_obligatorias).isin(info.columns).all()
+            assert pd.Series(cols).isin(info.columns).all()
 
             # chequear que modo coincida con el config de modos homologados
             try:
@@ -47,6 +47,9 @@ def create_line_and_branches_metadata():
 
                 assert pd.Series(info.modo.unique()).isin(
                     modos_homologados.keys()).all()
+
+                info['modo'] = info['modo'].replace(modos_homologados)
+
             except KeyError:
                 pass
 
@@ -75,7 +78,8 @@ def create_line_and_branches_metadata():
                     index=False)
 
             info_lineas.to_sql(
-                "metadata_lineas", conn_insumos, if_exists="replace", index=False)
+                "metadata_lineas", conn_insumos, if_exists="replace",
+                index=False)
 
     except KeyError:
         print("No hay tabla con informacion configs")
@@ -84,9 +88,11 @@ def create_line_and_branches_metadata():
 
 def crear_tabla_metadata_lineas(conn_insumos):
 
+    conn_insumos.execute("DROP TABLE metadata_lineas;")
+
     conn_insumos.execute(
         """
-        CREATE TABLE IF NOT EXISTS metadata_lineas
+        CREATE TABLE metadata_lineas
             (id_linea INT PRIMARY KEY     NOT NULL,
             nombre_linea text not null,
             modo text not null,
@@ -99,10 +105,11 @@ def crear_tabla_metadata_lineas(conn_insumos):
 
 
 def crear_tabla_metadata_ramales(conn_insumos):
+    conn_insumos.execute("DROP TABLE metadata_ramales;")
 
     conn_insumos.execute(
         """
-        CREATE TABLE IF NOT EXISTS metadata_ramales
+        CREATE TABLE metadata_ramales
             (id_ramal INT PRIMARY KEY     NOT NULL,
             id_linea int not null,
             nombre_ramal text not null,
