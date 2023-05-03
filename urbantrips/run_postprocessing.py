@@ -2,13 +2,15 @@ from urbantrips.datamodel.misc import persist_datamodel_tables
 from urbantrips.kpi import kpi
 from urbantrips.viz import viz
 from urbantrips.carto import carto
+from urbantrips.utils import utils
 
 
 def main():
+    utils.check_config()
 
     # Compute and viz route section load by line
-    kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
-    viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
+    # kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
+    # viz.visualize_route_section_load(id_linea=False, rango_hrs=False)
 
     # Create TAZs
     carto.create_zones_table()
