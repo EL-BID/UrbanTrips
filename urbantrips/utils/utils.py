@@ -714,7 +714,8 @@ def check_config():
             columns_with_date=columns_with_date, date_format=date_format)
 
     # Checkear que existan los archivos de zonficación especificados config
-    assert 'zonificaciones' in configs, "Debe haber un atributo `zonificaciones` en config aunque este vacío"
+    assert 'zonificaciones' in configs, "Debe haber un atributo " +\
+        "`zonificaciones` en config aunque este vacío"
 
     if configs['zonificaciones']:
         for i in configs['zonificaciones']:
@@ -723,6 +724,14 @@ def check_config():
                     "data", "data_ciudad", configs['zonificaciones'][i])
                 assert os.path.exists(
                     geo_file), f"File {geo_file} does not exist"
+
+    # check epsg in meters
+    assert 'epsg_m' in configs, "Debe haber un atributo `epsg_m` en config " +\
+        "especificando un id de EPSG para una proyeccion en metros"
+
+    assert isinstance(
+        configs['epsg_m'], int), "Debe haber un id de EPSG en metros en" +\
+        " configs['epsg_m'] "
 
     print("Proceso de chequeo de archivo de configuración concluido con éxito")
     return None

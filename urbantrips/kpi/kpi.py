@@ -15,6 +15,7 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     crear_tablas_indicadores_operativos,
 )
+from urbantrips.carto.carto import get_espg_m
 
 
 @duracion
@@ -139,11 +140,11 @@ def compute_route_section_load(
 
     # Set which parameter to use to slit route geoms
     if section_meters:
-
+        epsg_m = get_espg_m()
         # project geoms and get for each geom a n_section
         recorridos = gpd.GeoDataFrame(
             recorridos, geometry="geometry", crs="EPSG:4326"
-        ).to_crs(epsg=9265)
+        ).to_crs(epsg=epsg_m)
         recorridos["n_sections"] = (
             recorridos.geometry.length / section_meters).astype(int)
 
