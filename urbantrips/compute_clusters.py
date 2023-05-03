@@ -1,9 +1,11 @@
 from urbantrips.cluster import dbscan
+from urbantrips.carto.carto import get_epsg_m
 
 
 def main():
     day_type = 'weekday'
-    epsg_m = 9265
+    epsg_m = get_epsg_m()
+
     id_linea = 1
     rango_hrs = [7, 9]
     legs, route_geom = dbscan.get_legs_and_route_geoms(

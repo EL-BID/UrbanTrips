@@ -206,9 +206,11 @@ def lowess_linea(df):
     gdf con el id linea
     """
     id_linea = df.id_linea.unique()[0]
+    epsg_m = get_epsg_m()
+
     print("Obteniendo lowess linea:", id_linea)
     gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
-        df['longitud'], df['latitud']), crs=4326).to_crs(9265)
+        df['longitud'], df['latitud']), crs=4326).to_crs(epsg_m)
     y = gdf.geometry.y
     x = gdf.geometry.x
     lowess = sm.nonparametric.lowess
@@ -220,7 +222,7 @@ def lowess_linea(df):
         geom = LineString([(x, y) for x, y in zip(
             lowess_points_df.x, lowess_points_df.y)])
         out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
-                               crs='EPSG:9265', index=[0]).to_crs(4326)
+                               crs=f'EPSG:{epsg_m}', index=[0]).to_crs(4326)
         return out
 
     else:
@@ -721,8 +723,9 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
 
     print(f'Comenzando a correr distancias para {n} pares OD',
           datetime.now().strftime("%H:%M:%S"))
-    print("Este proceso puede demorar algunas horas dependiendo del tamaño de la ciudad" +
-          " y si se corre por primera vez por lo que en la base de insumos no estan estos pares")
+    print("Este proceso puede demorar algunas horas dependiendo del tamaño " +
+          " de la ciudad y si se corre por primera vez por lo que en la base" +
+          " de insumos no estan estos pares")
 
     with multiprocessing.Pool(processes=n_cores) as pool:
         results = pool.map(partial(get_network_distance_osmnx, G=G), zip(
@@ -740,3 +743,14 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     except NetworkXNoPath:
         out = np.nan
     return out
+
+
+def get_epsg_m():
+    '''
+    Gets the epsg id for a coordinate reference system in meters from config
+    '''
+    configs = leer_configs_generales()
+    epsg_m = configs['epsg_m']
+    print(f"Utilizando EPSG:{epsg_m} como proyección de coordenadas en metros")
+
+    return epsg_m

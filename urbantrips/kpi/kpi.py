@@ -15,6 +15,7 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     crear_tablas_indicadores_operativos,
 )
+from urbantrips.carto import carto
 
 
 @duracion
@@ -139,11 +140,11 @@ def compute_route_section_load(
 
     # Set which parameter to use to slit route geoms
     if section_meters:
-
+        epsg_m = carto.get_epsg_m()
         # project geoms and get for each geom a n_section
         recorridos = gpd.GeoDataFrame(
             recorridos, geometry="geometry", crs="EPSG:4326"
-        ).to_crs(epsg=9265)
+        ).to_crs(epsg=epsg_m)
         recorridos["n_sections"] = (
             recorridos.geometry.length / section_meters).astype(int)
 
@@ -253,7 +254,7 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
     legs : pandas.DataFrame
         table of legs in a route with columns h3_o and h3_d
     route_geom : shapely LineString
-        route geom 
+        route geom
 
     Returns
     ----------
@@ -286,7 +287,7 @@ def compute_section_load_table(
     df : pandas.DataFrame
         table of legs in a route
     recorridos : geopandas.GeoDataFrame
-        routes geoms 
+        routes geoms
     rango_hrs : tuple
         tuple holding hourly range (from,to).
     n_sections: int
