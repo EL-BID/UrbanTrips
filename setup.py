@@ -32,7 +32,7 @@ setuptools.setup(
         'mapclassify',
         'weightedstats',
         'pyyaml',
-        'libpysal',
+        'libpysal>=4.7.0',
         'statsmodels',
         'patsy',
         'folium',
