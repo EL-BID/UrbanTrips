@@ -4,10 +4,9 @@ import pandas as pd
 from urbantrips.utils.utils import duracion
 from itertools import repeat
 import h3
-from h3 import H3CellError
 from math import ceil
 from shapely.geometry import Polygon, Point, LineString,  LinearRing
-from libpysal.cg.voronoi import voronoi, voronoi_frames
+import libpysal
 
 
 @ duracion
@@ -34,7 +33,7 @@ def h3_from_row(row, res, lat, lng):
 def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     """
     Esta funcion toma una resolucion h3 y una tolerancia en metros
-    y calcula la cantidad de h3 tolerancia en para alcanzar esa tolerancia 
+    y calcula la cantidad de h3 tolerancia en para alcanzar esa tolerancia
     """
     lado = round(h3.edge_length(resolution=resolucion_h3, unit="m"))
 
@@ -126,7 +125,7 @@ def create_voronoi(centroids, var_zona='Zona'):
     y_coords = centroids.geometry.y
     coords = np.dstack((x_coords, y_coords))
 
-    regions_df, _ = voronoi_frames(coords[0], clip=poly)
+    regions_df, _ = libpysal.cg.voronoi.voronoi_frames(coords[0], clip=poly)
 
     regions_df = regions_df.reset_index()
     regions_df.columns = [var_zona, 'geometry']
