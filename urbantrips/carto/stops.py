@@ -33,11 +33,11 @@ def create_temprary_stops_csv_with_node_id(geojson_path):
     stops_gdf = create_line_stops_equal_interval(geojson_path)
 
     # aggregate at node_id
-    stops = aggregate_line_stops_to_node_id(stops_gdf)
+    stops_df = aggregate_line_stops_to_node_id(stops_gdf)
 
     data_path = os.path.join("data", "data_ciudad")
-    stops.to_csv(os.path.join(data_path,
-                 "temporary_stops.csv"), index=False)
+    stops_df.to_csv(os.path.join(data_path,
+                                 "temporary_stops.csv"), index=False)
 
 
 def create_line_stops_equal_interval(geojson_path):
