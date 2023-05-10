@@ -265,5 +265,7 @@ def crear_linea(row, lon_o, lat_o, lon_d, lat_d):
     return (LineString([[row[lon_o], row[lat_o]], [row[lon_d], row[lat_d]]]))
 
 
-def geolocalizar_trx():
-    print('a')
+def check_all_geoms_linestring(gdf):
+    if not all(gdf.geometry.type == 'LineString'):
+        raise ValueError(
+            'Invalid geometry type. Only LineStrings are supported.')
