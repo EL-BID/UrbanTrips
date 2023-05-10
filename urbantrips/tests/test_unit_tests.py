@@ -1,16 +1,11 @@
-from urbantrips.kpi import kpi
-from urbantrips.datamodel import legs, misc, legs, trips
-from urbantrips.datamodel import transactions
-from numpy import dtype
 import pandas as pd
 import os
-import sys
 import pytest
-import itertools
 import os
 
+from urbantrips.kpi import kpi
+from urbantrips.datamodel import legs, misc, trips, transactions
 from urbantrips.destinations import destinations as dest
-from urbantrips.datamodel import legs
 from urbantrips.geo import geo
 from urbantrips.utils import utils
 from urbantrips.carto import carto
@@ -497,7 +492,8 @@ def test_viz_lowes():
     alias = ''
     id_linea = 16
     viz.plotear_recorrido_lowess(
-        id_linea=id_linea, etapas=etapas, recorridos_lowess=recorridos_lowess, alias=alias)
+        id_linea=id_linea, etapas=etapas, recorridos_lowess=recorridos_lowess,
+        alias=alias,)
     file_path = os.path.join(
         "resultados", "png", f"{alias}linea_{id_linea}.png")
     assert os.path.isfile(file_path)
