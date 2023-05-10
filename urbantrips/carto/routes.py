@@ -31,3 +31,12 @@ def create_branch_g_from_stops_df(line_stops, id_ramal):
     branch_stops = line_stops.loc[line_stops.id_ramal == id_ramal, :]
     G = create_branch_graph(branch_stops)
     return G
+
+
+def create_line_g(line_stops):
+    branches_id = line_stops.id_ramal.unique()
+
+    G_line = nx.compose_all([create_branch_g_from_stops_df(
+        line_stops, branch_id) for branch_id in branches_id])
+
+    # save g to file
