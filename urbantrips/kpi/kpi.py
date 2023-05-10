@@ -276,7 +276,7 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
 
 
 def compute_section_load_table(
-        df, recorridos, rango_hrs, day_type, n_sections, *args, **kwargs):
+        df, recorridos, rango_hrs, day_type, *args, **kwargs):
     """
     Computes for a route a table with the load per section
 
