@@ -168,9 +168,12 @@ zonificaciones:
 
 ## Esquema de datos
 
-Este es el esquema de datos que deben seguir los archivos `csv` suministrados como insumos a `urbantrips`.
+Este es el esquema de datos que deben seguir los archivos suministrados como insumos a `urbantrips`.
 
 ### transacciones
+
+Tabla con las transacciones de la tarjeta.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 | `id_trx` | int | Opcional. Id único que identifique cada registro. |
@@ -187,6 +190,9 @@ Este es el esquema de datos que deben seguir los archivos `csv` suministrados co
 | `factor_expansion` | float | Opcional. Factor de expansión en caso de tratarse de una muestra. |
 
 ### GPS
+
+Tabla con el posicionamiento de cada interno con información de linea y ramal.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_gps`|int|  **Obligatorio**. Id único que identifique cada registro. |
@@ -199,23 +205,43 @@ Este es el esquema de datos que deben seguir los archivos `csv` suministrados co
     
     
 ### Información de lineas y ramales
+
+Tabla con metadata descriptiva de las lineas y ramales. 
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
 |`nombre_linea`|str|**Obligatorio**. Nombre de la línea.|
 |`modo`|str|**Obligatorio**. Modo de la linea.|
-|`id_ramal`|int|Opcional.Entero que identifique al ramal.|
-|`nombre_ramal`|str|Opcional. Nombre del ramal.|
+|`id_ramal`|int|**Obligatorio si hay ramales**.Entero que identifique al ramal.|
+|`nombre_ramal`|str|**Obligatorio si hay ramales**. Nombre del ramal.|
 |`empresa`|str|Opcional. Nombre de la empresa.|
 |`descripcion`|str|Opcional. Descripción adicional de la linea o ramal.|
 
 ### Recorridos lineas
+
+Archivo `geojson` con la información de la linea.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
-|`nombre_linea`|str|**Obligatorio**. Nombre de la línea.|
-| `geometry`|2DLineString|Polilinea del recorrido. No puede ser multilinea|
+|`id_ramal`|str|**Obligatorio si hay ramales**. Entero que identifique al ramal.|
+|`stops_distance`|int|Opcional. Distancia en metros a aplicarse al interpolar paradas sobre el recorrido.|
+|`line_stops_buffer`|int|Opcional. Distancia en metros entre paradas para que se puedan agregar en una sola.|
+| `geometry`|2DLineString|Polilinea del recorrido. No puede ser multilinea.|
 
+
+### Paradas
+
+Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo `node_id` se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el `node_id` debe ser el mismo, para las demas único dentro de la línea. 
+| Campo | Tipo de dato | Descripción |
+| -- | -- | -- |
+|`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
+|`id_ramal`|int|**Obligatorio si hay ramales**. Entero que identifique a al ramal.|
+|`order`|int| **Obligatorio**. Entero único que siga un recorrido de la linea o ramal de manera incremental. No importa el sentido|
+|`y`|float|**Obligatorio**. Latitud.| 
+|`x`|float|**Obligatorio**. Longitud.|
+|`node_id`|int|**Obligatorio**. Identifica con el mismo id estaciones donde puede haber transbordo entre ramales de una misma linea. Único para los otros casos dentro de la misma línea.|
 
 ## Estructura de directorios
 Al clonar `urbantrips` y correrlo, dejará la siguiente estructura de directorios:
