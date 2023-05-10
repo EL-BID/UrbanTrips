@@ -751,6 +751,5 @@ def get_epsg_m():
     '''
     configs = leer_configs_generales()
     epsg_m = configs['epsg_m']
-    print(f"Utilizando EPSG:{epsg_m} como proyección de coordenadas en metros")
 
     return epsg_m
