@@ -48,6 +48,9 @@ def process_routes_geoms():
 
     # if data has lines and branches, split them
     if branches_present:
+        branches_routes = geojson_data\
+            .reindex(columns=['id_ramal', 'geometry'])
+
         branches_routes['wkt'] = branches_routes.geometry.to_wkt()
         branches_routes = branches_routes\
             .reindex(columns=['id_ramal', 'wkt'])
@@ -157,7 +160,7 @@ def create_line_geom_from_branches(geojson_data):
     ----------
     geojson_data : geopandas.geoDataFrame
         geoDataFrame containing the LineStrings for each branch with
-        an id_linea atrribute identifying to which line it belongs  
+        an id_linea atrribute identifying to which line it belongs
 
     Returns
     -------

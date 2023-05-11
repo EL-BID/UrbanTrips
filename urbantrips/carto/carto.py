@@ -22,7 +22,7 @@ from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
     create_voronoi, normalizo_lat_lon, h3dist
 )
-from urbantrips.viz.viz import (plot_voronoi_zones)
+from urbantrips.viz import viz
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -312,7 +312,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     print("Graba zonas en sql lite")
 
     # Plotea geoms de voronoi
-    plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
+    viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
 
 
 @duracion
