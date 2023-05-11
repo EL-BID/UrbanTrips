@@ -177,7 +177,7 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
               " day_type:", day_type)
 
     # Read route geoms
-    q_rec = f"select * from recorridos"
+    q_rec = f"select * from lines_geoms"
     if id_linea:
         q_rec = q_rec + f" where id_linea in ({lineas_str})"
 

@@ -87,7 +87,7 @@ def compute_route_section_load(
     conn_data.commit()
 
     # Read data from legs and route geoms
-    q_rec = f"select * from recorridos"
+    q_rec = f"select * from lines_geoms"
     q_main_etapas = f"select * from etapas"
 
     # If line and hour, get that subset
