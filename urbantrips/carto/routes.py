@@ -1,5 +1,338 @@
+from urbantrips.viz.viz import plotear_recorrido_lowess
+import os
+import pandas as pd
+import geopandas as gpd
 import networkx as nx
 from osmnx import distance
+import statsmodels.api as sm
+from shapely import LineString
+from itertools import repeat
+import numpy as np
+
+from urbantrips.geo import geo
+from urbantrips.carto import carto
+from urbantrips.utils.utils import (leer_configs_generales,
+                                    duracion,
+                                    iniciar_conexion_db,
+                                    leer_alias
+                                    )
+
+
+@duracion
+def process_routes_geoms():
+    """
+    Checks for route geoms in config file, process line and route geoms,
+    upload to db, and checks if stops table needs to be created from routes
+    """
+
+    # Deletes old data
+    delete_old_route_geoms_data()
+
+    configs = leer_configs_generales()
+
+    if route_geoms_not_present(configs):
+        print("No hay recorridos en el archivo de config"
+              "No se procesaran recorridos")
+        return None
+
+    geojson_name = configs["recorridos_geojson"]
+    geojson_path = os.path.join("data", "data_ciudad", geojson_name)
+    geojson_data = gpd.read_file(geojson_path)
+
+    branches_present = configs["lineas_contienen_ramales"]
+
+    # Checl columns
+    check_route_geoms_columns(geojson_data, branches_present)
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    # if data has lines and branches, split them
+    if branches_present:
+        branches_routes['wkt'] = branches_routes.geometry.to_wkt()
+        branches_routes = branches_routes\
+            .reindex(columns=['id_ramal', 'wkt'])
+
+        branches_routes.to_sql(
+            "official_branches_geoms", conn_insumos, if_exists="replace",
+            index=False,)
+
+        # produce a line from branches with lowess
+        lines_routes = create_line_geom_from_branches(geojson_data)
+
+    else:
+        lines_routes = geojson_data\
+            .reindex(columns=['id_linea', 'geometry'])
+
+    assert not lines_routes.id_linea.duplicated().any(), "id_linea duplicados"
+    lines_routes['wkt'] = lines_routes.geometry.to_wkt()
+
+    lines_routes = lines_routes.reindex(columns=['id_linea', 'wkt'])
+    print('Subiendo tabla de recorridos')
+
+    # Upload geoms
+    lines_routes.to_sql(
+        "official_lines_geoms", conn_insumos, if_exists="replace",
+        index=False,)
+
+    conn_insumos.close()
+
+
+def infer_routes_geoms(plotear_lineas):
+    """
+    Esta funcion crea a partir de las etapas un recorrido simplificado
+    de las lineas y lo guarda en la db
+    """
+    print('Creo líneas de transporte')
+
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    # traer la coordenadas de las etapas con suficientes datos
+    q = """
+    select e.id_linea,e.longitud,e.latitud
+    from etapas e
+    """
+    etapas = pd.read_sql(q, conn_data)
+
+    recorridos_lowess = etapas.groupby(
+        'id_linea').apply(geo.lowess_linea).reset_index()
+
+    if plotear_lineas:
+        print('Imprimiento bosquejos de lineas')
+        alias = leer_alias()
+        [plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
+         for id_linea in recorridos_lowess.id_linea]
+
+    print("Subiendo recorridos a la db...")
+    recorridos_lowess['wkt'] = recorridos_lowess.geometry.to_wkt()
+
+    # Elminar geometrias invalidas
+    validas = recorridos_lowess.geometry.map(lambda g: g.is_valid)
+
+    recorridos_lowess = recorridos_lowess.loc[validas, :]
+    recorridos_lowess = recorridos_lowess.reindex(columns=['id_linea', 'wkt'])
+
+    recorridos_lowess.to_sql("inferred_lines_geoms",
+                             conn_insumos, if_exists="replace", index=False,)
+
+    conn_insumos.close()
+    conn_data.close()
+
+
+def build_routes_from_official_inferred():
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    # Crear una tabla de recorridos unica
+    conn_insumos.execute(
+        """
+        INSERT INTO lines_geoms
+            select i.id_linea,coalesce(o.wkt,i.wkt) as wkt
+            from inferred_lines_geoms i
+            left join official_lines_geoms o
+            on i.id_linea = o.id_linea
+        ;
+        """
+    )
+    conn_insumos.commit()
+
+    # There is no inferred branches
+    conn_insumos.execute(
+        """
+        INSERT INTO branches_geoms
+        select * from official_branches_geoms;
+        ;
+        """
+    )
+    conn_insumos.commit()
+
+    conn_insumos.close()
+
+
+def create_line_geom_from_branches(geojson_data):
+    """
+    Takes a geoDataFrame with lines and branches, and creates a single
+    linestring for each line using lowess regression over interpolated
+    points on all branches
+
+    Parameters
+    ----------
+    geojson_data : geopandas.geoDataFrame
+        geoDataFrame containing the LineStrings for each branch with
+        an id_linea atrribute identifying to which line it belongs  
+
+    Returns
+    -------
+    geopandas.geoDataFrame
+        DataFrame containing a single LineString for each id_linea
+    """
+    epsg_m = carto.get_epsg_m()
+    geojson_data = geojson_data.to_crs(epsg=epsg_m)
+
+    lines_routes = geojson_data\
+        .groupby('id_linea', as_index=False)\
+        .apply(get_line_lowess_from_branch_routes)
+    lines_routes.columns = ['id_linea', 'geometry']
+    lines_routes = gpd.GeoDataFrame(
+        lines_routes, geometry='geometry', crs=epsg_m)
+
+    return lines_routes
+
+
+def get_line_lowess_from_branch_routes(gdf):
+    line_routes = gdf.geometry
+    # create points every 100 meters over the route
+    points = list(map(geo.get_points_over_route, line_routes, repeat(100)))
+    points = list(np.concatenate(points).flat)
+    x = list(map(lambda point: point.x, points))
+    y = list(map(lambda point: point.y, points))
+
+    # run lowess regression
+    lowess = sm.nonparametric.lowess
+    lowess_points = lowess(y, x, frac=0.40, delta=5)
+
+    # build linestring
+    lowess_line = LineString(lowess_points)
+    return lowess_line
+
+
+def check_route_geoms_columns(geojson_data, branches_present):
+    # Check all columns are present
+    cols = ['id_linea', 'geometry']
+
+    assert not geojson_data.id_linea.isna().any(),\
+        "id_linea vacios"
+    assert geojson_data.dtypes['id_linea'] == int,\
+        "id_linea deben ser int"
+
+    if branches_present:
+        cols.append('id_ramal')
+        assert not geojson_data.id_ramal.isna().any(),\
+            "id_ramal vacios"
+        assert not geojson_data.id_ramal.duplicated().any(),\
+            "id_ramal duplicados"
+        assert geojson_data.dtypes['id_ramal'] == int,\
+            "id_ramal deben ser int"
+
+    cols = pd.Series(cols)
+    columns_ok = cols.isin(geojson_data.columns)
+
+    if not columns_ok.all():
+        cols_not_ok = ','.join(cols[~columns_ok].values)
+
+        raise ValueError(
+            f'Faltan columnas en el dataset: {cols_not_ok}')
+
+    # Check geometry type
+    geo.check_all_geoms_linestring(geojson_data)
+
+
+def delete_old_route_geoms_data():
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos.execute("DELETE FROM lines_geoms;")
+    conn_insumos.execute("DELETE FROM branches_geoms;")
+    conn_insumos.execute("DELETE FROM official_lines_geoms;")
+    conn_insumos.execute("DELETE FROM official_branches_geoms;")
+    conn_insumos.commit()
+    conn_insumos.close()
+
+
+def route_geoms_not_present(configs):
+    # check if config has the parameter
+    param_present = "recorridos_geojson" in configs
+    if param_present:
+        # check if full
+        param_full = configs["recorridos_geojson"] is not None
+
+        if param_full:
+            return False
+        else:
+            return True
+    else:
+        return True
+
+
+@duracion
+def process_routes_metadata():
+    """
+    This function reads from config file the locatino of the csv table
+    with routes metadata, check if lines and branches are present
+    and uploads metadata to the db
+    """
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    # Deletes old data
+    conn_insumos.execute("DELETE FROM metadata_lineas;")
+    conn_insumos.execute("DELETE FROM metadata_ramales;")
+    conn_insumos.commit()
+
+    configs = leer_configs_generales()
+    try:
+        tabla_lineas = configs["nombre_archivo_informacion_lineas"]
+        branches_present = configs["lineas_contienen_ramales"]
+
+        if tabla_lineas is not None:
+            print('Leyendo tabla con informacion de lineas')
+            ruta = os.path.join("data", "data_ciudad", tabla_lineas)
+            info = pd.read_csv(ruta)
+
+            # Check all columns are present
+            if branches_present:
+                cols = ['id_linea', 'nombre_linea',
+                                    'id_ramal', 'nombre_ramal', 'modo']
+            else:
+                cols = ['id_linea', 'nombre_linea', 'modo']
+
+            assert pd.Series(cols).isin(info.columns).all()
+
+            # Check modes matches config standarized modes
+            try:
+                modos_homologados = configs["modos"]
+                zipped = zip(modos_homologados.values(),
+                             modos_homologados.keys())
+                modos_homologados = {k: v for k, v in zipped}
+
+                assert pd.Series(info.modo.unique()).isin(
+                    modos_homologados.keys()).all()
+
+                info['modo'] = info['modo'].replace(modos_homologados)
+
+            except KeyError:
+                pass
+
+            # Check no missing data in line or branches
+            assert not info.id_linea.isna().any()
+            assert info.dtypes['id_linea'] == int
+
+            lineas_cols = ['id_linea', 'nombre_linea',
+                           'modo', 'empresa', 'descripcion']
+
+            info_lineas = info.reindex(columns=lineas_cols)
+
+            if branches_present:
+                info_lineas = info_lineas.drop_duplicates(subset='id_linea')
+
+                ramales_cols = ['id_ramal', 'id_linea',
+                                'nombre_ramal', 'modo', 'empresa',
+                                'descripcion']
+
+                info_ramales = info.reindex(columns=ramales_cols)
+
+                # Checks for missing and duplicated
+                assert not info_ramales.id_ramal.isna().any()
+                assert not info_ramales.id_ramal.duplicated().any()
+                assert info_ramales.dtypes['id_ramal'] == int
+
+                info_ramales.to_sql(
+                    "metadata_ramales", conn_insumos, if_exists="replace",
+                    index=False)
+
+            info_lineas.to_sql(
+                "metadata_lineas", conn_insumos, if_exists="replace",
+                index=False)
+
+    except KeyError:
+        print("No hay tabla con informacion configs")
+    conn_insumos.close()
 
 
 def create_branch_graph(branch_stops):

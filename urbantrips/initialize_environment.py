@@ -1,5 +1,5 @@
-from urbantrips.datamodel.misc import create_line_and_branches_metadata
 from urbantrips.utils import utils
+from urbantrips.carto import routes
 
 
 def main():
@@ -11,7 +11,12 @@ def main():
 
     # Create DB:
     utils.create_db()
-    create_line_and_branches_metadata()
+
+    # Process routes info and upload to db
+    routes.process_routes_metadata()
+
+    # Process and upload route geometries
+    routes.process_routes_geoms()
 
 
 if __name__ == "__main__":

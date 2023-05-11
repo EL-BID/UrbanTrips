@@ -22,9 +22,7 @@ from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
     create_voronoi, normalizo_lat_lon, h3dist
 )
-from urbantrips.viz.viz import (
-    plotear_recorrido_lowess,
-    plot_voronoi_zones)
+from urbantrips.viz.viz import (plot_voronoi_zones)
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -144,90 +142,8 @@ def upload_routes_geoms():
                 index=False,)
     except KeyError:
         print("No hay nombre de archivo de recorridos en configs")
-    conn_insumos.close()
-
-
-def infer_routes_geoms(plotear_lineas):
-    """
-    Esta funcion crea a partir de las etapas un recorrido simplificado
-    de las lineas y lo guarda en la db
-    """
-    print('Creo líneas de transporte')
-
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    # traer la coordenadas de las etapas con suficientes datos
-    q = """
-    select e.id_linea,e.longitud,e.latitud
-    from etapas e
-    """
-    etapas = pd.read_sql(q, conn_data)
-
-    recorridos_lowess = etapas.groupby(
-        'id_linea').apply(lowess_linea).reset_index()
-
-    if plotear_lineas:
-        print('Imprimiento bosquejos de lineas')
-        alias = leer_alias()
-        [plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-         for id_linea in recorridos_lowess.id_linea]
-
-    print("Subiendo recorridos a la db...")
-    recorridos_lowess['wkt'] = recorridos_lowess.geometry.to_wkt()
-    recorridos_lowess = recorridos_lowess.reindex(columns=['id_linea', 'wkt'])
-    # Elminar geometrias invalidas
-    geoms = recorridos_lowess.wkt.apply(wkt.loads)
-    validas = geoms.map(lambda g: g.is_valid)
-    recorridos_lowess = recorridos_lowess.loc[validas, :]
-
-    recorridos_lowess.to_sql("recorridos_estimados",
-                             conn_insumos, if_exists="replace", index=False,)
-
-    # Crear una tabla de recorridos unica
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recorridos AS
-            select e.id_linea,coalesce(r.wkt,e.wkt) as wkt
-            from recorridos_estimados e
-            left join recorridos_reales r
-            on e.id_linea = r.id_linea
-        ;
-        """
-    )
 
     conn_insumos.close()
-    conn_data.close()
-
-
-def lowess_linea(df):
-    """
-    Esta funcion toma un df de etapas para una linea
-    y produce el geom de la linea simplificada en un
-    gdf con el id linea
-    """
-    id_linea = df.id_linea.unique()[0]
-    epsg_m = get_epsg_m()
-
-    print("Obteniendo lowess linea:", id_linea)
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
-        df['longitud'], df['latitud']), crs=4326).to_crs(epsg_m)
-    y = gdf.geometry.y
-    x = gdf.geometry.x
-    lowess = sm.nonparametric.lowess
-    lowess_points = lowess(x, y, frac=0.4, delta=500)
-    lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=['y', 'x'])
-    lowess_points_df = lowess_points_df.drop_duplicates()
-
-    if len(lowess_points_df) > 1:
-        geom = LineString([(x, y) for x, y in zip(
-            lowess_points_df.x, lowess_points_df.y)])
-        out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
-                               crs=f'EPSG:{epsg_m}', index=[0]).to_crs(4326)
-        return out
-
-    else:
-        print("Imposible de generar una linea lowess para id_linea = ",
-              id_linea)
 
 
 @duracion

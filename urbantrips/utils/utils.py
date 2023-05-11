@@ -283,7 +283,34 @@ def create_db():
 
     conn_insumos.execute(
         """
-        CREATE TABLE IF NOT EXISTS recorridos_reales
+        CREATE TABLE IF NOT EXISTS metadata_lineas
+            (id_linea INT PRIMARY KEY     NOT NULL,
+            nombre_linea text not null,
+            modo text not null,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_ramales
+            (id_ramal INT PRIMARY KEY     NOT NULL,
+            id_linea int not null,
+            nombre_ramal text not null,
+            modo text not null,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_lines_geoms
         (id_linea INT PRIMARY KEY     NOT NULL,
         wkt text not null
         )
@@ -291,11 +318,50 @@ def create_db():
         """
     )
 
-    print("Tablas originales creadas")
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inferred_lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
 
     conn_data.close()
     conn_insumos.close()
-    print("Fin crear base")
+
+    print("Todas las tablas creadas")
 
 
 def leer_configs_generales():
