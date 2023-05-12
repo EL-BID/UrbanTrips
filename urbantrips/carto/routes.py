@@ -126,6 +126,11 @@ def infer_routes_geoms(plotear_lineas):
 def build_routes_from_official_inferred():
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
+    # Delete old data
+    conn_insumos.execute("DELETE FROM lines_geoms;")
+    conn_insumos.execute("DELETE FROM branches_geoms;")
+    conn_insumos.commit()
+
     # Crear una tabla de recorridos unica
     conn_insumos.execute(
         """

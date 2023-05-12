@@ -70,6 +70,7 @@ def main():
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms(plotear_lineas=False)
 
+    # Build final routes from official an inferred sources
     routes.build_routes_from_official_inferred()
 
 
