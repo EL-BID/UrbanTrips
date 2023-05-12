@@ -8,9 +8,9 @@ from urbantrips.datamodel import legs, misc, trips, transactions
 from urbantrips.destinations import destinations as dest
 from urbantrips.geo import geo
 from urbantrips.utils import utils
-from urbantrips.carto import carto
+from urbantrips.carto import carto, routes
 from urbantrips.viz import viz
-from urbantrips.datamodel.misc import create_line_and_branches_metadata
+from urbantrips.carto.routes import process_routes_metadata
 
 
 @pytest.fixture
@@ -272,7 +272,7 @@ def create_test_trx(geolocalizar_trx_config,
 
 def test_amba_integration(matriz_validacion_test_amba):
     configs = utils.leer_configs_generales()
-    create_line_and_branches_metadata()
+    routes.process_routes_metadata()
     geolocalizar_trx_config = configs["geolocalizar_trx"]
     nombres_variables_trx = configs["nombres_variables_trx"]
     formato_fecha = configs["formato_fecha"]
@@ -300,7 +300,7 @@ def test_amba_integration(matriz_validacion_test_amba):
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
 
-    misc.create_line_and_branches_metadata()
+    routes.process_routes_metadata()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
 
@@ -326,7 +326,7 @@ def test_amba_integration(matriz_validacion_test_amba):
     matriz_validacion_test_amba.to_sql(
         "matriz_validacion", conn_insumos, if_exists="replace", index=False)
 
-    carto.upload_routes_geoms()
+    routes.process_routes_geoms()
 
     # imputar destinos
     dest.infer_destinations()
@@ -486,7 +486,7 @@ def test_viz_lowes():
     etapas = pd.read_sql(q, conn_data)
 
     recorridos_lowess = etapas.groupby(
-        'id_linea').apply(carto.lowess_linea).reset_index()
+        'id_linea').apply(geo.lowess_linea).reset_index()
 
     assert recorridos_lowess.geometry.type.unique()[0] == 'LineString'
     alias = ''
@@ -511,8 +511,6 @@ def test_section_load_viz(matriz_validacion_test_amba):
     nombre_archivo_gps = configs["nombre_archivo_gps"]
     nombres_variables_gps = configs["nombres_variables_gps"]
 
-    create_line_and_branches_metadata()
-
     create_test_trx(geolocalizar_trx_config,
                     nombre_archivo_trx,
                     nombres_variables_trx,
@@ -534,7 +532,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     )
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
-    misc.create_line_and_branches_metadata()
+    routes. process_routes_metadata()
 
     legs.create_legs_from_transactions(trx_order_params)
 
@@ -552,7 +550,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    carto.infer_routes_geoms(plotear_lineas=False)
+    routes.infer_routes_geoms(plotear_lineas=False)
     carto.create_zones_table()
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
