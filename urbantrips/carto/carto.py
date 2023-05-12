@@ -7,15 +7,9 @@ import numpy as np
 import itertools
 import os
 import geopandas as gpd
-from shapely.geometry import LineString
-from shapely import wkt
-import statsmodels.api as sm
 import h3
 from networkx import NetworkXNoPath
 import multiprocessing
-from itertools import repeat
-from math import ceil
-from multiprocessing import Pool, Manager
 from functools import partial
 from math import sqrt
 from urbantrips.geo.geo import (
@@ -594,13 +588,3 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     except NetworkXNoPath:
         out = np.nan
     return out
-
-
-def get_epsg_m():
-    '''
-    Gets the epsg id for a coordinate reference system in meters from config
-    '''
-    configs = leer_configs_generales()
-    epsg_m = configs['epsg_m']
-
-    return epsg_m
