@@ -31,7 +31,7 @@ def process_routes_geoms():
     configs = leer_configs_generales()
 
     if route_geoms_not_present(configs):
-        print("No hay recorridos en el archivo de config"
+        print("No hay recorridos en el archivo de config\n"
               "No se procesaran recorridos")
         return None
 
@@ -66,7 +66,9 @@ def process_routes_geoms():
         lines_routes = geojson_data\
             .reindex(columns=['id_linea', 'geometry'])
 
-    assert not lines_routes.id_linea.duplicated().any(), "id_linea duplicados"
+    assert not lines_routes.id_linea.duplicated().any(
+    ), "id_linea duplicados en geojson de recorridos"
+
     lines_routes['wkt'] = lines_routes.geometry.to_wkt()
 
     lines_routes = lines_routes.reindex(columns=['id_linea', 'wkt'])
@@ -177,23 +179,29 @@ def create_line_geom_from_branches(geojson_data):
     lines_routes = gpd.GeoDataFrame(
         lines_routes, geometry='geometry', crs=epsg_m)
 
+    lines_routes = lines_routes.to_crs(epsg=4326)
+
     return lines_routes
 
 
 def get_line_lowess_from_branch_routes(gdf):
-    line_routes = gdf.geometry
-    # create points every 100 meters over the route
-    points = list(map(geo.get_points_over_route, line_routes, repeat(100)))
-    points = list(np.concatenate(points).flat)
-    x = list(map(lambda point: point.x, points))
-    y = list(map(lambda point: point.y, points))
+    if len(gdf) > 1:
+        line_routes = gdf.geometry
+        # create points every 100 meters over the route
+        points = list(map(geo.get_points_over_route, line_routes, repeat(100)))
+        points = list(np.concatenate(points).flat)
+        x = list(map(lambda point: point.x, points))
+        y = list(map(lambda point: point.y, points))
 
-    # run lowess regression
-    lowess = sm.nonparametric.lowess
-    lowess_points = lowess(y, x, frac=0.40, delta=5)
+        # run lowess regression
+        lowess = sm.nonparametric.lowess
+        lowess_points = lowess(y, x, frac=0.40, delta=5)
 
-    # build linestring
-    lowess_line = LineString(lowess_points)
+        # build linestring
+        lowess_line = LineString(lowess_points)
+    else:
+        lowess_line = gdf.geometry.iloc[0]
+
     return lowess_line
 
 
@@ -202,18 +210,18 @@ def check_route_geoms_columns(geojson_data, branches_present):
     cols = ['id_linea', 'geometry']
 
     assert not geojson_data.id_linea.isna().any(),\
-        "id_linea vacios"
+        "id_linea vacios en geojson recorridos"
     assert geojson_data.dtypes['id_linea'] == int,\
-        "id_linea deben ser int"
+        "id_linea deben ser int en geojson recorridos"
 
     if branches_present:
         cols.append('id_ramal')
         assert not geojson_data.id_ramal.isna().any(),\
-            "id_ramal vacios"
+            "id_ramal vacios en geojson recorridos"
         assert not geojson_data.id_ramal.duplicated().any(),\
-            "id_ramal duplicados"
+            "id_ramal duplicados en geojson recorridos"
         assert geojson_data.dtypes['id_ramal'] == int,\
-            "id_ramal deben ser int"
+            "id_ramal deben ser int en geojson recorridos"
 
     cols = pd.Series(cols)
     columns_ok = cols.isin(geojson_data.columns)
