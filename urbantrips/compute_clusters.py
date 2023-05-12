@@ -1,5 +1,5 @@
 from urbantrips.cluster import dbscan
-from urbantrips.carto.carto import get_epsg_m
+from urbantrips.geo.geo import get_epsg_m
 
 
 def main():

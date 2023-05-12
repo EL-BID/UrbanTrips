@@ -2,12 +2,13 @@ from shapely import line_interpolate_point
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from urbantrips.utils.utils import duracion
+from urbantrips.utils.utils import duracion, leer_configs_generales
 from itertools import repeat
 import h3
 from math import ceil
 from shapely.geometry import Polygon, Point, LineString,  LinearRing
 import libpysal
+import statsmodels.api as sm
 
 
 @ duracion
@@ -323,3 +324,13 @@ def lowess_linea(df):
     else:
         print("Imposible de generar una linea lowess para id_linea = ",
               id_linea)
+
+
+def get_epsg_m():
+    '''
+    Gets the epsg id for a coordinate reference system in meters from config
+    '''
+    configs = leer_configs_generales()
+    epsg_m = configs['epsg_m']
+
+    return epsg_m

@@ -69,7 +69,7 @@ def create_line_stops_equal_interval(geojson_path):
         geojson_data['id_ramal'] = None
 
     # Project in meters
-    epsg_m = carto.get_epsg_m()
+    epsg_m = geo.get_epsg_m()
 
     geojson_data = geojson_data.to_crs(epsg=epsg_m)
 
@@ -150,7 +150,7 @@ def create_stops_from_route_geom(route_geom, stops_distance):
         DataFrame containing stops information (x, y, and order)
         for the given LineString
     """
-    epsg_m = carto.get_epsg_m()
+    epsg_m = geo.get_epsg_m()
 
     ranges = list(range(0, int(route_geom.length), stops_distance))
     stop_points = line_interpolate_point(route_geom, ranges).tolist()

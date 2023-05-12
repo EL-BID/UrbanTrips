@@ -169,7 +169,7 @@ def create_line_geom_from_branches(geojson_data):
     geopandas.geoDataFrame
         DataFrame containing a single LineString for each id_linea
     """
-    epsg_m = carto.get_epsg_m()
+    epsg_m = geo.get_epsg_m()
     geojson_data = geojson_data.to_crs(epsg=epsg_m)
 
     lines_routes = geojson_data\

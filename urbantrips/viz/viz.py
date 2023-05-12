@@ -332,7 +332,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
 
     # Use a projected crs in meters
-    epsg = carto.get_epsg_m()
+    epsg = geo.get_epsg_m()
     gdf = gdf.to_crs(epsg=epsg)
 
     gdf_d0 = gdf\
