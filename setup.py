@@ -40,5 +40,6 @@ setuptools.setup(
         'IPython',
         'matplotlib-scalebar',
         'numba',
-        'mycolorpy']
+        'mycolorpy',
+        'python-pptx']
  )
