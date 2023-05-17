@@ -25,6 +25,7 @@ from requests.exceptions import ConnectionError as r_ConnectionError
 
 from urbantrips.kpi import kpi
 from urbantrips.carto import carto
+from urbantrips.geo import geo
 from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
 from urbantrips.utils.utils import (
