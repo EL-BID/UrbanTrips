@@ -352,6 +352,20 @@ def process_routes_metadata():
 
 
 def create_branch_graph(branch_stops):
+    """
+    Takes
+
+    Parameters
+    ----------
+    branch_stops : pandas.DataFrame
+        branch's stops with order and node_id 
+
+    Returns
+    -------
+    networkx.MultiGraph
+        Graph with the branch route id by node_id and ordered
+        by stops order
+    """
     metadata = {
         "crs": "epsg:4326",
         "id_linea": branch_stops['id_linea'].unique().item(),
