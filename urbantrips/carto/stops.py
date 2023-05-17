@@ -72,12 +72,26 @@ def create_line_stops_equal_interval(geojson_path):
     epsg_m = geo.get_epsg_m()
 
     geojson_data = geojson_data.to_crs(epsg=epsg_m)
+    stops_gdf = interpolate_stops_every_x_meters(geojson_data)
 
+    stops_gdf = stops_gdf.reindex(
+        columns=['id_linea', 'id_ramal', 'order', 'line_stops_buffer',
+                 'x', 'y', 'geometry'])
+
+    return stops_gdf
+
+
+def interpolate_stops_every_x_meters(gdf):
+    """
+    Takes a gdf in proyected crs in meters with linestrings and
+    interpolates points every x meters returning a data frame with
+    those points
+    """
     # Initialize list to store stops data
     stops_data = []
 
     # Iterate over each LineString in the geojson data
-    for i, row in geojson_data.iterrows():
+    for i, row in gdf.iterrows():
 
         # Create stops for the LineString
         stops_distance = row.stops_distance
@@ -99,10 +113,6 @@ def create_line_stops_equal_interval(geojson_path):
 
     # Concatenate the stops data for all lines and return as a DataFrame
     stops_gdf = pd.concat(stops_data, ignore_index=True)
-    stops_gdf = stops_gdf.reindex(
-        columns=['id_linea', 'id_ramal', 'order', 'line_stops_buffer',
-                 'x', 'y', 'geometry'])
-
     return stops_gdf
 
 
