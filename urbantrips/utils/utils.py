@@ -50,6 +50,9 @@ def create_directories():
     db_path = os.path.join("resultados", "html")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("resultados", "ppts")
+    os.makedirs(db_path, exist_ok=True)
+
 
 def leer_alias(tipo='data'):
     """
@@ -62,6 +65,8 @@ def leer_alias(tipo='data'):
         key = 'alias_db_data'
     elif tipo == 'insumos':
         key = 'alias_db_insumos'
+    elif tipo == 'dash':
+        key = 'alias_db_data'
     else:
         raise ValueError('tipo invalido: %s' % tipo)
     # Leer el alias
@@ -77,11 +82,12 @@ def traigo_db_path(tipo='data'):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ('data', 'insumos'):
+    if tipo not in ('data', 'insumos', 'dash'):
         raise ValueError('tipo invalido: %s' % tipo)
 
     alias = leer_alias(tipo)
     db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
+
     return db_path
 
 
@@ -100,6 +106,7 @@ def create_db():
     # Crear conexion con bases de data e insumos
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
     print("Bases abiertas con exito")
 
@@ -290,6 +297,43 @@ def create_db():
         ;
         """
     )
+    
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matrices
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes text not null
+        )
+        ;
+        """
+    )
+    
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lineas_deseo
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes text not null,
+        lon_o float,
+        lat_o float,
+        lon_d float,
+        lat_d float
+        )
+        ;
+        """
+    )
+
 
     print("Tablas originales creadas")
 
