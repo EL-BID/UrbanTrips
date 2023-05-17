@@ -18,8 +18,6 @@ nombre_archivo_trx: transacciones_amba_muestra10.csv
 # alias_db_data: muestra_amba5000
 alias_db_data: amba2_muestra10
 
-alias_db_insumos: amba
-
 #ingresar el nombre de las variables
 nombres_variables_trx:
     id_trx: id

@@ -164,9 +164,7 @@ def compute_route_section_load(
         compute_section_load_table,
         recorridos=recorridos,
         rango_hrs=rango_hrs,
-        day_type=day_type,
-        n_sections=n_sections
-
+        day_type=day_type
     )
 
     section_load_table = section_load_table.reset_index(drop=True)
@@ -278,7 +276,7 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
 
 
 def compute_section_load_table(
-        df, recorridos, rango_hrs, day_type, n_sections, *args, **kwargs):
+        df, recorridos, rango_hrs, day_type, *args, **kwargs):
     """
     Computes for a route a table with the load per section
 
@@ -290,8 +288,6 @@ def compute_section_load_table(
         routes geoms
     rango_hrs : tuple
         tuple holding hourly range (from,to).
-    n_sections: int
-        number of sections to split the route geom
 
     Returns
     ----------
@@ -302,6 +298,7 @@ def compute_section_load_table(
     """
 
     id_linea = df.id_linea.unique()[0]
+    n_sections = recorridos.n_sections.unique()[0]
 
     print(f"Computing section load id_route {id_linea}")
 
