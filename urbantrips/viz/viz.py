@@ -979,7 +979,9 @@ def imprime_lineas_deseo(df,
 def imprime_graficos_hora(viajes,
                           title='Cantidad de viajes en transporte público',
                           savefile='viajes',
-                          var_fex=''):
+                          var_fex='',
+                          desc_dia='', 
+                          tipo_dia=''):
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
@@ -1049,12 +1051,35 @@ def imprime_graficos_hora(viajes,
     viajesxhora['cant'] = viajesxhora['cant'].round().astype(int)
     
     ## guarda distribución de viajes para dashboard
-    db_path = os.path.join(
-                    "resultados", "tmp", f"dash_viajes_horas.csv")
     viajesxhora_dash = pd.concat([viajesxhora_dash, viajesxhora], ignore_index=True)
-    viajesxhora_dash.to_csv(db_path, index=False)
+    
+    viajesxhora_dash['tipo_dia'] = tipo_dia
+    viajesxhora_dash['desc_dia'] = desc_dia
+    
+    
+    viajesxhora_dash = viajesxhora_dash[['tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
+    viajesxhora_dash.columns = ['desc_dia', 'tipo_dia', 'Hora', 'Viajes', 'Modo']
+    
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
+    viajesxhora_dash_ant = pd.read_sql_query(
+    """
+    SELECT *
+    FROM viajes_hora
+    """,
+    conn_dash,
+    )
 
+    viajesxhora_dash_ant = viajesxhora_dash_ant[~(
+               (viajesxhora_dash_ant.desc_dia==desc_dia)&
+               (viajesxhora_dash_ant.tipo_dia==tipo_dia)
+              )]
+
+    viajesxhora_dash=pd.concat([viajesxhora_dash_ant, viajesxhora_dash], ignore_index=True)
+
+    viajesxhora_dash.to_sql("viajes_hora", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
+    
     # Viajes por hora
     savefile_ = f'{savefile}_modo'
     with sns.axes_style(
@@ -1104,13 +1129,38 @@ def imprime_graficos_hora(viajes,
                 ].sort_values('distance_osm_drive')
     
     ## guarda distribución de viajes para dashboard
-    db_path = os.path.join(
-                    "resultados", "tmp", f"dash_distribucion.csv")
     
     vi_dash = vi.copy()
     vi_dash['modo'] = 'Todos'
-    vi_dash = pd.concat([vi_dash, vi_modo], ignore_index=True)    
-    vi_dash.to_csv(db_path, index=False)    
+    vi_dash = pd.concat([vi_dash, vi_modo], ignore_index=True)   
+    
+    vi_dash['tipo_dia'] = tipo_dia
+    vi_dash['desc_dia'] = desc_dia
+
+    vi_dash = vi_dash[['desc_dia', 'tipo_dia', 'distance_osm_drive', 'cant', 'modo']]
+    vi_dash.columns = ['desc_dia', 'tipo_dia', 'Distancia', 'Viajes', 'Modo']
+    
+    
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    vi_dash_ant = pd.read_sql_query(
+    """
+    SELECT *
+    FROM distribucion
+    """,
+    conn_dash,
+    )
+
+    vi_dash_ant = vi_dash_ant[~(
+               (vi_dash_ant.desc_dia==desc_dia)&
+               (vi_dash_ant.tipo_dia==tipo_dia)               
+              )]
+
+    vi_dash=pd.concat([vi_dash_ant, vi_dash], ignore_index=True)
+
+    vi_dash.to_sql("distribucion", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
+
     
     ytitle = "Viajes"
     if vi.cant.mean() > 1000:
@@ -1708,7 +1758,7 @@ def lineas_deseo(df,
         tmp_h3_o = h3_o
         tmp_h3_d = h3_d
 
-    # Normalizo con nueva zonificación
+    # Normalizo con nueva zonificación (ESTO HACE QUE TODOS LOS ORIGENES Y DESTINOS TENGAN UN MISMO SENTIDO)
     if (tmp_o != tmp_h3_o) & (tmp_d != tmp_h3_d):
         df_agg = df.groupby(['dia', tmp_h3_o, tmp_h3_d, tmp_o,
                             tmp_d], as_index=False).agg({var_fex: 'sum'})
@@ -2059,12 +2109,14 @@ def create_visualizations():
                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
                              tipo_dia=i.tipo_dia)
 
-        # print('Imprimiendo gráficos')
-        # titulo = f'Cantidad de viajes en transporte público {desc_dia}'
-        # imprime_graficos_hora(viajes_dia,
-        #                       title=titulo,
-        #                       savefile=f'{desc_dia_file}_viajes',
-        #                       var_fex='factor_expansion')
+        print('Imprimiendo gráficos')
+        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
+        imprime_graficos_hora(viajes_dia,
+                              title=titulo,
+                              savefile=f'{desc_dia_file}_viajes',
+                              var_fex='factor_expansion',
+                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                              tipo_dia=i.tipo_dia)
 
 #         print('Imprimiendo mapas de burbujas')
 #         viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
