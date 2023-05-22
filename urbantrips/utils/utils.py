@@ -377,11 +377,23 @@ def create_db():
         """
     )   
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text,
+        )
+        ;
+        """
+    )   
 
     print("Tablas originales creadas")
 
     conn_data.close()
     conn_insumos.close()
+    conn_dash.close()
     print("Fin crear base")
 
 

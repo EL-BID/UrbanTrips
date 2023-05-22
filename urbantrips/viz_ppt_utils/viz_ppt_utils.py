@@ -379,8 +379,8 @@ def create_ppt():
     viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
     viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
     viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
-    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fines de semana'
-    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Días hábiles'
+    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
     v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
                             as_index=False).size().iterrows()
     for _, i in v_iter:        

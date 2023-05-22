@@ -2022,6 +2022,51 @@ def crear_mapa_folium(df_agg,
 
     db_path = os.path.join("resultados", "html", savefile)
     m.save(db_path)
+    
+    
+def save_zones():
+    """
+    Esta función guarda las geografías de las zonas para el dashboard
+    """
+    print('Creando zonificación para dashboard')
+    configs = leer_configs_generales()
+
+    geo_files = [['Zona_voi.geojson', 'Zona_voi']]
+
+    if configs["zonificaciones"]:
+        for n in range(0, 5):
+
+            try:
+                file_zona = configs["zonificaciones"][f"geo{n+1}"]
+                var_zona = configs["zonificaciones"][f"var{n+1}"]
+                geo_files += [[file_zona, var_zona]]
+
+                try:
+                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
+                except KeyError:
+                    matriz_order = ""
+
+
+            except KeyError:
+                pass
+
+    zonas = pd.DataFrame([])        
+    for i in geo_files:
+        file = os.path.join("data", "data_ciudad", f'{i[0]}')
+        if os.path.isfile(file):
+            df = gpd.read_file(file)
+            df = df[[i[1], 'geometry']]
+            df.columns = ['Zona', 'geometry']
+            df['tipo_zona'] = i[1]            
+            zonas = pd.concat([zonas, df])
+
+    zonas = zonas.dissolve(by=['tipo_zona','Zona'], as_index=False)
+    zonas['wkt'] = zonas.geometry.to_wkt()
+    zonas = zonas.drop(['geometry'], axis=1)
+    
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
 
 def create_visualizations():
     """
@@ -2088,35 +2133,35 @@ def create_visualizations():
         viajes_dia = viajes[(viajes.yr == i.yr) & (
             viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
 
-        print('Imprimiendo tabla de matrices OD')
-        # Impirmir tablas con matrices OD
-        imprimir_matrices_od(viajes=viajes_dia,
-                             var_fex='factor_expansion',
-                             title=f'Matriz OD {desc_dia}',
-                             savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                             tipo_dia=i.tipo_dia,
-                             )
+#         print('Imprimiendo tabla de matrices OD')
+#         # Impirmir tablas con matrices OD
+#         imprimir_matrices_od(viajes=viajes_dia,
+#                              var_fex='factor_expansion',
+#                              title=f'Matriz OD {desc_dia}',
+#                              savefile=f'{desc_dia_file}',
+#                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+#                              tipo_dia=i.tipo_dia,
+#                              )
 
-        print('Imprimiendo mapas de líneas de deseo')
-        # Imprimir lineas de deseo
-        imprime_lineas_deseo(df=viajes_dia,
-                             h3_o='',
-                             h3_d='',
-                             var_fex='factor_expansion',
-                             title=f'Líneas de deseo {desc_dia}',
-                             savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                             tipo_dia=i.tipo_dia)
+#         print('Imprimiendo mapas de líneas de deseo')
+#         # Imprimir lineas de deseo
+#         imprime_lineas_deseo(df=viajes_dia,
+#                              h3_o='',
+#                              h3_d='',
+#                              var_fex='factor_expansion',
+#                              title=f'Líneas de deseo {desc_dia}',
+#                              savefile=f'{desc_dia_file}',
+#                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+#                              tipo_dia=i.tipo_dia)
 
-        print('Imprimiendo gráficos')
-        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
-        imprime_graficos_hora(viajes_dia,
-                              title=titulo,
-                              savefile=f'{desc_dia_file}_viajes',
-                              var_fex='factor_expansion',
-                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                              tipo_dia=i.tipo_dia)
+#         print('Imprimiendo gráficos')
+#         titulo = f'Cantidad de viajes en transporte público {desc_dia}'
+#         imprime_graficos_hora(viajes_dia,
+#                               title=titulo,
+#                               savefile=f'{desc_dia_file}_viajes',
+#                               var_fex='factor_expansion',
+#                               desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+#                               tipo_dia=i.tipo_dia)
 
 #         print('Imprimiendo mapas de burbujas')
 #         viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
@@ -2144,3 +2189,6 @@ def create_visualizations():
 #                          savefile=f'{desc_dia_file}_burb_hogares',
 #                          show_fig=False,
 #                          k_jenks=5)
+
+        
+    save_zones()

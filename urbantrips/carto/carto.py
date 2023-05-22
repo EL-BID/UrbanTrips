@@ -441,6 +441,9 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
         columns={'index': 'Zona_voi'})
     voi['Zona_voi'] = voi['Zona_voi']+1
     voi['Zona_voi'] = voi['Zona_voi'].astype(str)
+    
+    file = os.path.join("data", "data_ciudad", 'zona_voi.geojson')
+    voi[['Zona_voi', 'geometry']].to_file(file)
 
     zonas = zonas.drop(['h3_r'], axis=1)
     zonas['geometry'] = zonas['h3'].apply(add_geometry)
