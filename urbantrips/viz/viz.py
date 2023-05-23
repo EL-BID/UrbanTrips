@@ -2133,35 +2133,35 @@ def create_visualizations():
         viajes_dia = viajes[(viajes.yr == i.yr) & (
             viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
 
-#         print('Imprimiendo tabla de matrices OD')
-#         # Impirmir tablas con matrices OD
-#         imprimir_matrices_od(viajes=viajes_dia,
-#                              var_fex='factor_expansion',
-#                              title=f'Matriz OD {desc_dia}',
-#                              savefile=f'{desc_dia_file}',
-#                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-#                              tipo_dia=i.tipo_dia,
-#                              )
+        print('Imprimiendo tabla de matrices OD')
+        # Impirmir tablas con matrices OD
+        imprimir_matrices_od(viajes=viajes_dia,
+                             var_fex='factor_expansion',
+                             title=f'Matriz OD {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia,
+                             )
 
-#         print('Imprimiendo mapas de líneas de deseo')
-#         # Imprimir lineas de deseo
-#         imprime_lineas_deseo(df=viajes_dia,
-#                              h3_o='',
-#                              h3_d='',
-#                              var_fex='factor_expansion',
-#                              title=f'Líneas de deseo {desc_dia}',
-#                              savefile=f'{desc_dia_file}',
-#                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-#                              tipo_dia=i.tipo_dia)
+        print('Imprimiendo mapas de líneas de deseo')
+        # Imprimir lineas de deseo
+        imprime_lineas_deseo(df=viajes_dia,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='factor_expansion',
+                             title=f'Líneas de deseo {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia)
 
-#         print('Imprimiendo gráficos')
-#         titulo = f'Cantidad de viajes en transporte público {desc_dia}'
-#         imprime_graficos_hora(viajes_dia,
-#                               title=titulo,
-#                               savefile=f'{desc_dia_file}_viajes',
-#                               var_fex='factor_expansion',
-#                               desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-#                               tipo_dia=i.tipo_dia)
+        print('Imprimiendo gráficos')
+        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
+        imprime_graficos_hora(viajes_dia,
+                              title=titulo,
+                              savefile=f'{desc_dia_file}_viajes',
+                              var_fex='factor_expansion',
+                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                              tipo_dia=i.tipo_dia)
 
 #         print('Imprimiendo mapas de burbujas')
 #         viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]

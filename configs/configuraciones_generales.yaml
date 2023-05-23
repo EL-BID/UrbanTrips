@@ -77,9 +77,12 @@ tipo_trx_invalidas:
 
 # Poner geo1 el nombre del archivo geojson, var1 el nombre de la variable que contiene la etiqueta a utilizar, orden1 el orden de las etiquetas en los graficos
 zonificaciones:
-    geo1: hexs_amba.geojson
+    geo1: coronas.geojson
     var1: Corona
     orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
-    geo2: hexs_amba.geojson
+    geo2: partidos.geojson
     var2: Partido
+    geo3: partidos.geojson
+    var3: Zona
+
 

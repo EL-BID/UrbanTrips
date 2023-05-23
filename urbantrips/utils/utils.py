@@ -383,7 +383,7 @@ def create_db():
         (
         zona text not null,
         tipo_zona text not null,
-        wkt text,
+        wkt text
         )
         ;
         """
