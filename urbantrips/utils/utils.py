@@ -364,9 +364,9 @@ def create_db():
         (id_linea INT NOT NULL,
         id_ramal INT NOT NULL,
         node_id INT NOT NULL,
-        order INT NOT NULL,
+        branch_stop_order INT NOT NULL,
         x float NOT NULL,
-        Y float NOT NULL
+        y float NOT NULL
         )
         ;
         """

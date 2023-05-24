@@ -32,7 +32,7 @@ def upload_stops_table(stops):
     Reads a stops table, checks it and uploads it to db
     """
     conn = iniciar_conexion_db(tipo='insumos')
-    cols = ['id_linea', 'id_ramal', 'node_id', 'order', 'x', 'y']
+    cols = ['id_linea', 'id_ramal', 'node_id', 'branch_stop_order', 'x', 'y']
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
     stops.to_sql("stops", conn, if_exists="replace", index=False)
@@ -42,7 +42,7 @@ def upload_stops_table(stops):
 def create_temprary_stops_csv_with_node_id(geojson_path):
     """
     Takes a geojson with a LineString for each line and or branch
-    and creates a stops dataframe with x, y, order, and node_id
+    and creates a stops dataframe with x, y, branch_stop_order, and node_id
     every [stops_distance] meters.
 
     Parameters
@@ -57,7 +57,7 @@ def create_temprary_stops_csv_with_node_id(geojson_path):
     Returns
     -------
     pandas.DataFrame
-        DataFrame containing stops information (x, y, order, and node_id)
+        DataFrame containing stops information (x, y, branch_stop_order, and node_id)
         for each line and/or branch and saves it in data directory
     """
 
@@ -75,7 +75,7 @@ def create_temprary_stops_csv_with_node_id(geojson_path):
 def create_line_stops_equal_interval(geojson_path):
     """
     Takes a geojson with a LineString for each line and or branch
-    and creates a stops dataframe with x, y, and order
+    and creates a stops dataframe with x, y, and branch_stop_order
 
     Parameters
     ----------
@@ -87,7 +87,7 @@ def create_line_stops_equal_interval(geojson_path):
     Returns
     -------
     pandas.DataFrame
-        DataFrame containing stops information (x, y, and order)
+        DataFrame containing stops information (x, y, and branch_stop_order)
         for each line and/or branch
     """
     # Read geojson
@@ -107,8 +107,8 @@ def create_line_stops_equal_interval(geojson_path):
     stops_gdf = interpolate_stops_every_x_meters(geojson_data)
 
     stops_gdf = stops_gdf.reindex(
-        columns=['id_linea', 'id_ramal', 'order', 'line_stops_buffer',
-                 'x', 'y', 'geometry'])
+        columns=['id_linea', 'id_ramal', 'branch_stop_order',
+                 'line_stops_buffer', 'x', 'y', 'geometry'])
 
     return stops_gdf
 
@@ -156,14 +156,14 @@ def aggregate_line_stops_to_node_id(stops_gdf):
     Parameters
     ----------
     geopandas.GeoDataFrame
-        GeoDataFrame containing stops information (x, y, and order)
+        GeoDataFrame containing stops information (x, y, and branch_stop_order)
         for each line and/or branch and `line_stops_buffer` attribute
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame containing stops information (x, y, order and node_id)
-        for each line and/or branch
+        DataFrame containing stops information (x, y, branch_stop_order
+        and node_id) for each line and/or branch
     """
 
     # Add node_id for each line
@@ -189,7 +189,7 @@ def create_stops_from_route_geom(route_geom, stops_distance):
     Returns
     -------
     pandas.DataFrame
-        DataFrame containing stops information (x, y, and order)
+        DataFrame containing stops information (x, y, and branch_stop_order)
         for the given LineString
     """
     epsg_m = geo.get_epsg_m()
@@ -197,7 +197,8 @@ def create_stops_from_route_geom(route_geom, stops_distance):
     ranges = list(range(0, int(route_geom.length), stops_distance))
     stop_points = line_interpolate_point(route_geom, ranges).tolist()
 
-    stops_df = pd.DataFrame(range(len(stop_points)), columns=['order'])
+    stops_df = pd.DataFrame(range(len(stop_points)),
+                            columns=['branch_stop_order'])
     stops_df = gpd.GeoDataFrame(
         stops_df, geometry=stop_points,
         crs=f"EPSG:{epsg_m}")
@@ -248,7 +249,7 @@ def create_node_id(line_stops_gdf):
     gdf.loc[:, 'y'] = gdf['node_id'].replace(y_new_long)
     gdf.loc[:, 'x'] = gdf['node_id'].replace(x_new_long)
 
-    cols = ['id_linea', 'id_ramal', 'node_id', 'order', 'x', 'y']
+    cols = ['id_linea', 'id_ramal', 'node_id', 'branch_stop_order', 'x', 'y']
     gdf = gdf.reindex(columns=cols)
 
     return gdf

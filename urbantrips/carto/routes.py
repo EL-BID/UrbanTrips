@@ -374,7 +374,7 @@ def create_branch_graph(branch_stops):
     G = nx.MultiGraph(**metadata)
 
     branch_stops = branch_stops.sort_values(
-        'order').reindex(columns=['node_id', 'x', 'y'])
+        'branch_stop_order').reindex(columns=['node_id', 'x', 'y'])
     nodes = [(int(row['node_id']), {'x': row['x'], 'y':row['y']})
              for _, row in branch_stops.iterrows()]
     G.add_nodes_from(nodes)
