@@ -358,6 +358,20 @@ def create_db():
         """
     )
 
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stops
+        (id_linea INT NOT NULL,
+        id_ramal INT NOT NULL,
+        node_id INT NOT NULL,
+        order INT NOT NULL,
+        x float NOT NULL,
+        Y float NOT NULL
+        )
+        ;
+        """
+    )
+
     conn_data.close()
     conn_insumos.close()
 

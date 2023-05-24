@@ -5,8 +5,40 @@ from shapely import line_interpolate_point
 import libpysal
 from urbantrips.carto import carto
 from urbantrips.geo import geo
+from urbantrips.utils.utils import (duracion, iniciar_conexion_db)
 
 
+@duracion
+def create_stops_table():
+    """
+    Reads stops.csv file if present and uploads it to
+    stops table in the db
+    """
+
+    stops_path = os.path.join("data", "data_ciudad", "stops.csv")
+    if os.path.isfile(stops_path):
+        stops = pd.read_csv(stops_path)
+        upload_stops_table(stops)
+    else:
+        print("No existe un archivo de stops. Puede utilizar "
+              "notebooks/stops_creation_with_node_id_helper.ipynb"
+              "para crearlo a partir de los recorridos"
+              )
+
+
+@duracion
+def upload_stops_table(stops):
+    """
+    Reads a stops table, checks it and uploads it to db
+    """
+    conn = iniciar_conexion_db(tipo='insumos')
+    cols = ['id_linea', 'id_ramal', 'node_id', 'order', 'x', 'y']
+    stops = stops.reindex(columns=cols)
+    assert not stops.isna().any().all(), "Hay datos faltantes en stops"
+    stops.to_sql("stops", conn, if_exists="replace", index=False)
+
+
+@duracion
 def create_temprary_stops_csv_with_node_id(geojson_path):
     """
     Takes a geojson with a LineString for each line and or branch

@@ -396,10 +396,14 @@ def create_branch_g_from_stops_df(line_stops, id_ramal):
     return G
 
 
-def create_line_g(line_stops):
+def create_line_g(line_id):
+
+    conn = iniciar_conexion_db(tipo='insumos')
+    query = f"select * from stops where id_linea = {line_id}"
+    line_stops = pd.read_sql(query, conn)
     branches_id = line_stops.id_ramal.unique()
 
     G_line = nx.compose_all([create_branch_g_from_stops_df(
         line_stops, branch_id) for branch_id in branches_id])
 
-    # save g to file
+    return G_line
