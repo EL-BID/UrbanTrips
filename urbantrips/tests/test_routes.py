@@ -1,4 +1,4 @@
-from urbantrips.carto import routes
+from urbantrips.carto import routes, stops
 from urbantrips.utils import utils
 import pandas as pd
 
@@ -15,3 +15,9 @@ def test_routes():
 
     assert len(lines_routes) == 2
     assert len(branches_routes) == 8
+
+
+def test_create_line_g():
+    stops.create_stops_table()
+    G = routes.create_line_g(line_id=1)
+    assert len(G.nodes) == 4

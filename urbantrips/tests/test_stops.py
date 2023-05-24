@@ -25,3 +25,12 @@ def test_temp_stops():
     # within each branch
 
     assert len(temp_stops == 8)
+
+
+def test_create_stops_table():
+    # create table
+    stops.create_stops_table()
+    conn = utils.iniciar_conexion_db(tipo='insumos')
+    query = f"select * from stops where id_linea = 1"
+    line_stops = pd.read_sql(query, conn)
+    assert len(line_stops) == 8
