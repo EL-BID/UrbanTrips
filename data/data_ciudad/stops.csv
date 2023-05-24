@@ -1,4 +1,4 @@
-id_linea,id_ramal,node_id,order,y,x
+id_linea,id_ramal,node_id,branch_stop_order,y,x
 1,1,1,1,-34.621145,-58.380778
 1,1,2,2,-34.613297,-58.381052
 1,1,3,3,-34.609655,-58.389516
