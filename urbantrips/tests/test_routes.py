@@ -4,6 +4,7 @@ import pandas as pd
 
 
 def test_routes():
+    utils.create_db()
     routes.process_routes_geoms()
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')

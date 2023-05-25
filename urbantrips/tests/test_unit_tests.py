@@ -272,6 +272,7 @@ def create_test_trx(geolocalizar_trx_config,
 
 def test_amba_integration(matriz_validacion_test_amba):
     configs = utils.leer_configs_generales()
+    utils.create_db()
     routes.process_routes_metadata()
     geolocalizar_trx_config = configs["geolocalizar_trx"]
     nombres_variables_trx = configs["nombres_variables_trx"]

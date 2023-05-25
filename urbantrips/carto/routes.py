@@ -148,7 +148,7 @@ def build_routes_from_official_inferred():
     conn_insumos.execute(
         """
         INSERT INTO branches_geoms
-        select * from official_branches_geoms;
+        select * from official_branches_geoms
         ;
         """
     )
