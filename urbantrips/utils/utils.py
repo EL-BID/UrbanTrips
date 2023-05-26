@@ -365,8 +365,10 @@ def create_db():
         id_ramal INT NOT NULL,
         node_id INT NOT NULL,
         branch_stop_order INT NOT NULL,
-        x float NOT NULL,
-        y float NOT NULL
+        stop_x float NOT NULL,
+        stop_y float NOT NULL,
+        node_x float NOT NULL,
+        node_y float NOT NULL
         )
         ;
         """

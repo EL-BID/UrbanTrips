@@ -243,6 +243,7 @@ def check_route_geoms_columns(geojson_data, branches_present):
 
 def delete_old_route_geoms_data():
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+
     conn_insumos.execute("DELETE FROM lines_geoms;")
     conn_insumos.execute("DELETE FROM branches_geoms;")
     conn_insumos.execute("DELETE FROM official_lines_geoms;")
@@ -351,9 +352,65 @@ def process_routes_metadata():
     conn_insumos.close()
 
 
+def create_line_g(line_id):
+    """
+    Takes linea id, read from the stops data
+    and produces a line graph composing from branch's graphs
+
+    Parameters
+    ----------
+    branch_stops : pandas.DataFrame
+        branch's stops with order and node_id
+
+    Returns
+    -------
+    networkx.MultiGraph
+        Graph with the branch route id by node_id and ordered
+        by stops order
+    """
+    conn = iniciar_conexion_db(tipo='insumos')
+    query = f"select * from stops where id_linea = {line_id}"
+    line_stops = pd.read_sql(query, conn)
+
+    branches_id = line_stops.id_ramal.unique()
+
+    G_line = nx.compose_all([create_branch_g_from_stops_df(
+        line_stops, branch_id) for branch_id in branches_id])
+
+    return G_line
+
+
+def create_branch_g_from_stops_df(line_stops, id_ramal):
+    """
+    Takes a line stops with node_id and coordinates (node_x, node_y)
+    and a branch_id, selects branch's stops and produces a graph
+
+    Parameters
+    ----------
+    line_stops : pandas.DataFrame
+        lines's stops with order and node_id
+
+    Returns
+    -------
+    networkx.MultiGraph
+        Graph with the branch route id by node_id and ordered
+        by stops branch order
+    """
+
+    branch_stops = line_stops.loc[line_stops.id_ramal == id_ramal, :]
+
+    # remove duplicated stops with same node_id
+    branch_stops = branch_stops.drop_duplicates(subset='node_id')
+
+    G = create_branch_graph(branch_stops)
+    return G
+
+
 def create_branch_graph(branch_stops):
     """
-    Takes
+    Takes a line's branch stops with a node_id
+    and coordinates (node_x, node_y) and produces 
+    a branch graph  
 
     Parameters
     ----------
@@ -364,7 +421,7 @@ def create_branch_graph(branch_stops):
     -------
     networkx.MultiGraph
         Graph with the branch route id by node_id and ordered
-        by stops order
+        by stops branch order
     """
     metadata = {
         "crs": "epsg:4326",
@@ -374,8 +431,8 @@ def create_branch_graph(branch_stops):
     G = nx.MultiGraph(**metadata)
 
     branch_stops = branch_stops.sort_values(
-        'branch_stop_order').reindex(columns=['node_id', 'x', 'y'])
-    nodes = [(int(row['node_id']), {'x': row['x'], 'y':row['y']})
+        'branch_stop_order').reindex(columns=['node_id', 'node_x', 'node_y'])
+    nodes = [(int(row['node_id']), {'x': row['node_x'], 'y':row['node_y']})
              for _, row in branch_stops.iterrows()]
     G.add_nodes_from(nodes)
 
@@ -388,22 +445,3 @@ def create_branch_graph(branch_stops):
     G = distance.add_edge_lengths(G)
 
     return G
-
-
-def create_branch_g_from_stops_df(line_stops, id_ramal):
-    branch_stops = line_stops.loc[line_stops.id_ramal == id_ramal, :]
-    G = create_branch_graph(branch_stops)
-    return G
-
-
-def create_line_g(line_id):
-
-    conn = iniciar_conexion_db(tipo='insumos')
-    query = f"select * from stops where id_linea = {line_id}"
-    line_stops = pd.read_sql(query, conn)
-    branches_id = line_stops.id_ramal.unique()
-
-    G_line = nx.compose_all([create_branch_g_from_stops_df(
-        line_stops, branch_id) for branch_id in branches_id])
-
-    return G_line

@@ -32,14 +32,15 @@ def upload_stops_table(stops):
     Reads a stops table, checks it and uploads it to db
     """
     conn = iniciar_conexion_db(tipo='insumos')
-    cols = ['id_linea', 'id_ramal', 'node_id', 'branch_stop_order', 'x', 'y']
+    cols = ['id_linea', 'id_ramal', 'node_id', 'branch_stop_order',
+            'stop_x', 'stop_y', 'node_x', 'node_y']
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
     stops.to_sql("stops", conn, if_exists="replace", index=False)
 
 
 @duracion
-def create_temprary_stops_csv_with_node_id(geojson_path):
+def create_temporary_stops_csv_with_node_id(geojson_path):
     """
     Takes a geojson with a LineString for each line and or branch
     and creates a stops dataframe with x, y, branch_stop_order, and node_id
@@ -110,6 +111,7 @@ def create_line_stops_equal_interval(geojson_path):
         columns=['id_linea', 'id_ramal', 'branch_stop_order',
                  'line_stops_buffer', 'x', 'y', 'geometry'])
 
+    stops_gdf = stops_gdf.to_crs(epsg=4326)
     return stops_gdf
 
 
@@ -156,7 +158,7 @@ def aggregate_line_stops_to_node_id(stops_gdf):
     Parameters
     ----------
     geopandas.GeoDataFrame
-        GeoDataFrame containing stops information (x, y, and branch_stop_order)
+        GeoDataFrame containing a branch_stop_order
         for each line and/or branch and `line_stops_buffer` attribute
 
     Returns
@@ -171,6 +173,7 @@ def aggregate_line_stops_to_node_id(stops_gdf):
         .groupby('id_linea', as_index=False)\
         .apply(create_node_id)\
         .reset_index(drop=True)
+
     return stops_df
 
 
@@ -226,6 +229,9 @@ def create_node_id(line_stops_gdf):
         The DataFrame with an additional node_id column
     """
     buffer = line_stops_gdf.line_stops_buffer.unique()[0]
+    epsg_m = geo.get_epsg_m()
+
+    line_stops_gdf = line_stops_gdf.to_crs(epsg=epsg_m)
 
     gdf = line_stops_gdf.copy()
     connectivity = libpysal.weights.fuzzy_contiguity(
@@ -236,20 +242,22 @@ def create_node_id(line_stops_gdf):
         predicate='intersects')
 
     gdf.loc[:, 'node_id'] = connectivity.component_labels
+    gdf = gdf.to_crs(epsg=4326)
 
     # geocode new position based on new node_id
+    gdf.loc[:, ['stop_x']] = gdf.geometry.x
+    gdf.loc[:, ['stop_y']] = gdf.geometry.y
+
     x_new_long = gdf.groupby('node_id').apply(
-        lambda df: df.x.mean()).to_dict()
+        lambda df: df.stop_x.mean()).to_dict()
     y_new_long = gdf.groupby('node_id').apply(
-        lambda df: df.y.mean()).to_dict()
+        lambda df: df.stop_y.mean()).to_dict()
 
-    gdf.loc[:, 'x_original'] = gdf.x.copy()
-    gdf.loc[:, 'y_original'] = gdf.y.copy()
+    gdf.loc[:, 'node_y'] = gdf['node_id'].replace(y_new_long)
+    gdf.loc[:, 'node_x'] = gdf['node_id'].replace(x_new_long)
 
-    gdf.loc[:, 'y'] = gdf['node_id'].replace(y_new_long)
-    gdf.loc[:, 'x'] = gdf['node_id'].replace(x_new_long)
-
-    cols = ['id_linea', 'id_ramal', 'node_id', 'branch_stop_order', 'x', 'y']
+    cols = ['id_linea', 'id_ramal', 'node_id',
+            'branch_stop_order', 'stop_x', 'stop_y', 'node_x', 'node_y']
     gdf = gdf.reindex(columns=cols)
 
     return gdf

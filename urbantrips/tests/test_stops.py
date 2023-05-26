@@ -11,7 +11,7 @@ def test_temp_stops():
                                 configs['recorridos_geojson'])
 
     # Create temporary stops with onde_id
-    stops.create_temprary_stops_csv_with_node_id(geojson_path)
+    stops.create_temporary_stops_csv_with_node_id(geojson_path)
 
     # Check node id for constitucion has several stops within
 
