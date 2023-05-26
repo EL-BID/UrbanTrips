@@ -204,33 +204,35 @@ This is the data schema that `csv` files supplied as inputs to `urbantrips` must
 ### gps
 | Field | Type | Description |
 | -- | -- | -- |
-| id_gps | int | **Mandatory**. Unique ID that identifies each record. |
-| id_linea_gps | int | **Mandatory**. Unique ID that identifies the line. |
-| id_ramal_gps | int | **Mandatory if lines have branches**. Unique ID that identifies each branch. |
-| interno_gps | int | **Mandatory**. Unique ID that identifies each bus. |
-| fecha_gps | strftime | **Mandatory**. Day, hour, and minute of the GPS position of the bus. |
-| latitud_gps | float | **Mandatory**. Latitude. |
-| longitud_gps | float | **Mandatory**. Longitude. |
+| `id_gps` | int | **Mandatory**. Unique ID that identifies each record. |
+| `id_linea_gps` | int | **Mandatory**. Unique ID that identifies the line. |
+| `id_ramal_gps` | int | **Mandatory if lines have branches**. Unique ID that identifies each branch. |
+| `interno_gps` | int | **Mandatory**. Unique ID that identifies each bus. |
+| `fecha_gps` | strftime | **Mandatory**. Day, hour, and minute of the GPS position of the bus. |
+| `latitud_gps` | float | **Mandatory**. Latitude. |
+| `longitud_gps` | float | **Mandatory**. Longitude. |
     
     
 ### Lines and branches information 
 | Field | Type | Description |
 | -- | -- | -- |
-| id_linea | int | **Mandatory**. Integer that identifies the line. |
-| nombre_linea | str | **Mandatory**. Name of the line. |
-| modo | str | **Mandatory**. Mode of the line. |
-| id_ramal | int | Optional. Integer that identifies the branch. |
-| nombre_ramal | str | Optional. Name of the branch. |
-| empresa | str | Optional. Name of the company. |
-| descripcion | str | Optional. Additional description of the line or branch. |
+| `id_linea` | int | **Mandatory**. Integer that identifies the line. |
+| `nombre_linea` | str | **Mandatory**. Name of the line. |
+| `modo` | str | **Mandatory**. Mode of the line. |
+| `id_ramal` | int | **Mandatory if lines have branches**. Integer that identifies the branch. |
+| `nombre_ramal` | str | **Mandatory if lines have branches**. Name of the branch. |
+| `empresa` | str | Optional. Name of the company. |
+| `descripcion` | str | Optional. Additional description of the line or branch. |
 
 
 ### Lines geoms
 | Field | Type | Description |
 | -- | -- | -- |
-|id_linea|int|**Mandatory**. Integer that identifies the line.|
-|nombre_linea|str|**Mandatory**. Name of the line.|
-| geometry|2DLineString|Poliline representing the route. Cannot be a multiline.|
+|`id_linea`|int|**Mandatory**. Integer that identifies the line.|
+|`id_ramal`|str|**Mandatory if lines have branches**. Name of the line.|
+|`stops_distance`|int|Optional. Distance in meters to be applied when interpolating stops along the route.|
+|`line_stops_buffer`|int|Optional. Distance in meters between stops so that they can be added in one.|
+| `geometry`|2DLineString|LineString representing the route. Cannot be a multiline.|
 
 
 ## Directory structure

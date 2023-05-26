@@ -7,15 +7,13 @@ import h3
 import weightedstats as ws
 from math import floor
 from shapely import wkt
-from shapely.geometry import Point
 import re
-from urbantrips.geo.geo import h3_from_row, create_point_from_h3
+from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     crear_tablas_indicadores_operativos,
 )
-from urbantrips.carto import carto
 
 
 @duracion
@@ -87,7 +85,7 @@ def compute_route_section_load(
     conn_data.commit()
 
     # Read data from legs and route geoms
-    q_rec = f"select * from recorridos"
+    q_rec = f"select * from lines_geoms"
     q_main_etapas = f"select * from etapas"
 
     # If line and hour, get that subset
@@ -140,7 +138,7 @@ def compute_route_section_load(
 
     # Set which parameter to use to slit route geoms
     if section_meters:
-        epsg_m = carto.get_epsg_m()
+        epsg_m = geo.get_epsg_m()
         # project geoms and get for each geom a n_section
         recorridos = gpd.GeoDataFrame(
             recorridos, geometry="geometry", crs="EPSG:4326"
@@ -261,8 +259,8 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
 
     """
     # create Points for origins and destination
-    legs_df["o"] = legs_df['h3_o'].map(create_point_from_h3)
-    legs_df["d"] = legs_df['h3_d'].map(create_point_from_h3)
+    legs_df["o"] = legs_df['h3_o'].map(geo.create_point_from_h3)
+    legs_df["d"] = legs_df['h3_d'].map(geo.create_point_from_h3)
 
     # Assign a route section id
     legs_df["o_proj"] = list(
@@ -547,7 +545,7 @@ def compute_kpi():
     gps = pd.read_sql(q, conn_data)
 
     # Georeferenciar con h3
-    gps["h3"] = gps.apply(h3_from_row, axis=1,
+    gps["h3"] = gps.apply(geo.h3_from_row, axis=1,
                           args=(res, "latitud", "longitud"))
 
     # Producir un lag con respecto al siguiente posicionamiento gps

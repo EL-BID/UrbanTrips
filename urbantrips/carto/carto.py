@@ -7,24 +7,16 @@ import numpy as np
 import itertools
 import os
 import geopandas as gpd
-from shapely.geometry import LineString
-from shapely import wkt
-import statsmodels.api as sm
 import h3
 from networkx import NetworkXNoPath
 import multiprocessing
-from itertools import repeat
-from math import ceil
-from multiprocessing import Pool, Manager
 from functools import partial
 from math import sqrt
 from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
     create_voronoi, normalizo_lat_lon, h3dist
 )
-from urbantrips.viz.viz import (
-    plotear_recorrido_lowess,
-    plot_voronoi_zones)
+from urbantrips.viz import viz
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -81,153 +73,6 @@ def update_stations_catchment_area(ring_size):
         print("La matriz de validacion ya tiene los datos más actuales" +
               " en base a la informacion existente en la tabla de etapas")
     return None
-
-
-@duracion
-def upload_routes_geoms():
-    """
-    Esta funcion lee la ubicacion del archivo de recorridos de
-    la ciudad y crea una tabla con los mismos con la geometria en WKT
-    """
-
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    configs = leer_configs_generales()
-    try:
-        nombre_recorridos = configs["recorridos_geojson"]
-        if nombre_recorridos is not None:
-            print('Leyendo tabla de recorridos')
-            q = f"""
-            select distinct id_linea
-            from recorridos_reales
-            """
-            lineas_existentes = pd.read_sql(q, conn_insumos)
-            lineas_existentes = lineas_existentes.id_linea
-
-            ruta = os.path.join("data", "data_ciudad", nombre_recorridos)
-            recorridos = gpd.read_file(ruta)
-            print('Elminando lineas que ya estan en tabla de recorridos')
-            recorridos = recorridos.loc[~recorridos.id_linea.isin(
-                lineas_existentes), ]
-            if len(recorridos) == 0:
-                print('Todas las lineas en el geojson se encuentran en la db')
-                return None
-
-            # exigir que sean todos LineString
-            tipo_no_linestring = pd.Series(
-                [not isinstance(g, type(LineString()))
-                 for g in recorridos['geometry']])
-
-            if tipo_no_linestring.any():
-                lin_str = recorridos.loc[tipo_no_linestring, 'id_linea'].map(
-                    str)
-
-                print("La geometria de las lineas debe ser LineString en 2D")
-                print(
-                    "Hay lineas que no son de este tipo. Editarlas y " +
-                    "volver a cargar el dataset")
-                print(
-                    ','.join(lin_str))
-                recorridos = recorridos.loc[~tipo_no_linestring, :]
-
-                if len(recorridos) == 0:
-                    print('Se eliminaron las geometrias no LineString')
-                    print('y las que ya estaban en la db')
-                    print('Y el dataset quedo vacio')
-                    return None
-
-            recorridos['wkt'] = recorridos.geometry.to_wkt()
-
-            recorridos = recorridos.reindex(columns=['id_linea', 'wkt'])
-            print('Subiendo tabla de recorridos')
-            recorridos.to_sql(
-                "recorridos_reales", conn_insumos, if_exists="append",
-                index=False,)
-    except KeyError:
-        print("No hay nombre de archivo de recorridos en configs")
-    conn_insumos.close()
-
-
-def infer_routes_geoms(plotear_lineas):
-    """
-    Esta funcion crea a partir de las etapas un recorrido simplificado
-    de las lineas y lo guarda en la db
-    """
-    print('Creo líneas de transporte')
-
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    # traer la coordenadas de las etapas con suficientes datos
-    q = """
-    select e.id_linea,e.longitud,e.latitud
-    from etapas e
-    """
-    etapas = pd.read_sql(q, conn_data)
-
-    recorridos_lowess = etapas.groupby(
-        'id_linea').apply(lowess_linea).reset_index()
-
-    if plotear_lineas:
-        print('Imprimiento bosquejos de lineas')
-        alias = leer_alias()
-        [plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-         for id_linea in recorridos_lowess.id_linea]
-
-    print("Subiendo recorridos a la db...")
-    recorridos_lowess['wkt'] = recorridos_lowess.geometry.to_wkt()
-    recorridos_lowess = recorridos_lowess.reindex(columns=['id_linea', 'wkt'])
-    # Elminar geometrias invalidas
-    geoms = recorridos_lowess.wkt.apply(wkt.loads)
-    validas = geoms.map(lambda g: g.is_valid)
-    recorridos_lowess = recorridos_lowess.loc[validas, :]
-
-    recorridos_lowess.to_sql("recorridos_estimados",
-                             conn_insumos, if_exists="replace", index=False,)
-
-    # Crear una tabla de recorridos unica
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recorridos AS
-            select e.id_linea,coalesce(r.wkt,e.wkt) as wkt
-            from recorridos_estimados e
-            left join recorridos_reales r
-            on e.id_linea = r.id_linea
-        ;
-        """
-    )
-
-    conn_insumos.close()
-    conn_data.close()
-
-
-def lowess_linea(df):
-    """
-    Esta funcion toma un df de etapas para una linea
-    y produce el geom de la linea simplificada en un
-    gdf con el id linea
-    """
-    id_linea = df.id_linea.unique()[0]
-    epsg_m = get_epsg_m()
-
-    print("Obteniendo lowess linea:", id_linea)
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
-        df['longitud'], df['latitud']), crs=4326).to_crs(epsg_m)
-    y = gdf.geometry.y
-    x = gdf.geometry.x
-    lowess = sm.nonparametric.lowess
-    lowess_points = lowess(x, y, frac=0.4, delta=500)
-    lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=['y', 'x'])
-    lowess_points_df = lowess_points_df.drop_duplicates()
-
-    if len(lowess_points_df) > 1:
-        geom = LineString([(x, y) for x, y in zip(
-            lowess_points_df.x, lowess_points_df.y)])
-        out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
-                               crs=f'EPSG:{epsg_m}', index=[0]).to_crs(4326)
-        return out
-
-    else:
-        print("Imposible de generar una linea lowess para id_linea = ",
-              id_linea)
 
 
 @duracion
@@ -461,7 +306,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     print("Graba zonas en sql lite")
 
     # Plotea geoms de voronoi
-    plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
+    viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
 
 
 @duracion
@@ -743,14 +588,3 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     except NetworkXNoPath:
         out = np.nan
     return out
-
-
-def get_epsg_m():
-    '''
-    Gets the epsg id for a coordinate reference system in meters from config
-    '''
-    configs = leer_configs_generales()
-    epsg_m = configs['epsg_m']
-    print(f"Utilizando EPSG:{epsg_m} como proyección de coordenadas en metros")
-
-    return epsg_m

@@ -2,7 +2,7 @@ from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
 from urbantrips.destinations import destinations as dest
 from urbantrips.geo import geo
-from urbantrips.carto import carto
+from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 
 
@@ -67,11 +67,11 @@ def main():
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    # Upload route geometries
-    carto.upload_routes_geoms()
-
     # Inferir route geometries based on legs data
-    carto.infer_routes_geoms(plotear_lineas=False)
+    routes.infer_routes_geoms(plotear_lineas=False)
+
+    # Build final routes from official an inferred sources
+    routes.build_routes_from_official_inferred()
 
 
 if __name__ == "__main__":
