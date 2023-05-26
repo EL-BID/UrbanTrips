@@ -28,7 +28,11 @@ def test_temp_stops():
 
 
 def test_create_stops_table():
-    # create table
+
+    # Create DB
+    utils.create_db()
+
+    # Create stops table
     stops.create_stops_table()
     conn = utils.iniciar_conexion_db(tipo='insumos')
     query = f"select * from stops where id_linea = 1"

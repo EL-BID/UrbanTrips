@@ -19,6 +19,7 @@ def test_routes():
 
 
 def test_create_line_g():
+    utils.create_db()
     stops.create_stops_table()
     G = routes.create_line_g(line_id=1)
     assert len(G.nodes) == 4
