@@ -533,7 +533,8 @@ def test_section_load_viz(matriz_validacion_test_amba):
     )
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
-    routes. process_routes_metadata()
+    routes.process_routes_metadata()
+    routes.process_routes_geoms()
 
     legs.create_legs_from_transactions(trx_order_params)
 
@@ -551,8 +552,12 @@ def test_section_load_viz(matriz_validacion_test_amba):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    routes.infer_routes_geoms(plotear_lineas=False)
     carto.create_zones_table()
+    # Inferir route geometries based on legs data
+    routes.infer_routes_geoms(plotear_lineas=False)
+
+    # Build final routes from official an inferred sources
+    routes.build_routes_from_official_inferred()
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
     viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
