@@ -4,6 +4,8 @@ import pandas as pd
 
 
 def test_routes():
+    # Create basic dir structure:
+    utils.create_directories()
     utils.create_db()
     routes.process_routes_geoms()
 
@@ -19,6 +21,8 @@ def test_routes():
 
 
 def test_create_line_g():
+    # Create basic dir structure:
+    utils.create_directories()
     utils.create_db()
     stops.create_stops_table()
     G = routes.create_line_g(line_id=1)

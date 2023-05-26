@@ -28,6 +28,8 @@ def test_temp_stops():
 
 
 def test_create_stops_table():
+    # Create basic dir structure:
+    utils.create_directories()
 
     # Create DB
     utils.create_db()
