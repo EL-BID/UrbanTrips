@@ -5,7 +5,7 @@
 ![analytics](https://www.google-analytics.com/collect?v=1&cid=555&t=pageview&ec=repo&ea=open&dp=/urbantrips/readme&dt=&tid=UA-4677001-16)
 
 
-![logo](https://github.com/EL-BID/UrbanTrips/blob/feature/issue_4/docs/logo_readme.png)
+![logo](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/logo_readme.png)
 
 # README
 `urbantrips` is an open-source library that takes information from a smart card payment system for public transportation and, through information processing that infers trip destinations and constructs travel chains for each user, produces origin-destination matrices and other indicators (KPI) for bus routes. The main objective of the library is to produce useful inputs for public transport management from minimal information and pre-processing requirements. With only a geolocalized table of economic transactions from an electronic payment system, results can be generated, which will be more accurate the more additional information is incorporated into the process through optional files. The process elaborates the matrices, indicators, and constructs a series of transport graphs and maps.
