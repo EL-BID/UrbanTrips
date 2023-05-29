@@ -47,7 +47,7 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
     """
 
     # Basic query for legs and route geoms
-    q_rec = f"select * from recorridos"
+    q_rec = f"select * from lines_geoms"
     q_main_etapas = f"select * from etapas"
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')

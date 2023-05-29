@@ -217,14 +217,44 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
     con los atributos de interes de la app. Aquellos atributos que no
     tengan equivalente en nombres_variables apareceran con NULL
     """
-    zipped = zip(nombres_variables.values(), nombres_variables.keys())
-    renombrar_columnas = {k: v for k, v in zipped}
 
-    print("Renombrando columnas:", nombres_variables)
+    service_id_dict_rename_col = {}
+    # if service id column provided as dict:
+    if 'original_service_id_gps' in nombres_variables:
+        service_id_col = (
+            isinstance(nombres_variables['original_service_id_gps'], dict) &
+            (nombres_variables['original_service_id_gps'] is not None)
+        )
+
+        if service_id_col:
+            # get service id data
+            service_id_dict = nombres_variables.pop('original_service_id_gps')
+            # get the name in the original df
+            service_id_col_name = list(service_id_dict.keys())[0]
+            # create a rename dict
+            service_id_dict_rename_col = {
+                service_id_col_name: 'original_service_id_gps'}
+
+            # create a replace values dict
+            service_id_values = {v: k for k,
+                                 v in service_id_dict[service_id_col_name]
+                                 .items()}
+            df[service_id_col_name] = df[service_id_col_name].replace(
+                service_id_values)
+            # remove all values besides start and end of service
+            not_service_id_values = ~df[service_id_col_name].isin(
+                service_id_values.values())
+            df.loc[not_service_id_values, service_id_col_name] = None
+
+    renombrar_columnas = {v: k for k, v in nombres_variables.items()}
+    renombrar_columnas.update(service_id_dict_rename_col)
+
+    print("Renombrando columnas:", renombrar_columnas)
 
     df = df.rename(columns=renombrar_columnas)
-    df = df.reindex(columns=nombres_variables.keys())
+    df = df.reindex(columns=renombrar_columnas.values())
     df.columns = df.columns.map(lambda s: s.replace(postfijo, ""))
+
     return df
 
 
