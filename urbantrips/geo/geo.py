@@ -1,12 +1,14 @@
+from shapely import line_interpolate_point
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from urbantrips.utils.utils import duracion
+from urbantrips.utils.utils import duracion, leer_configs_generales
 from itertools import repeat
 import h3
 from math import ceil
 from shapely.geometry import Polygon, Point, LineString,  LinearRing
 import libpysal
+import statsmodels.api as sm
 
 
 @ duracion
@@ -265,5 +267,70 @@ def crear_linea(row, lon_o, lat_o, lon_d, lat_d):
     return (LineString([[row[lon_o], row[lat_o]], [row[lon_d], row[lat_d]]]))
 
 
-def geolocalizar_trx():
-    print('a')
+def check_all_geoms_linestring(gdf):
+    if not all(gdf.geometry.type == 'LineString'):
+        raise ValueError(
+            'Invalid geometry type. Only LineStrings are supported.')
+
+
+def get_points_over_route(route_geom, distance):
+    """
+    Interpolates points over a projected route geom in meters
+    every x meters set by distance 
+    """
+    ranges = range(0, int(route_geom.length), distance)
+    points = line_interpolate_point(route_geom, ranges).tolist()
+    return points
+
+
+def lowess_linea(df):
+    """
+    Takes a DataFrame with legs and lat long for a given line,
+    and produces a LineString for that line route geom
+    using lowes regression for that
+
+
+    Parameters
+    ----------
+    df : opandas.DataFrame
+        geoDataFrame legs with latlong
+
+    Returns
+    -------
+    geopandas.geoDataFrame
+        GeoDataFrame containing a single LineString for each line
+    """
+
+    id_linea = df.id_linea.unique()[0]
+    epsg_m = get_epsg_m()
+
+    print("Obteniendo lowess linea:", id_linea)
+    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
+        df['longitud'], df['latitud']), crs=4326).to_crs(epsg_m)
+    y = gdf.geometry.y
+    x = gdf.geometry.x
+    lowess = sm.nonparametric.lowess
+    lowess_points = lowess(x, y, frac=0.4, delta=500)
+    lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=['y', 'x'])
+    lowess_points_df = lowess_points_df.drop_duplicates()
+
+    if len(lowess_points_df) > 1:
+        geom = LineString([(x, y) for x, y in zip(
+            lowess_points_df.x, lowess_points_df.y)])
+        out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
+                               crs=f'EPSG:{epsg_m}', index=[0]).to_crs(4326)
+        return out
+
+    else:
+        print("Imposible de generar una linea lowess para id_linea = ",
+              id_linea)
+
+
+def get_epsg_m():
+    '''
+    Gets the epsg id for a coordinate reference system in meters from config
+    '''
+    configs = leer_configs_generales()
+    epsg_m = configs['epsg_m']
+
+    return epsg_m

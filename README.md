@@ -5,7 +5,7 @@
 ![analytics](https://www.google-analytics.com/collect?v=1&cid=555&t=pageview&ec=repo&ea=open&dp=/urbantrips/readme&dt=&tid=UA-4677001-16)
 
 
-![logo](https://github.com/EL-BID/UrbanTrips/blob/feature/issue_4/docs/logo_readme.png)
+![logo](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/logo_readme.png)
 
 # README
 `urbantrips` es una biblioteca de código abierto que toma información de un sistema de pago con tarjeta inteligente de transporte público y, a través de un procesamiento de la información que infiere destinos de los viajes y construye las cadenas de viaje para cada usuario, produce matrices de origen-destino y otros indicadores (KPI) para rutas de autobús. El principal objetivo de la librería es producir insumos útiles para la gestión del transporte público a partir de requerimientos mínimos de información y pre-procesamiento. Con sólo una tabla geolocalizada de transacciones económicas proveniente de un sistema de pago electrónico, se podrán generar resultados, que serán más precisos cuanto más información adicional se incorpore al proceso a través de los archivos opcionales. El proceso elabora las matrices, los indicadores y construye una serie de gráficos y mapas de transporte.
@@ -22,11 +22,11 @@ Urbantrips requiere sólo 2 insumos indispensables:
 - Un archivo de configuración: `configuraciones_generales.yaml`
 
 El archivo csv con las transacciones debe tener los siguientes campos obligatorios (los nombres pueden ser diferentes y esto se configura en el archivo configuraciones_generales.yaml):
-- 	`fecha_trx`: campo que indica la fecha de la transacción.
-- 	`hora_trx`: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
 -	`id_tarjeta_trx`: un id único para cada tarjeta para cada día.
 -	`id_linea_trx`: un id único para cada linea de transporte
--	`orden_trx`: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día. Solo el obligatorio cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
+- 	`fecha_trx`: campo que indica la fecha de la transacción.
+- 	`hora_trx`: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
+-	`orden_trx`: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día y que se reinicie con cada viaje. Es obligatorio unicamente cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
 -	`latitud_trx`: Latitud de la transacción.
 -	`longitud_trx`: Longitud de la transacción.
 
@@ -35,7 +35,7 @@ Al correr el proceso general de `urbantrips`, éste tomará el archivo de config
 Con sólo esos archivos podrá correr el proceso de imputación de destinos, construcción de matrices OD y elaboración de KPIs. Dicho eso, se obtendrán más resultados y con mayor precisión si se suman estos archivos opcionales:
 
 - Tabla con información de las líneas y/o ramales de transporte público (nombre de fantasía, etc).
-- Cartografía de los recorridos de las líneas de transporte público
+- Cartografía de los recorridos de las líneasy/o ramales de transporte público
 - Cartografía de las zonificaciones con las unidades espaciales utilizadas para agregar datos para la matriz OD
 - Tabla de GPS con el posicionamiento de las unidades
 
@@ -49,13 +49,66 @@ Si en una ciudad no existen estas situaciones, simplemente se utiliza la linea p
 
 ## Seteo del archivo de configuración 
 
-El archivo de configuración (`configuraciones_generales.yaml`) es único. Cada corrida leerá la información que hay en este archivo. Su contenido puede editarse entre corrida y corrida para, por ejemplo, procesar dos días diferentes. 
+El archivo de configuración (`configuraciones_generales.yaml`) es único. Cada corrida leerá la información que hay en este archivo. Su contenido puede editarse entre corrida y corrida para, por ejemplo, procesar días diferentes. Se divide en diferentes categorías de parámetros.
 
-El primer parámetro `resolucion_h3` establece el nivel de resolución del esquema [H3](https://h3geo.org/) con el que se va a trabajar. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.
+### Parámetros generales
+En este primer grupo encontramos parámetros generales que utliza `urbantrips` en diferentes momentos. El primer parámetro `resolucion_h3` establece el nivel de resolución del esquema [H3](https://h3geo.org/) con el que se va a trabajar. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.
 
-El segundo es el prámetro principal, el nombre del archivo que contiene la información de las transacciones. El mismo deberá localizarse en `/data/data_ciudad/` (más información sobre la [estructura de directorios](#estructura-de-directorios)). Esta parte del archivo de configuración permite especificar el nombre del archivo a utilizar como así también los nombres de los atributos tal cual aparecen en el csv para que puedan ser guardados en el esquema de datos de `urbantrips`.
+Luego vienen las configuraciǫnes que nombram las dos bases de datos con las que trabaja `urbantrips`. `alias_db_data` guardará todo lo realtivo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de `data` para cada semana o cada mes a medida que alcance un volumen determinado (`amba_2023_semana1`, `amba_2023_semana2`,etc). Por su lado, `alias_db_insumos` es una base de datos que guardará información de manera constante y servirá tanto para los datos de la semana 1 como los de la semana 2. 
+
+También es necesario especificar una proyección de coordenadas en metros, pasando un id de [EPSG](https://epsg.io/).
+
+Es posible establecer un `filtro_latlong_bbox` que crea un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.
+
+Por último el `formato_fecha` especifica el formato en el que se encuentra el campo `fecha_trx` (por ej. `"%d/%m/%Y"`, `"%d/%m/%Y %H:%M:%S"`) y las fechas en el archivo de posicionamiento GPS (si se utiliza). Todas las fechas a utilizar deben estar en el mismo formato.
+
 ```
 resolucion_h3: 8
+
+# Alias a utilizar en las db de datos y de insumos
+alias_db_data: amba_test
+alias_db_insumos: amba_test
+
+# Proyeccion de coordenadas en metros a utilizar  
+epsg_m: 9265
+
+# Filtro de coordenadas en formato minx, miny, maxx, maxy 
+filtro_latlong_bbox:
+    minx: -59.3
+    miny: -35.5
+    maxx: -57.5
+    maxy: -34.0
+
+#Especificar el formato fecha presente en todos los dataset
+formato_fecha: "%d/%m/%Y"
+```
+
+### Parámetros de imputación de destinos
+
+Este otro grupo de parámetros controla el método de imputación de destinos. Por un lado establece el criterio de tolerancia de la distancia entre la siguiente transaccion de esa tarjeta y alguna parada de la linea utilizada en la etapa a la que se está imputando el destino. Si la distancia es mayor a esta tolerancia, no se imputará destino. El parametro  `imputar_destinos_min_distancia` establece si se imputará la siguiente transacción como destino o la parada de la linea utilizada en la etapa que minimice la distancia con respecto a la siguiente transacción.
+
+```
+# Distancia maxima tolerable entre destino imputado y siguiente transaccion (en metros)
+tolerancia_parada_destino: 2200
+
+# Imputar utilizando la parada de la linea de orige que minimice la distancia con respecto a la siguiente transaccion o solo la siguiente transaccion
+imputar_destinos_min_distancia: False
+```
+
+
+### Parámetros de transacciones
+Este es el grupo de parámetros principal. Por un lado está el nombre del archivo que contiene la información de las transacciones. El mismo deberá localizarse en `/data/data_ciudad/` (más información sobre la [estructura de directorios](#estructura-de-directorios)). Esta parte del archivo de configuración permite especificar el nombre del archivo a utilizar como así también los nombres de los atributos tal cual aparecen en el csv para que puedan ser guardados en el esquema de datos de `urbantrips`.
+
+El siguiente conjunto de parámetros de configuración definen el procesamiento de las transacciones.
+- `columna_hora`: Indica si la información sobre la hora está en una columna separada (`hora_trx`). Este debe ser un entero de 0 a 23.
+- `ordenamiento_transacciones`: El criterio para ordenar las transacciones en el tiempo. Si se cuenta con un timestamp completo con horas y minutos, entonces usar `fecha_completa`. Si solo se cuenta con la información del día y la hora, se puede usar `orden_trx`. Este campo debe tener un entero secuencial que ordena las transacciones. Debe comenzar en cero cuando se comienza un nuevo viaje e incrementear con cada nueva etapa en ese viaje.  
+- `ventana_viajes`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que las etapas se agrupan en un mismo viaje.  
+- `ventana_duplicado`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un `id_tarjeta` ad hoc a cada una.
+- `tipo_trx_invalidas`: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
+- `modos`: urbantrips estandariza en 5 categorias (`autobus`,`tren`,`metro`,`tranvia` y `brt`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
+
+
+```
 nombre_archivo_trx: semana1.csv
 
 nombres_variables_trx:
@@ -71,55 +124,42 @@ nombres_variables_trx:
 	latitud_trx: lat
 	longitud_trx: lon
 	factor_expansion:  
-```
-El siguiente conjunto de parámetros de configuración definen el procesamiento de las transacciones.
-- `formato_fecha`: especifica el formato en el que se encuentra el campo `fecha_trx` (por ej. `"%d/%m/%Y"`, `"%d/%m/%Y %H:%M:%S"`)
-- `columna_hora`: Indica si la información sobre la hora está en una columna separada (`hora_trx`). Este debe ser un entero de 0 a 23.
-- `ordenamiento_transacciones`: El criterio para ordenar las transacciones en el tiempo. Si se cuenta con un timestamp completo con horas y minutos, entonces usar `fecha_completa`. Si solo se cuenta con la información del día y la hora, se puede usar `orden_trx`.   
-- `ventana_viajes`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que las etapas se agrupan en un mismo viaje.  
-- `ventana_duplicado`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un `id_tarjeta` ad hoc a cada una.
-- `tipo_trx_invalidas`: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
-- `modos`: urbantrips estandariza en 5 categorias (`autobus`,`tren`,`metro`,`tranvia` y `brt`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
-- `filtro_latlong_bbox`: Establece un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.
 
-```
-formato_fecha: "%d/%m/%Y"
-columna_hora: True
-ordenamiento_transacciones: orden_trx #fecha_completa u orden_trx
-ventana_viajes: 120
-ventana_duplicado: 5
+#Indicar si la informacion sobre la hora está en una columna separada. En nombres_variables debe indicarse el nombre. Dejar vacío en caso contrario 
+columna_hora: True 
 
+# Criterio para ordenar las transacciones en el tiempo. 'fecha_completa' utiliza el campo dado en fecha_trx mientras que `orden_trx` utiliza un entero incremental que se reinicia con cada viaje   
+ordenamiento_transacciones: orden_trx 
+
+# Cantidad de minutos de la ventana de tiempo para considerar diferentes etapas dentro de un mismo viaje
+ventana_viajes: 
+
+# Cantidad de minutos de la ventana de tiempo para considerar diferentes transacciones como una sola
+ventana_duplicado: 
+
+# Tipo de transacciones a elminar por no considerare usos en transporte publico. Indicar la columna y los valores para cada columna
 tipo_trx_invalidas:
-	tipo_trx_tren:
-    	- 'CHECK OUT SIN CHECKIN'
-    	- 'CHECK OUT'
+    tipo_trx_tren:
+        - 'CHECK OUT SIN CHECKIN'
+        - 'CHECK OUT'
 
+# Especificar como se nombra a los modos en los archivos  
 modos:
-	autobus: COL
-	tren: TRE
-	metro: SUB
-	tranvia:
-	brt:
-
-filtro_latlong_bbox:
-	minx: -59.3
-	miny: -35.5
-	maxx: -57.5
-	maxy: -34.0
-
+    autobus: COL
+    tren: TRE
+    metro: SUB
+    tranvia:
+    brt:
 ```
-El siguiente grupo de configuraciones nombra las dos bases de datos con las que trabaja `urbantrips`. `alias_db_data` guardará todo lo realtivo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de `data` para cada semana o cada mes a medida que alcance un volumen determinado (`amba_2023_semana1`, `amba_2023_semana2`,etc). Por su lado, `alias_db_insumos` es una base de datos que guardará información de manera constante y servirá tanto para los datos de la semana 1 como los de la semana 2. 
 
-```
-alias_db_data: amba_2023_semana1
-alias_db_insumos: amba_2023
-```
+### Parámetros de posicionamiento GPS
 Este parámetro se utiliza para cuando existe una tabla separada con GPS que contenga el posicionamiento de los internos. En ese caso, se gelocalizará cada transacción en base a la tabla GPS, uniendo por `id_linea` e `interno` (haciendo a este campo obligatorio) y minimizando el tiempo de la transacción con respecto a la transacción gps del interno de esa linea. Para eso el campo `fecha` debe estar completo con dia, hora y minutos. Esto hace obligatoria la existencia de un csv con la información de posicionamiento de los gps. Su nombre y atributos se especifican de modo similar a lo hecho en transacciones. La existencia de la tabla GPS permitira calcular KPI adicionales como el IPK.
 
 ```
 geolocalizar_trx: True
 
 nombre_archivo_gps: gps_semana1.csv
+
 nombres_variables_gps:
     id_gps: 
     id_linea_gps: idlinea
@@ -130,34 +170,34 @@ nombres_variables_gps:
     longitud_gps: longitude
 
 ```
-Este otro grupo de parámetros controla el método de imputación de destinos. Por un lado establece el criterio de tolerancia de la distancia entre la siguiente transaccion de esa tarjeta y alguna parada de la linea utilizada en la etapa a la que se está imputando el destino. Si la distancia es mayor a esta tolerancia, no se imputará destino. El parametro  `imputar_destinos_min_distancia` establece si se imputará la siguiente transacción como destino o la parada de la linea utilizada en la etapa que minimice la distancia con respecto a la siguiente transacción.
+
+### Parámetro de lineas, ramales y paradas
+
+Es necesario que se especifique si en el sistema de transporte existen lineas con ramales, tal como los entiende `urbantrips` y se especifica en [Sobre el concepto de lineas y ramales en urbantrips](#Sobre-el-concepto-de-lineas-y-ramales-en-urbantrips). Esto debe indicarse en el parámetro `lineas_contienen_ramales`.
+
+Se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece.  La misma puede identificar una linea o una linea-ramal (siendo los ramales pequeñas desviaciones con respecto a un recorrido principal). En este último caso `urbantrips` creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales. 
+
+Tambien permite agregar cartografías como los recorridos de las lineas y ramales, que deben ser una única Linestring en 2d (no permite multilineas). Si existe una tabla de recorridos, entonces debe proveerse un archivo con información de las lineas y ramales. Esta tabla puede identificar recorridos de lineas o tambien de lineas y ramales. No es necesario indicar el sentido.
+
+Por úlitmo, se puede especificar un archivo con la ubicación de paradas o estaciones para cada linea y ramal, indicando un orden de paso o sucesión y también un `node_id`, donde deben aparecer con un mismo id las paradas de diferentes ramales de una misma linea donde se pueda realizar un transbordo entre ramales. El `node_id` puede repetirse en otras lineas. 
 
 ```
-tolerancia_parada_destino: 2200
-imputar_destinos_min_distancia: True
-```
-
-También es necesario especificar una proyección de coordenadas en metros, pasando un id de [EPSG](https://epsg.io/).
-```
-epsg_m: 9265
-```
-
-Es necesario que se especifique si en el sistema de transporte existen lineas con ramales, tal como los entiende `urbantrips` y se especifica en [Sobre el concepto de lineas y ramales en urbantrips](#Sobre-el-concepto-de-lineas-y-ramales-en-urbantrips). Esto debe indicarse en el parámetro correspondiente.
-
-```
+# Las lineas a ser utilizadas se subdividen en ramales?
 lineas_contienen_ramales: True
-```
 
+# Nombre del archivo con la metadada de lineas y/o ramales
+nombre_archivo_informacion_lineas: lineas_amba_test.csv
 
-Por último, se pueden especificar tablas adicionales de utilidad para el proceso. Por un lado se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece.  La misma puede identificar una linea o una linea-ramal (siendo los ramales pequeñas desviaciones con respecto a un recorrido principal). En este último caso `urbantrips` creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales. 
-
-Tambien permite agregar cartografías como los recorridos, que deben ser una única Linestring en 2d (no permite multilineas), o diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera `urbantrips`. 
-
-
-```
-nombre_archivo_informacion_lineas: lineas_amba.csv
+# Nombre del archivo con las rutas de las lineas y/o ramales
 recorridos_geojson: recorridos_amba.geojson
 
+# Nombre del archivo con las paradas para todas las lineas y/o ramales con orden y node_id 
+nombre_archivo_paradas: 
+```
+
+Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera `urbantrips`. 
+
+```
 zonificaciones:
 	geo1: hexs_amba.geojson
 	var1: Corona
@@ -168,9 +208,12 @@ zonificaciones:
 
 ## Esquema de datos
 
-Este es el esquema de datos que deben seguir los archivos `csv` suministrados como insumos a `urbantrips`.
+Este es el esquema de datos que deben seguir los archivos suministrados como insumos a `urbantrips`.
 
 ### transacciones
+
+Tabla con las transacciones de la tarjeta.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 | `id_trx` | int | Opcional. Id único que identifique cada registro. |
@@ -187,6 +230,9 @@ Este es el esquema de datos que deben seguir los archivos `csv` suministrados co
 | `factor_expansion` | float | Opcional. Factor de expansión en caso de tratarse de una muestra. |
 
 ### GPS
+
+Tabla con el posicionamiento de cada interno con información de linea y ramal.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_gps`|int|  **Obligatorio**. Id único que identifique cada registro. |
@@ -199,23 +245,43 @@ Este es el esquema de datos que deben seguir los archivos `csv` suministrados co
     
     
 ### Información de lineas y ramales
+
+Tabla con metadata descriptiva de las lineas y ramales. 
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
 |`nombre_linea`|str|**Obligatorio**. Nombre de la línea.|
 |`modo`|str|**Obligatorio**. Modo de la linea.|
-|`id_ramal`|int|Opcional.Entero que identifique al ramal.|
-|`nombre_ramal`|str|Opcional. Nombre del ramal.|
+|`id_ramal`|int|**Obligatorio si hay ramales**.Entero que identifique al ramal.|
+|`nombre_ramal`|str|**Obligatorio si hay ramales**. Nombre del ramal.|
 |`empresa`|str|Opcional. Nombre de la empresa.|
 |`descripcion`|str|Opcional. Descripción adicional de la linea o ramal.|
 
 ### Recorridos lineas
+
+Archivo `geojson` con la información de la linea.
+
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
 |`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
-|`nombre_linea`|str|**Obligatorio**. Nombre de la línea.|
-| `geometry`|2DLineString|Polilinea del recorrido. No puede ser multilinea|
+|`id_ramal`|str|**Obligatorio si hay ramales**. Entero que identifique al ramal.|
+|`stops_distance`|int|Opcional. Distancia en metros a aplicarse al interpolar paradas sobre el recorrido.|
+|`line_stops_buffer`|int|Opcional. Distancia en metros entre paradas para que se puedan agregar en una sola.|
+| `geometry`|2DLineString|Polilinea del recorrido. No puede ser multilinea.|
 
+
+### Paradas
+
+Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo `node_id` se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el `node_id` debe ser el mismo, para las demas único dentro de la línea. 
+| Campo | Tipo de dato | Descripción |
+| -- | -- | -- |
+|`id_linea`|int|**Obligatorio**. Entero que identifique a la linea.|
+|`id_ramal`|int|**Obligatorio si hay ramales**. Entero que identifique a al ramal.|
+|`order`|int| **Obligatorio**. Entero único que siga un recorrido de la linea o ramal de manera incremental. No importa el sentido|
+|`y`|float|**Obligatorio**. Latitud.| 
+|`x`|float|**Obligatorio**. Longitud.|
+|`node_id`|int|**Obligatorio**. Identifica con el mismo id estaciones donde puede haber transbordo entre ramales de una misma linea. Único para los otros casos dentro de la misma línea.|
 
 ## Estructura de directorios
 Al clonar `urbantrips` y correrlo, dejará la siguiente estructura de directorios:

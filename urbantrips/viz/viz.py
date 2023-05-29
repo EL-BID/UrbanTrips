@@ -25,6 +25,7 @@ from requests.exceptions import ConnectionError as r_ConnectionError
 
 from urbantrips.kpi import kpi
 from urbantrips.carto import carto
+from urbantrips.geo import geo
 from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
 from urbantrips.utils.utils import (
@@ -177,7 +178,7 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
               " day_type:", day_type)
 
     # Read route geoms
-    q_rec = f"select * from recorridos"
+    q_rec = f"select * from lines_geoms"
     if id_linea:
         q_rec = q_rec + f" where id_linea in ({lineas_str})"
 
@@ -332,7 +333,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
 
     # Use a projected crs in meters
-    epsg = carto.get_epsg_m()
+    epsg = geo.get_epsg_m()
     gdf = gdf.to_crs(epsg=epsg)
 
     gdf_d0 = gdf\
