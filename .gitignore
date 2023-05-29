@@ -141,3 +141,5 @@ zonas_tmp.geojson
 od_matrix/utils/visuals_bk.py
 setup-Copy1.py
 run_urbantrips.ipynb
+run_urbantrips.ipynb
+configs/configuraciones_generales.yaml

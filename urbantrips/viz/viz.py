@@ -2029,23 +2029,23 @@ def save_zones():
     Esta función guarda las geografías de las zonas para el dashboard
     """
     print('Creando zonificación para dashboard')
+
     configs = leer_configs_generales()
+    
+    try:
+        zonificaciones = configs['zonificaciones']
+    except KeyError:
+        zonificaciones = []
 
     geo_files = [['Zona_voi.geojson', 'Zona_voi']]
 
-    if configs["zonificaciones"]:
+    if zonificaciones:
         for n in range(0, 5):
 
             try:
-                file_zona = configs["zonificaciones"][f"geo{n+1}"]
-                var_zona = configs["zonificaciones"][f"var{n+1}"]
+                file_zona = zonificaciones[f"geo{n+1}"]
+                var_zona = zonificaciones[f"var{n+1}"]
                 geo_files += [[file_zona, var_zona]]
-
-                try:
-                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
-                except KeyError:
-                    matriz_order = ""
-
 
             except KeyError:
                 pass
