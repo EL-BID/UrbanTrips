@@ -335,7 +335,7 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null
+        Viajes int not null
         )
         ;
         """
@@ -351,7 +351,7 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null,
+        Viajes int not null,
         lon_o float,
         lat_o float,
         lon_d float,
@@ -361,6 +361,60 @@ def create_db():
         """
     )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viajes_hora
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Hora int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribucion
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Distancia int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )   
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS indicadores
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Titulo text,
+        orden int,
+        Indicador text,
+        Valor text
+        )
+        ;
+        """
+    )   
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text
+        )
+        ;
+        """
+    )   
 
     conn_insumos.execute(
         """
@@ -420,7 +474,8 @@ def create_db():
 
     conn_data.close()
     conn_insumos.close()
-
+    conn_dash.close()
+    print("Fin crear base")
     print("Todas las tablas creadas")
 
 
