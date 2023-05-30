@@ -539,6 +539,9 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     plt.close(f)
 
     if save_gdf:
+        gdf_d0 = gdf_d0.to_crs(epsg=4326)
+        gdf_d1 = gdf_d1.to_crs(epsg=4326)
+
         f_0 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_0.geojson'
         f_1 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_1.geojson'
 
