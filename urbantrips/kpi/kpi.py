@@ -6,7 +6,6 @@ import numpy as np
 import h3
 import weightedstats as ws
 from math import floor
-from shapely import wkt
 import re
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
@@ -134,7 +133,7 @@ def compute_route_section_load(
             etapas = etapas.loc[~weekday_filter, :]
 
     recorridos = pd.read_sql(q_rec, conn_insumos)
-    recorridos["geometry"] = recorridos.wkt.apply(wkt.loads)
+    recorridos["geometry"] = gpd.GeoSeries.from_wkt(recorridos.wkt)
 
     # Set which parameter to use to slit route geoms
     if section_meters:
@@ -405,6 +404,8 @@ def compute_section_load_table(
 
         legs_by_sections_full["day_type"] = day_type
         legs_by_sections_full["n_sections"] = n_sections
+
+        # Add section geom reference
 
         # Set db schema
         legs_by_sections_full = legs_by_sections_full.reindex(
