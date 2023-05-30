@@ -626,7 +626,7 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}",
-            alias = alias,
+            alias=alias,
             desc_dia=desc_dia,
             tipo_dia=tipo_dia,
             var_zona=var_zona,
@@ -645,7 +645,7 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}_transferencias",
-            alias = alias,
+            alias=alias,
             desc_dia=desc_dia,
             tipo_dia=tipo_dia,
             var_zona=var_zona,
@@ -664,7 +664,7 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}_corta_distancia",
-            alias = alias,
+            alias=alias,
             desc_dia=desc_dia,
             tipo_dia=tipo_dia,
             var_zona=var_zona,
@@ -708,7 +708,7 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
@@ -729,7 +729,7 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_mediodia",
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
@@ -751,7 +751,7 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_tarde",
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
@@ -834,7 +834,7 @@ def imprime_lineas_deseo(df,
                      savefile=f"{alias}{savefile}_{var_zona}",
                      show_fig=False,
                      k_jenks=k_jenks,
-                     alias = alias,
+                     alias=alias,
                      desc_dia=desc_dia,
                      tipo_dia=tipo_dia,
                      zona=var_zona,
@@ -854,7 +854,7 @@ def imprime_lineas_deseo(df,
                      savefile=f"{alias}{savefile}_{var_zona}_transferencias",
                      show_fig=False,
                      k_jenks=k_jenks,
-                     alias = alias,
+                     alias=alias,
                      desc_dia=desc_dia,
                      tipo_dia=tipo_dia,
                      zona=var_zona,
@@ -874,7 +874,7 @@ def imprime_lineas_deseo(df,
                      savefile=f"{alias}{savefile}_{var_zona}_corta_distancia",
                      show_fig=False,
                      k_jenks=k_jenks,
-                     alias = alias,
+                     alias=alias,
                      desc_dia=desc_dia,
                      tipo_dia=tipo_dia,
                      zona=var_zona,
@@ -924,7 +924,7 @@ def imprime_lineas_deseo(df,
                 show_fig=False,
                 normalizo_latlon=False,
                 k_jenks=k_jenks,
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
@@ -947,7 +947,7 @@ def imprime_lineas_deseo(df,
                 show_fig=False,
                 normalizo_latlon=False,
                 k_jenks=k_jenks,
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
@@ -970,7 +970,7 @@ def imprime_lineas_deseo(df,
                 show_fig=False,
                 normalizo_latlon=False,
                 k_jenks=k_jenks,
-                alias = alias,
+                alias=alias,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
@@ -981,7 +981,7 @@ def imprime_graficos_hora(viajes,
                           title='Cantidad de viajes en transporte público',
                           savefile='viajes',
                           var_fex='',
-                          desc_dia='', 
+                          desc_dia='',
                           tipo_dia=''):
 
     pd.options.mode.chained_assignment = None
@@ -1010,7 +1010,7 @@ def imprime_graficos_hora(viajes,
     viajesxhora['cant'] = viajesxhora['cant'].round().astype(int)
 
     savefile_ = f'{savefile}_x_hora'
-    
+
     viajesxhora_dash = viajesxhora.copy()
     viajesxhora_dash['modo'] = 'Todos'
 
@@ -1036,7 +1036,7 @@ def imprime_graficos_hora(viajes,
         db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-    ### Viajes por hora y modo de transporte
+    # Viajes por hora y modo de transporte
     viajesxhora = pd.concat([viajes, df_aux], ignore_index=True)
     viajesxhora['hora'] = viajesxhora.hora.astype(str).str[:2].str.zfill(2)
     viajesxhora = viajesxhora.groupby(
@@ -1050,37 +1050,41 @@ def imprime_graficos_hora(viajes,
         'cant'].sum().reset_index()
 
     viajesxhora['cant'] = viajesxhora['cant'].round().astype(int)
-    
-    ## guarda distribución de viajes para dashboard
-    viajesxhora_dash = pd.concat([viajesxhora_dash, viajesxhora], ignore_index=True)
-    
+
+    # guarda distribución de viajes para dashboard
+    viajesxhora_dash = pd.concat(
+        [viajesxhora_dash, viajesxhora], ignore_index=True)
+
     viajesxhora_dash['tipo_dia'] = tipo_dia
     viajesxhora_dash['desc_dia'] = desc_dia
-    
-    
-    viajesxhora_dash = viajesxhora_dash[['tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
-    viajesxhora_dash.columns = ['desc_dia', 'tipo_dia', 'Hora', 'Viajes', 'Modo']
-    
+
+    viajesxhora_dash = viajesxhora_dash[[
+        'tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
+    viajesxhora_dash.columns = ['desc_dia',
+                                'tipo_dia', 'Hora', 'Viajes', 'Modo']
+
     conn_dash = iniciar_conexion_db(tipo='dash')
 
     viajesxhora_dash_ant = pd.read_sql_query(
-    """
+        """
     SELECT *
     FROM viajes_hora
     """,
-    conn_dash,
+        conn_dash,
     )
 
     viajesxhora_dash_ant = viajesxhora_dash_ant[~(
-               (viajesxhora_dash_ant.desc_dia==desc_dia)&
-               (viajesxhora_dash_ant.tipo_dia==tipo_dia)
-              )]
+        (viajesxhora_dash_ant.desc_dia == desc_dia) &
+        (viajesxhora_dash_ant.tipo_dia == tipo_dia)
+    )]
 
-    viajesxhora_dash=pd.concat([viajesxhora_dash_ant, viajesxhora_dash], ignore_index=True)
+    viajesxhora_dash = pd.concat(
+        [viajesxhora_dash_ant, viajesxhora_dash], ignore_index=True)
 
-    viajesxhora_dash.to_sql("viajes_hora", conn_dash, if_exists="replace", index=False)
+    viajesxhora_dash.to_sql("viajes_hora", conn_dash,
+                            if_exists="replace", index=False)
     conn_dash.close()
-    
+
     # Viajes por hora
     savefile_ = f'{savefile}_modo'
     with sns.axes_style(
@@ -1108,18 +1112,17 @@ def imprime_graficos_hora(viajes,
         db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-    #### Distribución de viajes
+    # Distribución de viajes
     savefile_ = f'{savefile}_dist'
     vi = viajes[(viajes.distance_osm_drive.notna())
                 & (viajes.distance_osm_drive > 0)
                 & (viajes.h3_o != viajes.h3_d)]
     vi['distance_osm_drive'] = vi['distance_osm_drive'].astype(int)
-    
-    vi_modo = vi\
-                .groupby(['distance_osm_drive', 'modo'], as_index=False)\
-                .factor_expansion.sum()\
-                .rename(columns={'factor_expansion': 'cant'})
 
+    vi_modo = vi\
+        .groupby(['distance_osm_drive', 'modo'], as_index=False)\
+        .factor_expansion.sum()\
+        .rename(columns={'factor_expansion': 'cant'})
 
     vi = vi\
         .groupby('distance_osm_drive', as_index=False)\
@@ -1128,41 +1131,40 @@ def imprime_graficos_hora(viajes,
 
     vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
                 ].sort_values('distance_osm_drive')
-    
-    ## guarda distribución de viajes para dashboard
-    
+
+    # guarda distribución de viajes para dashboard
+
     vi_dash = vi.copy()
     vi_dash['modo'] = 'Todos'
-    vi_dash = pd.concat([vi_dash, vi_modo], ignore_index=True)   
-    
+    vi_dash = pd.concat([vi_dash, vi_modo], ignore_index=True)
+
     vi_dash['tipo_dia'] = tipo_dia
     vi_dash['desc_dia'] = desc_dia
 
-    vi_dash = vi_dash[['desc_dia', 'tipo_dia', 'distance_osm_drive', 'cant', 'modo']]
+    vi_dash = vi_dash[['desc_dia', 'tipo_dia',
+                       'distance_osm_drive', 'cant', 'modo']]
     vi_dash.columns = ['desc_dia', 'tipo_dia', 'Distancia', 'Viajes', 'Modo']
-    
-    
+
     conn_dash = iniciar_conexion_db(tipo='dash')
 
     vi_dash_ant = pd.read_sql_query(
-    """
+        """
     SELECT *
     FROM distribucion
     """,
-    conn_dash,
+        conn_dash,
     )
 
     vi_dash_ant = vi_dash_ant[~(
-               (vi_dash_ant.desc_dia==desc_dia)&
-               (vi_dash_ant.tipo_dia==tipo_dia)               
-              )]
+        (vi_dash_ant.desc_dia == desc_dia) &
+        (vi_dash_ant.tipo_dia == tipo_dia)
+    )]
 
-    vi_dash=pd.concat([vi_dash_ant, vi_dash], ignore_index=True)
+    vi_dash = pd.concat([vi_dash_ant, vi_dash], ignore_index=True)
 
     vi_dash.to_sql("distribucion", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
-    
     ytitle = "Viajes"
     if vi.cant.mean() > 1000:
         vi['cant'] = round(vi['cant']/1000)
@@ -1396,9 +1398,9 @@ def imprime_od(
     total_color="navy",
     total_background_color="white",
     show_fig=False,
-    alias = '',
-    desc_dia = '',
-    tipo_dia = '',
+    alias='',
+    desc_dia='',
+    tipo_dia='',
     var_zona='',
     filtro1='',
 ):
@@ -1651,27 +1653,26 @@ def imprime_od(
                 pd.concat(
                     [od1, pd.DataFrame([[], []]), od_heatmap],
                 ).to_excel(db_path)
-                
+
             else:
                 od_heatmap.to_excel(path_resultados / (db_path))
 
         if show_fig:
             display(fig)
-            
-            
+
         # Guardo datos para el dashboard
         if not 'h3_r' in var_zona:
-            
+
             conn_dash = iniciar_conexion_db(tipo='dash')
 
-            df=df[[zona_origen, zona_destino, var_fex]].copy()
+            df = df[[zona_origen, zona_destino, var_fex]].copy()
             df.columns = ['Origen', 'Destino', 'Viajes']
 
             df['desc_dia'] = desc_dia
             df['tipo_dia'] = tipo_dia
             df['var_zona'] = var_zona.replace('h3_r', 'H3 Resolucion ')
             df['filtro1'] = filtro1
-            
+
             df_ant = pd.read_sql_query(
                 """
                 SELECT *
@@ -1681,34 +1682,36 @@ def imprime_od(
             )
 
             df_ant = df_ant[~(
-                               (df_ant.desc_dia==desc_dia)&
-                               (df_ant.tipo_dia==tipo_dia)&
-                               (df_ant.var_zona==var_zona.replace('h3_r', 'H3 Resolucion '))&
-                                (df_ant.filtro1==filtro1)
-                              )]
+                (df_ant.desc_dia == desc_dia) &
+                (df_ant.tipo_dia == tipo_dia) &
+                (df_ant.var_zona == var_zona.replace('h3_r', 'H3 Resolucion ')) &
+                (df_ant.filtro1 == filtro1)
+            )]
 
-            df=pd.concat([df_ant, df], ignore_index=True)
+            df = pd.concat([df_ant, df], ignore_index=True)
 
-            if len(matriz_order_row)==0: matriz_order_row = od_heatmap.reset_index()[zona_origen].unique()
-            if len(matriz_order_col)==0: matriz_order_col = od_heatmap.columns
+            if len(matriz_order_row) == 0:
+                matriz_order_row = od_heatmap.reset_index()[
+                    zona_origen].unique()
+            if len(matriz_order_col) == 0:
+                matriz_order_col = od_heatmap.columns
 
-            n=1
+            n = 1
             cols = []
             for i in matriz_order_row:
                 cols += [str(n).zfill(3)+'_'+str(i)]
-                n+=1
+                n += 1
             df['Origen'] = df.Origen.replace(matriz_order_row, cols)
 
-            n=1
+            n = 1
             cols = []
             for i in matriz_order_col:
                 cols += [str(n).zfill(3)+'_'+str(i)]
-                n+=1
+                n += 1
             df['Destino'] = df.Destino.replace(matriz_order_row, cols)
-            
+
             df.to_sql("matrices", conn_dash, if_exists="replace", index=False)
             conn_dash.close()
-
 
 
 def lineas_deseo(df,
@@ -1725,12 +1728,12 @@ def lineas_deseo(df,
                  show_fig=True,
                  normalizo_latlon=True,
                  k_jenks=5,
-                 alias = '',
-                 desc_dia = '',
-                 tipo_dia = '',
+                 alias='',
+                 desc_dia='',
+                 tipo_dia='',
                  zona='',
                  filtro1='',
-                    ):
+                 ):
 
     hexs = zonas.groupby(
         var_zona, as_index=False).size().drop(['size'], axis=1)
@@ -1872,43 +1875,46 @@ def lineas_deseo(df,
                     db_path = os.path.join(
                         "resultados", "pdf", f"{savefile}.pdf")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
-                    
-                    ### Guarda geojson para el dashboard
+
+                    # Guarda geojson para el dashboard
                     # if not 'h3_r' in var_zona:
                     df_folium = df_agg.copy()
-                    df_folium.columns = ['Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o', 'lon_d', 'lat_d', 'cumsum', 'geometry']
-                    
-                    df_folium = df_folium[['Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o', 'lon_d', 'lat_d']]
+                    df_folium.columns = ['Origen', 'Destino', 'Viajes',
+                                         'lon_o', 'lat_o', 'lon_d', 'lat_d', 'cumsum', 'geometry']
+
+                    df_folium = df_folium[[
+                        'Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o', 'lon_d', 'lat_d']]
 
                     df_folium['desc_dia'] = desc_dia
                     df_folium['tipo_dia'] = tipo_dia
-                    df_folium['var_zona'] = var_zona.replace('h3_r', 'H3 Resolucion ')
+                    df_folium['var_zona'] = var_zona.replace(
+                        'h3_r', 'H3 Resolucion ')
                     df_folium['filtro1'] = filtro1
 
                     conn_dash = iniciar_conexion_db(tipo='dash')
 
                     df_folium_ant = pd.read_sql_query(
-                                        """
+                        """
                                         SELECT *
                                         FROM lineas_deseo
                                         """,
-                                        conn_dash,
-                                    )
-        
-        
+                        conn_dash,
+                    )
+
                     df_folium_ant = df_folium_ant[~(
-                                                   (df_folium_ant.desc_dia==desc_dia)&
-                                                   (df_folium_ant.tipo_dia==tipo_dia)&
-                                                   (df_folium_ant.var_zona==var_zona.replace('h3_r', 'H3 Resolucion '))&
-                                                    (df_folium_ant.filtro1==filtro1)
-                                                  )] 
+                                                   (df_folium_ant.desc_dia == desc_dia) &
+                                                   (df_folium_ant.tipo_dia == tipo_dia) &
+                                                   (df_folium_ant.var_zona == var_zona.replace('h3_r', 'H3 Resolucion ')) &
+                        (df_folium_ant.filtro1 == filtro1)
+                    )]
 
-                    df_folium=pd.concat([df_folium_ant, df_folium], ignore_index=True)
+                    df_folium = pd.concat(
+                        [df_folium_ant, df_folium], ignore_index=True)
 
+                    df_folium.to_sql("lineas_deseo", conn_dash,
+                                     if_exists="replace", index=False)
+                    conn_dash.close()
 
-                    df_folium.to_sql("lineas_deseo", conn_dash, if_exists="replace", index=False)
-                    conn_dash.close() 
-                
                     crear_mapa_folium(df_agg,
                                       cmap,
                                       var_fex,
@@ -2023,8 +2029,8 @@ def crear_mapa_folium(df_agg,
 
     db_path = os.path.join("resultados", "html", savefile)
     m.save(db_path)
-    
-    
+
+
 def save_zones():
     """
     Esta función guarda las geografías de las zonas para el dashboard
@@ -2032,7 +2038,7 @@ def save_zones():
     print('Creando zonificación para dashboard')
 
     configs = leer_configs_generales()
-    
+
     try:
         zonificaciones = configs['zonificaciones']
     except KeyError:
@@ -2051,23 +2057,24 @@ def save_zones():
             except KeyError:
                 pass
 
-    zonas = pd.DataFrame([])        
+    zonas = pd.DataFrame([])
     for i in geo_files:
         file = os.path.join("data", "data_ciudad", f'{i[0]}')
         if os.path.isfile(file):
             df = gpd.read_file(file)
             df = df[[i[1], 'geometry']]
             df.columns = ['Zona', 'geometry']
-            df['tipo_zona'] = i[1]            
+            df['tipo_zona'] = i[1]
             zonas = pd.concat([zonas, df])
 
-    zonas = zonas.dissolve(by=['tipo_zona','Zona'], as_index=False)
+    zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
     zonas['wkt'] = zonas.geometry.to_wkt()
     zonas = zonas.drop(['geometry'], axis=1)
-    
+
     conn_dash = iniciar_conexion_db(tipo='dash')
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
+
 
 def create_visualizations():
     """
@@ -2191,5 +2198,4 @@ def create_visualizations():
 #                          show_fig=False,
 #                          k_jenks=5)
 
-        
     save_zones()
