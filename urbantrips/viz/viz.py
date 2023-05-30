@@ -312,7 +312,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         df['buff_factor'] <= factor_min, factor_min, df['buff_factor'])
 
     cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
-            'section_id', 'hora_min', 'hora_max', 'cantidad_etapas', 'prop_etapas', 'buff_factor']
+            'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
+            'prop_etapas', 'buff_factor']
 
     df_d0 = df.loc[df.sentido == 'ida', cols]
     df_d1 = df.loc[df.sentido == 'vuelta', cols]
