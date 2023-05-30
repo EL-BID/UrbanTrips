@@ -177,6 +177,8 @@ def compute_route_section_load(
             "section_meters",
             "sentido",
             "section_id",
+            "x",
+            "y",
             "hora_min",
             "hora_max",
             "cantidad_etapas",
@@ -301,10 +303,10 @@ def compute_section_load_table(
 
     if (recorridos.id_linea == id_linea).any():
 
-        recorrido = recorridos.loc[recorridos.id_linea ==
-                                   id_linea, "geometry"].item()
+        route_geom = recorridos.loc[recorridos.id_linea ==
+                                    id_linea, "geometry"].item()
 
-        df = add_od_lrs_to_legs_from_route(legs_df=df, route_geom=recorrido)
+        df = add_od_lrs_to_legs_from_route(legs_df=df, route_geom=route_geom)
 
         # Assign a direction based on line progression
         df = df.reindex(
@@ -406,7 +408,20 @@ def compute_section_load_table(
         legs_by_sections_full["n_sections"] = n_sections
 
         # Add section geom reference
-
+        geom = [route_geom.interpolate(section_id, normalized=True)
+                for section_id in section_ids]
+        x = [g.x for g in geom]
+        y = [g.y for g in geom]
+        section_ids_coords = pd.DataFrame({
+            'section_id': section_ids,
+            'x': x,
+            'y': y
+        })
+        legs_by_sections_full = legs_by_sections_full.merge(
+            section_ids_coords,
+            on='section_id',
+            how='left'
+        )
         # Set db schema
         legs_by_sections_full = legs_by_sections_full.reindex(
             columns=[
@@ -415,6 +430,8 @@ def compute_section_load_table(
                 "n_sections",
                 "sentido",
                 "section_id",
+                "x",
+                "y",
                 "hora_min",
                 "hora_max",
                 "cantidad_etapas",

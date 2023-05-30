@@ -243,6 +243,8 @@ def create_db():
         section_meters int,
         sentido text not null,
         section_id float not null,
+        x float,
+        y float,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
