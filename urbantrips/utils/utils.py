@@ -53,6 +53,9 @@ def create_directories():
     db_path = os.path.join("resultados", "ppts")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("resultados", "geojson")
+    os.makedirs(db_path, exist_ok=True)
+
 
 def leer_alias(tipo='data'):
     """
@@ -240,6 +243,8 @@ def create_db():
         section_meters int,
         sentido text not null,
         section_id float not null,
+        x float,
+        y float,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
@@ -324,7 +329,7 @@ def create_db():
         ;
         """
     )
-    
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS matrices
@@ -340,7 +345,7 @@ def create_db():
         ;
         """
     )
-    
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS lineas_deseo
@@ -387,7 +392,7 @@ def create_db():
         )
         ;
         """
-    )   
+    )
 
     conn_dash.execute(
         """
@@ -402,7 +407,7 @@ def create_db():
         )
         ;
         """
-    )   
+    )
 
     conn_dash.execute(
         """
@@ -414,7 +419,26 @@ def create_db():
         )
         ;
         """
-    )   
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
 
     conn_insumos.execute(
         """
