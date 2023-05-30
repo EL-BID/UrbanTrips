@@ -2057,23 +2057,25 @@ def save_zones():
             except KeyError:
                 pass
 
-    zonas = pd.DataFrame([])
-    for i in geo_files:
-        file = os.path.join("data", "data_ciudad", f'{i[0]}')
-        if os.path.isfile(file):
-            df = gpd.read_file(file)
-            df = df[[i[1], 'geometry']]
-            df.columns = ['Zona', 'geometry']
-            df['tipo_zona'] = i[1]
-            zonas = pd.concat([zonas, df])
+        zonas = pd.DataFrame([])
+        for i in geo_files:
+            file = os.path.join("data", "data_ciudad", f'{i[0]}')
+            if os.path.isfile(file):
+                df = gpd.read_file(file)
+                df = df[[i[1], 'geometry']]
+                df.columns = ['Zona', 'geometry']
+                df['tipo_zona'] = i[1]
+                zonas = pd.concat([zonas, df])
 
-    zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
-    zonas['wkt'] = zonas.geometry.to_wkt()
-    zonas = zonas.drop(['geometry'], axis=1)
+        zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
+        zonas['wkt'] = zonas.geometry.to_wkt()
+        zonas = zonas.drop(['geometry'], axis=1)
 
-    conn_dash = iniciar_conexion_db(tipo='dash')
-    zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
-    conn_dash.close()
+        conn_dash = iniciar_conexion_db(tipo='dash')
+        zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
+        conn_dash.close()
+    else:
+        print("Sin zonificaciones en config file")
 
 
 def create_visualizations():
