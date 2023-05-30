@@ -11,7 +11,9 @@ def main():
     # Compute and viz route section load by line
     kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
     viz.visualize_route_section_load(
-        id_linea=False, rango_hrs=False, save_gdf=True)
+        id_linea=False, rango_hrs=False,
+        save_gdf=True, indicador='prop_etapas', factor=500,
+        factor_min=50, )
 
     # Create TAZs
     carto.create_zones_table()

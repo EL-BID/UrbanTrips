@@ -421,6 +421,25 @@ def create_db():
         """
     )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
+
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms

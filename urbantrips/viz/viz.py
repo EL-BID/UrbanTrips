@@ -114,7 +114,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         viz_etapas_x_tramo_recorrido,
         route_geoms=recorridos,
         indicator=indicador,
-        factor=0.1,
+        factor=factor,
         factor_min=factor_min,
         return_gdfs=False,
         save_gdf=save_gdf,
@@ -186,9 +186,10 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
         q_rec = q_rec + f" where id_linea in ({lineas_str})"
 
     recorridos = pd.read_sql(q_rec, conn_insumos)
-    recorridos['wkt'] = recorridos.wkt.apply(wkt.loads)
-    recorridos = gpd.GeoSeries(
-        recorridos.set_index('id_linea').wkt,
+
+    recorridos = gpd.GeoSeries.from_wkt(
+        recorridos.wkt.values,
+        index=recorridos.id_linea.values,
         crs='EPSG:4326')
 
     return table, recorridos
@@ -304,14 +305,17 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     print('Produciendo grafico de ocupacion por tramos', id_linea)
 
     # set a expansion factor for viz purposes
-    df['factor'] = df[indicator]*factor
+    df['buff_factor'] = df[indicator]*factor
 
     # Set a minimum for each section to be displated in map
-    df['factor'] = np.where(
-        df['factor'] <= factor_min, factor_min, df['factor'])
+    df['buff_factor'] = np.where(
+        df['buff_factor'] <= factor_min, factor_min, df['buff_factor'])
 
-    df_d0 = df.loc[df.sentido == 'ida', ['section_id', indicator, 'factor']]
-    df_d1 = df.loc[df.sentido == 'vuelta', ['section_id', indicator, 'factor']]
+    cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
+            'section_id', 'hora_min', 'hora_max', 'cantidad_etapas', 'prop_etapas', 'buff_factor']
+
+    df_d0 = df.loc[df.sentido == 'ida', cols]
+    df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
     # Create geoms for route in both directions
     geom = [LineString(
@@ -349,8 +353,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         .fillna(0)
 
     # creando buffers en base a
-    gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.factor)
-    gdf_d1['geometry'] = gdf_d1.geometry.buffer(gdf_d1.factor)
+    gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
+    gdf_d1['geometry'] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
 
     # creating plot
     print("Creando gráfico")
@@ -542,6 +546,26 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
 
         gdf_d0.to_file(db_path_0, driver='GeoJSON')
         gdf_d1.to_file(db_path_1, driver='GeoJSON')
+
+        conn_dash = iniciar_conexion_db(tipo='dash')
+        gdf_d0_dash = gdf_d0.copy()
+        gdf_d1_dash = gdf_d1.copy()
+
+        gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
+        gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
+        cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
+                'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
+                'prop_etapas', 'buff_factor', 'wkt']
+
+        gdf_d0_dash = gdf_d0.reindex(columns=cols)
+        gdf_d1_dash = gdf_d1.reindex(columns=cols)
+
+        gdf_d0_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
+                           if_exists="append", index=False)
+        gdf_d1_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
+                           if_exists="append", index=False)
+
+        conn_dash.close()
 
     if return_gdfs:
         return gdf_d0, gdf_d1
@@ -2059,7 +2083,7 @@ def save_zones():
     except KeyError:
         zonificaciones = []
 
-    geo_files = [['Zona_voi.geojson', 'Zona_voi']]
+    geo_files = [['zona_voi.geojson', 'Zona_voi']]
 
     if zonificaciones:
         for n in range(0, 5):
@@ -2072,25 +2096,23 @@ def save_zones():
             except KeyError:
                 pass
 
-        zonas = pd.DataFrame([])
-        for i in geo_files:
-            file = os.path.join("data", "data_ciudad", f'{i[0]}')
-            if os.path.isfile(file):
-                df = gpd.read_file(file)
-                df = df[[i[1], 'geometry']]
-                df.columns = ['Zona', 'geometry']
-                df['tipo_zona'] = i[1]
-                zonas = pd.concat([zonas, df])
+    zonas = pd.DataFrame([])
+    for i in geo_files:
+        file = os.path.join("data", "data_ciudad", f'{i[0]}')
+        if os.path.isfile(file):
+            df = gpd.read_file(file)
+            df = df[[i[1], 'geometry']]
+            df.columns = ['Zona', 'geometry']
+            df['tipo_zona'] = i[1]
+            zonas = pd.concat([zonas, df])
 
-        zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
-        zonas['wkt'] = zonas.geometry.to_wkt()
-        zonas = zonas.drop(['geometry'], axis=1)
+    zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
+    zonas['wkt'] = zonas.geometry.to_wkt()
+    zonas = zonas.drop(['geometry'], axis=1)
 
-        conn_dash = iniciar_conexion_db(tipo='dash')
-        zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
-        conn_dash.close()
-    else:
-        print("Sin zonificaciones en config file")
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
 
 
 def create_visualizations():
