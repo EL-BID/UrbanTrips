@@ -140,7 +140,7 @@ def pptx_text(prs, slide='', title='', top=0, left=0, width=10, height=1, fontsi
 def pptx_addpic(prs, slide, img_path,  left=0, top=0, width=0, altura_max=0, ancho_max=0, crop_left = 0, crop_top = 0, crop_right = 0, crop_bottom = 0):
     # for adding all maps and graphs
     # altura_max and ancho_max in cm
-    blank_slide_layout = prs.slide_layouts[6]
+    # blank_slide_layout = prs.slide_layouts[6]
 
     img_path = str(img_path)
 
@@ -162,21 +162,27 @@ def pptx_addpic(prs, slide, img_path,  left=0, top=0, width=0, altura_max=0, anc
         os.remove(img_path)
         
         return slide_return
-def get_new_slide(prs):
+def get_new_slide(prs, desc_dia_titulo):
     ## Logo Urbantrips
-    if not os.path.isfile('urbantrips_logo.jpg'):
+    file_logo = os.path.join(
+        "docs", "urbantrips_logo.jpg")
+    if not os.path.isfile(file_logo):
         # URL of the image file on Github
-        url = 'https://github.com/EL-BID/UrbanTrips/blob/2040c82c8364fa65aa7a661c49c5bca15fe75839/urbantrips_logo.JPG?raw=true'
+        url = 'https://github.com/EL-BID/UrbanTrips/blob/18be313301c979dae5fd27ac5b83f89c76e2dd5f/docs/urbantrips_logo.jpg'
 
         # Send a request to get the content of the image file
         response = requests.get(url)
 
         # Save the content to a local file
-        with open('urbantrips_logo.jpg', 'wb') as f:
+        with open(file_logo, 'wb') as f:
             f.write(response.content)
 
     slide = pptx_addtitle(prs=prs, slide='',  title='', left=0, top=0, width=24, new=True, fontsize=48)    
-    pptx_addpic(prs=prs, slide=slide, img_path='urbantrips_logo.jpg',  left=16, top=12.3, width=8)
+    pptx_addpic(prs=prs, slide=slide, img_path=file_logo,  left=16, top=12.3, width=8)
+    
+    slide = pptx_addtitle(prs=prs, slide=slide,  title='Urbantrips', left=0, top=0, width=24, new=False, fontsize=48)    
+    slide = pptx_addtitle(prs=prs, slide=slide,  title=desc_dia_titulo, left=0, top=1, width=24, new=False, fontsize=38)    
+    
     return slide
 
 def format_num(num, lpad=10):
@@ -187,19 +193,13 @@ def format_num(num, lpad=10):
 
 def slide_1(prs,
             indicadores,
-           desc_dia,
-           tipo_dia):
-    
-    meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+            desc_dia,
+            tipo_dia,
+            desc_dia_titulo):
     
     df_indicadores = pd.DataFrame([])
 
-    slide = get_new_slide(prs)
-
-    slide = pptx_addtitle(prs=prs, slide=slide,  title='Urbantrips', left=0, top=0, width=24, new=False, fontsize=48)    
-
-    slide = pptx_addtitle(prs=prs, slide=slide,  title=f"Corrida de {meses[int(desc_dia[:2])-1]} {desc_dia[-4:]} {desc_dia[8:]}", left=0, top=1, width=24, new=False, fontsize=38)    
-
+    slide = get_new_slide(prs, desc_dia_titulo)
 
     top_i = 3
     left_i = 1
@@ -337,23 +337,40 @@ def slide_1(prs,
     df_indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
-    
-    # db_path = os.path.join(
-    #                 "resultados", "tmp", f"dash_indicadores.csv")
-    # df_indicadores.to_csv(db_path, index=False)
-
     return prs
 
 
 
-def create_ppt():
-# if True:
+# def create_ppt():
+if True:
     
     meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     
     pd.options.mode.chained_assignment = None
     
     alias = leer_alias()
+    
+    configs = leer_configs_generales()
+    
+    try:
+        zonificaciones = configs['zonificaciones']
+    except KeyError:
+        zonificaciones = []
+
+    geo_files = []
+
+    if zonificaciones:
+        for n in range(0, 5):
+
+            try:
+                file_zona = zonificaciones[f"geo{n+1}"]
+                var_zona = zonificaciones[f"var{n+1}"]
+                geo_files += [[file_zona, var_zona]]
+
+            except KeyError:
+                pass
+            
+    geo_files += [['Zona_voi.geojson', 'Zona_voi']]
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo='data')
@@ -386,7 +403,10 @@ def create_ppt():
     for _, i in v_iter:        
         ym = f'{i.yr}-{str(i.mo).zfill(2)}'
         desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
+        desc_dia_titulo = f"Corrida de {meses[i.mo-1]} {i.yr} ({i.tipo_dia})"
         desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
+        
+        
         
         ind = indicadores[indicadores.dia.str[:7] == ym]
         ind = indicadores[indicadores.dia.str[:7] == ym]
@@ -402,27 +422,47 @@ def create_ppt():
         prs.slide_width = Inches(24)
 
         
+        # SLIDE 1 - Indicadores
         prs = slide_1(prs, 
                       indicadores,
-                     desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                     tipo_dia=i.tipo_dia)
+                      desc_dia=desc_dia,
+                      tipo_dia=i.tipo_dia,
+                      desc_dia_titulo=desc_dia_titulo,
+                     )
         
         
-        slide = get_new_slide(prs)
-        slide = pptx_addtitle(prs=prs, slide=slide,  title='Urbantrips', left=0, top=0, width=24, new=False, fontsize=48)    
-        slide = pptx_addtitle(prs=prs, slide=slide,  title=f"Corrida de {meses[int(ym[-2:])-1]} {ym[:4]} {desc_dia[8:]}", left=0, top=1, width=24, new=False, fontsize=38)    
-
-        top_i = 3
-        left_i = 1
+        # SLIDE 2 - 
         
-        slide = pptx_text(prs=prs, slide=slide,  title=f'Información del dataset original', left=left_i, top=2.3, width=18, fontsize=24, bold=True)    
+        slide = get_new_slide(prs, desc_dia_titulo)
+        
+        file_graph = os.path.join(
+                    "resultados", 
+                    "png", 
+                    f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
+        
+        pptx_addpic(prs=prs, 
+                    slide=slide, 
+                    img_path=file_graph,  
+                    left=1, 
+                    top=2.5, 
+                    width=10.5)
+        
+        file_graph = os.path.join(
+            "resultados", 
+            "png", 
+            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_matrizod.png")
 
-
+        pptx_addpic(prs=prs, 
+                    slide=slide, 
+                    img_path=file_graph,  
+                    left=14, 
+                    top=2.5, 
+                    width=8)
         
         
         try:
             file_pptx = os.path.join(
-                    "resultados", "ppts", f"{alias}_{desc_dia_file}.pptx")
+                    "resultados", "ppts", f"{alias}{desc_dia_file}.pptx")
             print('')
             prs.save(file_pptx)
             print(file_pptx)
