@@ -69,7 +69,8 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
                                  day_type='weekday',
                                  n_sections=10, section_meters=None,
                                  indicador='cantidad_etapas', factor=1,
-                                 factor_min=50):
+                                 factor_min=50,
+                                 save_gdf=False):
     """
     Visualize the load per route section data per route
 
@@ -115,7 +116,9 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         indicator=indicador,
         factor=0.1,
         factor_min=factor_min,
-        return_gdfs=False)
+        return_gdfs=False,
+        save_gdf=save_gdf,
+    )
 
 
 def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
@@ -252,7 +255,8 @@ def load_route_section_load_data_q(
 
 def viz_etapas_x_tramo_recorrido(df, route_geoms,
                                  indicator='cantidad_etapas', factor=1,
-                                 factor_min=50, return_gdfs=False):
+                                 factor_min=50, return_gdfs=False,
+                                 save_gdf=False):
     """
     Plots and saves a section load viz for a given route
 
@@ -528,6 +532,17 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
+
+    if save_gdf:
+        f_0 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_0.geojson'
+        f_1 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_1.geojson'
+
+        db_path_0 = os.path.join("resultados", "geojson", f_0)
+        db_path_1 = os.path.join("resultados", "geojson", f_1)
+
+        gdf_d0.to_file(db_path_0, driver='GeoJSON')
+        gdf_d1.to_file(db_path_1, driver='GeoJSON')
+
     if return_gdfs:
         return gdf_d0, gdf_d1
 
