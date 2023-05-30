@@ -102,7 +102,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         if type(id_linea) == int:
             id_linea = [id_linea]
 
-    table, recorridos = get_route_section_load(
+    table = get_route_section_load(
         id_linea=id_linea,
         rango_hrs=rango_hrs,
         day_type=day_type,
@@ -112,7 +112,6 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
     # Create a viz for each route
     table.groupby('id_linea').apply(
         viz_etapas_x_tramo_recorrido,
-        route_geoms=recorridos,
         indicator=indicador,
         factor=0.1,
         factor_min=factor_min,
@@ -180,18 +179,7 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
               " section_meters:", section_meters,
               " day_type:", day_type)
 
-    # Read route geoms
-    q_rec = f"select * from lines_geoms"
-    if id_linea:
-        q_rec = q_rec + f" where id_linea in ({lineas_str})"
-
-    recorridos = pd.read_sql(q_rec, conn_insumos)
-    recorridos['wkt'] = recorridos.wkt.apply(wkt.loads)
-    recorridos = gpd.GeoSeries(
-        recorridos.set_index('id_linea').wkt,
-        crs='EPSG:4326')
-
-    return table, recorridos
+    return table
 
 
 def load_route_section_load_data_q(
@@ -253,7 +241,7 @@ def load_route_section_load_data_q(
     return q
 
 
-def viz_etapas_x_tramo_recorrido(df, route_geoms,
+def viz_etapas_x_tramo_recorrido(df,
                                  indicator='cantidad_etapas', factor=1,
                                  factor_min=50, return_gdfs=False,
                                  save_gdf=False):
@@ -296,10 +284,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         id_linea_str = ''
 
-    route_geom = route_geoms.loc[id_linea]
-
-    n_sections = df.n_sections.unique()[0]
-    section_ids = kpi.create_route_section_ids(n_sections)
+    section_ids = df.section_id.unique()
 
     print('Produciendo grafico de ocupacion por tramos', id_linea)
 
@@ -310,43 +295,56 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     df['factor'] = np.where(
         df['factor'] <= factor_min, factor_min, df['factor'])
 
-    df_d0 = df.loc[df.sentido == 'ida', ['section_id', indicator, 'factor']]
-    df_d1 = df.loc[df.sentido == 'vuelta', ['section_id', indicator, 'factor']]
+    df_d0 = df.loc[df.sentido == 'ida', [
+        'section_id', indicator, 'x', 'y', 'factor']]
+    df_d1 = df.loc[df.sentido == 'vuelta', [
+        'section_id', indicator, 'x', 'y', 'factor']]
 
     # Create geoms for route in both directions
-    geom = [LineString(
-        [
-            route_geom.interpolate(section_ids[i], normalized=True),
-            route_geom.interpolate(section_ids[i+1], normalized=True)
-        ]
-    ) for i in section_ids.index[:-1]]
+    geom_0 = [LineString([[df_d0.loc[i, 'x'], df_d0.loc[i, 'y']],
+                          [df_d0.loc[i+1, 'x'], df_d0.loc[i+1, 'y']]])
+              for i in df_d0.index[:-1]]
 
-    gdf = gpd.GeoDataFrame(pd.DataFrame(
-        {'section_id': section_ids[:-1]}), geometry=geom, crs='epsg:4326')
+    gdf_d0 = gpd.GeoDataFrame(
+        df_d0.iloc[:-1, :], geometry=geom_0, crs='epsg:4326')
+
+    geom_1 = [LineString([[df_d1.loc[i, 'x'], df_d1.loc[i, 'y']],
+                          [df_d1.loc[i+1, 'x'], df_d1.loc[i+1, 'y']]])
+              for i in df_d1.index[:-1]]
+
+    gdf_d1 = gpd.GeoDataFrame(
+        df_d1.iloc[:-1, :], geometry=geom_1, crs='epsg:4326')
+
+    # Use a projected crs in meters
+    epsg = geo.get_epsg_m()
+    gdf_d0 = gdf_d0.to_crs(epsg=epsg)
+    gdf_d1 = gdf_d1.to_crs(epsg=epsg)
 
     # Arrows
-    flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = gdf_d0.loc[gdf_d0.section_id == 0.0, 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
     flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
 
-    flecha_vuelta_wgs84 = gdf.loc[gdf.section_id ==
-                                  max(gdf.section_id), 'geometry']
+    flecha_vuelta_wgs84 = gdf_d0.loc[gdf_d0.section_id ==
+                                     max(gdf_d0.section_id), 'geometry']
     flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
     flecha_vuelta_inicio_wgs84 = flecha_vuelta_wgs84[0]
     flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
 
-    # Use a projected crs in meters
-    epsg = geo.get_epsg_m()
-    gdf = gdf.to_crs(epsg=epsg)
+    # For direction 0, get the last section of the route geom
+    flecha_ida = gdf_d0.loc[gdf_d0.section_id ==
+                            max(gdf_d0.section_id), 'geometry']
+    flecha_ida = list(flecha_ida.item().coords)
+    flecha_ida_inicio = flecha_ida[1]
+    flecha_ida_fin = flecha_ida[0]
 
-    gdf_d0 = gdf\
-        .merge(df_d0, on='section_id', how='left')\
-        .fillna(0)
-
-    gdf_d1 = gdf\
-        .merge(df_d1, on='section_id', how='left')\
-        .fillna(0)
+    # For direction 1, get the first section of the route geom
+    flecha_vuelta = gdf_d0.loc[gdf_d0.section_id == 0.0, 'geometry']
+    flecha_vuelta = list(flecha_vuelta.item().coords)
+    # invert the direction of the arrow
+    flecha_vuelta_inicio = flecha_vuelta[0]
+    flecha_vuelta_fin = flecha_vuelta[1]
 
     # creando buffers en base a
     gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.factor)
@@ -364,8 +362,9 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     font_dicc = {'fontsize': 18,
                  'fontweight': 'bold'}
 
-    gdf.plot(ax=ax1, color='black')
-    gdf.plot(ax=ax2, color='black')
+    gdf_d0.plot(ax=ax1, color='black')
+    gdf_d1.plot(ax=ax2, color='black')
+
     try:
         gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
                     scheme='fisherjenks', k=5, alpha=.6)
@@ -473,19 +472,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     ax4.spines.left.set_visible(False)
     ax4.spines.right.set_visible(False)
     ax4.spines.top.set_visible(False)
-
-    # For direction 0, get the last section of the route geom
-    flecha_ida = gdf.loc[gdf.section_id == max(gdf.section_id), 'geometry']
-    flecha_ida = list(flecha_ida.item().coords)
-    flecha_ida_inicio = flecha_ida[1]
-    flecha_ida_fin = flecha_ida[0]
-
-    # For direction 1, get the first section of the route geom
-    flecha_vuelta = gdf.loc[gdf.section_id == 0.0, 'geometry']
-    flecha_vuelta = list(flecha_vuelta.item().coords)
-    # invert the direction of the arrow
-    flecha_vuelta_inicio = flecha_vuelta[0]
-    flecha_vuelta_fin = flecha_vuelta[1]
 
     ax1.annotate('', xy=(flecha_ida_inicio[0],
                          flecha_ida_inicio[1]),
