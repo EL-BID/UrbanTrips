@@ -344,7 +344,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     # Use a projected crs in meters
     epsg = geo.get_epsg_m()
     gdf = gdf.to_crs(epsg=epsg)
-
+    
     gdf_d0 = gdf\
         .merge(df_d0, on='section_id', how='left')\
         .fillna(0)
@@ -352,6 +352,11 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     gdf_d1 = gdf\
         .merge(df_d1, on='section_id', how='left')\
         .fillna(0)
+    
+    # save data for dashboard
+    gdf_d0_dash = gdf_d0.to_crs(epsg=4326).copy()
+    gdf_d1_dash = gdf_d1.to_crs(epsg=4326).copy()
+
 
     # creando buffers en base a
     gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
@@ -552,23 +557,46 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         gdf_d1.to_file(db_path_1, driver='GeoJSON')
 
         conn_dash = iniciar_conexion_db(tipo='dash')
-        gdf_d0_dash = gdf_d0.copy()
-        gdf_d1_dash = gdf_d1.copy()
-
+        
         gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
         gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
-        cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
-                'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
-                'prop_etapas', 'buff_factor', 'wkt']
+        
+        gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
+        
+        cols = ['id_linea', 
+                'day_type', 
+                'n_sections', 
+                'sentido',
+                'section_id', 
+                'hora_min', 
+                'hora_max', 
+                'cantidad_etapas',
+                'prop_etapas', 
+                'buff_factor', 
+                'wkt']
 
-        gdf_d0_dash = gdf_d0.reindex(columns=cols)
-        gdf_d1_dash = gdf_d1.reindex(columns=cols)
+        gdf_d_dash = gdf_d_dash[cols]
+                
+        gdf_d_dash_ant = pd.read_sql_query(
+            """
+            SELECT *
+            FROM ocupacion_por_linea_tramo
+            """,
+                conn_dash,
+            )
 
-        gdf_d0_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
-                           if_exists="append", index=False)
-        gdf_d1_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
-                           if_exists="append", index=False)
+        gdf_d_dash_ant = gdf_d_dash_ant[~(
+                    (gdf_d_dash_ant.id_linea.isin(gdf_d_dash.id_linea.unique().tolist())) &
+                    (gdf_d_dash_ant.day_type.isin(gdf_d_dash.day_type.unique().tolist())) &
+                    (gdf_d_dash_ant.n_sections.isin(gdf_d_dash.n_sections.unique().tolist())) 
+                )]
 
+        gdf_d_dash = pd.concat(
+            [gdf_d_dash_ant, gdf_d_dash], ignore_index=True)
+
+        gdf_d_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
+                           if_exists="replace", index=False)
+        
         conn_dash.close()
 
     if return_gdfs:
@@ -2214,31 +2242,31 @@ def create_visualizations():
                               desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
                               tipo_dia=i.tipo_dia)
 
-#         print('Imprimiendo mapas de burbujas')
-#         viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-#         imprime_burbujas(viajes_n,
-#                          res=7,
-#                          h3_o='h3_o',
-#                          alpha=.4,
-#                          cmap='rocket_r',
-#                          var_fex='factor_expansion',
-#                          porc_viajes=100,
-#                          title=f'Destinos de los viajes {desc_dia}',
-#                          savefile=f'{desc_dia_file}_burb_destinos',
-#                          show_fig=False,
-#                          k_jenks=5)
+        print('Imprimiendo mapas de burbujas')
+        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='rocket_r',
+                         var_fex='factor_expansion',
+                         porc_viajes=100,
+                         title=f'Destinos de los viajes {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_destinos',
+                         show_fig=False,
+                         k_jenks=5)
 
-#         viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-#         imprime_burbujas(viajes_n,
-#                          res=7,
-#                          h3_o='h3_o',
-#                          alpha=.4,
-#                          cmap='flare',
-#                          var_fex='factor_expansion',
-#                          porc_viajes=100,
-#                          title=f'Hogares {desc_dia}',
-#                          savefile=f'{desc_dia_file}_burb_hogares',
-#                          show_fig=False,
-#                          k_jenks=5)
+        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='flare',
+                         var_fex='factor_expansion',
+                         porc_viajes=100,
+                         title=f'Hogares {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_hogares',
+                         show_fig=False,
+                         k_jenks=5)
 
     save_zones()
