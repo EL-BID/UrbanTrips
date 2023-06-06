@@ -220,20 +220,20 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
     service_id_dict_rename_col = {}
     # if service id column provided as dict:
-    if 'original_service_id_gps' in nombres_variables:
+    if 'service_type_gps' in nombres_variables:
         service_id_col = (
-            isinstance(nombres_variables['original_service_id_gps'], dict) &
-            (nombres_variables['original_service_id_gps'] is not None)
+            isinstance(nombres_variables['service_type_gps'], dict) &
+            (nombres_variables['service_type_gps'] is not None)
         )
 
         if service_id_col:
             # get service id data
-            service_id_dict = nombres_variables.pop('original_service_id_gps')
+            service_id_dict = nombres_variables.pop('service_type_gps')
             # get the name in the original df
             service_id_col_name = list(service_id_dict.keys())[0]
             # create a rename dict
             service_id_dict_rename_col = {
-                service_id_col_name: 'original_service_id_gps'}
+                service_id_col_name: 'service_type_gps'}
 
             # create a replace values dict
             service_id_values = {v: k for k,
