@@ -500,7 +500,10 @@ def crear_tabla_gps(conn_data):
                 interno int,
                 fecha datetime,
                 latitud FLOAT,
-                longitud FLOAT
+                longitud FLOAT,
+                velocity float,
+                cum_distance int,
+                service_type text
                 )
             ;
             """

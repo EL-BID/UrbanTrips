@@ -648,6 +648,11 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
     gps["id"] = crear_id_interno(
         conn, n_rows=n_rows_gps, tipo_tabla='gps')
 
+    if not (gps.service_type == 'start_service').any():
+        raise Exception(
+            "No hay valores que indiquen el inicio de un servicio. "
+            "Revisar el configs para service_type_gps")
+
     cols = ['id',
             'id_original',
             'dia',
@@ -656,7 +661,11 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
             'interno',
             'fecha',
             'latitud',
-            'longitud']
+            'longitud',
+            'velocity',
+            'cum_distance',
+            'service_type'
+            ]
     gps = gps.reindex(columns=cols)
 
     # subir datos a tablas temporales
