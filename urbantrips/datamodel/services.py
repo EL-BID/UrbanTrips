@@ -4,7 +4,7 @@ from math import ceil
 import h3
 from urbantrips.utils import utils
 from urbantrips.kpi import kpi
-from urbantrips.geo.geo import h3_from_row, create_point_from_h3
+from urbantrips.geo import geo
 
 
 def classify_gps_points_into_services(line_gps_points, line_stops_gdf, *args, **kwargs):
@@ -208,7 +208,7 @@ def compute_service_stats(gdf):
         distancia_entre_hex = distancia_entre_hex * 2
 
         # Compute original gps tracking distance
-        gdf["h3"] = gdf.apply(h3_from_row, axis=1,
+        gdf["h3"] = gdf.apply(geo.h3_from_row, axis=1,
                               args=(res, "latitud", "longitud"))
 
         gdf["h3_lag"] = (
@@ -302,3 +302,30 @@ def find_change_in_direction(df, branch):
     # checks for change in a decreasing manner
     change_indexes = diff_series.map(lambda x: x < 0).diff().fillna(False)
     return change_indexes
+
+
+def compute_distance_km_gps(gps_df):
+
+    res = 11
+    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+    distancia_entre_hex = distancia_entre_hex * 2
+
+    # Georeferenciar con h3
+    gps_df["h3"] = gps_df.apply(geo.h3_from_row, axis=1,
+                                args=(res, "latitud", "longitud"))
+
+    # Producir un lag con respecto al siguiente posicionamiento gps
+    gps_df["h3_lag"] = (
+        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
+        .groupby(["dia", "id_linea", "interno"])
+        .shift(-1)
+    )
+
+    # Calcular distancia h3
+    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
+    gps_dict = gps_df.to_dict("records")
+    gps_df.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
+    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
+        distancia_entre_hex
+    gps_df = gps_df.drop(['h3_lag'], axis=1)
+    return gps_df

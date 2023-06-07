@@ -356,3 +356,30 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
+
+
+def compute_distance_km_gps(gps_df):
+
+    res = 11
+    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+    distancia_entre_hex = distancia_entre_hex * 2
+
+    # Georeferenciar con h3
+    gps_df["h3"] = gps_df.apply(h3_from_row, axis=1,
+                                args=(res, "latitud", "longitud"))
+
+    # Producir un lag con respecto al siguiente posicionamiento gps
+    gps_df["h3_lag"] = (
+        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
+        .groupby(["dia", "id_linea", "interno"])
+        .shift(-1)
+    )
+
+    # Calcular distancia h3
+    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
+    gps_dict = gps_df.to_dict("records")
+    gps_df.loc[:, ["distance_km"]] = list(map(distancia_h3, gps_dict))
+    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
+        distancia_entre_hex
+    gps_df = gps_df.drop(['h3_lag'], axis=1)
+    return gps_df
