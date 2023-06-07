@@ -558,7 +558,7 @@ def compute_kpi():
     # Calcular distancia h3
     gps = gps.dropna(subset=["h3", "h3_lag"])
     gps_dict = gps.to_dict("records")
-    gps["dist_km"] = list(map(distancia_h3, gps_dict))
+    gps["dist_km"] = list(map(geo.distancia_h3, gps_dict))
     gps["dist_km"] = gps["dist_km"] * distancia_entre_hex
 
     print("Leyendo datos de demanda")
@@ -698,14 +698,6 @@ def compute_kpi():
         if_exists="append",
         index=False,
     )
-
-
-def distancia_h3(row, *args, **kwargs):
-    try:
-        out = h3.h3_distance(row["h3"], row["h3_lag"])
-    except ValueError as e:
-        out = None
-    return out
 
 
 def indicadores_demanda_interno(df):

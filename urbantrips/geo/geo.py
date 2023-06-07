@@ -334,3 +334,25 @@ def get_epsg_m():
     epsg_m = configs['epsg_m']
 
     return epsg_m
+
+
+def distancia_h3(row, *args, **kwargs):
+    """
+    Computes for a distance between a h3 point and its lag
+
+    Parameters
+    ----------
+    row : dict
+        row with a h3 coord and its lag  
+
+    Returns
+    ----------
+    int
+        distance in h3
+
+    """
+    try:
+        out = h3.h3_distance(row["h3"], row["h3_lag"])
+    except ValueError as e:
+        out = None
+    return out
