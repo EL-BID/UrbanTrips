@@ -27,17 +27,17 @@ def classify_gps_points_into_services(line_gps_points, line_stops_gdf, *args, **
         GeoDataFrame with gps tracking points classified in new service id
         within original ones
     """
+    line_id = int(line_gps_points.id_linea.unique().item())
+    print(f"Procesando servicios en base a gps para id_linea {line_id}")
+
     line_gps_points = line_gps_points.sort_values(['interno', 'fecha'])
 
-    # Create a service id based on gps tracking data
+    # Create a service id based on original gps tracking data
     line_gps_points['original_service_id'] = (
         line_gps_points['service_type'] == 'start_service').cumsum()
 
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
-
-    line_id = int(line_gps_points.id_linea.unique().item())
-    print(f"Procesando servicios en base a gps para id_linea {line_id}")
 
     # select only stops for that line
     line_stops_gdf = line_stops_gdf.loc[line_stops_gdf.id_linea == line_id, :]
@@ -47,7 +47,8 @@ def classify_gps_points_into_services(line_gps_points, line_stops_gdf, *args, **
 
     check_branches_consistency = pd.Series(
         line_gps_points.id_ramal.unique()).isin(branches).all()
-    mssg_text = "No todos los ramales en gps estan presentes en la cartografia de recorridos"
+    mssg_text = "No todos los ramales en gps estan presentes "\
+        + "en la cartografia de recorridos"
 
     assert check_branches_consistency, mssg_text
 
@@ -292,7 +293,12 @@ def compute_service_stats(gdf):
 def find_change_in_direction(df, branch):
     # Create a new series with the differences between consecutive elements
     series = df[f'order_{branch}'].copy()
+
+    # check diference against previous stop
     diff_series = series.diff()
+    # select only where change happens
     diff_series = diff_series.loc[diff_series != 0]
+
+    # checks for change in a decreasing manner
     change_indexes = diff_series.map(lambda x: x < 0).diff().fillna(False)
     return change_indexes
