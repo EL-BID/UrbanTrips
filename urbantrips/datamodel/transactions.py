@@ -663,7 +663,6 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
             'latitud',
             'longitud',
             'velocity',
-            'cum_distance',
             'service_type'
             ]
     gps = gps.reindex(columns=cols)
