@@ -1,3 +1,4 @@
+import h3
 import os
 import pandas as pd
 import warnings
@@ -653,6 +654,9 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
             "No hay valores que indiquen el inicio de un servicio. "
             "Revisar el configs para service_type_gps")
 
+    # compute distance between gps points
+    gps = compute_distance_km_gps(gps)
+
     cols = ['id',
             'id_original',
             'dia',
@@ -663,10 +667,43 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
             'latitud',
             'longitud',
             'velocity',
-            'service_type'
+            'service_type',
+            'distance_km',
+            'h3'
             ]
+
     gps = gps.reindex(columns=cols)
 
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
     gps.to_sql("gps", conn, if_exists="append", index=False)
+
+
+@duracion
+def compute_distance_km_gps(gps_df):
+
+    res = 11
+    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+    distancia_entre_hex = distancia_entre_hex * 2
+
+    # Georeferenciar con h3
+    gps_df["h3"] = gps_df.apply(geo.h3_from_row, axis=1,
+                                args=(res, "latitud", "longitud"))
+
+    gps_df = gps_df.sort_values(['dia', 'id_linea', 'interno', 'fecha'])
+
+    # Producir un lag con respecto al siguiente posicionamiento gps
+    gps_df["h3_lag"] = (
+        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
+        .groupby(["dia", "id_linea", "interno"])
+        .shift(-1)
+    )
+
+    # Calcular distancia h3
+    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
+    gps_dict = gps_df.to_dict("records")
+    gps_df.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
+    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
+        distancia_entre_hex
+    gps_df = gps_df.drop(['h3_lag'], axis=1)
+    return gps_df

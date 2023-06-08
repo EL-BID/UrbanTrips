@@ -502,7 +502,9 @@ def crear_tabla_gps(conn_data):
                 latitud FLOAT,
                 longitud FLOAT,
                 velocity float,
-                service_type text
+                service_type text,
+                distance_km float,
+                h3 text
                 )
             ;
             """
