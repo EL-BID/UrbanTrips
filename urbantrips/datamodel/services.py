@@ -83,7 +83,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, *arg
 
         window = 5
         line_gps_points[f'consistent_{branch}'] = line_gps_points[f'temp_change_{branch}']\
-            .shift(-window).rolling(window=window, center=False, min_periods=3).sum() == 0
+            .shift(-window).fillna(False).rolling(window=window, center=False, min_periods=3).sum() == 0
 
         # Accept there is a change in direction when consistent
         line_gps_points[f'change_{branch}'] = line_gps_points[f'temp_change_{branch}'] & line_gps_points[f'consistent_{branch}']
