@@ -544,23 +544,6 @@ def compute_kpi():
     """
     gps = pd.read_sql(q, conn_data)
 
-    # Georeferenciar con h3
-    gps["h3"] = gps.apply(geo.h3_from_row, axis=1,
-                          args=(res, "latitud", "longitud"))
-
-    # Producir un lag con respecto al siguiente posicionamiento gps
-    gps["h3_lag"] = (
-        gps.reindex(columns=["dia", "id_linea", "interno", "h3"])
-        .groupby(["dia", "id_linea", "interno"])
-        .shift(-1)
-    )
-
-    # Calcular distancia h3
-    gps = gps.dropna(subset=["h3", "h3_lag"])
-    gps_dict = gps.to_dict("records")
-    gps["dist_km"] = list(map(geo.distancia_h3, gps_dict))
-    gps["dist_km"] = gps["dist_km"] * distancia_entre_hex
-
     print("Leyendo datos de demanda")
     q = """
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
