@@ -1,3 +1,4 @@
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -8,7 +9,7 @@ from urbantrips.kpi import kpi
 from urbantrips.geo import geo
 
 
-def classify_gps_into_services(gps_points, stops):
+def process_services(gps_points, stops, debug=False):
     line_id = gps_points.id_linea.unique()[0]
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
@@ -17,29 +18,82 @@ def classify_gps_into_services(gps_points, stops):
     # select only stops for that line
     line_stops_gdf = stops.loc[stops.id_linea == line_id, :]
 
+    print("Asignando servicios")
     gps_points_with_new_service_id = gps_points\
         .groupby(['dia', 'interno'], as_index=False)\
-        .apply(classify_line_gps_points_into_services, line_stops_gdf=line_stops_gdf)
+        .apply(classify_line_gps_points_into_services,
+               line_stops_gdf=line_stops_gdf)
 
     gps_points_with_new_service_id = gps_points_with_new_service_id.droplevel(
         0)
 
+    print("Subiendo servicios a la db")
     # save result to services table
     gps_points_with_new_service_id\
         .reindex(
-            columns=['id', 'dia', 'id_linea', 'id_ramal', 'interno', 'fecha',
-                     'original_service_id', 'change', 'new_service_id', 'service_id']
+            columns=['id', 'original_service_id',
+                     'new_service_id', 'service_id']
         )\
-        .to_sql("services", conn_data, if_exists='append', index=False)
+        .to_sql("services_gps_points",
+                conn_data, if_exists='append', index=False)
 
-    stats = gps_points_with_new_service_id.groupby(
-        'dia').apply(compute_new_services_stats)
+    print("Creando tabla de servicios")
+    # process services gps points into services table
+    line_services = create_line_services_table(gps_points_with_new_service_id)
+    line_services.to_sql("services", conn_data,
+                         if_exists='append', index=False)
+
+    print("Creando estadisticos de servicios")
+    # create stats for each line and day
+    stats = line_services\
+        .groupby(['id_linea', 'dia'], as_index=False)\
+        .apply(compute_new_services_stats)
 
     stats.to_sql("services_stats", conn_data, if_exists='append', index=False)
     return stats
 
 
-def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, *args, **kwargs):
+def create_line_services_table(line_day_gps_points):
+    # get  basic stats for each service
+    line_services = line_day_gps_points\
+        .groupby(['id_linea', 'dia', 'interno',
+                  'original_service_id', 'service_id'], as_index=False)\
+        .agg(
+            is_idling=('idling', 'sum'),
+            total_points=('idling', 'count'),
+            distance_km=('distance_km', 'sum'),
+            min_ts=('fecha', 'min'),
+            max_ts=('fecha', 'max'),
+        )
+
+    line_services.loc[:, ['min_datetime']] = line_services.min_ts.map(
+        lambda ts: str(datetime.fromtimestamp(ts)))
+    line_services.loc[:, ['max_datetime']] = line_services.max_ts.map(
+        lambda ts: str(datetime.fromtimestamp(ts)))
+
+    # compute idling proportion for each service
+    line_services['prop_idling'] = line_services.is_idling / \
+        line_services['total_points']
+    line_services = line_services.drop(['is_idling'], axis=1)
+
+    # stablish valid services
+    line_services['valid'] = (line_services.prop_idling < .5) & (
+        line_services.total_points > 5)
+
+    return line_services
+
+
+def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
+                                           *args, **kwargs):
+
+    # create original service id
+    original_service_id = line_gps_points\
+        .reindex(columns=['dia', 'interno', 'service_type'])\
+        .groupby(['dia', 'interno'])\
+        .apply(create_original_service_id)
+    original_service_id = original_service_id.service_type
+    original_service_id = original_service_id.droplevel([0, 1])
+    line_gps_points['original_service_id'] = original_service_id
 
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
@@ -53,7 +107,8 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, *arg
 
         # assign a stop to each gps point
         stops_to_join = line_stops_gdf\
-            .loc[line_stops_gdf.id_ramal == branch, ['branch_stop_order', 'geometry']]
+            .loc[line_stops_gdf.id_ramal == branch,
+                 ['branch_stop_order', 'geometry']]
         stops_to_join = stops_to_join.rename(
             columns={'branch_stop_order': f'order_{branch}'})
 
@@ -82,15 +137,25 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, *arg
         line_gps_points[f'temp_change_{branch}'] = temp_change
 
         window = 5
-        line_gps_points[f'consistent_{branch}'] = line_gps_points[f'temp_change_{branch}']\
-            .shift(-window).fillna(False).rolling(window=window, center=False, min_periods=3).sum() == 0
+        line_gps_points[f'consistent_{branch}'] = (
+            line_gps_points[f'temp_change_{branch}']
+            .shift(-window).fillna(False)
+            .rolling(window=window, center=False, min_periods=3).sum() == 0
+        )
 
         # Accept there is a change in direction when consistent
-        line_gps_points[f'change_{branch}'] = line_gps_points[f'temp_change_{branch}'] & line_gps_points[f'consistent_{branch}']
+        line_gps_points[f'change_{branch}'] = (
+            line_gps_points[f'temp_change_{branch}'] &
+            line_gps_points[f'consistent_{branch}']
+        )
 
-    # Detect branches that are not reference in the same stop (NaN in temp_change) or far away (NaN in order)
-    active_branches = [(line_gps_points[f'temp_change_{b}'].notna() & line_gps_points[f'order_{b}'].notna()).map(int).values
-                       for b in branches]
+    # Detect branches that are not reference in the same stop
+    # (NaN in temp_change) or far away (NaN in order)
+    active_branches = (
+        [(line_gps_points[f'temp_change_{b}'].notna() &
+          line_gps_points[f'order_{b}'].notna()).map(int).values
+         for b in branches]
+    )
 
     active_branches = np.sum(active_branches, axis=0)
     line_gps_points['active_branches'] = active_branches
@@ -126,16 +191,18 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, *arg
 
     # create a unique id from both old and new
     new_ids = line_gps_points\
-        .reindex(columns=['original_service_id', 'new_service_id']).drop_duplicates()
+        .reindex(columns=['original_service_id', 'new_service_id'])\
+        .drop_duplicates()
     new_ids['service_id'] = range(len(new_ids))
 
     line_gps_points = line_gps_points\
-        .merge(new_ids, how='left', on=['original_service_id', 'new_service_id'])
+        .merge(new_ids, how='left',
+               on=['original_service_id', 'new_service_id'])
 
     return line_gps_points
 
 
-def compute_new_services_stats(line_day_gps_points):
+def compute_new_services_stats(line_day_services):
     """
     Takes a gps tracking points for a line in a given day
     with service id and computes stats for services
@@ -143,7 +210,7 @@ def compute_new_services_stats(line_day_gps_points):
     Parameters
     ----------
     df : pandas.DataFrame
-        gps tracking points with service id for a given day
+        line_day_services stats table for a given day
 
     Returns
     -------
@@ -151,70 +218,48 @@ def compute_new_services_stats(line_day_gps_points):
         DataFrame with stats for each line and day
     """
 
-    day = line_day_gps_points.dia.unique()
-    line_id = line_day_gps_points.id_linea.unique()
-    original_services = line_day_gps_points.reindex(
-        columns=['interno', 'original_service_id']).drop_duplicates()
-    n_original_services = len(original_services)
+    n_original_services = line_day_services\
+        .drop_duplicates(subset=['interno', 'original_service_id'])\
+        .shape[0]
 
-    # detect idiling points for new services
-    new_services = line_day_gps_points\
-        .reindex(columns=['interno', 'service_id', 'idling'])\
-        .groupby(['interno', 'service_id'])\
-        .agg(is_idling=('idling', 'sum'), total_points_new_service=('idling', 'count'))
+    n_new_services = len(line_day_services)
+    n_new_valid_services = line_day_services.valid.sum()
+    n_services_short = (line_day_services.total_points <= 5).sum()
 
-    n_new_services = len(new_services)
+    prop_short_idling = ((line_day_services.prop_idling >= .5) & (
+        line_day_services.total_points <= 5)).sum() / n_services_short
 
-    new_services['prop_idling'] = new_services.is_idling / \
-        new_services['total_points_new_service']
+    original_services_distance = round(line_day_services.distance_km.sum())
+    new_services_distance = round(line_day_services
+                                  .loc[line_day_services['valid'],
+                                       'distance_km']
+                                  .sum() / original_services_distance, 2)
 
-    # stablish valid services
-    valid_services_mask = (new_services.prop_idling < .5) & (
-        new_services.total_points_new_service > 5)
-
-    n_new_valid_services = valid_services_mask.sum()
-    new_services['valid'] = valid_services_mask
-
-    original_services_distance = line_day_gps_points.distance_km.sum()
-
-    line_day_gps_points = line_day_gps_points.merge(
-        new_services, how='left', on=['interno', 'service_id'])
-
-    new_services_distance = line_day_gps_points.loc[line_day_gps_points['valid'], 'distance_km'].sum(
-    )
-    distances_in_new_services = new_services_distance / original_services_distance
-
-    sub_services = line_day_gps_points\
-        .loc[line_day_gps_points['valid'], :]\
-        .groupby(['interno', 'original_service_id']).apply(lambda df: len(df.service_id.unique()))
+    sub_services = line_day_services\
+        .loc[line_day_services['valid'], :]\
+        .groupby(['interno', 'original_service_id'])\
+        .apply(lambda df: len(df.service_id.unique()))
 
     if len(sub_services):
         sub_services = sub_services.value_counts(normalize=True)
 
         if 1 in sub_services.index:
-            original_service_no_change = sub_services[1]
+            original_service_no_change = round(sub_services[1], 2)
         else:
             original_service_no_change = 0
     else:
         original_service_no_change = None
 
-    n_services_short = (new_services.total_points_new_service <= 5).sum()
-
-    prop_short_idling = ((new_services.prop_idling >= .5) & (
-        new_services.total_points_new_service <= 5)).sum() / n_services_short
     day_line_stats = pd.DataFrame({
-        'id_linea': line_id,
-        'dia': day,
         'cant_servicios_originales': n_original_services,
         'cant_servicios_nuevos': n_new_services,
         'cant_servicios_nuevos_validos': n_new_valid_services,
         'n_servicios_nuevos_cortos': n_services_short,
         'prop_servicos_cortos_nuevos_idling': prop_short_idling,
         'distancia_recorrida_original': original_services_distance,
-        'prop_distancia_recuperada': distances_in_new_services,
+        'prop_distancia_recuperada': new_services_distance,
         'servicios_originales_sin_dividir': original_service_no_change,
-
-    })
+    }, index=[0])
     return day_line_stats
 
 
