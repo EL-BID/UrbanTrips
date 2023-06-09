@@ -1,4 +1,3 @@
-from datetime import datetime
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -67,9 +66,9 @@ def create_line_services_table(line_day_gps_points):
         )
 
     line_services.loc[:, ['min_datetime']] = line_services.min_ts.map(
-        lambda ts: str(datetime.fromtimestamp(ts)))
+        lambda ts: str(pd.Timestamp(ts, unit='s')))
     line_services.loc[:, ['max_datetime']] = line_services.max_ts.map(
-        lambda ts: str(datetime.fromtimestamp(ts)))
+        lambda ts: str(pd.Timestamp(ts, unit='s')))
 
     # compute idling proportion for each service
     line_services['prop_idling'] = line_services.is_idling / \
@@ -84,6 +83,7 @@ def create_line_services_table(line_day_gps_points):
 
 
 def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
+                                           window=5,
                                            *args, **kwargs):
 
     # create original service id
@@ -136,11 +136,10 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
 
         line_gps_points[f'temp_change_{branch}'] = temp_change
 
-        window = 5
         line_gps_points[f'consistent_{branch}'] = (
             line_gps_points[f'temp_change_{branch}']
             .shift(-window).fillna(False)
-            .rolling(window=window, center=False, min_periods=3).sum() == 0
+            .rolling(window=window, center=True, min_periods=3).sum() == 0
         )
 
         # Accept there is a change in direction when consistent
