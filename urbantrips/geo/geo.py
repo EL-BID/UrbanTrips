@@ -63,7 +63,7 @@ def get_stop_hex_ring(h, ring_size):
     """
     This functions takes a h3 index referencing a public transit stop
     a h3 ring size, and returns a DataFrame with that stops and all the
-    hexs within that ring 
+    hexs within that ring
     """
     rings = list(h3.k_ring(h, ring_size))
     df = pd.DataFrame({"parada": [h] * (len(rings)), "area_influencia": rings})
@@ -276,7 +276,7 @@ def check_all_geoms_linestring(gdf):
 def get_points_over_route(route_geom, distance):
     """
     Interpolates points over a projected route geom in meters
-    every x meters set by distance 
+    every x meters set by distance
     """
     ranges = range(0, int(route_geom.length), distance)
     points = line_interpolate_point(route_geom, ranges).tolist()
@@ -343,7 +343,7 @@ def distancia_h3(row, *args, **kwargs):
     Parameters
     ----------
     row : dict
-        row with a h3 coord and its lag  
+        row with a h3 coord and its lag
 
     Returns
     ----------
@@ -356,30 +356,3 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
-
-
-def compute_distance_km_gps(gps_df):
-
-    res = 11
-    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
-    distancia_entre_hex = distancia_entre_hex * 2
-
-    # Georeferenciar con h3
-    gps_df["h3"] = gps_df.apply(h3_from_row, axis=1,
-                                args=(res, "latitud", "longitud"))
-
-    # Producir un lag con respecto al siguiente posicionamiento gps
-    gps_df["h3_lag"] = (
-        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
-        .groupby(["dia", "id_linea", "interno"])
-        .shift(-1)
-    )
-
-    # Calcular distancia h3
-    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
-    gps_dict = gps_df.to_dict("records")
-    gps_df.loc[:, ["distance_km"]] = list(map(distancia_h3, gps_dict))
-    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
-        distancia_entre_hex
-    gps_df = gps_df.drop(['h3_lag'], axis=1)
-    return gps_df

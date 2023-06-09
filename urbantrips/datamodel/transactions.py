@@ -592,7 +592,8 @@ def geolocalizar_trx(
     return trx, tmp_trx_inicial
 
 
-def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, formato_fecha):
+def process_and_upload_gps_table(nombre_archivo_gps,
+                                 nombres_variables_gps, formato_fecha):
     """
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
