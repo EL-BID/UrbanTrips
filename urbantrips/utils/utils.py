@@ -510,6 +510,62 @@ def crear_tabla_gps(conn_data):
             """
     )
 
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_gps_points
+                (
+                id INT PRIMARY KEY NOT NULL,
+                original_service_id int not null,
+                new_service_id int not null,
+                service_id int not null
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services
+                (
+                id_linea int,
+                dia text,
+                interno int,
+                original_service_id int,
+                service_id int,
+                total_points int,
+                distance_km float,
+                min_ts int,
+                max_ts int,
+                min_datetime text,
+                max_datetime text,
+                prop_idling float,
+                valid int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_stats
+                (
+                id_linea int,
+                dia text,
+                cant_servicios_originales int,
+                cant_servicios_nuevos int,
+                cant_servicios_nuevos_validos int,
+                n_servicios_nuevos_cortos int ,
+                prop_servicos_cortos_nuevos_idling float,
+                distancia_recorrida_original float,
+                prop_distancia_recuperada float,
+                servicios_originales_sin_dividir float
+                )
+            ;
+            """
+    )
+
+    conn_data.commit()
+
 
 def agrego_indicador(df_indicador,
                      detalle,
