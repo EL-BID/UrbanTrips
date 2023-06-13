@@ -8,7 +8,95 @@ from urbantrips.kpi import kpi
 from urbantrips.geo import geo
 
 
-def process_services(gps_points, stops, debug=False):
+def process_services():
+    """
+    Download unprocessed gps data and classify them into services
+    """
+    print("Descargando paradas y puntos gps")
+    gps_points, stops = get_stops_and_gps_data()
+
+    if gps_points is None:
+        print("Todos los puntos gps ya fueron procesados en servicios ")
+    else:
+        print("Clasificando puntos gps en servicios")
+        gps_points.groupby('id_linea').apply(
+            process_line_services, stops=stops)
+
+
+def get_stops_and_gps_data():
+    """
+    Download unprocessed gps data
+    """
+    configs = utils.leer_configs_generales()
+
+    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    gps_query = """
+        select g.*
+        from gps g
+        left join services_stats ss 
+        on g.id_linea = ss.id_linea
+        and g.dia = ss.dia
+        where ss.id_linea is null
+    """
+    gps_points = pd.read_sql(gps_query, conn_data)
+
+    gps_points = gpd.GeoDataFrame(
+        gps_points,
+        geometry=gpd.GeoSeries.from_xy(
+            x=gps_points.longitud, y=gps_points.latitud, crs='EPSG:4326'),
+        crs='EPSG:4326'
+    )
+
+    gps_lines = ','.join(map(str, gps_points.id_linea.unique()))
+
+    if len(gps_lines) == 0:
+        return None, None
+    else:
+        stops_query = f"""
+            select *
+            from stops
+            where id_linea in ({gps_lines})
+        """
+
+        stops = pd.read_sql(stops_query, conn_insumos)
+
+        # use only nodes as stops
+        stops = stops.drop_duplicates(
+            subset=['id_linea', 'id_ramal', 'node_id'])
+
+        stops = gpd.GeoDataFrame(
+            stops,
+            geometry=gpd.GeoSeries.from_xy(
+                x=stops.node_x, y=stops.node_y, crs='EPSG:4326'),
+            crs='EPSG:4326'
+        )
+        gps_points = gps_points.to_crs(epsg=configs['epsg_m'])
+        stops = stops.to_crs(epsg=configs['epsg_m'])
+
+        return gps_points, stops
+
+
+def process_line_services(gps_points, stops):
+    """
+    Takes gps points and stops for a given line
+    and classifies each point into a services
+    and produces services tables and daily stats
+    for that line
+
+    Parameters
+    ----------
+    gps_points : geopandas.GeoDataFrame
+        GeoDataFrame with gps points for a given line
+
+    stops : geopandas.GeoDataFrame
+        GeoDataFrame with stops for a given line
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing statistics for services by line and day
+    """
     line_id = gps_points.id_linea.unique()[0]
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
@@ -21,24 +109,21 @@ def process_services(gps_points, stops, debug=False):
     gps_points_with_new_service_id = gps_points\
         .groupby(['dia', 'interno'], as_index=False)\
         .apply(classify_line_gps_points_into_services,
-               line_stops_gdf=line_stops_gdf)
-
-    gps_points_with_new_service_id = gps_points_with_new_service_id.droplevel(
-        0)
+               line_stops_gdf=line_stops_gdf)\
+        .droplevel(0)
 
     print("Subiendo servicios a la db")
     # save result to services table
-    gps_points_with_new_service_id\
-        .reindex(
-            columns=['id', 'original_service_id',
-                     'new_service_id', 'service_id']
-        )\
-        .to_sql("services_gps_points",
-                conn_data, if_exists='append', index=False)
+    services_gps_points = gps_points_with_new_service_id\
+        .reindex(columns=['id', 'original_service_id', 'new_service_id',
+                          'service_id'])
+    services_gps_points.to_sql("services_gps_points",
+                               conn_data, if_exists='append', index=False)
 
     print("Creando tabla de servicios")
     # process services gps points into services table
-    line_services = create_line_services_table(gps_points_with_new_service_id)
+    line_services = create_line_services_table(
+        gps_points_with_new_service_id)
     line_services.to_sql("services", conn_data,
                          if_exists='append', index=False)
 
@@ -85,7 +170,23 @@ def create_line_services_table(line_day_gps_points):
 def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
                                            window=5,
                                            *args, **kwargs):
+    """
+    Takes gps points and stops for a given line and classifies each point into
+    services whenever the order of passage across stops passes from increasing
+    to decreasing order in the majority of active branches in that line.
 
+    Parameters
+    ----------
+    line_gps_points : geopandas.GeoDataFrame
+        GeoDataFrame with gps points for a given line
+
+    line_stops_gdf : geopandas.GeoDataFrame
+        GeoDataFrame with stops for a given line
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        GeoDataFrame points classified into services
+    """
     # create original service id
     original_service_id = line_gps_points\
         .reindex(columns=['dia', 'interno', 'service_type'])\
@@ -216,6 +317,8 @@ def compute_new_services_stats(line_day_services):
     pandas.DataFrame
         DataFrame with stats for each line and day
     """
+    id_linea = line_day_services.id_linea.unique()
+    dia = line_day_services.dia.unique()
 
     n_original_services = line_day_services\
         .drop_duplicates(subset=['interno', 'original_service_id'])\
@@ -250,6 +353,8 @@ def compute_new_services_stats(line_day_services):
         original_service_no_change = None
 
     day_line_stats = pd.DataFrame({
+        'id_linea': id_linea,
+        'dia': dia,
         'cant_servicios_originales': n_original_services,
         'cant_servicios_nuevos': n_new_services,
         'cant_servicios_nuevos_validos': n_new_valid_services,
