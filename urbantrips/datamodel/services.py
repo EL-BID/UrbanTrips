@@ -167,7 +167,7 @@ def create_line_services_table(line_day_gps_points):
     return line_services
 
 
-def assign_service_id(line_gps_points, line_stops_gdf):
+def infer_service_id_stops(line_gps_points, line_stops_gdf):
     """
     Takes gps points and stops for a given line and classifies each point into
     services whenever the order of passage across stops switches from
@@ -284,8 +284,9 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
                                            *args, **kwargs):
     """
     Takes gps points and stops for a given line and classifies each point into
-    services whenever the order of passage across stops switches from increasing
-    to decreasing order in the majority of active branches in that line.
+    services based on original gps data or infered basd on stops whenever the
+    order of passage across stops switches from increasing to decreasing order
+    in the majority of active branches in that line.
 
     Parameters
     ----------
@@ -324,7 +325,8 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
         )
     else:
         # classify services based on stops
-        line_gps_points = assign_service_id(line_gps_points, line_stops_gdf)
+        line_gps_points = infer_service_id_stops(
+            line_gps_points, line_stops_gdf)
 
     # Classify idling points when there is no movement
     line_gps_points['idling'] = line_gps_points.distance_km < 0.1
