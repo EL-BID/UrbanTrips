@@ -167,13 +167,12 @@ def create_line_services_table(line_day_gps_points):
     return line_services
 
 
-def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
-                                           window=5,
-                                           *args, **kwargs):
+def assign_service_id(line_gps_points, line_stops_gdf):
     """
     Takes gps points and stops for a given line and classifies each point into
-    services whenever the order of passage across stops passes from increasing
-    to decreasing order in the majority of active branches in that line.
+    services whenever the order of passage across stops switches from
+    increasing to decreasing order in the majority of active branches in that
+    line.
 
     Parameters
     ----------
@@ -187,14 +186,6 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
     geopandas.GeoDataFrame
         GeoDataFrame points classified into services
     """
-    # create original service id
-    original_service_id = line_gps_points\
-        .reindex(columns=['dia', 'interno', 'service_type'])\
-        .groupby(['dia', 'interno'])\
-        .apply(create_original_service_id)
-    original_service_id = original_service_id.service_type
-    original_service_id = original_service_id.droplevel([0, 1])
-    line_gps_points['original_service_id'] = original_service_id
 
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
@@ -237,6 +228,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
 
         line_gps_points[f'temp_change_{branch}'] = temp_change
 
+        window = 5
         line_gps_points[f'consistent_{branch}'] = (
             line_gps_points[f'temp_change_{branch}']
             .shift(-window).fillna(False)
@@ -270,9 +262,6 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
         .reindex(columns=[f'change_{branch}' for branch in branches])\
         .sum(axis=1) >= line_gps_points.majority
 
-    # Classify idling points when there is no movement
-    line_gps_points['idling'] = line_gps_points.distance_km < 0.1
-
     if n_original_services_ids > 1:
 
         # Within each original service id, classify services within
@@ -288,6 +277,57 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
         new_services_ids = pd.Series(
             new_services_ids.iloc[0].values, index=new_services_ids.columns)
     line_gps_points['new_service_id'] = new_services_ids
+    return line_gps_points
+
+
+def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
+                                           *args, **kwargs):
+    """
+    Takes gps points and stops for a given line and classifies each point into
+    services whenever the order of passage across stops switches from increasing
+    to decreasing order in the majority of active branches in that line.
+
+    Parameters
+    ----------
+    line_gps_points : geopandas.GeoDataFrame
+        GeoDataFrame with gps points for a given line
+
+    line_stops_gdf : geopandas.GeoDataFrame
+        GeoDataFrame with stops for a given line
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        GeoDataFrame points classified into services
+    """
+    # create original service id
+    original_service_id = line_gps_points\
+        .reindex(columns=['dia', 'interno', 'service_type'])\
+        .groupby(['dia', 'interno'])\
+        .apply(create_original_service_id)
+    original_service_id = original_service_id.service_type
+    original_service_id = original_service_id.droplevel([0, 1])
+    line_gps_points['original_service_id'] = original_service_id
+
+    # check configs if trust in service type gps
+    configs = utils.leer_configs_generales()
+
+    if 'trust_service_type_gps' in configs:
+        trust_service_type_gps = configs['trust_service_type_gps']
+
+    else:
+        trust_service_type_gps = False
+
+    if trust_service_type_gps:
+        # classify services based on gps dataset attribute
+        line_gps_points['new_service_id'] = (
+            line_gps_points['original_service_id'].copy()
+        )
+    else:
+        # classify services based on stops
+        line_gps_points = assign_service_id(line_gps_points, line_stops_gdf)
+
+    # Classify idling points when there is no movement
+    line_gps_points['idling'] = line_gps_points.distance_km < 0.1
 
     # create a unique id from both old and new
     new_ids = line_gps_points\
