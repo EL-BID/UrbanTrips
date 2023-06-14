@@ -431,7 +431,7 @@ def delete_services_data(id_linea):
     "this function deletes data for a given line in servicies tables"
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
-    print(f"Bdrrando datos en tablas de servicios para id linea {id_linea};")
+    print(f"Borrando datos en tablas de servicios para id linea {id_linea};")
     conn_data.execute(f"DELETE FROM services where id_linea = {id_linea};")
     conn_data.execute(
         f"DELETE FROM services_stats where id_linea = {id_linea};")
