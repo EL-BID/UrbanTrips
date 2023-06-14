@@ -260,7 +260,7 @@ Tabla con metadata descriptiva de las lineas y ramales.
 
 ### Recorridos lineas
 
-Archivo `geojson` con la información de la linea.
+Archivo `geojson` con la información de la linea. Debe haber un único LineString por cada ramal, sin importar el sentido. Si los recorridos difieren mucho, puede volver a dibujarse para que pase por puntos medios en esas zonas y aún así ser un recorrido representativo del ramal.
 
 | Campo | Tipo de dato | Descripción |
 | -- | -- | -- |
