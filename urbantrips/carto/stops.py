@@ -44,6 +44,8 @@ def upload_stops_table(stops):
             'stop_x', 'stop_y', 'node_x', 'node_y']
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
+
+    print("Subiendo paradas a stops")
     stops.to_sql("stops", conn, if_exists="replace", index=False)
 
 
