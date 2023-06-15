@@ -210,7 +210,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
             line_gps_points,
             stops_to_join,
             how='left',
-            # max_distance= 1000,
+            max_distance=2000,
             lsuffix='gps',
             rsuffix=str(branch),
             distance_col=f'distance_to_stop_{branch}')
@@ -232,7 +232,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
         line_gps_points[f'consistent_{branch}'] = (
             line_gps_points[f'temp_change_{branch}']
             .shift(-window).fillna(False)
-            .rolling(window=window, center=True, min_periods=3).sum() == 0
+            .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
 
         # Accept there is a change in direction when consistent
@@ -414,13 +414,17 @@ def find_change_in_direction(df, branch):
     series = df[f'order_{branch}'].copy()
 
     # check diference against previous stop
-    diff_series = series.diff()
+    diff_series = series.diff().dropna()
+
     # select only where change happens
-    diff_series = diff_series.loc[diff_series != 0]
+    changes_in_series = diff_series.loc[diff_series != 0]
 
     # checks for change in a decreasing manner
-    change_indexes = diff_series.map(lambda x: x < 0).diff().fillna(False)
-    return change_indexes
+    decreasing_change = changes_in_series.map(lambda x: x < 0)
+
+    decreasing_to_increasing = decreasing_change.diff().fillna(False)
+
+    return decreasing_to_increasing
 
 
 def create_original_service_id(service_type_series):
