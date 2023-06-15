@@ -35,7 +35,7 @@ def get_stops_and_gps_data():
     gps_query = """
         select g.*
         from gps g
-        left join services_stats ss 
+        left join services_stats ss
         on g.id_linea = ss.id_linea
         and g.dia = ss.dia
         where ss.id_linea is null
@@ -195,6 +195,11 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
 
+    majority_by_branch = line_stops_gdf\
+        .drop_duplicates(['id_ramal', 'node_id'])\
+        .groupby('node_id', as_index=False)\
+        .agg(branch_mayority=('id_ramal', 'count'))
+
     for branch in branches:
 
         # assign a stop to each gps point
@@ -210,7 +215,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
             line_gps_points,
             stops_to_join,
             how='left',
-            max_distance=2000,
+            max_distance=1500,
             lsuffix='gps',
             rsuffix=str(branch),
             distance_col=f'distance_to_stop_{branch}')
@@ -229,16 +234,20 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
         line_gps_points[f'temp_change_{branch}'] = temp_change
 
         window = 5
-        line_gps_points[f'consistent_{branch}'] = (
+        line_gps_points[f'consistent_post_{branch}'] = (
             line_gps_points[f'temp_change_{branch}']
             .shift(-window).fillna(False)
             .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
+        line_gps_points[f'consistent_pre_{branch}'] = (
+            line_gps_points[f'temp_change_{branch}']
+            .fillna(False).shift(1) == False)  # noqa
 
         # Accept there is a change in direction when consistent
         line_gps_points[f'change_{branch}'] = (
             line_gps_points[f'temp_change_{branch}'] &
-            line_gps_points[f'consistent_{branch}']
+            line_gps_points[f'consistent_post_{branch}'] &
+            line_gps_points[f'consistent_pre_{branch}']
         )
 
     # Detect branches that are not reference in the same stop
@@ -257,10 +266,33 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
         .map(lambda branches: ceil(branches / 2))\
         .replace(0, 1)
 
+    distance_cols = [f'distance_to_stop_{b}' for b in branches]
+
+    line_gps_points['branch'] = line_gps_points\
+        .loc[:, distance_cols]\
+        .apply(lambda row: row.idxmin(), axis=1)\
+        .fillna('').map(lambda s: s.split('_')[-1])
+
+    line_gps_points['node_id'] = np.nan
+
+    for i, row in line_gps_points.iterrows():
+        row_branch = row.branch
+        if row.branch == '':
+            pass
+        else:
+            line_gps_points.loc[i, 'node_id'] = (
+                line_gps_points.loc[i, f'order_{row_branch}']
+            )
+    # add mayority based on branch
+    line_gps_points = line_gps_points.merge(
+        majority_by_branch, how='left', on='node_id')
+
+    majority_criteria = 'branch_mayority'
+
     # Accept change when a majority of active branches registers one
     line_gps_points['change'] = line_gps_points\
         .reindex(columns=[f'change_{branch}' for branch in branches])\
-        .sum(axis=1) >= line_gps_points.majority
+        .sum(axis=1) >= line_gps_points[majority_criteria]
 
     if n_original_services_ids > 1:
 
