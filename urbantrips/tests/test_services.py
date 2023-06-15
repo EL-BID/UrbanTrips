@@ -67,3 +67,34 @@ def test_service_id(gps_points_test_data, stops_test_data):
     assert gps_points_with_new_service_id.loc[
         gps_points_with_new_service_id.service_o == 99,
         'service_id'].unique() == 4
+
+
+def test_find_change_in_direction():
+    idling_up = pd.Series([5, 5, 5, 6, 7, 8])
+    idling_down = pd.Series([5, 5, 5, 4, 3, 2])
+    idling_down_up = pd.Series([5, 5, 5, 4, 3, 2, 3, 4, 5])
+    idling_down_idling_up = pd.Series([5, 5, 5, 4, 3, 2, 2, 2, 3, 4, 5])
+
+    # test idling and then up no change
+    df = pd.DataFrame({'order_1': idling_up})
+    change = services.find_change_in_direction(df, branch=1)
+    assert not change.any()
+
+    # test idling and then down no change
+    df = pd.DataFrame({'order_1': idling_down})
+    change = services.find_change_in_direction(df, branch=1)
+    assert not change.any()
+
+    # test idling, then down  and up no idling between
+    df = pd.DataFrame({'order_1': idling_down_up})
+    change = services.find_change_in_direction(df, branch=1)
+    # only one change in index 6
+    assert change.sum() == 1
+    assert change.loc[6]
+
+    # test idling, then down  and up no idling between
+    df = pd.DataFrame({'order_1': idling_down_idling_up})
+    change = services.find_change_in_direction(df, branch=1)
+    # only one change in index 6
+    assert change.sum() == 1
+    assert change.loc[8]
