@@ -63,10 +63,14 @@ def test_service_id(gps_points_test_data, stops_test_data):
         0)
 
     service_ids = gps_points_with_new_service_id.service_id.unique()
-    assert all(service_ids == [0, 1, 2, 3, 4, 5, 6, 7])
-    assert gps_points_with_new_service_id.loc[
-        gps_points_with_new_service_id.service_o == 99,
-        'service_id'].unique() == 4
+    check_amount_new_services = service_ids == [0, 1, 2, 3, 4, 5, 6]
+    assert all(check_amount_new_services)
+
+    # check service 2 doesn't get cut when joinin short branch
+    service_2 = gps_points_with_new_service_id\
+        .loc[gps_points_with_new_service_id.service_o == 2, 'service_id']
+    check_service_2 = service_2.value_counts()[1] == 18
+    assert (check_service_2)
 
 
 def test_find_change_in_direction():
