@@ -167,7 +167,7 @@ def create_line_services_table(line_day_gps_points):
     return line_services
 
 
-def infer_service_id_stops(line_gps_points, line_stops_gdf):
+def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     """
     Takes gps points and stops for a given line and classifies each point into
     services whenever the order of passage across stops switches from
@@ -181,6 +181,11 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
 
     line_stops_gdf : geopandas.GeoDataFrame
         GeoDataFrame with stops for a given line
+
+    debug: bool
+        If the attributes concerning services classification 
+        should be added
+
     Returns
     -------
     geopandas.GeoDataFrame
@@ -201,6 +206,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
         .agg(branch_mayority=('id_ramal', 'count'))
 
     gps_all_branches = pd.DataFrame()
+    debug_df = pd.DataFrame()
 
     for branch in branches:
         stops_to_join = line_stops_gdf\
@@ -236,16 +242,23 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
             .shift(-window).fillna(False)
             .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
-        gps_branch[f'consistent_pre'] = (
-            gps_branch[f'temp_change']
-            .fillna(False).shift(1) == False)  # noqa
+        # gps_branch[f'consistent_pre'] = (
+        #    gps_branch[f'temp_change']
+        #    .fillna(False).shift(1) == False)  # noqa
 
         # Accept there is a change in direction when consistent
         gps_branch[f'change'] = (
             gps_branch[f'temp_change'] &
-            gps_branch[f'consistent_post'] &
-            gps_branch[f'consistent_pre']
+            gps_branch[f'consistent_post']
+            # & gps_branch[f'consistent_pre']
         )
+        if debug:
+            debug_branch = gps_branch\
+                .reindex(columns=['id', 'branch_stop_order', 'id_ramal',
+                                  'temp_change', 'consistent_post',
+                                  'consistent_pre', 'change'])
+
+            debug_df = pd.concat([debug_df, debug_branch])
 
         gps_branch = gps_branch.drop(
             ['index_right', 'temp_change', 'consistent_post',
@@ -303,6 +316,20 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
             new_services_ids.iloc[0].values, index=new_services_ids.columns)
 
     line_gps_points['new_service_id'] = new_services_ids
+
+    if debug:
+        debug_df = debug_df\
+            .pivot(index="id", columns='id_ramal',
+                   values=["branch_stop_order", "temp_change",
+                           'consistent_post', 'consistent_pre', 'change'])\
+            .reset_index()
+
+        cols = [c[0]+'_'+str(c[1]) if c[0] != 'id'
+                else c[0] for c in debug_df.columns]
+
+        debug_df.columns = cols
+        line_gps_points = line_gps_points.merge(debug_df, on='id', how='left')
+
     return line_gps_points
 
 
