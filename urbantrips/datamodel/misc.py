@@ -27,7 +27,10 @@ def persist_datamodel_tables():
     """
     distancias = pd.read_sql_query(q, conn_insumos)
 
-    zonas = pd.read_sql_query("select * from zonas", conn_insumos)
+    zonas = pd.read_sql_query("""
+                            select * from zonas
+                              """, 
+                              conn_insumos)
     zonas = zonas.drop(['fex', 'latitud', 'longitud'], axis=1)
     zonas_o = zonas.copy()
     zonas_d = zonas.copy()
@@ -38,37 +41,25 @@ def persist_datamodel_tables():
 
     q = """
         SELECT *
-        from etapas
-        LEFT JOIN destinos
-        ON etapas.id = destinos.id
+        from etapas e
+        where e.od_validado==1
     """
     etapas = pd.read_sql_query(q, conn_data)
     etapas = etapas.merge(zonas_o, how='left').merge(zonas_d, how='left')
     etapas = etapas.merge(distancias, how='left')
 
-    viajes = pd.read_sql_query("select * from viajes", conn_data)
+    viajes = pd.read_sql_query("""
+                                select *
+                                from viajes
+                               """, conn_data)
     viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
     viajes = viajes.merge(distancias, how='left')
 
     print("Leyendo informacion de usuarios...")
-    usuarios = pd.read_sql_query("select * from usuarios", conn_data)
-
-    factores_expansion = pd.read_sql_query(
-        """
-        SELECT *
-        FROM factores_expansion
-        """,
-        conn_data,
-    )
-    factores = factores_expansion.reindex(
-        columns=['dia', 'id_tarjeta', 'factor_expansion'])
-
-    etapas = etapas\
-        .merge(factores, on=['dia', 'id_tarjeta'])
-    viajes = viajes\
-        .merge(factores, on=['dia', 'id_tarjeta'])
-    usuarios = usuarios\
-        .merge(factores, on=['dia', 'id_tarjeta'])
+    usuarios = pd.read_sql_query("""
+                                SELECT *
+                                from usuarios
+                                """, conn_data)
 
     # Grabo resultados en tablas .csv
     print("Guardando informacion de etapas...")
@@ -178,7 +169,7 @@ def persist_datamodel_tables():
                      aggfunc='mean')
 
     agrego_indicador(etapas.groupby(['dia', 'id_tarjeta'],
-                                    as_index=False).factor_expansion.sum(),
+                                    as_index=False).factor_expansion_linea.sum(),
                      'Cantidad de tarjetas finales',
                      'usuarios',
                      0,
@@ -186,7 +177,7 @@ def persist_datamodel_tables():
 
     agrego_indicador(etapas[etapas.od_validado == 1].groupby(
         ['dia', 'id_tarjeta'],
-        as_index=False).factor_expansion.min(),
+        as_index=False).factor_expansion_linea.min(),
         'Cantidad total de usuarios',
         'usuarios expandidos',
         0)

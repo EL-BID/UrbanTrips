@@ -12,11 +12,10 @@ imputar_destinos_min_distancia: False
 epsg_m: 9265
 
 #especificar el archivo con las transacciones a consumir
-nombre_archivo_trx: transacciones_amba_muestra10.csv
-# nombre_archivo_trx: muestra_amba5000.csv
+nombre_archivo_trx: amba_muestra5_dia2.csv
 
-# alias_db_data: muestra_amba5000
-alias_db_data: amba2_muestra10
+
+alias_db_data: amba_muestra5_xdia
 
 alias_db_insumos: amba
 
@@ -36,7 +35,7 @@ nombres_variables_trx:
     orden_trx: etapa_red_sube 
     latitud_trx: lat 
     longitud_trx: lon
-    factor_expansion: fex 
+    factor_expansion: fex_linea
     
 modos:
     autobus: COL

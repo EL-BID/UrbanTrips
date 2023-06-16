@@ -108,13 +108,9 @@ def compute_route_section_load(
         q_main_etapas = q_main_etapas + f" and dia = '{day_type}'"
 
     q_etapas = f"""
-        select e.*,d.h3_d, f.factor_expansion
+        select e.*
         from ({q_main_etapas}) e
-        left join destinos d
-        on d.id = e.id
-        left join factores_expansion f
-        on e.dia = f.dia
-        and e.id_tarjeta = f.id_tarjeta
+        where e.od_validado==1  
     """
 
     print("Obteniendo datos de etapas y rutas")
@@ -156,41 +152,45 @@ def compute_route_section_load(
         recorridos["n_sections"] = n_sections
 
     print("Computing section load per route ...")
+    
+    if len(recorridos) > 0:
 
-    section_load_table = etapas.groupby("id_linea").apply(
-        compute_section_load_table,
-        recorridos=recorridos,
-        rango_hrs=rango_hrs,
-        day_type=day_type
-    )
+        section_load_table = etapas.groupby("id_linea").apply(
+            compute_section_load_table,
+            recorridos=recorridos,
+            rango_hrs=rango_hrs,
+            day_type=day_type
+        )
 
-    section_load_table = section_load_table.reset_index(drop=True)
+        section_load_table = section_load_table.reset_index(drop=True)
 
-    # Add section meters to table
-    section_load_table["section_meters"] = section_meters
+        # Add section meters to table
+        section_load_table["section_meters"] = section_meters
 
-    section_load_table = section_load_table.reindex(
-        columns=[
-            "id_linea",
-            "day_type",
-            "n_sections",
-            "section_meters",
-            "sentido",
-            "section_id",
-            "x",
-            "y",
-            "hora_min",
-            "hora_max",
-            "cantidad_etapas",
-            "prop_etapas",
-        ]
-    )
+        section_load_table = section_load_table.reindex(
+            columns=[
+                "id_linea",
+                "day_type",
+                "n_sections",
+                "section_meters",
+                "sentido",
+                "section_id",
+                "x",
+                "y",
+                "hora_min",
+                "hora_max",
+                "cantidad_etapas",
+                "prop_etapas",
+            ]
+        )
 
-    print("Uploading data to db...")
+        print("Uploading data to db...")
 
-    section_load_table.to_sql(
-        "ocupacion_por_linea_tramo", conn_data, if_exists="append",
-        index=False,)
+        section_load_table.to_sql(
+            "ocupacion_por_linea_tramo", conn_data, if_exists="append",
+            index=False,)
+    else:
+        print('No existen recorridos para las líneas')
 
 
 def is_date_string(input_str):
@@ -310,7 +310,7 @@ def compute_section_load_table(
 
         # Assign a direction based on line progression
         df = df.reindex(
-            columns=["dia", "o_proj", "d_proj", "factor_expansion"])
+            columns=["dia", "o_proj", "d_proj", "factor_expansion_linea"])
         df["sentido"] = [
             "ida" if row.o_proj <= row.d_proj
             else "vuelta" for _, row in df.iterrows()
@@ -320,7 +320,7 @@ def compute_section_load_table(
         # First totals per day
         totals_by_direction = df\
             .groupby(["dia", "sentido"], as_index=False)\
-            .agg(cant_etapas_sentido=("factor_expansion", "sum"))
+            .agg(cant_etapas_sentido=("factor_expansion_linea", "sum"))
 
         # then average for weekdays
         totals_by_direction = totals_by_direction\
@@ -341,7 +341,7 @@ def compute_section_load_table(
         # first adding totals per day
         legs_by_sections = leg_route_sections_df\
             .groupby(["dia", "sentido", "section_id"], as_index=False)\
-            .agg(size=("factor_expansion", "sum"))
+            .agg(size=("factor_expansion_linea", "sum"))
 
         # then computing average across days
         legs_by_sections = legs_by_sections\
@@ -472,7 +472,7 @@ def build_leg_route_sections_df(row, section_ids):
 
     sentido = row["sentido"]
     dia = row["dia"]
-    f_exp = row["factor_expansion"]
+    f_exp = row["factor_expansion_linea"]
 
     if sentido == "ida":
         point_o = row["o_proj"]
@@ -495,7 +495,7 @@ def build_leg_route_sections_df(row, section_ids):
             "dia": [dia] * len(leg_route_sections),
             "sentido": [sentido] * len(leg_route_sections),
             "section_id": leg_route_sections,
-            "factor_expansion": [f_exp] * len(leg_route_sections),
+            "factor_expansion_linea": [f_exp] * len(leg_route_sections),
         }
     )
     return leg_route_sections_df
@@ -582,13 +582,9 @@ def compute_kpi():
     print("Leyendo datos de demanda")
     q = """
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
-        d.h3_d, f.factor_expansion
+        e.h3_d, e.factor_expansion_linea
         from etapas e
-        LEFT JOIN destinos d
-        ON e.id = d.id
-        LEFT JOIN factores_expansion f
-        ON e.id_tarjeta = f.id_tarjeta
-        AND e.dia = f.dia
+        where e.od_validado==1  
     """
     etapas = pd.read_sql(q, conn_data)
     distancias = pd.read_sql_query(
@@ -728,23 +724,23 @@ def distancia_h3(row, *args, **kwargs):
 
 def indicadores_demanda_interno(df):
     d = {}
-    d["pvd"] = df["factor_expansion"].sum()
+    d["pvd"] = df["factor_expansion_linea"].sum()
     d["dmt_mean"] = np.average(
-        a=df.distance_osm_drive, weights=df.factor_expansion)
+        a=df.distance_osm_drive, weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
         data=df.distance_osm_drive.tolist(),
-        weights=df.factor_expansion.tolist()
+        weights=df.factor_expansion_linea.tolist()
     )
     return pd.Series(d, index=["pvd", "dmt_mean", "dmt_median"])
 
 
 def indicadores_demanda_linea(df):
     d = {}
-    d["tot_pax"] = df["factor_expansion"].sum()
+    d["tot_pax"] = df["factor_expansion_linea"].sum()
     d["dmt_mean"] = np.average(
-        a=df.distance_osm_drive, weights=df.factor_expansion)
+        a=df.distance_osm_drive, weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
         data=df.distance_osm_drive.tolist(),
-        weights=df.factor_expansion.tolist()
+        weights=df.factor_expansion_linea.tolist()
     )
     return pd.Series(d, index=["tot_pax", "dmt_mean", "dmt_median"])

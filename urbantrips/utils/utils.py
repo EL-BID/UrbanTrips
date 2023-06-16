@@ -116,10 +116,10 @@ def create_db():
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT NOT NULL,
+            fecha datetime NOT NULL,
             id_original text,
-            id_tarjeta text,
-            fecha datetime,
+            id_tarjeta text,            
             dia text,
             tiempo text,
             hora int,
@@ -135,11 +135,19 @@ def create_db():
         ;
         """
     )
+    
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dias_ultima_corrida
+            (dia INT NOT NULL)
+        ;
+        """
+    )
 
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS etapas
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT PRIMARY KEY NOT NULL,
             id_tarjeta text,
             dia text,
             id_viaje int,
@@ -152,7 +160,12 @@ def create_db():
             interno int,
             latitud float,
             longitud float,
-            h3_o text
+            h3_o text,
+            h3_d text,
+            od_validado int,
+            factor_expansion_original float,
+            factor_expansion_linea float,
+            factor_expansion_tarjeta float
             )
         ;
         """
@@ -177,7 +190,9 @@ def create_db():
             otros int,
             h3_o text,
             h3_d text,
-            od_validado int
+            od_validado int,
+            factor_expansion_linea,
+            factor_expansion_tarjeta            
             )
         ;
         """
@@ -190,36 +205,25 @@ def create_db():
             id_tarjeta text NOT NULL,
             dia text NOT NULL,
             od_validado int,
-            cant_viajes float
+            cant_viajes float,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
     )
-
+    
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS factores_expansion
+        CREATE TABLE IF NOT EXISTS transacciones_linea
             (
             dia text NOT NULL,
-            id_tarjeta text NOT NULL,
-            factor_expansion float,
-            factor_expansion_original float,
-            factor_calibracion float,
-            cant_trx int,
-            id_tarjeta_valido int
+            id_linea int NOT NULL,
+            transacciones float,
+            transacciones_validas,
+            factor_expansion_linea            
             )
         ;
-        """
-    )
-
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS destinos
-        (id INT PRIMARY KEY     NOT NULL,
-        h3_d text,
-        od_validado int
-        )
-
         """
     )
 
@@ -592,7 +596,7 @@ def agrego_indicador(df_indicador,
                      tabla,
                      nivel=0,
                      var='indicador',
-                     var_fex='factor_expansion',
+                     var_fex='factor_expansion_linea',
                      aggfunc='sum'):
     '''
     Agrego indicadores de tablas utilizadas

@@ -956,8 +956,8 @@ def imprime_lineas_deseo(df,
 
         df_tmp = df\
             .groupby(['dia', 'hora'], as_index=False)\
-            .factor_expansion.sum()\
-            .rename(columns={'factor_expansion': 'cant'})\
+            .factor_expansion_linea.sum()\
+            .rename(columns={'factor_expansion_linea': 'cant'})\
             .reset_index()
         df_tmp = df_tmp.groupby(['hora']).cant.mean().reset_index()
         try:
@@ -1192,13 +1192,13 @@ def imprime_graficos_hora(viajes,
 
     vi_modo = vi\
         .groupby(['distance_osm_drive', 'modo'], as_index=False)\
-        .factor_expansion.sum()\
-        .rename(columns={'factor_expansion': 'cant'})
+        .factor_expansion_linea.sum()\
+        .rename(columns={'factor_expansion_linea': 'cant'})
 
     vi = vi\
         .groupby('distance_osm_drive', as_index=False)\
-        .factor_expansion.sum()\
-        .rename(columns={'factor_expansion': 'cant'})
+        .factor_expansion_linea.sum()\
+        .rename(columns={'factor_expansion_linea': 'cant'})
 
     vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
                 ].sort_values('distance_osm_drive')
@@ -1806,17 +1806,17 @@ def lineas_deseo(df,
                  filtro1='',
                  ):
 
-    hexs = zonas.groupby(
+    hexs = zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(
         var_zona, as_index=False).size().drop(['size'], axis=1)
     hexs = hexs.merge(
-        zonas.groupby(var_zona
+        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(var_zona
                       ).apply(lambda x: np.average(x['longitud'],
                                                    weights=x['fex'])
                               ).reset_index(
         ).rename(columns={0: 'longitud'}),
         how='left')
     hexs = hexs.merge(
-        zonas.groupby(var_zona
+        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(var_zona
                       ).apply(lambda x: np.average(x['latitud'],
                                                    weights=x['fex'])
                               ).reset_index(
@@ -2010,17 +2010,17 @@ def crea_df_burbujas(df,
 
     zonas['h3_o_tmp'] = zonas['h3'].apply(h3.h3_to_parent, res=res)
 
-    hexs = zonas.groupby(
+    hexs = zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(
         'h3_o_tmp', as_index=False).size().drop(['size'], axis=1)
     hexs = hexs.merge(
-        zonas.groupby('h3_o_tmp'
+        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby('h3_o_tmp'
                       ).apply(lambda x: np.average(x['longitud'],
                                                    weights=x['fex'])
                               ).reset_index(
         ).rename(columns={0: 'longitud'}),
         how='left')
     hexs = hexs.merge(
-        zonas.groupby('h3_o_tmp'
+        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby('h3_o_tmp'
                       ).apply(lambda x: np.average(x['latitud'],
                                                    weights=x['fex'])
                               ).reset_index(
@@ -2165,14 +2165,6 @@ def create_visualizations():
         conn_data,
     )
 
-    factores_expansion = pd.read_sql_query(
-        """
-        SELECT *
-        FROM factores_expansion
-        """,
-        conn_data,
-    )
-
     distancias = pd.read_sql_query(
         """
         SELECT *
@@ -2183,13 +2175,6 @@ def create_visualizations():
 
     conn_insumos.close()
     conn_data.close()
-
-    # Agrego factor de expansión a viajes
-    viajes = viajes.merge(factores_expansion[['dia',
-                                              'id_tarjeta',
-                                              'factor_expansion']],
-                          on=['dia',
-                              'id_tarjeta'])
 
     # Agrego campo de distancias de los viajes
     viajes = viajes.merge(distancias,
@@ -2203,7 +2188,7 @@ def create_visualizations():
     viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
     viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
     v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
-                            as_index=False).factor_expansion.sum().iterrows()
+                            as_index=False).factor_expansion_linea.sum().iterrows()
     for _, i in v_iter:
 
         desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
@@ -2215,7 +2200,7 @@ def create_visualizations():
         print('Imprimiendo tabla de matrices OD')
         # Impirmir tablas con matrices OD
         imprimir_matrices_od(viajes=viajes_dia,
-                             var_fex='factor_expansion',
+                             var_fex='factor_expansion_linea',
                              title=f'Matriz OD {desc_dia}',
                              savefile=f'{desc_dia_file}',
                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
@@ -2227,7 +2212,7 @@ def create_visualizations():
         imprime_lineas_deseo(df=viajes_dia,
                              h3_o='',
                              h3_d='',
-                             var_fex='factor_expansion',
+                             var_fex='factor_expansion_linea',
                              title=f'Líneas de deseo {desc_dia}',
                              savefile=f'{desc_dia_file}',
                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
@@ -2238,7 +2223,7 @@ def create_visualizations():
         imprime_graficos_hora(viajes_dia,
                               title=titulo,
                               savefile=f'{desc_dia_file}_viajes',
-                              var_fex='factor_expansion',
+                              var_fex='factor_expansion_linea',
                               desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
                               tipo_dia=i.tipo_dia)
 
@@ -2249,7 +2234,7 @@ def create_visualizations():
                          h3_o='h3_o',
                          alpha=.4,
                          cmap='rocket_r',
-                         var_fex='factor_expansion',
+                         var_fex='factor_expansion_linea',
                          porc_viajes=100,
                          title=f'Destinos de los viajes {desc_dia}',
                          savefile=f'{desc_dia_file}_burb_destinos',
@@ -2262,7 +2247,7 @@ def create_visualizations():
                          h3_o='h3_o',
                          alpha=.4,
                          cmap='flare',
-                         var_fex='factor_expansion',
+                         var_fex='factor_expansion_linea',
                          porc_viajes=100,
                          title=f'Hogares {desc_dia}',
                          savefile=f'{desc_dia_file}_burb_hogares',

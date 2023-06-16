@@ -36,15 +36,35 @@ def infer_destinations():
 
     conn_data = iniciar_conexion_db(tipo='data')
 
+    # q = """
+    # select e.*
+    # from etapas e
+    # left join  (select *, 1 as en_destinos from destinos) d
+    # on e.id = d.id
+    # where d.id is null
+    # order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
+    # """
+    
+    dias_ultima_corrida = pd.read_sql_query(
+                                """
+                                SELECT *
+                                FROM dias_ultima_corrida
+                                """,
+                                conn_data,
+                                )    
+
+    
     q = """
-    select e.*
+    select *
     from etapas e
-    left join  (select *, 1 as en_destinos from destinos) d
-    on e.id = d.id
-    where d.id is null
-    order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
+    join dias_ultima_corrida d
+    on e.dia = d.dia
+    order by e.dia,e.id_tarjeta,e.id_viaje,e.id_etapa,e.hora,e.tiempo
     """
+
     etapas = pd.read_sql_query(q, conn_data)
+
+    etapas = etapas.drop(['od_validado', 'h3_d'], axis=1)
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
     if destinos_min_dist:
@@ -55,21 +75,27 @@ def infer_destinations():
         print("Imputando destinos por siguiente etapa...")
         destinos = validar_destinos(etapas_destinos_potencial)
 
-    print(f"Subiendo {len(destinos)} registros a la tabla destinos en la db")
+    etapas = etapas.merge(
+                    destinos, on=['id', 'h3_d'], how='left')
 
-    destinos.to_sql("destinos", conn_data, if_exists="append", index=False)
+    etapas = etapas.sort_values(['dia','id_tarjeta','id_viaje','id_etapa','hora','tiempo']).reset_index(drop=True)
 
-    destinos = destinos.merge(etapas.reindex(columns=['id', 'dia']),
-                              on=['id'], how='left')
+    etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
+    etapas['h3_d'] = etapas['h3_d'].fillna('')
 
     # calcular indicador de imputacion de destinos
-    calcular_indicadores_destinos_etapas(destinos)
+    calcular_indicadores_destinos_etapas(etapas)
 
-    # eliminar registros con destinos mal imputados
-    dias = destinos.dia.unique()
-    dias = ','.join(dias)
-    eliminar_etapas_sin_destino(dias)
+    # borro si ya existen etapas de una corrida anterior
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM etapas WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+
+    etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
+        
     print("Fin subir destinos")
+    conn_data.close()
 
     return None
 
@@ -253,76 +279,80 @@ def validar_destinos(destinos):
     return destinos
 
 
-def calcular_indicadores_destinos_etapas(destinos):
+def calcular_indicadores_destinos_etapas(etapas):
     """
     Esta funcion calcula el % de etapas con destinos imputados
     y lo sube a la db
     """
     print("Calculando indicadores de etapas con destinos")
 
-    agrego_indicador(destinos[destinos.od_validado == 1],
+    agrego_indicador(etapas[etapas.od_validado == 1],
                      'Cantidad de etapas con destinos validados',
                      'etapas',
                      1,
                      var_fex='')
+    
+    
 
 
-@duracion
-def eliminar_etapas_sin_destino(dias):
-    """
-    Esta funcion elimina de la tabla etapas y destinos todas
-    las transacciones de tarjetas con al menos un destino sin
-    imputar
-    """
+# @duracion
+# def eliminar_etapas_sin_destino(dias):
+#     """
+#     Esta funcion elimina de la tabla etapas y destinos todas
+#     las transacciones de tarjetas con al menos un destino sin
+#     imputar
+#     """
 
-    print("Eliminando dias, tarjetas con etapas sin destinos")
+#     print("Eliminando dias, tarjetas con etapas sin destinos")
 
-    conn_data = iniciar_conexion_db(tipo='data')
+#     conn_data = iniciar_conexion_db(tipo='data')
 
-    q = """
-    delete from etapas
-    where exists
-        (
-            select 1
-            from (
-                SELECT distinct dia, id_tarjeta
-                FROM etapas e
-                LEFT JOIN destinos d
-                ON e.id = d.id
-                where od_validado = 0
-                ) d_mal
-            where etapas.dia = d_mal.dia
-            and etapas.id_tarjeta = d_mal.id_tarjeta
-    )
-    """
+#     q = """
+#     delete from etapas
+#     where exists
+#         (
+#             select 1
+#             from (
+#                 SELECT distinct dia, id_tarjeta
+#                 FROM etapas e
+#                 LEFT JOIN destinos d
+#                 ON e.id = d.id
+#                 where od_validado = 0
+#                 ) d_mal
+#             where etapas.dia = d_mal.dia
+#             and etapas.id_tarjeta = d_mal.id_tarjeta
+#     )
+#     """
 
-    cur = conn_data.cursor()
-    cur.execute(q)
-    conn_data.commit()
+#     cur = conn_data.cursor()
+#     cur.execute(q)
+#     conn_data.commit()
 
-    q = """
-    delete from destinos
-    where not exists
-        (
-        select 1
-        from etapas
-        where etapas.id = destinos.id
-    )
-    """
-    cur = conn_data.cursor()
-    cur.execute(q)
-    conn_data.commit()
+#     q = """
+#     delete from destinos
+#     where not exists
+#         (
+#         select 1
+#         from etapas
+#         where etapas.id = destinos.id
+#     )
+#     """
+#     cur = conn_data.cursor()
+#     cur.execute(q)
+#     conn_data.commit()
 
-    q = f"""
-        select * 
-        from etapas
-        where dia in ('{dias}')
-        """
-    etapas = pd.read_sql(q, conn_data)
+#     q = f"""
+#         select * 
+#         from etapas
+#         where dia in ('{dias}')
+#         """
+#     etapas = pd.read_sql(q, conn_data)
 
-    agrego_indicador(etapas,
-                     'Cantidad de etapas con tarjetas' +
-                     ' con destinos totalmente validados',
-                     'etapas',
-                     1,
-                     var_fex='')
+#     agrego_indicador(etapas,
+#                      'Cantidad de etapas con tarjetas' +
+#                      ' con destinos totalmente validados',
+#                      'etapas',
+#                      1,
+#                      var_fex='')
+
+

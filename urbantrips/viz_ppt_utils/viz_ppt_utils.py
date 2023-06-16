@@ -228,7 +228,7 @@ def slide_1(prs,
     df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información del dataset original', 1, ind_name, ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
     top_i += 0.5
-    ind_name = 'Cantidad de etapas con tarjetas con destinos totalmente validados'
+    ind_name = 'Cantidad de etapas con destinos validados'
     ind = format_num(indicadores.loc[indicadores.detalle==ind_name].indicador.astype(int).values[0])        
     ind += ' ('+format_num(indicadores.loc[indicadores.detalle==ind_name].porcentaje.values[0],0)+'%)'
     slide = pptx_text(prs=prs, slide=slide,  title=f'Transacciones válidas \n(Etapas con destinos validados):', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
