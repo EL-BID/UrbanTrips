@@ -195,104 +195,97 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
 
-    majority_by_branch = line_stops_gdf\
+    majority_by_node_id = line_stops_gdf\
         .drop_duplicates(['id_ramal', 'node_id'])\
         .groupby('node_id', as_index=False)\
         .agg(branch_mayority=('id_ramal', 'count'))
 
-    for branch in branches:
+    gps_all_branches = pd.DataFrame()
 
-        # assign a stop to each gps point
+    for branch in branches:
         stops_to_join = line_stops_gdf\
             .loc[line_stops_gdf.id_ramal == branch,
                  ['branch_stop_order', 'geometry']]
-        stops_to_join = stops_to_join.rename(
-            columns={'branch_stop_order': f'order_{branch}'})
 
         # Not use max_distance. Far away stops will appear as
         # still on the same stop and wont be active branches
-        line_gps_points = gpd.sjoin_nearest(
+        gps_branch = gpd.sjoin_nearest(
             line_gps_points,
             stops_to_join,
             how='left',
             max_distance=1500,
-            lsuffix='gps',
-            rsuffix=str(branch),
-            distance_col=f'distance_to_stop_{branch}')
+            distance_col=f'distance_to_stop')
+        gps_branch['id_ramal'] = branch
 
         # Evaluate change on stops order for each branch
-        temp_change = line_gps_points\
+        temp_change = gps_branch\
             .groupby(['interno', 'original_service_id'])\
-            .apply(find_change_in_direction, branch=branch)
+            .apply(find_change_in_direction)
+
         if n_original_services_ids > 1:
             temp_change = temp_change.droplevel([0, 1])
         else:
-
             temp_change = pd.Series(
                 temp_change.iloc[0].values, index=temp_change.columns)
 
-        line_gps_points[f'temp_change_{branch}'] = temp_change
+        gps_branch[f'temp_change'] = temp_change
 
         window = 5
-        line_gps_points[f'consistent_post_{branch}'] = (
-            line_gps_points[f'temp_change_{branch}']
+        gps_branch['consistent_post'] = (
+            gps_branch[f'temp_change']
             .shift(-window).fillna(False)
             .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
-        line_gps_points[f'consistent_pre_{branch}'] = (
-            line_gps_points[f'temp_change_{branch}']
+        gps_branch[f'consistent_pre'] = (
+            gps_branch[f'temp_change']
             .fillna(False).shift(1) == False)  # noqa
 
         # Accept there is a change in direction when consistent
-        line_gps_points[f'change_{branch}'] = (
-            line_gps_points[f'temp_change_{branch}'] &
-            line_gps_points[f'consistent_post_{branch}'] &
-            line_gps_points[f'consistent_pre_{branch}']
+        gps_branch[f'change'] = (
+            gps_branch[f'temp_change'] &
+            gps_branch[f'consistent_post'] &
+            gps_branch[f'consistent_pre']
         )
 
-    # Detect branches that are not reference in the same stop
-    # (NaN in temp_change) or far away (NaN in order)
-    active_branches = (
-        [(line_gps_points[f'temp_change_{b}'].notna() &
-          line_gps_points[f'order_{b}'].notna()).map(int).values
-         for b in branches]
+        gps_branch = gps_branch.drop(
+            ['index_right', 'temp_change', 'consistent_post',
+             'consistent_pre'], axis=1)
+        gps_all_branches = pd.concat([gps_all_branches, gps_branch])
+
+    # para cada punto gps necesito el node id del branch mas cercano
+    branches_distances_table = gps_all_branches\
+        .reindex(columns=['id', 'id_ramal', 'distance_to_stop',
+                          'branch_stop_order'])\
+        .sort_values(['id', 'distance_to_stop'])\
+        .drop_duplicates(subset=['id'], keep='first')\
+        .drop(['distance_to_stop'], axis=1)
+
+    gps_node_ids = branches_distances_table\
+        .merge(
+            line_stops_gdf.reindex(
+                columns=['node_id', 'branch_stop_order', 'id_ramal']),
+            on=['id_ramal', 'branch_stop_order'],
+            how='left')\
+        .reindex(columns=['id', 'id_ramal', 'node_id'])
+
+    total_changes_by_gps = gps_all_branches\
+        .groupby(['id'], as_index=False)\
+        .agg(total_changes=('change', 'sum'))
+
+    gps_points_changes = gps_node_ids\
+        .merge(total_changes_by_gps, how='left', on='id')\
+        .merge(majority_by_node_id, how='left', on='node_id')
+    gps_points_changes['change'] = (
+        gps_points_changes.total_changes >= gps_points_changes.branch_mayority
     )
+    gps_points_changes = gps_points_changes.reindex(
+        columns=['id', 'id_ramal', 'node_id', 'change'])
 
-    active_branches = np.sum(active_branches, axis=0)
-    line_gps_points['active_branches'] = active_branches
+    gps_points_changes = gps_points_changes\
+        .rename(columns={'id_ramal': 'id_ramal_gps_point'})
 
-    # get a majority criteria
-    line_gps_points['majority'] = line_gps_points['active_branches']\
-        .map(lambda branches: ceil(branches / 2))\
-        .replace(0, 1)
-
-    distance_cols = [f'distance_to_stop_{b}' for b in branches]
-
-    line_gps_points['branch'] = line_gps_points\
-        .loc[:, distance_cols]\
-        .apply(lambda row: row.idxmin(), axis=1)\
-        .fillna('').map(lambda s: s.split('_')[-1])
-
-    line_gps_points['node_id'] = np.nan
-
-    for i, row in line_gps_points.iterrows():
-        row_branch = row.branch
-        if row.branch == '':
-            pass
-        else:
-            line_gps_points.loc[i, 'node_id'] = (
-                line_gps_points.loc[i, f'order_{row_branch}']
-            )
-    # add mayority based on branch
     line_gps_points = line_gps_points.merge(
-        majority_by_branch, how='left', on='node_id')
-
-    majority_criteria = 'branch_mayority'
-
-    # Accept change when a majority of active branches registers one
-    line_gps_points['change'] = line_gps_points\
-        .reindex(columns=[f'change_{branch}' for branch in branches])\
-        .sum(axis=1) >= line_gps_points[majority_criteria]
+        gps_points_changes, on='id', how='left')
 
     if n_original_services_ids > 1:
 
@@ -308,6 +301,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf):
 
         new_services_ids = pd.Series(
             new_services_ids.iloc[0].values, index=new_services_ids.columns)
+
     line_gps_points['new_service_id'] = new_services_ids
     return line_gps_points
 
@@ -441,9 +435,9 @@ def compute_new_services_stats(line_day_services):
     return day_line_stats
 
 
-def find_change_in_direction(df, branch):
+def find_change_in_direction(df):
     # Create a new series with the differences between consecutive elements
-    series = df[f'order_{branch}'].copy()
+    series = df['branch_stop_order'].copy()
 
     # check diference against previous stop
     diff_series = series.diff().dropna()
