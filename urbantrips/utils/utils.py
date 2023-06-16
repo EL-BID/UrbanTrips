@@ -517,7 +517,9 @@ def crear_tabla_gps(conn_data):
                 id INT PRIMARY KEY NOT NULL,
                 original_service_id int not null,
                 new_service_id int not null,
-                service_id int not null
+                service_id int not null,
+                id_ramal_gps_point int,
+                node_id int
                 )
             ;
             """

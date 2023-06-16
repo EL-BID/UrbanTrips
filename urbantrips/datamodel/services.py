@@ -116,7 +116,7 @@ def process_line_services(gps_points, stops):
     # save result to services table
     services_gps_points = gps_points_with_new_service_id\
         .reindex(columns=['id', 'original_service_id', 'new_service_id',
-                          'service_id'])
+                          'service_id', 'id_ramal_gps_point', 'node_id'])
     services_gps_points.to_sql("services_gps_points",
                                conn_data, if_exists='append', index=False)
 
@@ -229,7 +229,14 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             .apply(find_change_in_direction)
 
         if n_original_services_ids > 1:
-            temp_change = temp_change.droplevel([0, 1])
+            # when vehicle is always too far away from this branch
+
+            if isinstance(temp_change, type(pd.Series())):
+                temp_change = temp_change.droplevel([0, 1])
+            else:
+                temp_change = False
+
+        # when there is only one original service per vehicle
         else:
             temp_change = pd.Series(
                 temp_change.iloc[0].values, index=temp_change.columns)
@@ -262,7 +269,8 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
 
         gps_branch = gps_branch.drop(
             ['index_right', 'temp_change', 'consistent_post',
-             'consistent_pre'], axis=1)
+             # 'consistent_pre'
+             ], axis=1)
         gps_all_branches = pd.concat([gps_all_branches, gps_branch])
 
     # para cada punto gps necesito el node id del branch mas cercano
@@ -360,7 +368,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
         .apply(create_original_service_id)
     original_service_id = original_service_id.service_type
     original_service_id = original_service_id.droplevel([0, 1])
-    line_gps_points['original_service_id'] = original_service_id
+    line_gps_points.loc[:, ['original_service_id']] = original_service_id
 
     # check configs if trust in service type gps
     configs = utils.leer_configs_generales()
