@@ -1,47 +1,97 @@
 <!DOCTYPE html>
+<html class="writer-html5" lang="es" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-
-    <title>Primeros pasos &#8212; documentación de urbantrips - 0.2.0</title>
-    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="_static/alabaster.css" />
-    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-    <script src="_static/doctools.js"></script>
-    <script src="_static/sphinx_highlight.js"></script>
-    <script src="_static/translations.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Primeros pasos &mdash; documentación de urbantrips - 0.2.0</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+        <script src="_static/translations.js"></script>
+    <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
     <link rel="next" title="Input de datos" href="inputs.html" />
-    <link rel="prev" title="Instalación" href="instalacion.html" />
-   
-  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
-  
-  
-  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+    <link rel="prev" title="Instalación" href="instalacion.html" /> 
+</head>
 
-  </head><body>
-  
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
 
-    <div class="document">
-      <div class="documentwrapper">
-        <div class="bodywrapper">
           
+          
+          <a href="index.html" class="icon icon-home">
+            urbantrips
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Buscar documentos" aria-label="Buscar documentos" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Primeros pasos</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#datos-insumo">Datos insumo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#archivo-de-configuracion">Archivo de configuración</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#estructura-de-directorios">Estructura de directorios</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#correr-urbantrips">Correr Urbantrips</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#resultados-finales">Resultados finales</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+</ul>
 
-          <div class="body" role="main">
-            
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">urbantrips</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Primeros pasos</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/primeros_pasos.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
   <section id="primeros-pasos">
-<h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Enlace permanente a este encabezado">¶</a></h1>
+<h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Enlace permanente a este encabezado"></a></h1>
 <p>Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración.</p>
 <section id="datos-insumo">
-<h2>Datos insumo<a class="headerlink" href="#datos-insumo" title="Enlace permanente a este encabezado">¶</a></h2>
+<h2>Datos insumo<a class="headerlink" href="#datos-insumo" title="Enlace permanente a este encabezado"></a></h2>
 <p>Con UrbanTrips se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. <cite>lunes.csv</cite>, <cite>martes.csv</cite> o <cite>semana1.csv</cite>, <cite>semana2.csv</cite> pero no <cite>lunes_a.csv</cite>, <cite>lunes_b.csv</cite>). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.</p>
 <p>puede descargar el [dataset de transacciones SUBE de AMBA](<a class="reference external" href="https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv">https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv</a>), guardarlo en <cite>data/data_ciudad/transacciones.csv</cite>. Este dataset no cuenta con un campo <cite>fecha</cite> con el formato <cite>dd/mm/aaaa</cite>, deberá agregar con una fecha cualquiera y utilizar las configuraciones especificadas más abajo. A su vez, se debe especificar un <cite>id_linea</cite> con el criterio ya explicado previamente. Para eso se puede tomar la información de lineas de [este archivo](<a class="reference external" href="https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv">https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv</a>) (que se puede utilizar para el parámetro <cite>nombre_archivo_informacion_lineas</cite>). En este archivo, cada <cite>id_ramal</cite> tiene un <cite>id_linea</cite> asignado, con esa información pueden construir el <cite>id_linea</cite> de la tabla transacciones.</p>
 </section>
 <section id="archivo-de-configuracion">
-<h2>Archivo de configuración<a class="headerlink" href="#archivo-de-configuracion" title="Enlace permanente a este encabezado">¶</a></h2>
+<h2>Archivo de configuración<a class="headerlink" href="#archivo-de-configuracion" title="Enlace permanente a este encabezado"></a></h2>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">geolocalizar_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
 <span class="nt">resolucion_h3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8</span>
 
@@ -106,7 +156,7 @@
 </div>
 </section>
 <section id="estructura-de-directorios">
-<h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Enlace permanente a este encabezado">¶</a></h2>
+<h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Enlace permanente a este encabezado"></a></h2>
 <p>Al clonar UrbanTrips y correrlo, dejará la siguiente estructura de directorios:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>urbantrips
 │   README.md
@@ -149,7 +199,7 @@
 </div>
 </section>
 <section id="correr-urbantrips">
-<h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Enlace permanente a este encabezado">¶</a></h2>
+<h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Enlace permanente a este encabezado"></a></h2>
 <p>Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar <cite>urbantrips</cite>. En primer lugar es necesario inicializar los directorios y la base de datos que la librería necesita. Este paso solo se corre una vez.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/initialize_environment.py
 </pre></div>
@@ -164,88 +214,40 @@
 </div>
 </section>
 <section id="resultados-finales">
-<h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado">¶</a></h2>
+<h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h2>
 <p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <cite>SQLite</cite>.</p>
 </section>
 </section>
 
 
+           </div>
           </div>
-          
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
+        <a href="instalacion.html" class="btn btn-neutral float-left" title="Instalación" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="inputs.html" class="btn btn-neutral float-right" title="Input de datos" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Derechos de autor 2023, felipe &amp; sebastian.</p>
+  </div>
+
+  Compilado con <a href="https://www.sphinx-doc.org/">Sphinx</a> usando un
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">tema</a>
+    proporcionado por <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
         </div>
       </div>
-      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
-        <div class="sphinxsidebarwrapper">
-<h1 class="logo"><a href="index.html">urbantrips</a></h1>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
 
-
-
-
-
-
-
-
-<h3>Navegación</h3>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Primeros pasos</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#datos-insumo">Datos insumo</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#archivo-de-configuracion">Archivo de configuración</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#estructura-de-directorios">Estructura de directorios</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#correr-urbantrips">Correr Urbantrips</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#resultados-finales">Resultados finales</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Configuración</a></li>
-<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
-</ul>
-
-<div class="relations">
-<h3>Related Topics</h3>
-<ul>
-  <li><a href="index.html">Documentation overview</a><ul>
-      <li>Previous: <a href="instalacion.html" title="capítulo anterior">Instalación</a></li>
-      <li>Next: <a href="inputs.html" title="próximo capítulo">Input de datos</a></li>
-  </ul></li>
-</ul>
-</div>
-<div id="searchbox" style="display: none" role="search">
-  <h3 id="searchlabel">Búsqueda rápida</h3>
-    <div class="searchformwrapper">
-    <form class="search" action="search.html" method="get">
-      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
-      <input type="submit" value="Ir a" />
-    </form>
-    </div>
-</div>
-<script>document.getElementById('searchbox').style.display = "block"</script>
-
-
-
-
-
-
-
-
-        </div>
-      </div>
-      <div class="clearer"></div>
-    </div>
-    <div class="footer">
-      &copy;2023, felipe & sebastian.
-      
-      |
-      Powered by <a href="http://sphinx-doc.org/">Sphinx 7.0.1</a>
-      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.13</a>
-      
-      |
-      <a href="_sources/primeros_pasos.rst.txt"
-          rel="nofollow">Page source</a>
-    </div>
-
-    
-
-    
-  </body>
+</body>
 </html>
