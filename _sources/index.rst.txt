@@ -11,8 +11,6 @@ UrbanTrips es una biblioteca de código abierto que toma información de un sist
 
 Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este `documento metodológico <https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf>`_ 
 
-Los resultados se guardarán en dos bases de `SQLite`, una para los datos de las etapas, viajes y otros que se van actualizando a medida que se ingresan nuevos datos, y otra base de insumos para información que no se actualiza con tanta periodicidad (como por ejemplo la matriz de las distancias entre puntos fijos de una ciudad). En el siguiente apartado se muestra como configurar el proceso, qué archivos tomará urbantrips para producir la información y en qué bases se guardarán los resultados.
-
 
 Cotenido
 ========
@@ -24,7 +22,7 @@ Cotenido
    inputs
    configuracion
    lineas_ramales
-
+   resultados
 .. note::
 
    This project is under active development.

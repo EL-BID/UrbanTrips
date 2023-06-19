@@ -4,7 +4,7 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sobre el concepto de lineas y ramales en UrbanTrips &mdash; documentación de urbantrips - 0.2.0</title>
+  <title>Resultados finales &mdash; documentación de urbantrips - 0.2.0</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="prev" title="Seteo del archivo de configuración" href="configuracion.html" /> 
+    <link rel="prev" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -47,7 +47,8 @@
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Resultados finales</a></li>
 </ul>
 
         </div>
@@ -64,9 +65,9 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Sobre el concepto de lineas y ramales en UrbanTrips</li>
+      <li class="breadcrumb-item active">Resultados finales</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="_sources/lineas_ramales.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
+            <a href="_sources/resultados.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
       </li>
   </ul>
   <hr/>
@@ -74,17 +75,16 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="sobre-el-concepto-de-lineas-y-ramales-en-urbantrips">
-<h1>Sobre el concepto de lineas y ramales en UrbanTrips<a class="headerlink" href="#sobre-el-concepto-de-lineas-y-ramales-en-urbantrips" title="Enlace permanente a este encabezado"></a></h1>
-<p>Una linea de transporte público puede tener un recorrido principal en torno al cual hay pequeñas variantes. Estas son consideradas ramales dentro de una misma linea. En muchas ciudades no existen estas diferencias y cada recorrido tiene un nombre y id únicos. Pero en otras no es así. A su vez, puede darse una situación donde una persona utiliza por ej el metro, subiendo a la estación del recorrido A y bajarse en el recorrido B, sin que ese transbordo sea identificado como transacción en la tarjeta. Por lo tanto, para imputar el destino consideramos como puntos de descenso posible todas las estaciones del metro. En este caso, el metro funcionará como una única línea y cada recorrido un ramal dentro del mismo. También puede suceder que una linea de autobuses tenga varios ramales, pero no siempre se identifica en los datos el ramal que realmente dicho interno está recorriendo. Con lo cual podría ser cualquier recorrido de cualquiera de los ramales y al imputar el destino deberiamos considerar todas las estaciones potenciales de toda esa linea de autobus. Esta forma de tratar a las líneas y ramales permite que <cite>urbantrips</cite> se acomode a estas situaciones.</p>
-<p>Si en una ciudad no existen estas situaciones, simplemente se utiliza la linea para identificar cada recorrido. Si alguna de las situaciones que se identificaron aquí se presenta en una ciudad, se puede utilizar ese criterio de linea y ramal que debe estar de ese modo en la tabla de transacciones a utilizar. La diferencia fundamental es que el proceso de imputación de destinos considerará como posible punto de destino todas las estaciones de la linea y no del ramal.</p>
+  <section id="resultados-finales">
+<h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h1>
+<p>Los resultados se guardarán en bases de <cite>SQLite</cite>, cuyos nombres están dados por el archivo de configuración y se ubian en <cite>data/db/</cite>. Existe una base para los datos de las etapas, viajes y otros que se van actualizando a medida que se ingresan nuevos datos, y otra base de insumos para información que no se actualiza con tanta periodicidad (como por ejemplo los recorridos, parads, matrices de las distancias entre puntos fijos de una ciudad).</p>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
-        <a href="configuracion.html" class="btn btn-neutral float-left" title="Seteo del archivo de configuración" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="lineas_ramales.html" class="btn btn-neutral float-left" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
     </div>
 
   <hr/>

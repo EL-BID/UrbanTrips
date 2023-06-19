@@ -3,6 +3,31 @@ Primeros pasos
 
 Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración. 
 
+**Insumos necesarios y opcionales**
+
+Urbantrips requiere sólo 2 insumos indispensables:
+- Un archivo csv con las transacciones del sistema de pago con tarjeta
+- Un archivo de configuración: `configuraciones_generales.yaml`
+
+El archivo csv con las transacciones debe tener los siguientes campos obligatorios (los nombres pueden ser diferentes y esto se configura en el archivo configuraciones_generales.yaml):
+-	`id_tarjeta_trx`: un id único para cada tarjeta para cada día.
+-	`id_linea_trx`: un id único para cada linea de transporte
+- 	`fecha_trx`: campo que indica la fecha de la transacción.
+- 	`hora_trx`: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
+-	`orden_trx`: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día y que se reinicie con cada viaje. Es obligatorio unicamente cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
+-	`latitud_trx`: Latitud de la transacción.
+-	`longitud_trx`: Longitud de la transacción.
+
+Al correr el proceso general de `urbantrips`, éste tomará el archivo de configuración que le dirá qué archivo csv contiene la información con los datos de las transacciones a utilizar en esta corrida. En el directorio de trabajo podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (`lunes.csv`, `martes.csv` o `enero.csv`, `febrero.csv`). Cada uno será procesado en una corrida por vez. Qué archivo utilizar se configura en `configuraciones_generales.yaml` en el parámetro `nombre_archivo_trx:`. En ese mismo archivo se configuran otros parámetros, como así también las bases donde los resultados se irán guardando. Para más detalles sobre cómo utilizar este archivo de configuración consulte el apartado [Seteo del archivo de configuración](#seteo-del-archivo-de-configuracion). 
+
+Con sólo esos archivos podrá correr el proceso de imputación de destinos, construcción de matrices OD y elaboración de KPIs. Dicho eso, se obtendrán más resultados y con mayor precisión si se suman estos archivos opcionales:
+
+- Tabla con información de las líneas y/o ramales de transporte público (nombre de fantasía, etc).
+- Cartografía de los recorridos de las líneasy/o ramales de transporte público
+- Cartografía de las zonificaciones con las unidades espaciales utilizadas para agregar datos para la matriz OD
+- Tabla de GPS con el posicionamiento de las unidades
+
+
 
 Datos insumo
 ------------  

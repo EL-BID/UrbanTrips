@@ -54,8 +54,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
 </ul>
 
         </div>
@@ -85,6 +86,26 @@
   <section id="primeros-pasos">
 <h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Enlace permanente a este encabezado"></a></h1>
 <p>Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración.</p>
+<p><strong>Insumos necesarios y opcionales</strong></p>
+<p>Urbantrips requiere sólo 2 insumos indispensables:
+- Un archivo csv con las transacciones del sistema de pago con tarjeta
+- Un archivo de configuración: <cite>configuraciones_generales.yaml</cite></p>
+<p>El archivo csv con las transacciones debe tener los siguientes campos obligatorios (los nombres pueden ser diferentes y esto se configura en el archivo configuraciones_generales.yaml):
+-       <cite>id_tarjeta_trx</cite>: un id único para cada tarjeta para cada día.
+-       <cite>id_linea_trx</cite>: un id único para cada linea de transporte
+-       <cite>fecha_trx</cite>: campo que indica la fecha de la transacción.
+-       <cite>hora_trx</cite>: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
+-       <cite>orden_trx</cite>: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día y que se reinicie con cada viaje. Es obligatorio unicamente cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
+-       <cite>latitud_trx</cite>: Latitud de la transacción.
+-       <cite>longitud_trx</cite>: Longitud de la transacción.</p>
+<p>Al correr el proceso general de <cite>urbantrips</cite>, éste tomará el archivo de configuración que le dirá qué archivo csv contiene la información con los datos de las transacciones a utilizar en esta corrida. En el directorio de trabajo podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (<cite>lunes.csv</cite>, <cite>martes.csv</cite> o <cite>enero.csv</cite>, <cite>febrero.csv</cite>). Cada uno será procesado en una corrida por vez. Qué archivo utilizar se configura en <cite>configuraciones_generales.yaml</cite> en el parámetro <cite>nombre_archivo_trx:</cite>. En ese mismo archivo se configuran otros parámetros, como así también las bases donde los resultados se irán guardando. Para más detalles sobre cómo utilizar este archivo de configuración consulte el apartado [Seteo del archivo de configuración](#seteo-del-archivo-de-configuracion).</p>
+<p>Con sólo esos archivos podrá correr el proceso de imputación de destinos, construcción de matrices OD y elaboración de KPIs. Dicho eso, se obtendrán más resultados y con mayor precisión si se suman estos archivos opcionales:</p>
+<ul class="simple">
+<li><p>Tabla con información de las líneas y/o ramales de transporte público (nombre de fantasía, etc).</p></li>
+<li><p>Cartografía de los recorridos de las líneasy/o ramales de transporte público</p></li>
+<li><p>Cartografía de las zonificaciones con las unidades espaciales utilizadas para agregar datos para la matriz OD</p></li>
+<li><p>Tabla de GPS con el posicionamiento de las unidades</p></li>
+</ul>
 <section id="datos-insumo">
 <h2>Datos insumo<a class="headerlink" href="#datos-insumo" title="Enlace permanente a este encabezado"></a></h2>
 <p>Con UrbanTrips se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. <cite>lunes.csv</cite>, <cite>martes.csv</cite> o <cite>semana1.csv</cite>, <cite>semana2.csv</cite> pero no <cite>lunes_a.csv</cite>, <cite>lunes_b.csv</cite>). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.</p>
