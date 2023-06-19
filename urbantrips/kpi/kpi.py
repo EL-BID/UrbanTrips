@@ -576,7 +576,7 @@ def compute_kpi():
     # Calcular kilometros vehiculo dia kvd
     oferta_interno = gps\
         .groupby(["id_linea", "dia", "interno"], as_index=False)\
-        .agg(kvd=("dist_km", "sum"))
+        .agg(kvd=("distance_km", "sum"))
 
     # Eliminar los vehiculos que tengan 0 kms recorridos
     oferta_interno = oferta_interno.loc[oferta_interno.kvd > 0]

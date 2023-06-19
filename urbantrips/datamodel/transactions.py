@@ -650,10 +650,12 @@ def process_and_upload_gps_table(nombre_archivo_gps,
     gps["id"] = crear_id_interno(
         conn, n_rows=n_rows_gps, tipo_tabla='gps')
 
-    if not (gps.service_type == 'start_service').any():
-        raise Exception(
-            "No hay valores que indiquen el inicio de un servicio. "
-            "Revisar el configs para service_type_gps")
+    # si se informa un service type que el start_service exista
+    if 'service_type' in gps.columns:
+        if not (gps.service_type == 'start_service').any():
+            raise Exception(
+                "No hay valores que indiquen el inicio de un servicio. "
+                "Revisar el configs para service_type_gps")
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)
