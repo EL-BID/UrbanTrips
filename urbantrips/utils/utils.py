@@ -950,3 +950,36 @@ def check_config_fecha(df, columns_with_date, date_format):
     string = "Corrija el formato de fecha en config. Actualmente se pierden" +\
         f"{round((checkeo * 100),2)} por ciento de registros"
     assert checkeo < 0.8, string
+
+
+def check_table_in_db(table_name, tipo_db):
+    """
+    Checks if a tbale exists in a db
+
+    Parameters
+    ----------
+    table_name : str
+        Name of table to check for
+    tipo_db : str
+        db where to check. Must be data or insumos
+
+    Returns
+    -------
+    bool
+        if that table exists in that db
+    """
+    conn = iniciar_conexion_db(tipo=tipo_db)
+    cur = conn.cursor()
+
+    q = f"""
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='{table_name}';
+    """
+    listOfTables = cur.execute(q).fetchall()
+
+    if listOfTables == []:
+        print(f"No existe la tabla {table_name} en la base")
+        return False
+    else:
+        return True

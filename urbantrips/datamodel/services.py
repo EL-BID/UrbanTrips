@@ -32,6 +32,24 @@ def get_stops_and_gps_data():
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
     conn_data = utils.iniciar_conexion_db(tipo='data')
 
+    # check if data is present in the db
+    if not utils.check_table_in_db(table_name='gps', tipo_db='data'):
+        print("No existe la tabla gps. Asegurese de tener datos gps y ")
+        print("correr datamodel.transactions.process_and_upload_gps_table()")
+    else:
+        cur = conn_data.cursor()
+        q = "select count(*) from gps;"
+        records = cur.execute(q).fetchall()[0][0]
+        if len(records) == 0:
+            print("La tabla gps no tiene registros. Asegurese de tetener datos")
+            print("gps y correr")
+            print("datamodel.transactions.process_and_upload_gps_table()")
+
+    # check if data is present in the db
+    if not utils.check_table_in_db(table_name='gps', tipo_db='data'):
+        print("No hay tabla services_stats. Asegurese de tener datos gps ")
+        print("y correr datamodel.transactions.process_and_upload_gps_table()")
+
     gps_query = """
         select g.*
         from gps g
@@ -53,7 +71,21 @@ def get_stops_and_gps_data():
 
     if len(gps_lines) == 0:
         return None, None
+
     else:
+        # check if data is present in the db
+        if not utils.check_table_in_db(table_name='stops', tipo_db='insumos'):
+            print("No existe la tabla stops. Asegurese de tener datos de ")
+            print("stops y correr carto.stops.create_stops_table()")
+        else:
+            cur = conn_data.cursor()
+            q = "select count(*) from gps;"
+            records = cur.execute(q).fetchall()[0][0]
+            if len(records) == 0:
+                print("La tabla stops no tiene registros. Asegurese de tener")
+                print("datos de stops y correr")
+                print("carto.stops.create_stops_table()")
+
         stops_query = f"""
             select *
             from stops
