@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Bienvenidos a la documentación de Urbantrips! &#8212; documentación de urbantrips - 0.2.0</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css" />
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/translations.js"></script>
+    <link rel="index" title="Índice" href="genindex.html" />
+    <link rel="search" title="Búsqueda" href="search.html" />
+    <link rel="next" title="Instalación" href="instalacion.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="bienvenidos-a-la-documentacion-de-urbantrips">
+<h1>Bienvenidos a la documentación de Urbantrips!<a class="headerlink" href="#bienvenidos-a-la-documentacion-de-urbantrips" title="Enlace permanente a este encabezado">¶</a></h1>
+<p>UrbanTrips es una biblioteca de código abierto que toma información de un sistema de pago con tarjeta inteligente de transporte público y, a través de un procesamiento de la información que infiere destinos de los viajes y construye las cadenas de viaje para cada usuario, produce matrices de origen-destino y otros indicadores operativos. El principal objetivo de la librería es producir insumos útiles para la gestión del transporte público a partir de requerimientos mínimos de información y pre-procesamiento. Con sólo una tabla geolocalizada de transacciones económicas proveniente de un sistema de pago electrónico, se podrán generar resultados, que serán más precisos cuanto más información adicional se incorpore al proceso a través de los archivos opcionales. El proceso elabora las matrices, los indicadores y construye una serie de gráficos y mapas de transporte.</p>
+<p>Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este <a class="reference external" href="https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf">documento metodológico</a></p>
+<p>Los resultados se guardarán en dos bases de <cite>SQLite</cite>, una para los datos de las etapas, viajes y otros que se van actualizando a medida que se ingresan nuevos datos, y otra base de insumos para información que no se actualiza con tanta periodicidad (como por ejemplo la matriz de las distancias entre puntos fijos de una ciudad). En el siguiente apartado se muestra como configurar el proceso, qué archivos tomará urbantrips para producir la información y en qué bases se guardarán los resultados.</p>
+</section>
+<section id="cotenido">
+<h1>Cotenido<a class="headerlink" href="#cotenido" title="Enlace permanente a este encabezado">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="primeros_pasos.html#datos-insumo">Datos insumo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="primeros_pasos.html#archivo-de-configuracion">Archivo de configuración</a></li>
+<li class="toctree-l2"><a class="reference internal" href="primeros_pasos.html#estructura-de-directorios">Estructura de directorios</a></li>
+<li class="toctree-l2"><a class="reference internal" href="primeros_pasos.html#correr-urbantrips">Correr Urbantrips</a></li>
+<li class="toctree-l2"><a class="reference internal" href="primeros_pasos.html#resultados-finales">Resultados finales</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="inputs.html#transacciones">Transacciones</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+</ul>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Nota</p>
+<p>This project is under active development.</p>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">urbantrips</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navegación</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="instalacion.html" title="próximo capítulo">Instalación</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Búsqueda rápida</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Ir a" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2023, felipe & sebastian.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 7.0.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.13</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
