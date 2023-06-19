@@ -80,25 +80,25 @@ def test_find_change_in_direction():
     idling_down_idling_up = pd.Series([5, 5, 5, 4, 3, 2, 2, 2, 3, 4, 5])
 
     # test idling and then up no change
-    df = pd.DataFrame({'order_1': idling_up})
-    change = services.find_change_in_direction(df, branch=1)
+    df = pd.DataFrame({'branch_stop_order': idling_up})
+    change = services.find_change_in_direction(df)
     assert not change.any()
 
     # test idling and then down no change
-    df = pd.DataFrame({'order_1': idling_down})
-    change = services.find_change_in_direction(df, branch=1)
+    df = pd.DataFrame({'branch_stop_order': idling_down})
+    change = services.find_change_in_direction(df)
     assert not change.any()
 
     # test idling, then down  and up no idling between
-    df = pd.DataFrame({'order_1': idling_down_up})
-    change = services.find_change_in_direction(df, branch=1)
+    df = pd.DataFrame({'branch_stop_order': idling_down_up})
+    change = services.find_change_in_direction(df)
     # only one change in index 6
     assert change.sum() == 1
     assert change.loc[6]
 
     # test idling, then down  and up no idling between
-    df = pd.DataFrame({'order_1': idling_down_idling_up})
-    change = services.find_change_in_direction(df, branch=1)
+    df = pd.DataFrame({'branch_stop_order': idling_down_idling_up})
+    change = services.find_change_in_direction(df)
     # only one change in index 6
     assert change.sum() == 1
     assert change.loc[8]

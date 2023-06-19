@@ -95,6 +95,8 @@ nombres_variables_gps:
     latitud_gps: 
     longitud_gps:  
 
+trust_service_type_gps: False
+
 # PARAMETROS DE LINEAS, RAMALES, RECORRIDOS Y PARADAS 
 
 # Las lineas a ser utilizadas se subdividen en ramales?
