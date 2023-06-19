@@ -1,0 +1,157 @@
+Primeros pasos
+==============
+
+Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración. 
+
+
+Datos insumo
+------------  
+
+Con UrbanTrips se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. `lunes.csv`, `martes.csv` o `semana1.csv`, `semana2.csv` pero no `lunes_a.csv`, `lunes_b.csv`). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.
+
+
+
+puede descargar el [dataset de transacciones SUBE de AMBA](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), guardarlo en `data/data_ciudad/transacciones.csv`. Este dataset no cuenta con un campo `fecha` con el formato `dd/mm/aaaa`, deberá agregar con una fecha cualquiera y utilizar las configuraciones especificadas más abajo. A su vez, se debe especificar un `id_linea` con el criterio ya explicado previamente. Para eso se puede tomar la información de lineas de [este archivo](https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv) (que se puede utilizar para el parámetro `nombre_archivo_informacion_lineas`). En este archivo, cada `id_ramal` tiene un `id_linea` asignado, con esa información pueden construir el `id_linea` de la tabla transacciones.  
+
+
+Archivo de configuración
+------------------------
+
+
+.. code:: yaml
+
+   geolocalizar_trx: False
+   resolucion_h3: 8
+   
+   #tolerancia parada destino en metros
+   tolerancia_parada_destino: 2200
+
+   nombre_archivo_trx: transacciones.csv
+
+   alias_db_data: amba
+
+   alias_db_insumos: amba
+
+   lineas_contienen_ramales: True
+   nombre_archivo_informacion_lineas: lineas_amba.csv
+
+   imputar_destinos_min_distancia: True
+
+   #ingresar el nombre de las variables
+   nombres_variables_trx:
+      id_trx: id
+      fecha_trx: fecha 
+      id_tarjeta_trx: id_tarjeta
+      modo_trx: modo
+      hora_trx: hora
+      id_linea_trx: id_linea
+      id_ramal_trx:  id_ramal
+      interno_trx: interno_bus
+      orden_trx: etapa_red_sube
+      latitud_trx: lat 
+      longitud_trx: lon
+      factor_expansion:   
+	
+   modos:
+      autobus: COL
+      tren: TRE
+      metro: SUB
+      tranvia:
+      brt:
+	 
+   recorridos_geojson:
+
+   # Filtro de coordenadas en formato minx, miny, maxx, maxy 
+   filtro_latlong_bbox:
+      minx: -59.3
+      miny: -35.5
+      maxx: -57.5
+      maxy: -34.0 
+
+	
+   #Especificar el formato fecha
+   formato_fecha: "%d/%m/%Y"
+
+   columna_hora: True 
+   ordenamiento_transacciones: orden_trx 
+
+
+   tipo_trx_invalidas:
+      tipo_trx_tren:
+         - 'CHECK OUT SIN CHECKIN'
+         - 'CHECK OUT'
+
+
+Estructura de directorios
+-------------------------
+
+Al clonar UrbanTrips y correrlo, dejará la siguiente estructura de directorios:
+
+.. code:: 
+
+   urbantrips
+   │   README.md
+   │
+   └─── urbantrips
+   │   ...
+   └─── configs
+   │   │   configuraciones_generales.yaml
+   │   │   
+   └─── data 
+   │   └─── db
+   │       │  amba_2023_semana1_data
+   │       │  amba_2023_semana2_data
+   │       │  amba_2023_insumos
+   │       
+   │   └─── data_ciudad
+   │       │   semana1.csv
+   │       │   semana2.csv
+   │       │   lineas_amba.csv
+   │       │   hexs_amba.geojson
+   │       │   ...
+   └─── resultados 
+   │   └─── data
+   │       │   amba_2023_semana1_etapas.csv
+   │       │   amba_2023_semana1_viajes.csv
+   │       │   amba_2023_semana1_usuarios.csv
+   │       │   amba_2023_semana2_etapas.csv
+   │       │   amba_2023_semana2_viajes.csv
+   │       │   amba_2023_semana2_usuarios.csv
+   │   └─── html
+   │       │   ...
+   │   └─── matrices
+   │       │   ...
+   │   └─── pdf
+   │       │   ...
+   │   └─── png
+   │       │   ...
+   │   └─── tablas
+
+
+
+Correr Urbantrips
+-----------------
+
+Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar `urbantrips`. En primer lugar es necesario inicializar los directorios y la base de datos que la librería necesita. Este paso solo se corre una vez.
+
+.. code:: sh
+
+   $ python urbantrips/initialize_environment.py
+
+Luego, se puede procesar la información de transacciones. Este archivo de transacciones puede tener la información de un día, una semana o un mes (siempre que no sea demasiada información). Este paso procesa las transacciones en etapas y viajes, imputando destinos. Luego pueden correr este paso por cada nuevo dataset que quieran procesar (`semana_1.csv`,`semana_2.csv`, etc) ajustando lo necesario en el archivo `configuraciones_generales.yaml`.
+
+.. code:: sh
+
+   $ python urbantrips/process_transactions.py
+
+Por último, una vez procesadas todas las transacciones que sean de interés y cargadas en la base de datos de la libería, es posible correr los pasos de post procesamiento sobre esa información, como los KPI, visualizaciones y exportación de resultados. 
+
+.. code:: sh
+
+   $ python urbantrips/run_postprocessing.py
+
+
+Resultados finales
+------------------
+
+Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos `SQLite`. 
