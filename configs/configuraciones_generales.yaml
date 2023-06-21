@@ -13,9 +13,9 @@ epsg_m: 9265
 
 #especificar el archivo con las transacciones a consumir
 
-nombre_archivo_trx: transacciones_09112022.csv
+nombre_archivo_trx: amba2022_muestra5_dia1.csv
 
-alias_db_data: amba_2022
+alias_db_data: amba_2022_muestra
 
 alias_db_insumos: amba
 
@@ -35,7 +35,7 @@ nombres_variables_trx:
     orden_trx: 
     latitud_trx: latitud 
     longitud_trx: longitud
-    factor_expansion: 
+    factor_expansion: fex_linea
     
 modos:
     autobus: COLECTIVO

@@ -63,8 +63,10 @@ def create_legs_from_transactions(trx_order_params):
     # asignar nuevo id tarjeta trx simultaneas
     legs = change_card_id_for_concurrent_trx(
         legs, trx_order_params, dias_ultima_corrida)
-    # elminar casos de nuevas tarjetas con trx unica
-    legs = eliminar_tarjetas_trx_unica(legs)
+    
+#     # elminar casos de nuevas tarjetas con trx unica
+#     legs = eliminar_tarjetas_trx_unica(legs) #### No borrar transacciones únicas (quedan en estas con fex=0)
+    
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
 

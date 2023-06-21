@@ -145,37 +145,40 @@ def create_trips_from_legs():
     # Creo factores de expansión
     etapas = etapas.drop(['factor_expansion_tarjeta', 'factor_expansion_linea'], axis=1)
 
-    factores_tarjetas = pd.DataFrame([])
+    tot_trx = indicadores.loc[
+                (indicadores.detalle=='Cantidad de transacciones totales')&
+                (indicadores.tabla=='transacciones'), ['dia', 'indicador']].rename(columns={'indicador':'tot_trx'})
 
-    for i in dias_ultima_corrida.dia:
 
-        tot_trx = indicadores.loc[(etapas.dia==i)&
-                    (indicadores.detalle=='Cantidad de transacciones totales')&
-                    (indicadores.tabla=='transacciones')].indicador.values[0].round(0).astype(int)
-        tot_tarjetas = indicadores.loc[(etapas.dia==i)&
-                        (indicadores.detalle=='Cantidad de tarjetas únicas')&
-                        (indicadores.tabla=='tarjetas')].indicador.values[0].round(0).astype(int)
+    tot_tarjetas = etapas.groupby(['dia', 'id_tarjeta'], 
+                              as_index=False).factor_expansion_original.mean().groupby('dia', 
+                                                                                       as_index=False).factor_expansion_original.sum().round().rename(
+                                    columns={'factor_expansion_original':'tot_tarjetas'})
 
-        tarjetas = etapas[(etapas.dia == i)&
-                          (etapas.od_validado==1)].groupby('id_tarjeta', as_index=False).factor_expansion_original.mean()
-        diff_tarjetas = (tot_tarjetas - tarjetas.factor_expansion_original.sum()) / len(tarjetas)    
-        tarjetas['factor_expansion_tarjeta'] = tarjetas.factor_expansion_original + diff_tarjetas
+    tarjetas = etapas.groupby(['dia', 'id_tarjeta'], as_index=False).agg({'factor_expansion_original':'mean', 'od_validado':'min'})
+    
+    tot_tarjetas = tot_tarjetas.merge(
+            tarjetas[tarjetas.od_validado==1].groupby('dia', 
+                                                      as_index=False).agg({'factor_expansion_original':'sum', 'id_tarjeta':'count'}).round().rename(
+                                                                        columns={'factor_expansion_original':'tarjetas_validas', 'id_tarjeta':'len_tarjetas'}))
 
-        tarjetas['dia'] = i
+    tot_tarjetas['diff_tarjetas'] = (tot_tarjetas['tot_tarjetas'] - tot_tarjetas['tarjetas_validas']) / tot_tarjetas['len_tarjetas']
+    
+    tarjetas = tarjetas.merge(tot_tarjetas[['dia', 'diff_tarjetas']])
+    
+    tarjetas['factor_expansion_tarjeta'] = (tarjetas.factor_expansion_original + tarjetas.diff_tarjetas) * tarjetas.od_validado
 
-        factores_tarjetas = pd.concat([factores_tarjetas, tarjetas])
-
-    etapas = etapas.merge(factores_tarjetas[['dia', 'id_tarjeta', 'factor_expansion_tarjeta']], 
+    etapas = etapas.merge(tarjetas[['dia', 'id_tarjeta', 'factor_expansion_tarjeta']], 
                           on=['dia', 'id_tarjeta'], 
                           how='left')
     
-    etapas.loc[etapas.factor_expansion_tarjeta.isna(), 'factor_expansion_tarjeta'] = 0
-    
     # Calibración de factor de expansión por línea
     
+    etapas['od_validado_cadena'] = 1
+    etapas.loc[etapas.factor_expansion_tarjeta==0, 'od_validado_cadena'] = 0
+    
     factores_expansion_etapas = transacciones_linea[['dia', 'id_linea', 'transacciones']].merge(
-                            etapas[(etapas.dia == i)&
-                                   (etapas.od_validado==1)].groupby(
+                            etapas[(etapas.od_validado_cadena==1)].groupby(
                                 ['dia', 'id_linea'], 
                                 as_index=False).agg(
                                 {'factor_expansion_tarjeta':'sum'}
@@ -183,7 +186,7 @@ def create_trips_from_legs():
 
     factores_expansion_etapas['factor_expansion_linea'] = factores_expansion_etapas['transacciones'] / factores_expansion_etapas['transacciones_validas']
 
-    factores_expansion_etapas = etapas.loc[(etapas.dia == i)&(etapas.od_validado==1), 
+    factores_expansion_etapas = etapas.loc[(etapas.od_validado_cadena==1), 
                                            ['id', 
                                             'dia', 
                                             'id_etapa', 
@@ -192,7 +195,9 @@ def create_trips_from_legs():
                                             'id_linea', 
                                             'factor_expansion_tarjeta'
                                               ]].merge(
-                                                        factores_expansion_etapas[['id_linea', 'factor_expansion_linea']]
+                                                        factores_expansion_etapas[['dia', 
+                                                                                     'id_linea', 
+                                                                                     'factor_expansion_linea']]
                                                                       , how='left')
 
     factores_expansion_etapas['factor_expansion_linea'] = factores_expansion_etapas['factor_expansion_linea'] * factores_expansion_etapas['factor_expansion_tarjeta']
@@ -202,6 +207,8 @@ def create_trips_from_legs():
                          how='left')
 
     etapas.loc[etapas.factor_expansion_linea.isna(), 'factor_expansion_linea'] = 0
+    
+    etapas = etapas.drop(['od_validado_cadena'], axis=1)
     
     etapas = etapas.sort_values('id').reset_index(drop=True)
     
