@@ -85,6 +85,12 @@ def infer_destinations():
 
     # calcular indicador de imputacion de destinos
     calcular_indicadores_destinos_etapas(etapas)
+    
+    # # eliminar registros con destinos mal imputados
+    # dias = destinos.dia.unique()
+    # dias = ','.join(dias)
+    # eliminar_etapas_sin_destino(dias)
+    # print("Fin subir destinos")
 
     # borro si ya existen etapas de una corrida anterior
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])

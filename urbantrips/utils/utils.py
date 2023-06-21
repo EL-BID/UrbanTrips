@@ -219,9 +219,7 @@ def create_db():
             (
             dia text NOT NULL,
             id_linea int NOT NULL,
-            transacciones float,
-            transacciones_validas,
-            factor_expansion_linea            
+            transacciones float
             )
         ;
         """

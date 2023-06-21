@@ -100,8 +100,6 @@ def create_transactions(geolocalizar_trx_config,
         conn.execute(query)
         conn.commit()
 
-        
-
         # Eliminar trx fuera del bbox
         trx = eliminar_trx_fuera_bbox(trx)
         print(trx.shape)
@@ -127,8 +125,8 @@ def create_transactions(geolocalizar_trx_config,
         trx["id"] = crear_id_interno(
             conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
-    # Elminar transacciones unicas en el dia
-    trx = eliminar_tarjetas_trx_unica(trx)
+    # # Elminar transacciones unicas en el dia
+    # trx = eliminar_tarjetas_trx_unica(trx)  #### No borrar transacciones únicas (quedan en estas con fex=0)
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
@@ -566,8 +564,8 @@ def geolocalizar_trx(
 
     trx_eco = trx_eco.dropna(subset=cols)
 
-    # Eliminar trx unica en el dia
-    trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
+    # # Eliminar trx unica en el dia
+    # trx_eco = eliminar_tarjetas_trx_unica(trx_eco) #### No borrar transacciones únicas (quedan en estas con fex=0)
 
     cols = ['id',
             'id_original',

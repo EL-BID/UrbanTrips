@@ -12,10 +12,10 @@ imputar_destinos_min_distancia: False
 epsg_m: 9265
 
 #especificar el archivo con las transacciones a consumir
-nombre_archivo_trx: amba_muestra5_dia2.csv
 
+nombre_archivo_trx: transacciones_09112022.csv
 
-alias_db_data: amba_muestra5_xdia
+alias_db_data: amba_2022
 
 alias_db_insumos: amba
 
@@ -25,22 +25,22 @@ lineas_contienen_ramales: False
 #ingresar el nombre de las variables
 nombres_variables_trx:
     id_trx: id
-    fecha_trx: FECHA 
-    id_tarjeta_trx: id_tarjeta
+    fecha_trx: FECHATRX 
+    id_tarjeta_trx: NROTARJETA
     modo_trx: modo
-    hora_trx: hora
-    id_linea_trx: id_linea
+    hora_trx: 
+    id_linea_trx: IDLINEA
     id_ramal_trx:  
-    interno_trx: interno_bus
-    orden_trx: etapa_red_sube 
-    latitud_trx: lat 
-    longitud_trx: lon
-    factor_expansion: fex_linea
+    interno_trx: INTERNO
+    orden_trx: 
+    latitud_trx: latitud 
+    longitud_trx: longitud
+    factor_expansion: 
     
 modos:
-    autobus: COL
-    tren: TRE
-    metro: SUB
+    autobus: COLECTIVO
+    tren: TREN
+    metro: SUBTE
     tranvia:
     brt:
      
@@ -56,21 +56,21 @@ filtro_latlong_bbox:
 
     
 #Especificar el formato fecha
-formato_fecha: "%d/%m/%Y"
+formato_fecha: "%d/%m/%Y %H:%M:%S"
 
 #Indicar si la informacion sobre la hora está en una columna separada. En nombres_variables debe indicarse el nombre. Dejar vacío en caso contrario 
-columna_hora: True 
+columna_hora: False 
 
 # Indicar que criterio se desea utilizar para ordenar las transacciones en el tiempo. 
 #     Puede utilizarse el campo fecha: en ese caso debe tener informacion hasta el minuto al menos, y se debe especificar una ventana de tiempo en minutos en ventana_viajes para agrupar etapas en un viaje
 #     Puede utilizarse el campo orden_trx: este campo debe tener  entero secuencial que ordena las transacciones. Debe comenzar en cero cuando se comienza un nuevo viaje, e incrementear con cada nueva etapa en ese viaje
   
-ordenamiento_transacciones: orden_trx #fecha_completa u orden_trx
-ventana_viajes: 
-ventana_duplicado: 
+ordenamiento_transacciones: 'fecha_completa' #orden_trx #fecha_completa u orden_trx
+ventana_viajes: 120
+ventana_duplicado: 5
 
 tipo_trx_invalidas:
-    tipo_trx_tren:
+    CODIGOROL:
         - 'CHECK OUT SIN CHECKIN'
         - 'CHECK OUT'
 
