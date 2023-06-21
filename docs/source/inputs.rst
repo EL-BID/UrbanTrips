@@ -1,12 +1,12 @@
 Input de datos
 ==============
 
-Este es el esquema de datos que deben seguir los archivos suministrados como insumos a `urbantrips`.
+Este es el esquema de datos que deben seguir los archivos suministrados como insumos a UrbanTrips.
 
 Transacciones
 -------------
 
-Tabla con las transacciones de la tarjeta.
+Tabla con las transacciones.
 
 .. list-table:: 
    :widths: 25 25 50
@@ -17,7 +17,7 @@ Tabla con las transacciones de la tarjeta.
      - Descripción
    * - *id_trx*
      - int
-     - Opcional. Id único que identifique cada registro.
+     - Opcional. Id único que identifique cada registro y permita luego vincular la transacción en Urbantrips con el dataset original.
    * - *fecha_trx*
      - strftime
      - **Obligatorio**. Timestamp de la transaccion. Puede ser solo el día o el dia, hora y minuto.
@@ -59,4 +59,134 @@ Tabla con las transacciones de la tarjeta.
      - Opcional. Factor de expansión en caso de tratarse de una muestra. 
     
      
+Información de lineas y ramales
+-------------------------------
 
+Tabla con metadata descriptiva de las lineas y ramales. 
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - **Obligatorio**. Entero que identifique a la linea.
+   * - *nombre_linea*
+     - str
+     - **Obligatorio**. Nombre de la línea.
+   * - *modo*
+     - str
+     - **Obligatorio**. Modo de la linea.
+   * - *id_ramal*
+     - int
+     - **Obligatorio si hay ramales**.Entero que identifique al ramal.   
+   * - *nombre_ramal*
+     - str
+     - **Obligatorio si hay ramales**. Nombre del ramal.
+   * - *empresa*
+     - str
+     - Opcional. Nombre de la empresa.
+   * - *descripcion*
+     - str
+     - Opcional. Descripción adicional de la linea o ramal.
+     
+     
+
+Recorridos lineas
+-----------------
+
+Archivo ``geojson`` con la cartografía de los recorridos de la linea. Debe ser un LineString 2D, sin multilineas. Se necesita una única línea por cada linea o ramal (si existen ramales). Por ello no se considera el sentido del recorrido (ida o vuelta). Se debe tomar uno solo para construir las paradas. En caso de que existan diferencias en el recorrido, se puede desviar el mismo para que pase por un punto medio y seguir siendo un recorrido representativo del ramal.
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - **Obligatorio**. Entero que identifique a la linea.
+   * - *id_ramal*
+     - int
+     - **Obligatorio si hay ramales**. Entero que identifique al ramal.
+   * - *stops_distance*
+     - int
+     - Opcional. Distancia en metros a aplicarse al interpolar paradas sobre el recorrido.
+   * - *line_stops_buffer*
+     - int
+     - Opcional. Distancia en metros entre paradas para que se puedan agregar en una sola.
+   * - *geometry*
+     - 2DLineString
+     - Polilinea del recorrido. No puede ser multilinea.
+
+
+GPS
+---
+
+Tabla con el posicionamiento de cada interno con información de linea y ramal.  La existencia de la tabla GPS permitira calcular KPI adicionales como el Índice Pasajero- Kilómetro (IPK) o el factor de ocupación, entre otros.
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_gps*
+     - int
+     - **Obligatorio**. Id único que identifique cada registro.
+   * - *id_linea_gps*
+     - int
+     - **Obligatorio**. Id único que identifique la linea.
+   * - *id_ramal_gps*
+     - int
+     - **Obligatorio si hay ramales**. Id único que identifique cada ramal.
+   * - *interno_gps*
+     - int
+     - **Obligatorio**. Id único que identifique cada interno.
+   * - *fecha_gps*
+     - strftime
+     - **Obligatorio**. Dia, hora y minuto de la posición GPS del interno.
+   * - *latitud_gps*
+     - float
+     - **Obligatorio**. Latitud. 
+   * - *longitud_gps*
+     - float
+     - **Obligatorio**. Longitud.
+     
+
+Paradas
+-------
+
+Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo ``node_id`` se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el ``node_id`` debe ser el mismo, para las demas paradas debe ser único dentro de la misma línea. De contar con recorridos puede utilizarse el notebook ``stops_creation_with_node_id_helper.ipynb`` para crearlas.
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - **Obligatorio**. Entero que identifique a la linea.
+   * - *id_ramal*
+     - int
+     - **Obligatorio si hay ramales**. Entero que identifique a al ramal.     
+   * - *order*
+     - int
+     - **Obligatorio**. Entero único que siga un recorrido de la linea o ramal de manera incremental. No importa el sentido
+   * - *y*
+     - float
+     - **Obligatorio**. Latitud.     
+   * - *x*
+     - float
+     - **Obligatorio**. Longitud.
+   * - *node_id*
+     - int
+     - **Obligatorio**. Identifica con el mismo id estaciones donde puede haber transbordo entre ramales de una misma linea. Único para los otros casos dentro de la misma línea.     
+     
