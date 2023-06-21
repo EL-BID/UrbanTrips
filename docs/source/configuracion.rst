@@ -10,7 +10,7 @@ Parámetros generales
 
 En este primer grupo encontramos parámetros generales que utliza UrbanTrips en diferentes momentos. El primer parámetro `resolucion_h3` establece el nivel de resolución del esquema e grillas hexagonales `H3 <https://h3geo.org/>`_	 con el que se va a trabajar. UrbanTrips realizar la mayoría de operaciones espaciales utilizando este esquema. Mientras mayor sea la resolución, más granulares serán las celdas haxagonales que UrbanTrips utilice, más preciso el resultado pero más costoso computacionalmente. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.
 
-Luego vienen las configuraciǫnes que nombram las dos bases de datos con las que trabajará UrbanTips. ``alias_db_data`` guardará todo lo realtivo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de ``data`` diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un numbre específico para este propósito (``ciudad_2023_semana1``, ``ciudad_2023_semana2``,etc). Por su lado, ``alias_db_insumos`` es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc). 
+Luego vienen las configuraciǫnes que nombram las dos bases de datos con las que trabajará UrbanTips. ``alias_db_data`` guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de ``data`` diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un nombre específico para este propósito (``ciudad_2023_semana1``, ``ciudad_2023_semana2``,etc). Por su lado, ``alias_db_insumos`` es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc). 
 
 También es necesario especificar una proyección de coordenadas en metros, pasando un id de `EPSG <https://epsg.io/>`_, para ciertos procesos espaciales que trabajan con distancias. Para Argentina puede usarse por defecto `9265 (POSGAR 2007 / UTM zone 19S) <https://epsg.io/9265>`_.
 
@@ -163,7 +163,7 @@ Por úlitmo, se puede especificar un archivo con la localización de las paradas
    nombre_archivo_paradas: 
 
 
-Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips.
+Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en ``data/data_ciudad/``.
 
 .. code:: 
 
