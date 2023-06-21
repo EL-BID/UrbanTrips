@@ -20,8 +20,8 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="next" title="Seteo del archivo de configuración" href="configuracion.html" />
-    <link rel="prev" title="Primeros pasos" href="primeros_pasos.html" /> 
+    <link rel="next" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" />
+    <link rel="prev" title="Seteo del archivo de configuración" href="configuracion.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,6 +46,7 @@
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Input de datos</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#transacciones">Transacciones</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#informacion-de-lineas-y-ramales">Información de lineas y ramales</a></li>
@@ -54,8 +55,8 @@
 <li class="toctree-l2"><a class="reference internal" href="#paradas">Paradas</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
 </ul>
 
         </div>
@@ -84,10 +85,10 @@
              
   <section id="input-de-datos">
 <h1>Input de datos<a class="headerlink" href="#input-de-datos" title="Enlace permanente a este encabezado"></a></h1>
-<p>Este es el esquema de datos que deben seguir los archivos suministrados como insumos a <cite>urbantrips</cite>.</p>
+<p>Este es el esquema de datos que deben seguir los archivos suministrados como insumos a UrbanTrips.</p>
 <section id="transacciones">
 <h2>Transacciones<a class="headerlink" href="#transacciones" title="Enlace permanente a este encabezado"></a></h2>
-<p>Tabla con las transacciones de la tarjeta.</p>
+<p>Tabla con las transacciones.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25%" />
@@ -103,7 +104,7 @@
 <tbody>
 <tr class="row-even"><td><p><em>id_trx</em></p></td>
 <td><p>int</p></td>
-<td><p>Opcional. Id único que identifique cada registro.</p></td>
+<td><p>Opcional. Id único que identifique cada registro y permita luego vincular la transacción en Urbantrips con el dataset original.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>fecha_trx</em></p></td>
 <td><p>strftime</p></td>
@@ -209,7 +210,7 @@
 </section>
 <section id="recorridos-lineas">
 <h2>Recorridos lineas<a class="headerlink" href="#recorridos-lineas" title="Enlace permanente a este encabezado"></a></h2>
-<p>Archivo <cite>geojson</cite> con la información de la linea.</p>
+<p>Archivo <code class="docutils literal notranslate"><span class="pre">geojson</span></code> con la cartografía de los recorridos de la linea. Debe ser un LineString 2D, sin multilineas. Se necesita una única línea por cada linea o ramal (si existen ramales). Por ello no se considera el sentido del recorrido (ida o vuelta). Se debe tomar uno solo para construir las paradas. En caso de que existan diferencias en el recorrido, se puede desviar el mismo para que pase por un punto medio y seguir siendo un recorrido representativo del ramal.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25%" />
@@ -248,7 +249,7 @@
 </section>
 <section id="gps">
 <h2>GPS<a class="headerlink" href="#gps" title="Enlace permanente a este encabezado"></a></h2>
-<p>Tabla con el posicionamiento de cada interno con información de linea y ramal.</p>
+<p>Tabla con el posicionamiento de cada interno con información de linea y ramal.  La existencia de la tabla GPS permitira calcular KPI adicionales como el Índice Pasajero- Kilómetro (IPK) o el factor de ocupación, entre otros.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25%" />
@@ -295,7 +296,7 @@
 </section>
 <section id="paradas">
 <h2>Paradas<a class="headerlink" href="#paradas" title="Enlace permanente a este encabezado"></a></h2>
-<p>Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo <cite>node_id</cite> se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el <cite>node_id</cite> debe ser el mismo, para las demas único dentro de la línea. De contar con recorridos puede utilizarse el notebook <cite>stops_creation_with_node_id_helper.ipynb</cite> para crearlas.</p>
+<p>Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo <code class="docutils literal notranslate"><span class="pre">node_id</span></code> se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el <code class="docutils literal notranslate"><span class="pre">node_id</span></code> debe ser el mismo, para las demas paradas debe ser único dentro de la misma línea. De contar con recorridos puede utilizarse el notebook <code class="docutils literal notranslate"><span class="pre">stops_creation_with_node_id_helper.ipynb</span></code> para crearlas.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25%" />
@@ -342,8 +343,8 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
-        <a href="primeros_pasos.html" class="btn btn-neutral float-left" title="Primeros pasos" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
-        <a href="configuracion.html" class="btn btn-neutral float-right" title="Seteo del archivo de configuración" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="configuracion.html" class="btn btn-neutral float-left" title="Seteo del archivo de configuración" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="lineas_ramales.html" class="btn btn-neutral float-right" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

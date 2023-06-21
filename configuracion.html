@@ -20,8 +20,8 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="next" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" />
-    <link rel="prev" title="Input de datos" href="inputs.html" /> 
+    <link rel="next" title="Input de datos" href="inputs.html" />
+    <link rel="prev" title="Primeros pasos" href="primeros_pasos.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,7 +46,6 @@
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
-<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Seteo del archivo de configuración</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#parametros-generales">Parámetros generales</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#parametros-de-imputacion-de-destinos">Parámetros de imputación de destinos</a></li>
@@ -55,7 +54,9 @@
 <li class="toctree-l2"><a class="reference internal" href="#parametro-de-lineas-ramales-y-paradas">Parámetro de lineas, ramales y paradas</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
 </ul>
 
         </div>
@@ -84,14 +85,14 @@
              
   <section id="seteo-del-archivo-de-configuracion">
 <h1>Seteo del archivo de configuración<a class="headerlink" href="#seteo-del-archivo-de-configuracion" title="Enlace permanente a este encabezado"></a></h1>
-<p>El archivo de configuración (<cite>configuraciones_generales.yaml</cite>) es único. Cada corrida leerá la información que hay en este archivo. Su contenido puede editarse entre corrida y corrida para, por ejemplo, procesar días diferentes. Se divide en diferentes categorías de parámetros.</p>
+<p>Cada corrida leerá la información que hay en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code>). Su contenido puede editarse entre corrida y corrida para, por ejemplo, procesar días diferentes. Hay un único archivo de configuración en UrbanTrips. Se divide en diferentes categorías de parámetros.</p>
 <section id="parametros-generales">
 <h2>Parámetros generales<a class="headerlink" href="#parametros-generales" title="Enlace permanente a este encabezado"></a></h2>
-<p>En este primer grupo encontramos parámetros generales que utliza <cite>urbantrips</cite> en diferentes momentos. El primer parámetro <cite>resolucion_h3</cite> establece el nivel de resolución del esquema [H3](<a class="reference external" href="https://h3geo.org/">https://h3geo.org/</a>) con el que se va a trabajar. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.</p>
-<p>Luego vienen las configuraciǫnes que nombram las dos bases de datos con las que trabaja <cite>urbantrips</cite>. <cite>alias_db_data</cite> guardará todo lo realtivo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de <cite>data</cite> para cada semana o cada mes a medida que alcance un volumen determinado (<cite>amba_2023_semana1</cite>, <cite>amba_2023_semana2</cite>,etc). Por su lado, <cite>alias_db_insumos</cite> es una base de datos que guardará información de manera constante y servirá tanto para los datos de la semana 1 como los de la semana 2.</p>
-<p>También es necesario especificar una proyección de coordenadas en metros, pasando un id de [EPSG](<a class="reference external" href="https://epsg.io/">https://epsg.io/</a>).</p>
-<p>Es posible establecer un <cite>filtro_latlong_bbox</cite> que crea un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.</p>
-<p>Por último el <cite>formato_fecha</cite> especifica el formato en el que se encuentra el campo <cite>fecha_trx</cite> (por ej. <cite>«%d/%m/%Y»</cite>, <cite>«%d/%m/%Y %H:%M:%S»</cite>) y las fechas en el archivo de posicionamiento GPS (si se utiliza). Todas las fechas a utilizar deben estar en el mismo formato.</p>
+<p>En este primer grupo encontramos parámetros generales que utliza UrbanTrips en diferentes momentos. El primer parámetro <cite>resolucion_h3</cite> establece el nivel de resolución del esquema e grillas hexagonales <a class="reference external" href="https://h3geo.org/">H3</a>    con el que se va a trabajar. UrbanTrips realizar la mayoría de operaciones espaciales utilizando este esquema. Mientras mayor sea la resolución, más granulares serán las celdas haxagonales que UrbanTrips utilice, más preciso el resultado pero más costoso computacionalmente. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.</p>
+<p>Luego vienen las configuraciǫnes que nombram las dos bases de datos con las que trabajará UrbanTips. <code class="docutils literal notranslate"><span class="pre">alias_db_data</span></code> guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de <code class="docutils literal notranslate"><span class="pre">data</span></code> diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un nombre específico para este propósito (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">alias_db_insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<p>También es necesario especificar una proyección de coordenadas en metros, pasando un id de <a class="reference external" href="https://epsg.io/">EPSG</a>, para ciertos procesos espaciales que trabajan con distancias. Para Argentina puede usarse por defecto <a class="reference external" href="https://epsg.io/9265">9265 (POSGAR 2007 / UTM zone 19S)</a>.</p>
+<p>Es posible establecer un <code class="docutils literal notranslate"><span class="pre">filtro_latlong_bbox</span></code> que crea un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.</p>
+<p>Por último el <code class="docutils literal notranslate"><span class="pre">formato_fecha</span></code> especifica el formato en el que se encuentra el campo <code class="docutils literal notranslate"><span class="pre">fecha_trx</span></code> (por ej. <code class="docutils literal notranslate"><span class="pre">&quot;%d/%m/%Y&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;%d/%m/%Y</span> <span class="pre">%H:%M:%S&quot;</span></code>) y las fechas en el archivo de posicionamiento GPS (si se utiliza). Todas las fechas a utilizar deben estar en el mismo formato.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">resolucion_h3</span><span class="p">:</span> <span class="mi">8</span>
 
 <span class="c1"># Alias a utilizar en las db de datos y de insumos</span>
@@ -115,7 +116,7 @@
 </section>
 <section id="parametros-de-imputacion-de-destinos">
 <h2>Parámetros de imputación de destinos<a class="headerlink" href="#parametros-de-imputacion-de-destinos" title="Enlace permanente a este encabezado"></a></h2>
-<p>Este otro grupo de parámetros controla el método de imputación de destinos. Por un lado establece el criterio de tolerancia de la distancia entre la siguiente transaccion de esa tarjeta y alguna parada de la linea utilizada en la etapa a la que se está imputando el destino. Si la distancia es mayor a esta tolerancia, no se imputará destino. El parametro  <cite>imputar_destinos_min_distancia</cite> establece si se imputará la siguiente transacción como destino o la parada de la linea utilizada en la etapa que minimice la distancia con respecto a la siguiente transacción.</p>
+<p>Este otro grupo de parámetros controla el método de imputación de destinos. Por un lado establece el criterio de tolerancia de la distancia entre la siguiente transaccion de esa tarjeta y alguna parada de la linea utilizada en la etapa a la que se está imputando el destino. Si la distancia es mayor a esta tolerancia, no se imputará destino. El parametro  <code class="docutils literal notranslate"><span class="pre">imputar_destinos_min_distancia</span></code> establece si se imputará la localización de la siguiente transacción como destino o la localización de la parada de la linea utilizada en la etapa que minimice la distancia con respecto a la siguiente transacción.</p>
 <blockquote>
 <div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Distancia maxima tolerable entre destino imputado y siguiente transaccion (en metros)</span>
 <span class="n">tolerancia_parada_destino</span><span class="p">:</span> <span class="mi">2200</span>
@@ -128,14 +129,16 @@
 </section>
 <section id="parametros-de-transacciones">
 <h2>Parámetros de transacciones<a class="headerlink" href="#parametros-de-transacciones" title="Enlace permanente a este encabezado"></a></h2>
-<p>Este es el grupo de parámetros principal. Por un lado está el nombre del archivo que contiene la información de las transacciones. El mismo deberá localizarse en <cite>/data/data_ciudad/</cite> (más información sobre la [estructura de directorios](#estructura-de-directorios)). Esta parte del archivo de configuración permite especificar el nombre del archivo a utilizar como así también los nombres de los atributos tal cual aparecen en el csv para que puedan ser guardados en el esquema de datos de <cite>urbantrips</cite>.</p>
-<p>El siguiente conjunto de parámetros de configuración definen el procesamiento de las transacciones.
-- <cite>columna_hora</cite>: Indica si la información sobre la hora está en una columna separada (<cite>hora_trx</cite>). Este debe ser un entero de 0 a 23.
-- <cite>ordenamiento_transacciones</cite>: El criterio para ordenar las transacciones en el tiempo. Si se cuenta con un timestamp completo con horas y minutos, entonces usar <cite>fecha_completa</cite>. Si solo se cuenta con la información del día y la hora, se puede usar <cite>orden_trx</cite>. Este campo debe tener un entero secuencial que ordena las transacciones. Debe comenzar en cero cuando se comienza un nuevo viaje e incrementear con cada nueva etapa en ese viaje.
-- <cite>ventana_viajes</cite>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que las etapas se agrupan en un mismo viaje.
-- <cite>ventana_duplicado</cite>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un <cite>id_tarjeta</cite> ad hoc a cada una.
-- <cite>tipo_trx_invalidas</cite>: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
-- <cite>modos</cite>: urbantrips estandariza en 5 categorias (<cite>autobus</cite>,`tren`,`metro`,`tranvia` y <cite>brt</cite>) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.</p>
+<p>En primer lugar se encuentra el nombre del archivo que contiene la información de las transacciones a utilizarse en la corrida. El mismo deberá localizarse en <code class="docutils literal notranslate"><span class="pre">/data/data_ciudad/</span></code>. Esta parte del archivo de configuración permite especificar el nombre del archivo a utilizar como así también los nombres de los atributos tal cual aparecen en el csv para que puedan ser guardados en el esquema de datos de UrbanTrips.</p>
+<p>El siguiente conjunto de parámetros de configuración definen el procesamiento de las transacciones.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">columna_hora</span></code>: Indica con <code class="docutils literal notranslate"><span class="pre">True</span></code> o <code class="docutils literal notranslate"><span class="pre">False</span></code> si la información sobre la hora está en una columna separada (<code class="docutils literal notranslate"><span class="pre">hora_trx</span></code>). Este debe ser un entero de 0 a 23.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ordenamiento_transacciones</span></code>: El criterio para ordenar las transacciones en el tiempo. Si se cuenta con un timestamp completo con horas y minutos, entonces especificar <code class="docutils literal notranslate"><span class="pre">fecha_completa</span></code>. Si solo se cuenta con la información del día y la hora, se puede usar <code class="docutils literal notranslate"><span class="pre">orden_trx</span></code>. Este campo debe tener un entero secuencial que ordena las transacciones. Debe comenzar en cero cuando se comienza un nuevo viaje e incrementear con cada nueva etapa en ese viaje, dentro de una tarjeta para ese día.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ventana_viajes</span></code>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos o más etapas que sucedan en esa ventana de tiempo con respecto a la primera etapa se agrupan en un mismo viaje.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ventana_duplicado</span></code>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un <code class="docutils literal notranslate"><span class="pre">id_tarjeta</span></code> ad hoc a cada una, asumiendo que se trata de usuarios diferentes que utilizan una misma tarjeta.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tipo_trx_invalidas</span></code>: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo en la tarjeta, errores del sistema, check outs de modos que los posean). Se pueden especificar varios atributos y varios valores por cada atributo.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">modos</span></code>: UrbanTrips estandariza los modos en 5 categorias (<code class="docutils literal notranslate"><span class="pre">autobus</span></code>,``tren``,``metro``,``tranvia`` y <code class="docutils literal notranslate"><span class="pre">brt</span></code>). Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.</p></li>
+</ul>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">nombre_archivo_trx</span><span class="p">:</span> <span class="n">semana1</span><span class="o">.</span><span class="n">csv</span>
 
 <span class="n">nombres_variables_trx</span><span class="p">:</span>
@@ -182,7 +185,7 @@
 </section>
 <section id="parametros-de-posicionamiento-gps">
 <h2>Parámetros de posicionamiento GPS<a class="headerlink" href="#parametros-de-posicionamiento-gps" title="Enlace permanente a este encabezado"></a></h2>
-<p>Este parámetro se utiliza para cuando existe una tabla separada con GPS que contenga el posicionamiento de los internos. En ese caso, se gelocalizará cada transacción en base a la tabla GPS, uniendo por <cite>id_linea</cite> e <cite>interno</cite> (haciendo a este campo obligatorio) y minimizando el tiempo de la transacción con respecto a la transacción gps del interno de esa linea. Para eso el campo <cite>fecha</cite> debe estar completo con dia, hora y minutos. Esto hace obligatoria la existencia de un csv con la información de posicionamiento de los gps. Su nombre y atributos se especifican de modo similar a lo hecho en transacciones. La existencia de la tabla GPS permitira calcular KPI adicionales como el IPK.</p>
+<p>Este parámetro se utiliza para cuando existe una tabla separada con GPS que contenga el posicionamiento de los vehículos o internos. En ese caso, se gelocalizará cada transacción en base a la tabla GPS, uniendo por <cite>id_linea</cite> e <cite>interno</cite> (haciendo a este campo obligatorio) y minimizando el tiempo de la transacción con respecto a la transacción gps del interno de esa linea. Para eso el campo <code class="docutils literal notranslate"><span class="pre">fecha</span></code> debe estar completo con dia, hora y minutos. Esto hace obligatoria la existencia de un csv con la información de posicionamiento de los gps. Su nombre y atributos se especifican de modo similar a lo hecho en transacciones.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">geolocalizar_trx</span><span class="p">:</span> <span class="kc">True</span>
 
 <span class="n">nombre_archivo_gps</span><span class="p">:</span> <span class="n">gps_semana1</span><span class="o">.</span><span class="n">csv</span>
@@ -200,10 +203,10 @@
 </section>
 <section id="parametro-de-lineas-ramales-y-paradas">
 <h2>Parámetro de lineas, ramales y paradas<a class="headerlink" href="#parametro-de-lineas-ramales-y-paradas" title="Enlace permanente a este encabezado"></a></h2>
-<p>Es necesario que se especifique si en el sistema de transporte existen lineas con ramales, tal como los entiende <cite>urbantrips</cite> y se especifica en [Sobre el concepto de lineas y ramales en urbantrips](#Sobre-el-concepto-de-lineas-y-ramales-en-urbantrips). Esto debe indicarse en el parámetro <cite>lineas_contienen_ramales</cite>.</p>
-<p>Se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece.  La misma puede identificar una linea o una linea-ramal (siendo los ramales pequeñas desviaciones con respecto a un recorrido principal). En este último caso <cite>urbantrips</cite> creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales.</p>
-<p>Tambien permite agregar cartografías como los recorridos de las lineas y ramales, que deben ser una única Linestring en 2d (no permite multilineas). Si existe una tabla de recorridos, entonces debe proveerse un archivo con información de las lineas y ramales. Esta tabla puede identificar recorridos de lineas o tambien de lineas y ramales. No es necesario indicar el sentido.</p>
-<p>Por úlitmo, se puede especificar un archivo con la ubicación de paradas o estaciones para cada linea y ramal, indicando un orden de paso o sucesión y también un <cite>node_id</cite>, donde deben aparecer con un mismo id las paradas de diferentes ramales de una misma linea donde se pueda realizar un transbordo entre ramales. El <cite>node_id</cite> puede repetirse en otras lineas.</p>
+<p>Es necesario que se especifique si en el sistema de transporte existen lineas con ramales, tal como los entiende UrbanTrips (<a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>). Esto debe indicarse en el parámetro <code class="docutils literal notranslate"><span class="pre">lineas_contienen_ramales</span></code>.</p>
+<p>Se puede agregar metadata para las lineas, como por ejemplo su nombre de fantasía ademas del id correspondiente, o a qué empresa pertenece. La misma puede identificar una linea o una linea-ramal. En este último caso UrbanTrips creara dos tablas diferentes, una para la metadata de las lineas y otra para la de ramales.</p>
+<p>Tambien permite agregar cartografías como los recorridos de las lineas y ramales, que deben ser una única Linestring en 2d (no permite multilineas). Si existe una tabla de recorridos, entonces debe proveerse un archivo con información de las lineas y ramales. Esta tabla puede identificar recorridos de lineas o tambien de lineas y ramales.</p>
+<p>Por úlitmo, se puede especificar un archivo con la localización de las paradas o estaciones para cada linea y ramal, indicando un orden de paso o sucesión y también un <code class="docutils literal notranslate"><span class="pre">node_id</span></code>, donde deben aparecer con un mismo id las paradas de diferentes ramales de una misma linea donde se pueda realizar un transbordo entre ramales. Para más información sobre estos datasets puede consultar <a class="reference internal" href="inputs.html"><span class="doc">Input de datos</span></a>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Las lineas a ser utilizadas se subdividen en ramales?</span>
 <span class="n">lineas_contienen_ramales</span><span class="p">:</span> <span class="kc">True</span>
 
@@ -217,7 +220,7 @@
 <span class="n">nombre_archivo_paradas</span><span class="p">:</span>
 </pre></div>
 </div>
-<p>Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera <cite>urbantrips</cite>.</p>
+<p>Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">zonificaciones</span><span class="p">:</span>
    <span class="n">geo1</span><span class="p">:</span> <span class="n">hexs_amba</span><span class="o">.</span><span class="n">geojson</span>
    <span class="n">var1</span><span class="p">:</span> <span class="n">Corona</span>
@@ -233,8 +236,8 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
-        <a href="inputs.html" class="btn btn-neutral float-left" title="Input de datos" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
-        <a href="lineas_ramales.html" class="btn btn-neutral float-right" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="primeros_pasos.html" class="btn btn-neutral float-left" title="Primeros pasos" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="inputs.html" class="btn btn-neutral float-right" title="Input de datos" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

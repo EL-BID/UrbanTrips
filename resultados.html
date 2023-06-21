@@ -45,10 +45,14 @@
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
-<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Resultados finales</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Resultados finales</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-data">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-insumos">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code></a></li>
+</ul>
+</li>
 </ul>
 
         </div>
@@ -77,7 +81,13 @@
              
   <section id="resultados-finales">
 <h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h1>
-<p>Los resultados se guardarán en bases de <cite>SQLite</cite>, cuyos nombres están dados por el archivo de configuración y se ubian en <cite>data/db/</cite>. Existe una base para los datos de las etapas, viajes y otros que se van actualizando a medida que se ingresan nuevos datos, y otra base de insumos para información que no se actualiza con tanta periodicidad (como por ejemplo los recorridos, parads, matrices de las distancias entre puntos fijos de una ciudad).</p>
+<p>Los resultados se guardarán en bases de <code class="docutils literal notranslate"><span class="pre">SQLite</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen dos tipos de bases fundamentales <code class="docutils literal notranslate"><span class="pre">data</span></code> e <code class="docutils literal notranslate"><span class="pre">insumos</span></code>. <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<section id="modelo-de-datos-de-base-data">
+<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code><a class="headerlink" href="#modelo-de-datos-de-base-data" title="Enlace permanente a este encabezado"></a></h2>
+</section>
+<section id="modelo-de-datos-de-base-insumos">
+<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Enlace permanente a este encabezado"></a></h2>
+</section>
 </section>
 
 

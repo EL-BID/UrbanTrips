@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="next" title="Input de datos" href="inputs.html" />
+    <link rel="next" title="Seteo del archivo de configuración" href="configuracion.html" />
     <link rel="prev" title="Instalación" href="instalacion.html" /> 
 </head>
 
@@ -46,15 +46,13 @@
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Primeros pasos</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#datos-insumo">Datos insumo</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#archivo-de-configuracion">Archivo de configuración</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#estructura-de-directorios">Estructura de directorios</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#correr-urbantrips">Correr Urbantrips</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#resultados-finales">Resultados finales</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
 </ul>
@@ -87,32 +85,23 @@
 <h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Enlace permanente a este encabezado"></a></h1>
 <p>Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración.</p>
 <p><strong>Insumos necesarios y opcionales</strong></p>
-<p>Urbantrips requiere sólo 2 insumos indispensables:
-- Un archivo csv con las transacciones del sistema de pago con tarjeta
-- Un archivo de configuración: <cite>configuraciones_generales.yaml</cite></p>
-<p>El archivo csv con las transacciones debe tener los siguientes campos obligatorios (los nombres pueden ser diferentes y esto se configura en el archivo configuraciones_generales.yaml):
--       <cite>id_tarjeta_trx</cite>: un id único para cada tarjeta para cada día.
--       <cite>id_linea_trx</cite>: un id único para cada linea de transporte
--       <cite>fecha_trx</cite>: campo que indica la fecha de la transacción.
--       <cite>hora_trx</cite>: solo es obligatorio cuando el campo fecha incluye solo el día, sin información de la hora y minutos.
--       <cite>orden_trx</cite>: un entero secuencial que establezca el orden de transacciones para una misma tarjeta en el día y que se reinicie con cada viaje. Es obligatorio unicamente cuando el campo fecha incluye solo el día o el día y hora, sin información a nivel de minutos.
--       <cite>latitud_trx</cite>: Latitud de la transacción.
--       <cite>longitud_trx</cite>: Longitud de la transacción.</p>
-<p>Al correr el proceso general de <cite>urbantrips</cite>, éste tomará el archivo de configuración que le dirá qué archivo csv contiene la información con los datos de las transacciones a utilizar en esta corrida. En el directorio de trabajo podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (<cite>lunes.csv</cite>, <cite>martes.csv</cite> o <cite>enero.csv</cite>, <cite>febrero.csv</cite>). Cada uno será procesado en una corrida por vez. Qué archivo utilizar se configura en <cite>configuraciones_generales.yaml</cite> en el parámetro <cite>nombre_archivo_trx:</cite>. En ese mismo archivo se configuran otros parámetros, como así también las bases donde los resultados se irán guardando. Para más detalles sobre cómo utilizar este archivo de configuración consulte el apartado [Seteo del archivo de configuración](#seteo-del-archivo-de-configuracion).</p>
-<p>Con sólo esos archivos podrá correr el proceso de imputación de destinos, construcción de matrices OD y elaboración de KPIs. Dicho eso, se obtendrán más resultados y con mayor precisión si se suman estos archivos opcionales:</p>
+<p>Urbantrips requiere sólo 2 insumos indispensables:</p>
+<ul class="simple">
+<li><p>Un archivo <code class="docutils literal notranslate"><span class="pre">csv</span></code> con las transacciones del sistema de pago con tarjeta</p></li>
+<li><p>Un archivo de configuración: <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code></p></li>
+</ul>
+<p>UrbanTrips tomará el archivo de configuración que le dirá (entre otras cosas) qué archivo csv contiene la información con los datos de las transacciones a utilizar en esta corrida. En el directorio de trabajo (ver <a class="reference internal" href="#id1">Estructura de directorios</a>.) podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (<code class="docutils literal notranslate"><span class="pre">lunes.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes.csv</span></code> o <code class="docutils literal notranslate"><span class="pre">enero.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">febrero.csv</span></code>). Cada uno será procesado en una corrida por vez. Qué archivo utilizar se configura en <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> en el parámetro <code class="docutils literal notranslate"><span class="pre">nombre_archivo_trx:</span></code>. El archivo csv con las transacciones debe tener una serie de campos obligatorios (para más detalles ver <a class="reference internal" href="inputs.html"><span class="doc">Input de datos</span></a>). Los nombres de estos campos en el archivo pueden ser diferentes y la equivalencia se configura en el archivo <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> en el parámetro <code class="docutils literal notranslate"><span class="pre">nombres_variables_trx</span></code>. Para más detalles sobre cómo utilizar este archivo de configuración consulte el apartado <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>).</p>
+<p>Con UrbanTrips se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. <code class="docutils literal notranslate"><span class="pre">lunes.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes.csv</span></code> o <code class="docutils literal notranslate"><span class="pre">semana1.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">semana2.csv</span></code> pero no <code class="docutils literal notranslate"><span class="pre">lunes_a.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">lunes_b.csv</span></code>). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.</p>
+<p>Con sólo esos archivos podrá correr el proceso de imputación de destinos, construcción de matrices OD y elaboración de algunos KPIs. Dicho eso, se obtendrán más resultados y con mayor precisión si se suman estos archivos opcionales:</p>
 <ul class="simple">
 <li><p>Tabla con información de las líneas y/o ramales de transporte público (nombre de fantasía, etc).</p></li>
-<li><p>Cartografía de los recorridos de las líneasy/o ramales de transporte público</p></li>
-<li><p>Cartografía de las zonificaciones con las unidades espaciales utilizadas para agregar datos para la matriz OD</p></li>
-<li><p>Tabla de GPS con el posicionamiento de las unidades</p></li>
+<li><p>Tabla de GPS con el posicionamiento de las unidades.</p></li>
+<li><p>Cartografía de los recorridos de las líneas y/o ramales de transporte público.</p></li>
+<li><p>Cartografía de las zonificaciones con las unidades espaciales utilizadas para agregar datos para la matriz OD.</p></li>
+<li><p>Cartografía de las paradas y/o estaciones.</p></li>
 </ul>
-<section id="datos-insumo">
-<h2>Datos insumo<a class="headerlink" href="#datos-insumo" title="Enlace permanente a este encabezado"></a></h2>
-<p>Con UrbanTrips se pueden procesar en una corrida la información de transacciones correspondientes a más de un día. Sin embargo, no se puede dividir un mismo día en dos corridas. Toda la información respecto de un día debe procesarse en la misma corrida. Si es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de los días a analizar (por ej. <cite>lunes.csv</cite>, <cite>martes.csv</cite> o <cite>semana1.csv</cite>, <cite>semana2.csv</cite> pero no <cite>lunes_a.csv</cite>, <cite>lunes_b.csv</cite>). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.</p>
-<p>puede descargar el [dataset de transacciones SUBE de AMBA](<a class="reference external" href="https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv">https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv</a>), guardarlo en <cite>data/data_ciudad/transacciones.csv</cite>. Este dataset no cuenta con un campo <cite>fecha</cite> con el formato <cite>dd/mm/aaaa</cite>, deberá agregar con una fecha cualquiera y utilizar las configuraciones especificadas más abajo. A su vez, se debe especificar un <cite>id_linea</cite> con el criterio ya explicado previamente. Para eso se puede tomar la información de lineas de [este archivo](<a class="reference external" href="https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv">https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv</a>) (que se puede utilizar para el parámetro <cite>nombre_archivo_informacion_lineas</cite>). En este archivo, cada <cite>id_ramal</cite> tiene un <cite>id_linea</cite> asignado, con esa información pueden construir el <cite>id_linea</cite> de la tabla transacciones.</p>
-</section>
-<section id="archivo-de-configuracion">
-<h2>Archivo de configuración<a class="headerlink" href="#archivo-de-configuracion" title="Enlace permanente a este encabezado"></a></h2>
+<p>A modo de ejemplo se puede descargar el <a class="reference external" href="https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv">dataset abierto de transacciones SUBE de AMBA</a> , guardarlo en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/transacciones.csv</span></code>. Este dataset no cuenta con un campo <code class="docutils literal notranslate"><span class="pre">fecha</span></code> con el formato <code class="docutils literal notranslate"><span class="pre">dd/mm/aaaa</span></code>, deberá agregar con una fecha cualquiera y utilizar las configuraciones especificadas más abajo. A su vez, se debe especificar un <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> con el criterio de UrbanTrips (<a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>). Para eso se puede tomar la información de lineas de <a class="reference external" href="https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv">este archivo</a> (que se puede utilizar para el parámetro <code class="docutils literal notranslate"><span class="pre">nombre_archivo_informacion_lineas</span></code>). En este archivo, cada <code class="docutils literal notranslate"><span class="pre">id_ramal</span></code> tiene un <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> asignado, con esa información pueden construir el <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> de la tabla transacciones.</p>
+<p><strong>Archivo de configuración para dataset SUBE AMBA</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">geolocalizar_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
 <span class="nt">resolucion_h3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8</span>
 
@@ -175,10 +164,9 @@
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&#39;CHECK</span><span class="nv"> </span><span class="s">OUT&#39;</span>
 </pre></div>
 </div>
-</section>
 <section id="estructura-de-directorios">
 <h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Enlace permanente a este encabezado"></a></h2>
-<p>Al clonar UrbanTrips y correrlo, dejará la siguiente estructura de directorios:</p>
+<p id="id1">Esta es la estructura de directorios de UrbanTrips. <code class="docutils literal notranslate"><span class="pre">configs/</span></code> guarda el archivo de configuraciones principal. <code class="docutils literal notranslate"><span class="pre">data/</span></code> tendrá por un lado los archivo de insumo para la ciudad (transacciones, gps, etc) y los resultados producto de la corrida de UrbanTrips que se guardarán en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>. Por último en el directorio <code class="docutils literal notranslate"><span class="pre">resultados/</span></code> se guardarán algunos resultados agregados en tablas, mapas, gráficos y en formatos más amigables como <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">png</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>urbantrips
 │   README.md
 │
@@ -221,11 +209,11 @@
 </section>
 <section id="correr-urbantrips">
 <h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Enlace permanente a este encabezado"></a></h2>
-<p>Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar <cite>urbantrips</cite>. En primer lugar es necesario inicializar los directorios y la base de datos que la librería necesita. Este paso solo se corre una vez.</p>
+<p>Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar UrbanTrips. En primer lugar es necesario inicializar los directorios y la base de datos necesarios. Este paso solo se corre una vez.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/initialize_environment.py
 </pre></div>
 </div>
-<p>Luego, se puede procesar la información de transacciones. Este archivo de transacciones puede tener la información de un día, una semana o un mes (siempre que no sea demasiada información). Este paso procesa las transacciones en etapas y viajes, imputando destinos. Luego pueden correr este paso por cada nuevo dataset que quieran procesar (<cite>semana_1.csv</cite>,`semana_2.csv`, etc) ajustando lo necesario en el archivo <cite>configuraciones_generales.yaml</cite>.</p>
+<p>Luego, se puede procesar la información de transacciones. Este archivo de transacciones puede tener la información de un día, una semana o un mes (siempre que no sea demasiada información). Este paso procesa las transacciones en etapas y viajes, imputando destinos. Luego pueden correr este paso por cada nuevo dataset que quieran procesar (<code class="docutils literal notranslate"><span class="pre">semana_1.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">semana_2.csv</span></code>, etc) ajustando lo necesario en el archivo <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> previo a cada corrida.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/process_transactions.py
 </pre></div>
 </div>
@@ -236,7 +224,7 @@
 </section>
 <section id="resultados-finales">
 <h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h2>
-<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <cite>SQLite</cite>.</p>
+<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">SQLite</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>.</p>
 </section>
 </section>
 
@@ -245,7 +233,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
         <a href="instalacion.html" class="btn btn-neutral float-left" title="Instalación" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
-        <a href="inputs.html" class="btn btn-neutral float-right" title="Input de datos" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="configuracion.html" class="btn btn-neutral float-right" title="Seteo del archivo de configuración" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
