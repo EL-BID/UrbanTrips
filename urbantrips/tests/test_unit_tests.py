@@ -333,9 +333,8 @@ def test_amba_integration(matriz_validacion_test_amba):
     dest.infer_destinations()
 
     q = """
-    select e.*,d.h3_d,d.od_validado
-    from etapas e, destinos d
-    where e.id = d.id
+    select *
+    from etapas e
     """
     etapas = pd.read_sql(q, conn_data)
 

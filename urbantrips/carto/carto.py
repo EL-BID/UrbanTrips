@@ -204,21 +204,24 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
                                       res=res)
 
     # Computa para ese hexagono el promedio ponderado de latlong
-    hexs = zonas.groupby('h3_r',
-                         as_index=False).fex.sum()
-    hexs = hexs.merge(zonas[zonas.fex != 0]
+    zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
+
+    hexs = zonas_for_hexs.groupby('h3_r',
+                                  as_index=False).fex.sum()
+
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
                           lambda x: np.average(
                               x['longitud'], weights=x['fex']))
                       .reset_index().rename(columns={0: 'longitud'}),
                       how='left')
-    hexs = hexs.merge(zonas[zonas.fex != 0]
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
                           lambda x: np.average(x['latitud'], weights=x['fex'])
-    ).reset_index().rename(columns={0: 'latitud'}),
-        how='left')
+                      ).reset_index().rename(columns={0: 'latitud'}),
+                      how='left')
 
     hexs = gpd.GeoDataFrame(
         hexs,
