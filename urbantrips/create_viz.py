@@ -10,10 +10,9 @@ def main():
 
     # Prduce main viz
     viz.create_visualizations()
-    
+
     # Produce ppt
     viz_ppt_utils.create_ppt()
-
 
 
 if __name__ == "__main__":
