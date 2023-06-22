@@ -54,7 +54,7 @@ def infer_destinations():
     )
 
     q = """
-    select *
+    select e.*
     from etapas e
     join dias_ultima_corrida d
     on e.dia = d.dia

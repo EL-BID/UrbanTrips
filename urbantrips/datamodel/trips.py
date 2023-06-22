@@ -115,7 +115,7 @@ def create_trips_from_legs():
 
     etapas = pd.read_sql_query(
         """
-                                    SELECT *
+                                    SELECT e.*
                                     FROM etapas e
                                     JOIN dias_ultima_corrida d
                                     ON e.dia = d.dia
@@ -125,7 +125,7 @@ def create_trips_from_legs():
 
     indicadores = pd.read_sql_query(
         """
-                                SELECT *
+                                SELECT i.*
                                 FROM indicadores i
                                 JOIN dias_ultima_corrida d
                                 ON i.dia = d.dia
@@ -136,7 +136,7 @@ def create_trips_from_legs():
     # Cálculo de factores de expansion por línea
     transacciones_linea = pd.read_sql_query(
         """
-                            SELECT *
+                            SELECT t.*
                             FROM transacciones_linea t
                             JOIN dias_ultima_corrida d
                             ON t.dia = d.dia
@@ -380,7 +380,7 @@ def rearrange_trip_id_same_od():
 
     etapas = pd.read_sql_query(
         """
-                                SELECT *
+                                SELECT e.*
                                 FROM etapas e
                                 JOIN dias_ultima_corrida d
                                 ON e.dia = d.dia

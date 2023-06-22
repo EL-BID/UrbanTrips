@@ -39,7 +39,7 @@ def create_legs_from_transactions(trx_order_params):
 
     legs = pd.read_sql_query(
         """
-                            SELECT *
+                            SELECT t.*
                             FROM transacciones t
                             JOIN dias_ultima_corrida d
                             ON t.dia = d.dia
