@@ -5,8 +5,6 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db)
 
 
-
-
 def cambia_id_viajes_etapas_tarjeta_dia(df):
     """
     Esta funcion toma un df de etapas con destinos
@@ -47,8 +45,11 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
                          'nuevo_id_etapa': 'id_etapa'})\
         .reindex(columns=['id', 'id_tarjeta', 'dia', 'id_viaje', 'id_etapa',
                           'tiempo', 'hora', 'modo', 'id_linea', 'id_ramal',
-                          'interno', 'latitud', 'longitud', 'h3_o', 'h3_d', 'od_validado',
-                          'factor_expansion_original', 'factor_expansion_linea', 'factor_expansion_tarjeta'])
+                          'interno', 'latitud', 'longitud', 'h3_o', 'h3_d',
+                          'od_validado', 'factor_expansion_original',
+                          'factor_expansion_linea',
+                          'factor_expansion_tarjeta'])
+
     return df
 
 
@@ -81,7 +82,8 @@ def crear_cumsum_mismo_od(s):
 
 def create_trips_from_legs():
     """
-    Esta función corrige los factores de expansión y toma la tabla de etapas y produce la de viajes y usuarios
+    Esta función corrige los factores de expansión y toma la tabla de etapas
+    produce la de viajes y usuarios
     """
 
     # Leer etapas que no esten en ya viajes por id_tarjeta, id_viaje, dia
@@ -102,121 +104,141 @@ def create_trips_from_legs():
     #     """,
     #     conn,
     # )
-    
+
     dias_ultima_corrida = pd.read_sql_query(
-                            """
+        """
                             SELECT *
                             FROM dias_ultima_corrida
                             """,
-                            conn,
-                            )    
-    
+        conn,
+    )
+
     etapas = pd.read_sql_query(
-                                    """
+        """
                                     SELECT *
-                                    FROM etapas e     
+                                    FROM etapas e
                                     JOIN dias_ultima_corrida d
                                     ON e.dia = d.dia
                                     """,
-                                    conn,
-                                    )
-    
+        conn,
+    )
+
     indicadores = pd.read_sql_query(
-                                """
+        """
                                 SELECT *
                                 FROM indicadores i
                                 JOIN dias_ultima_corrida d
                                 ON i.dia = d.dia
                                 """,
-                                conn,
-                                )
-    
+        conn,
+    )
+
     # Cálculo de factores de expansion por línea
     transacciones_linea = pd.read_sql_query(
-                            """
+        """
                             SELECT *
                             FROM transacciones_linea t
                             JOIN dias_ultima_corrida d
                             ON t.dia = d.dia
                             """,
-                            conn,
-                            )
+        conn,
+    )
 
     # Creo factores de expansión
-    etapas = etapas.drop(['factor_expansion_tarjeta', 'factor_expansion_linea'], axis=1)
+    etapas = etapas.drop(
+        ['factor_expansion_tarjeta', 'factor_expansion_linea'], axis=1)
 
     tot_trx = indicadores.loc[
-                (indicadores.detalle=='Cantidad de transacciones totales')&
-                (indicadores.tabla=='transacciones'), ['dia', 'indicador']].rename(columns={'indicador':'tot_trx'})
+        (indicadores.detalle == 'Cantidad de transacciones totales') &
+        (indicadores.tabla == 'transacciones'), ['dia', 'indicador']]\
+        .rename(columns={'indicador': 'tot_trx'})
 
+    tot_tarjetas = etapas.groupby(['dia', 'id_tarjeta'], as_index=False)\
+        .factor_expansion_original.mean()\
+        .groupby('dia', as_index=False)\
+        .factor_expansion_original.sum()\
+        .round().rename(columns={'factor_expansion_original': 'tot_tarjetas'})
 
-    tot_tarjetas = etapas.groupby(['dia', 'id_tarjeta'], 
-                              as_index=False).factor_expansion_original.mean().groupby('dia', 
-                                                                                       as_index=False).factor_expansion_original.sum().round().rename(
-                                    columns={'factor_expansion_original':'tot_tarjetas'})
+    tarjetas = etapas.groupby(['dia', 'id_tarjeta'], as_index=False).agg(
+        {'factor_expansion_original': 'mean', 'od_validado': 'min'})
 
-    tarjetas = etapas.groupby(['dia', 'id_tarjeta'], as_index=False).agg({'factor_expansion_original':'mean', 'od_validado':'min'})
-    
     tot_tarjetas = tot_tarjetas.merge(
-            tarjetas[tarjetas.od_validado==1].groupby('dia', 
-                                                      as_index=False).agg({'factor_expansion_original':'sum', 'id_tarjeta':'count'}).round().rename(
-                                                                        columns={'factor_expansion_original':'tarjetas_validas', 'id_tarjeta':'len_tarjetas'}))
+        tarjetas[tarjetas.od_validado == 1]
+        .groupby('dia', as_index=False)
+        .agg({'factor_expansion_original': 'sum', 'id_tarjeta': 'count'})
+        .round()
+        .rename(columns={'factor_expansion_original': 'tarjetas_validas',
+                         'id_tarjeta': 'len_tarjetas'}))
 
-    tot_tarjetas['diff_tarjetas'] = (tot_tarjetas['tot_tarjetas'] - tot_tarjetas['tarjetas_validas']) / tot_tarjetas['len_tarjetas']
-    
+    tot_tarjetas['diff_tarjetas'] = (
+        (tot_tarjetas['tot_tarjetas'] - tot_tarjetas['tarjetas_validas']
+         ) / tot_tarjetas['len_tarjetas'])
+
     tarjetas = tarjetas.merge(tot_tarjetas[['dia', 'diff_tarjetas']])
-    
-    tarjetas['factor_expansion_tarjeta'] = (tarjetas.factor_expansion_original + tarjetas.diff_tarjetas) * tarjetas.od_validado
 
-    etapas = etapas.merge(tarjetas[['dia', 'id_tarjeta', 'factor_expansion_tarjeta']], 
-                          on=['dia', 'id_tarjeta'], 
-                          how='left')
-    
+    tarjetas['factor_expansion_tarjeta'] = (
+        (tarjetas.factor_expansion_original +
+         tarjetas.diff_tarjetas) * tarjetas.od_validado
+    )
+
+    etapas = etapas.merge(
+        tarjetas[['dia', 'id_tarjeta', 'factor_expansion_tarjeta']],
+        on=['dia', 'id_tarjeta'],
+        how='left'
+    )
+
     # Calibración de factor de expansión por línea
-    
+
     etapas['od_validado_cadena'] = 1
-    etapas.loc[etapas.factor_expansion_tarjeta==0, 'od_validado_cadena'] = 0
-    
-    factores_expansion_etapas = transacciones_linea[['dia', 'id_linea', 'transacciones']].merge(
-                            etapas[(etapas.od_validado_cadena==1)].groupby(
-                                ['dia', 'id_linea'], 
-                                as_index=False).agg(
-                                {'factor_expansion_tarjeta':'sum'}
-                            )).rename(columns={'factor_expansion_tarjeta':'transacciones_validas'})
+    etapas.loc[etapas.factor_expansion_tarjeta == 0, 'od_validado_cadena'] = 0
 
-    factores_expansion_etapas['factor_expansion_linea'] = factores_expansion_etapas['transacciones'] / factores_expansion_etapas['transacciones_validas']
+    factores_expansion_etapas = (
+        transacciones_linea[['dia', 'id_linea', 'transacciones']].merge(
+            etapas[(etapas.od_validado_cadena == 1)]
+            .groupby(['dia', 'id_linea'], as_index=False)
+            .agg({'factor_expansion_tarjeta': 'sum'}))
+        .rename(columns={'factor_expansion_tarjeta': 'transacciones_validas'})
+    )
 
-    factores_expansion_etapas = etapas.loc[(etapas.od_validado_cadena==1), 
-                                           ['id', 
-                                            'dia', 
-                                            'id_etapa', 
-                                            'id_viaje', 
-                                            'id_tarjeta', 
-                                            'id_linea', 
+    factores_expansion_etapas['factor_expansion_linea'] = (
+        factores_expansion_etapas['transacciones'] /
+        factores_expansion_etapas['transacciones_validas'])
+
+    factores_expansion_etapas = etapas.loc[(etapas.od_validado_cadena == 1),
+                                           ['id',
+                                            'dia',
+                                            'id_etapa',
+                                            'id_viaje',
+                                            'id_tarjeta',
+                                            'id_linea',
                                             'factor_expansion_tarjeta'
-                                              ]].merge(
-                                                        factores_expansion_etapas[['dia', 
-                                                                                     'id_linea', 
-                                                                                     'factor_expansion_linea']]
-                                                                      , how='left')
+                                            ]].merge(
+        factores_expansion_etapas[['dia',
+                                   'id_linea',
+                                   'factor_expansion_linea']], how='left')
 
-    factores_expansion_etapas['factor_expansion_linea'] = factores_expansion_etapas['factor_expansion_linea'] * factores_expansion_etapas['factor_expansion_tarjeta']
+    factores_expansion_etapas['factor_expansion_linea'] = (
+        factores_expansion_etapas['factor_expansion_linea'] *
+        factores_expansion_etapas['factor_expansion_tarjeta']
+    )
 
-    etapas = etapas.merge(factores_expansion_etapas[['id', 'factor_expansion_linea']],
-                         on='id',
-                         how='left')
+    etapas = etapas.merge(
+        factores_expansion_etapas[['id', 'factor_expansion_linea']],
+        on='id',
+        how='left')
 
-    etapas.loc[etapas.factor_expansion_linea.isna(), 'factor_expansion_linea'] = 0
-    
+    etapas.loc[etapas.factor_expansion_linea.isna(),
+               'factor_expansion_linea'] = 0
+
     etapas = etapas.drop(['od_validado_cadena'], axis=1)
-    
+
     etapas = etapas.sort_values('id').reset_index(drop=True)
-    
+
     # borro si ya existen etapas de una corrida anterior
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
     conn.execute(query)
-    conn.commit()        
+    conn.commit()
     etapas.to_sql("etapas", conn, if_exists="append", index=False)
 
     print(f'Creando tabla de viajes de {len(etapas)} etapas')
@@ -230,8 +252,8 @@ def create_trips_from_legs():
         "h3_o": "first",
         "h3_d": "last",
         "od_validado": "min",
-        "factor_expansion_linea":"mean",
-        "factor_expansion_tarjeta":"mean"
+        "factor_expansion_linea": "mean",
+        "factor_expansion_tarjeta": "mean"
     }
     viajes = etapas.groupby(
         ["dia", "id_tarjeta", "id_viaje"],
@@ -269,24 +291,24 @@ def create_trips_from_legs():
     ] = "Multietapa"
 
     # TODO: remove od_validado
-    viajes_cols = ['id_tarjeta', 
-                   'id_viaje', 
-                   'dia', 'tiempo', 
+    viajes_cols = ['id_tarjeta',
+                   'id_viaje',
+                   'dia', 'tiempo',
                    'hora',
-                   'cant_etapas', 
-                   'modo', 
-                   'autobus', 
-                   'tren', 
+                   'cant_etapas',
+                   'modo',
+                   'autobus',
+                   'tren',
                    'metro',
-                   'tranvia', 
-                   'brt', 
-                   'otros', 
-                   'h3_o', 
-                   'h3_d', 
-                   'od_validado', 
-                   'factor_expansion_linea', 
+                   'tranvia',
+                   'brt',
+                   'otros',
+                   'h3_o',
+                   'h3_d',
+                   'od_validado',
+                   'factor_expansion_linea',
                    'factor_expansion_tarjeta']
-    
+
     viajes = viajes.reindex(columns=viajes_cols)
 
     print('Subiendo tabla de viajes a la db...')
@@ -295,16 +317,16 @@ def create_trips_from_legs():
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM viajes WHERE dia IN ({values})"
     conn.execute(query)
-    conn.commit()        
+    conn.commit()
     viajes.to_sql("viajes", conn, if_exists="append", index=False)
 
     print('Creando tabla de usuarios...')
     usuarios = viajes.groupby(["dia", "id_tarjeta"], as_index=False).agg(
         {"od_validado": "min",
-         "id_viaje": 'count', 
-         "factor_expansion_linea":"mean",
-         "factor_expansion_tarjeta":"mean"
-        }).rename(columns={'id_viaje': 'cant_viajes'})
+         "id_viaje": 'count',
+         "factor_expansion_linea": "mean",
+         "factor_expansion_tarjeta": "mean"
+         }).rename(columns={'id_viaje': 'cant_viajes'})
 
     print('Subiendo tabla de usuarios a la db...')
 
@@ -312,14 +334,14 @@ def create_trips_from_legs():
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM usuarios WHERE dia IN ({values})"
     conn.execute(query)
-    conn.commit()        
+    conn.commit()
     # Guarda viajes y usuarios en sqlite
     usuarios.to_sql("usuarios", conn, if_exists="append", index=False)
     print('Fin de creacion de tablas viajes y usuarios')
 
     conn.close()
-    
-    
+
+
 @duracion
 def rearrange_trip_id_same_od():
     """
@@ -331,7 +353,7 @@ def rearrange_trip_id_same_od():
     conn_data = iniciar_conexion_db(tipo='data')
 
     print("Leer etapas")
-    # Traer etapas que no esten ya procesadas en viajes    
+    # Traer etapas que no esten ya procesadas en viajes
     # etapas = pd.read_sql_query(
     #     """
     #     with etapas_not_viajes as (
@@ -339,7 +361,7 @@ def rearrange_trip_id_same_od():
     #     from etapas e
     #     LEFT JOIN viajes v
     #     USING (id_tarjeta,id_viaje,dia)
-    #     where v.id_tarjeta is null 
+    #     where v.id_tarjeta is null
     #     )
     #     SELECT e.*
     #     FROM etapas_not_viajes e
@@ -347,35 +369,35 @@ def rearrange_trip_id_same_od():
     #     """,
     #     conn_data,
     # )
-    
+
     dias_ultima_corrida = pd.read_sql_query(
-                                """
+        """
                                 SELECT *
                                 FROM dias_ultima_corrida
                                 """,
-                                conn_data,
-                                )    
-    
+        conn_data,
+    )
+
     etapas = pd.read_sql_query(
-                                """
+        """
                                 SELECT *
                                 FROM etapas e
                                 JOIN dias_ultima_corrida d
                                 ON e.dia = d.dia
                                 """,
-                                conn_data,
-                                )
+        conn_data,
+    )
 
     print("Crear nuevos ids")
     # crear nuevos ids
     nuevos_ids_etapas_viajes = cambia_id_viajes_etapas_tarjeta_dia(etapas)
 
     print('Actualizando nuevos ids en etapas')
-    
+
     etapas = etapas[~(etapas.id.isin(nuevos_ids_etapas_viajes.id.unique()))]
     etapas = pd.concat([etapas, nuevos_ids_etapas_viajes])
     etapas = etapas.sort_values('id').reset_index(drop=True)
-    
+
     # borro si ya existen etapas de una corrida anterior
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
@@ -383,8 +405,8 @@ def rearrange_trip_id_same_od():
     conn_data.commit()
 
     etapas.to_sql("etapas", conn_data,
-                           if_exists="append", index=False)
-    
+                  if_exists="append", index=False)
+
     print('len etapas final', len(etapas))
 
     conn_data.close()

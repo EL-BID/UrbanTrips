@@ -119,7 +119,7 @@ def create_db():
             (id INT NOT NULL,
             fecha datetime NOT NULL,
             id_original text,
-            id_tarjeta text,            
+            id_tarjeta text,
             dia text,
             tiempo text,
             hora int,
@@ -135,7 +135,7 @@ def create_db():
         ;
         """
     )
-    
+
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS dias_ultima_corrida
@@ -192,7 +192,7 @@ def create_db():
             h3_d text,
             od_validado int,
             factor_expansion_linea,
-            factor_expansion_tarjeta            
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -212,7 +212,7 @@ def create_db():
         ;
         """
     )
-    
+
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones_linea

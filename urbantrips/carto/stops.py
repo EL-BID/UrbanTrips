@@ -68,8 +68,8 @@ def create_temporary_stops_csv_with_node_id(geojson_path):
     Returns
     -------
     pandas.DataFrame
-        DataFrame containing stops information (x, y, branch_stop_order, and node_id)
-        for each line and/or branch and saves it in data directory
+        DataFrame containing stops information (x, y, branch_stop_order,
+        and node_id) for each line and/or branch and saves it in data directory
     """
 
     # create stops with order but no node_id

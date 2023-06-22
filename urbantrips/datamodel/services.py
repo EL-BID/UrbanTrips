@@ -41,7 +41,7 @@ def get_stops_and_gps_data():
         q = "select count(*) from gps;"
         records = cur.execute(q).fetchall()[0][0]
         if len(records) == 0:
-            print("La tabla gps no tiene registros. Asegurese de tetener datos")
+            print("La tabla gps no tiene registros.Asegurese de tetener datos")
             print("gps y correr")
             print("datamodel.transactions.process_and_upload_gps_table()")
 
@@ -215,7 +215,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         GeoDataFrame with stops for a given line
 
     debug: bool
-        If the attributes concerning services classification 
+        If the attributes concerning services classification
         should be added
 
     Returns

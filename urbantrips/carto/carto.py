@@ -91,7 +91,8 @@ def create_zones_table():
     # leer origenes de la tabla etapas
     etapas = pd.read_sql_query(
         """
-        SELECT id, h3_o as h3, latitud, longitud, factor_expansion_linea from etapas
+        SELECT id, h3_o as h3, latitud, longitud, factor_expansion_linea
+        from etapas
         where od_validado == 1
         """,
         conn_data,
@@ -108,7 +109,7 @@ def create_zones_table():
     except DatabaseError as e:
         print("No existe la tabla zonas en la base")
         zonas_ant = pd.DataFrame([])
-        
+
     # A partir de los origenes de etapas, crea una nueva tabla zonas
     # con el promedio de la latitud y longitud
     zonas = (
@@ -117,7 +118,8 @@ def create_zones_table():
             as_index=False,
         ).agg({'factor_expansion_linea': 'sum',
                'latitud': 'mean',
-               'longitud': 'mean'}).rename(columns={'factor_expansion_linea': 'fex'})
+               'longitud': 'mean'})
+        .rename(columns={'factor_expansion_linea': 'fex'})
     )
     # TODO: redo how geoms are created here
     zonas = pd.concat([zonas, zonas_ant], ignore_index=True)
@@ -204,18 +206,19 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     # Computa para ese hexagono el promedio ponderado de latlong
     hexs = zonas.groupby('h3_r',
                          as_index=False).fex.sum()
-    hexs = hexs.merge(zonas[zonas.fex!=0]
+    hexs = hexs.merge(zonas[zonas.fex != 0]
                       .groupby('h3_r')
                       .apply(
-                          lambda x: np.average(x['longitud'], weights=x['fex']))
+                          lambda x: np.average(
+                              x['longitud'], weights=x['fex']))
                       .reset_index().rename(columns={0: 'longitud'}),
                       how='left')
-    hexs = hexs.merge(zonas[zonas.fex!=0]
+    hexs = hexs.merge(zonas[zonas.fex != 0]
                       .groupby('h3_r')
                       .apply(
                           lambda x: np.average(x['latitud'], weights=x['fex'])
-                      ).reset_index().rename(columns={0: 'latitud'}),
-                      how='left')
+    ).reset_index().rename(columns={0: 'latitud'}),
+        how='left')
 
     hexs = gpd.GeoDataFrame(
         hexs,
@@ -249,14 +252,14 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
         hexs_tmp = hexs.groupby('h3_r', as_index=False).fex.sum()
         hexs_tmp = hexs_tmp.merge(
-            hexs[hexs.fex!=0]
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(
                 lambda x: np.average(x['longitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'longitud'}),
             how='left')
         hexs_tmp = hexs_tmp.merge(
-            hexs[hexs.fex!=0]
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'latitud'}),
@@ -287,7 +290,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
         columns={'index': 'Zona_voi'})
     voi['Zona_voi'] = voi['Zona_voi']+1
     voi['Zona_voi'] = voi['Zona_voi'].astype(str)
-    
+
     file = os.path.join("data", "data_ciudad", 'zona_voi.geojson')
     voi[['Zona_voi', 'geometry']].to_file(file)
 
@@ -334,7 +337,7 @@ def create_distances_table(use_parallel=False):
     select distinct h3_o,h3_d
     from (
             SELECT h3_o,h3_d
-            from etapas            
+            from etapas
     )
     """
     pares_h3_data = pd.read_sql_query(q, conn_data).dropna()

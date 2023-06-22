@@ -29,7 +29,7 @@ def persist_datamodel_tables():
 
     zonas = pd.read_sql_query("""
                             select * from zonas
-                              """, 
+                              """,
                               conn_insumos)
     zonas = zonas.drop(['fex', 'latitud', 'longitud'], axis=1)
     zonas_o = zonas.copy()
@@ -169,7 +169,8 @@ def persist_datamodel_tables():
                      aggfunc='mean')
 
     agrego_indicador(etapas.groupby(['dia', 'id_tarjeta'],
-                                    as_index=False).factor_expansion_linea.sum(),
+                                    as_index=False).
+                     factor_expansion_linea.sum(),
                      'Cantidad de tarjetas finales',
                      'usuarios',
                      0,

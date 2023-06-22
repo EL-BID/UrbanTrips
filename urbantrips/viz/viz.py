@@ -344,7 +344,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     # Use a projected crs in meters
     epsg = geo.get_epsg_m()
     gdf = gdf.to_crs(epsg=epsg)
-    
+
     gdf_d0 = gdf\
         .merge(df_d0, on='section_id', how='left')\
         .fillna(0)
@@ -352,11 +352,10 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     gdf_d1 = gdf\
         .merge(df_d1, on='section_id', how='left')\
         .fillna(0)
-    
+
     # save data for dashboard
     gdf_d0_dash = gdf_d0.to_crs(epsg=4326).copy()
     gdf_d1_dash = gdf_d1.to_crs(epsg=4326).copy()
-
 
     # creando buffers en base a
     gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
@@ -557,46 +556,49 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         gdf_d1.to_file(db_path_1, driver='GeoJSON')
 
         conn_dash = iniciar_conexion_db(tipo='dash')
-        
+
         gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
         gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
-        
+
         gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
-        
-        cols = ['id_linea', 
-                'day_type', 
-                'n_sections', 
+
+        cols = ['id_linea',
+                'day_type',
+                'n_sections',
                 'sentido',
-                'section_id', 
-                'hora_min', 
-                'hora_max', 
+                'section_id',
+                'hora_min',
+                'hora_max',
                 'cantidad_etapas',
-                'prop_etapas', 
-                'buff_factor', 
+                'prop_etapas',
+                'buff_factor',
                 'wkt']
 
         gdf_d_dash = gdf_d_dash[cols]
-                
+
         gdf_d_dash_ant = pd.read_sql_query(
             """
             SELECT *
             FROM ocupacion_por_linea_tramo
             """,
-                conn_dash,
-            )
+            conn_dash,
+        )
 
         gdf_d_dash_ant = gdf_d_dash_ant[~(
-                    (gdf_d_dash_ant.id_linea.isin(gdf_d_dash.id_linea.unique().tolist())) &
-                    (gdf_d_dash_ant.day_type.isin(gdf_d_dash.day_type.unique().tolist())) &
-                    (gdf_d_dash_ant.n_sections.isin(gdf_d_dash.n_sections.unique().tolist())) 
-                )]
+            (gdf_d_dash_ant.id_linea.isin(
+                gdf_d_dash.id_linea.unique().tolist())) &
+            (gdf_d_dash_ant.day_type.isin(
+                gdf_d_dash.day_type.unique().tolist())) &
+            (gdf_d_dash_ant.n_sections.isin(
+                gdf_d_dash.n_sections.unique().tolist()))
+        )]
 
         gdf_d_dash = pd.concat(
             [gdf_d_dash_ant, gdf_d_dash], ignore_index=True)
 
         gdf_d_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
-                           if_exists="replace", index=False)
-        
+                          if_exists="replace", index=False)
+
         conn_dash.close()
 
     if return_gdfs:
@@ -1732,7 +1734,7 @@ def imprime_od(
             display(fig)
 
         # Guardo datos para el dashboard
-        if not 'h3_r' in var_zona:
+        if 'h3_r' not in var_zona:
 
             conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -1755,7 +1757,8 @@ def imprime_od(
             df_ant = df_ant[~(
                 (df_ant.desc_dia == desc_dia) &
                 (df_ant.tipo_dia == tipo_dia) &
-                (df_ant.var_zona == var_zona.replace('h3_r', 'H3 Resolucion ')) &
+                (df_ant.var_zona == var_zona
+                 .replace('h3_r', 'H3 Resolucion ')) &
                 (df_ant.filtro1 == filtro1)
             )]
 
@@ -1806,22 +1809,23 @@ def lineas_deseo(df,
                  filtro1='',
                  ):
 
-    hexs = zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(
-        var_zona, as_index=False).size().drop(['size'], axis=1)
+    hexs = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]\
+        .groupby(var_zona, as_index=False)\
+        .size().drop(['size'], axis=1)
+
     hexs = hexs.merge(
-        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(var_zona
-                      ).apply(lambda x: np.average(x['longitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'longitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby(var_zona)
+        .apply(lambda x: np.average(x['longitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'longitud'}), how='left')
+
     hexs = hexs.merge(
-        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(var_zona
-                      ).apply(lambda x: np.average(x['latitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'latitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby(var_zona)
+        .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'latitud'}), how='left')
 
     tmp_o = f'{var_zona}_o'
     tmp_d = f'{var_zona}_d'
@@ -1833,7 +1837,8 @@ def lineas_deseo(df,
         tmp_h3_o = h3_o
         tmp_h3_d = h3_d
 
-    # Normalizo con nueva zonificación (ESTO HACE QUE TODOS LOS ORIGENES Y DESTINOS TENGAN UN MISMO SENTIDO)
+    # Normalizo con nueva zonificación (ESTO HACE QUE TODOS LOS ORIGENES
+    # Y DESTINOS TENGAN UN MISMO SENTIDO)
     if (tmp_o != tmp_h3_o) & (tmp_d != tmp_h3_d):
         df_agg = df.groupby(['dia', tmp_h3_o, tmp_h3_d, tmp_o,
                             tmp_d], as_index=False).agg({var_fex: 'sum'})
@@ -1951,10 +1956,12 @@ def lineas_deseo(df,
                     # if not 'h3_r' in var_zona:
                     df_folium = df_agg.copy()
                     df_folium.columns = ['Origen', 'Destino', 'Viajes',
-                                         'lon_o', 'lat_o', 'lon_d', 'lat_d', 'cumsum', 'geometry']
+                                         'lon_o', 'lat_o', 'lon_d', 'lat_d',
+                                         'cumsum', 'geometry']
 
                     df_folium = df_folium[[
-                        'Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o', 'lon_d', 'lat_d']]
+                        'Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o',
+                        'lon_d', 'lat_d']]
 
                     df_folium['desc_dia'] = desc_dia
                     df_folium['tipo_dia'] = tipo_dia
@@ -1972,12 +1979,15 @@ def lineas_deseo(df,
                         conn_dash,
                     )
 
-                    df_folium_ant = df_folium_ant[~(
-                                                   (df_folium_ant.desc_dia == desc_dia) &
-                                                   (df_folium_ant.tipo_dia == tipo_dia) &
-                                                   (df_folium_ant.var_zona == var_zona.replace('h3_r', 'H3 Resolucion ')) &
-                        (df_folium_ant.filtro1 == filtro1)
-                    )]
+                    df_folium_ant = (
+                        df_folium_ant[~(
+                            (df_folium_ant.desc_dia == desc_dia) &
+                            (df_folium_ant.tipo_dia == tipo_dia) &
+                            (df_folium_ant.var_zona == var_zona
+                             .replace('h3_r', 'H3 Resolucion ')) &
+                            (df_folium_ant.filtro1 == filtro1)
+                        )]
+                    )
 
                     df_folium = pd.concat(
                         [df_folium_ant, df_folium], ignore_index=True)
@@ -2010,22 +2020,21 @@ def crea_df_burbujas(df,
 
     zonas['h3_o_tmp'] = zonas['h3'].apply(h3.h3_to_parent, res=res)
 
-    hexs = zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby(
+    hexs = zonas[(zonas.fex.notna()) & (zonas.fex != 0)].groupby(
         'h3_o_tmp', as_index=False).size().drop(['size'], axis=1)
+
     hexs = hexs.merge(
-        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby('h3_o_tmp'
-                      ).apply(lambda x: np.average(x['longitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'longitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby('h3_o_tmp')
+        .apply(lambda x: np.average(x['longitud'], weights=x['fex']))
+        .reset_index().rename(columns={0: 'longitud'}), how='left')
+
     hexs = hexs.merge(
-        zonas[(zonas.fex.notna())&(zonas.fex!=0)].groupby('h3_o_tmp'
-                      ).apply(lambda x: np.average(x['latitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'latitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby('h3_o_tmp')
+        .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'latitud'}), how='left')
 
     df['h3_o_tmp'] = df[h3_o].apply(h3.h3_to_parent, res=res)
 
@@ -2187,8 +2196,12 @@ def create_visualizations():
     viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
     viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
     viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
-    v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
-                            as_index=False).factor_expansion_linea.sum().iterrows()
+
+    v_iter = viajes\
+        .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
+        .factor_expansion_linea.sum()\
+        .iterrows()
+
     for _, i in v_iter:
 
         desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'

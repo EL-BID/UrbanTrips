@@ -409,13 +409,13 @@ def create_branch_g_from_stops_df(line_stops, id_ramal):
 def create_branch_graph(branch_stops):
     """
     Takes a line's branch stops with a node_id
-    and coordinates (node_x, node_y) and produces 
-    a branch graph  
+    and coordinates (node_x, node_y) and produces
+    a branch graph
 
     Parameters
     ----------
     branch_stops : pandas.DataFrame
-        branch's stops with order and node_id 
+        branch's stops with order and node_id
 
     Returns
     -------

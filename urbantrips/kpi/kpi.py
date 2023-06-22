@@ -110,7 +110,7 @@ def compute_route_section_load(
     q_etapas = f"""
         select e.*
         from ({q_main_etapas}) e
-        where e.od_validado==1  
+        where e.od_validado==1
     """
 
     print("Obteniendo datos de etapas y rutas")
@@ -152,7 +152,7 @@ def compute_route_section_load(
         recorridos["n_sections"] = n_sections
 
     print("Computing section load per route ...")
-    
+
     if len(recorridos) > 0:
 
         section_load_table = etapas.groupby("id_linea").apply(
@@ -567,7 +567,7 @@ def compute_kpi():
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
         e.h3_d, e.factor_expansion_linea
         from etapas e
-        where e.od_validado==1  
+        where e.od_validado==1
     """
     etapas = pd.read_sql(q, conn_data)
     distancias = pd.read_sql_query(

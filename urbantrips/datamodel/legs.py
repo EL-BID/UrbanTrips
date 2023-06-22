@@ -28,25 +28,25 @@ def create_legs_from_transactions(trx_order_params):
     #     conn,
     #     parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
     # )
-    
+
     dias_ultima_corrida = pd.read_sql_query(
-                                    """
+        """
                                     SELECT *
                                     FROM dias_ultima_corrida
                                     """,
-                                    conn,
-                                    )    
-    
+        conn,
+    )
+
     legs = pd.read_sql_query(
-                            """
+        """
                             SELECT *
-                            FROM transacciones t 
+                            FROM transacciones t
                             JOIN dias_ultima_corrida d
                             ON t.dia = d.dia
                             """,
-                            conn,
-                            parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"}
-                            )
+        conn,
+        parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"}
+    )
 
     # asignar id h3
     configs = leer_configs_generales()
@@ -63,10 +63,11 @@ def create_legs_from_transactions(trx_order_params):
     # asignar nuevo id tarjeta trx simultaneas
     legs = change_card_id_for_concurrent_trx(
         legs, trx_order_params, dias_ultima_corrida)
-    
-#     # elminar casos de nuevas tarjetas con trx unica
-#     legs = eliminar_tarjetas_trx_unica(legs) #### No borrar transacciones únicas (quedan en estas con fex=0)
-    
+
+    # elminar casos de nuevas tarjetas con trx unica
+    # legs = eliminar_tarjetas_trx_unica(legs)
+    # No borrar transacciones únicas (quedan en estas con fex=0)
+
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
 
@@ -89,11 +90,12 @@ def create_legs_from_transactions(trx_order_params):
             "factor_expansion"
         ]
     )
-    
-    legs = legs.rename(columns={"factor_expansion":"factor_expansion_original"})
-    
+
+    legs = legs.rename(
+        columns={"factor_expansion": "factor_expansion_original"})
+
     print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
-    
+
     # borro si ya existen etapas de una corrida anterior
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
@@ -101,7 +103,7 @@ def create_legs_from_transactions(trx_order_params):
     conn.commit()
 
     legs.to_sql("etapas", conn, if_exists="append", index=False)
-    
+
     print("Fin subir etapas")
     agrego_indicador(legs,
                      'Cantidad de etapas pre imputacion de destinos',
@@ -136,20 +138,21 @@ def crear_delta_trx(trx):
 
 
 @duracion
-def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida):
+def change_card_id_for_concurrent_trx(trx,
+                                      trx_order_params, dias_ultima_corrida):
     """
     Changes card id for those cards with concurrent transactions as defined by
      the parameters in  .
-    Adds a _0 to the card id for the first concurrent transaction, _1 for the next
-    and so on. It creates a duplicated cards table in the db. 
+    Adds a _0 to the card id for the first concurrent transaction, _1 for the
+    next and so on. It creates a duplicated cards table in the db.
 
     Parameters
     ----------
     trx : pandas DataFrame
-        transactions data 
+        transactions data
 
     trx_order_params : dict
-        parameters that define order of transactions and concurrent criteria 
+        parameters that define order of transactions and concurrent criteria
 
     Returns
     ----------
@@ -177,13 +180,13 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
 
     print(f"Subiendo {len(tarjetas_duplicadas)} tarjetas duplicadas a la db")
     if len(tarjetas_duplicadas) > 0:
-        
+
         # borro si ya existen etapas de una corrida anterior
         values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
         query = f"DELETE FROM tarjetas_duplicadas WHERE dia IN ({values})"
         conn.execute(query)
         conn.commit()
-        
+
         tarjetas_duplicadas.to_sql(
             "tarjetas_duplicadas", conn, if_exists="append", index=False
         )

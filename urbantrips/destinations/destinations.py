@@ -44,16 +44,15 @@ def infer_destinations():
     # where d.id is null
     # order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
     # """
-    
+
     dias_ultima_corrida = pd.read_sql_query(
-                                """
+        """
                                 SELECT *
                                 FROM dias_ultima_corrida
                                 """,
-                                conn_data,
-                                )    
+        conn_data,
+    )
 
-    
     q = """
     select *
     from etapas e
@@ -76,16 +75,19 @@ def infer_destinations():
         destinos = validar_destinos(etapas_destinos_potencial)
 
     etapas = etapas.merge(
-                    destinos, on=['id', 'h3_d'], how='left')
+        destinos, on=['id', 'h3_d'], how='left')
 
-    etapas = etapas.sort_values(['dia','id_tarjeta','id_viaje','id_etapa','hora','tiempo']).reset_index(drop=True)
+    etapas = etapas\
+        .sort_values(
+            ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'hora', 'tiempo'])\
+        .reset_index(drop=True)
 
     etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
     etapas['h3_d'] = etapas['h3_d'].fillna('')
 
     # calcular indicador de imputacion de destinos
     calcular_indicadores_destinos_etapas(etapas)
-    
+
     # # eliminar registros con destinos mal imputados
     # dias = destinos.dia.unique()
     # dias = ','.join(dias)
@@ -99,7 +101,7 @@ def infer_destinations():
     conn_data.commit()
 
     etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
-        
+
     print("Fin subir destinos")
     conn_data.close()
 
@@ -201,9 +203,10 @@ def imputar_destino_min_distancia(etapas):
 
 def parallelize_dataframe(df, func, matriz_validacion, n_cores=4):
     """
-    This function takes a dataframe of legs with the next origen as possible destination,
-    a function that minimices distance to a set of possible stops
-    and a validation matrix  of stops' catchment area and returns that function in parallel 
+    This function takes a dataframe of legs with the next origen as possible
+    destination, a function that minimices distance to a set of possible stops
+    and a validation matrix  of stops' catchment area and returns that
+    function in parallel
     """
     df_split = np.array_split(df, n_cores)
     pool = multiprocessing.Pool(n_cores)
@@ -214,11 +217,12 @@ def parallelize_dataframe(df, func, matriz_validacion, n_cores=4):
     return df
 
 
-def minimizar_distancia_parada_candidata(paradas_candidatas, matriz_validacion):
+def minimizar_distancia_parada_candidata(
+        paradas_candidatas, matriz_validacion):
     """
-    This function takes a dataframe with a set of legs' origins and possible destinations
-    and a stops' catchment area validation matrix
-    and returns the stops that minimices the distances to all possible stops from that line 
+    This function takes a dataframe with a set of legs' origins and possible
+    destinations and a stops' catchment area validation matrix and returns
+    the stops that minimices the distances to all possible stops from that line
     """
     paradas_candidatas_sample = paradas_candidatas\
         .merge(matriz_validacion, left_on=['id_linea', 'lag_etapa'],
@@ -297,8 +301,6 @@ def calcular_indicadores_destinos_etapas(etapas):
                      'etapas',
                      1,
                      var_fex='')
-    
-    
 
 
 # @duracion
@@ -348,7 +350,7 @@ def calcular_indicadores_destinos_etapas(etapas):
 #     conn_data.commit()
 
 #     q = f"""
-#         select * 
+#         select *
 #         from etapas
 #         where dia in ('{dias}')
 #         """
@@ -360,5 +362,3 @@ def calcular_indicadores_destinos_etapas(etapas):
 #                      'etapas',
 #                      1,
 #                      var_fex='')
-
-
