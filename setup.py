@@ -26,7 +26,7 @@ setuptools.setup(
         'osmnx>=1.3.0',
         'geopandas>=0.12.2',
         'shapely>=2.0.1',
-        'pandas>=2.0.1',
+        'pandas>=2.0.2',
         'contextily',
         'h3 < 4',
         'mapclassify',
