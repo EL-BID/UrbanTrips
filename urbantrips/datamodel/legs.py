@@ -263,6 +263,10 @@ def cambiar_id_tarjeta_trx_simul_orden_trx(trx):
     # detectar duplicados por criterio de atributos
     duplicados = trx.duplicated(subset=subset_dup)
 
+    if not duplicados.any():
+        tarjetas_duplicadas = pd.DataFrame()
+        return trx, tarjetas_duplicadas
+
     # crear para duplicado por dia tarjeta linea
     # un nuevo id_tarjeta con un incremental para cada duplicado
     nro_duplicado = trx[duplicados].groupby(subset_dup).cumcount() + 1
