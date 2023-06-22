@@ -553,7 +553,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
     trips.create_trips_from_legs()
 
     carto.create_zones_table()
-    # Inferir route geometries based on legs data
+    # Infer route geometries based on legs data
     routes.infer_routes_geoms(plotear_lineas=False)
 
     # Build final routes from official an inferred sources

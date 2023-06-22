@@ -53,6 +53,9 @@ def create_directories():
     db_path = os.path.join("resultados", "ppts")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("resultados", "geojson")
+    os.makedirs(db_path, exist_ok=True)
+
 
 def leer_alias(tipo='data'):
     """
@@ -113,10 +116,10 @@ def create_db():
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT NOT NULL,
+            fecha datetime NOT NULL,
             id_original text,
-            id_tarjeta text,
-            fecha datetime,
+            id_tarjeta text,            
             dia text,
             tiempo text,
             hora int,
@@ -132,11 +135,19 @@ def create_db():
         ;
         """
     )
+    
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dias_ultima_corrida
+            (dia INT NOT NULL)
+        ;
+        """
+    )
 
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS etapas
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT PRIMARY KEY NOT NULL,
             id_tarjeta text,
             dia text,
             id_viaje int,
@@ -149,7 +160,12 @@ def create_db():
             interno int,
             latitud float,
             longitud float,
-            h3_o text
+            h3_o text,
+            h3_d text,
+            od_validado int,
+            factor_expansion_original float,
+            factor_expansion_linea float,
+            factor_expansion_tarjeta float
             )
         ;
         """
@@ -174,7 +190,9 @@ def create_db():
             otros int,
             h3_o text,
             h3_d text,
-            od_validado int
+            od_validado int,
+            factor_expansion_linea,
+            factor_expansion_tarjeta            
             )
         ;
         """
@@ -187,36 +205,23 @@ def create_db():
             id_tarjeta text NOT NULL,
             dia text NOT NULL,
             od_validado int,
-            cant_viajes float
+            cant_viajes float,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
     )
-
+    
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS factores_expansion
+        CREATE TABLE IF NOT EXISTS transacciones_linea
             (
             dia text NOT NULL,
-            id_tarjeta text NOT NULL,
-            factor_expansion float,
-            factor_expansion_original float,
-            factor_calibracion float,
-            cant_trx int,
-            id_tarjeta_valido int
+            id_linea int NOT NULL,
+            transacciones float
             )
         ;
-        """
-    )
-
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS destinos
-        (id INT PRIMARY KEY     NOT NULL,
-        h3_d text,
-        od_validado int
-        )
-
         """
     )
 
@@ -240,6 +245,8 @@ def create_db():
         section_meters int,
         sentido text not null,
         section_id float not null,
+        x float,
+        y float,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
@@ -335,7 +342,7 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null
+        Viajes int not null
         )
         ;
         """
@@ -351,11 +358,85 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null,
+        Viajes int not null,
         lon_o float,
         lat_o float,
         lon_d float,
         lat_d float
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viajes_hora
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Hora int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribucion
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Distancia int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS indicadores
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Titulo text,
+        orden int,
+        Indicador text,
+        Valor text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
         )
         ;
         """
@@ -419,7 +500,8 @@ def create_db():
 
     conn_data.close()
     conn_insumos.close()
-
+    conn_dash.close()
+    print("Fin crear base")
     print("Todas las tablas creadas")
 
 
@@ -574,7 +656,7 @@ def agrego_indicador(df_indicador,
                      tabla,
                      nivel=0,
                      var='indicador',
-                     var_fex='factor_expansion',
+                     var_fex='factor_expansion_linea',
                      aggfunc='sum'):
     '''
     Agrego indicadores de tablas utilizadas

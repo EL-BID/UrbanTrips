@@ -59,7 +59,9 @@ def create_transactions(geolocalizar_trx_config,
     else:
         print("desde archivo csv de transacciones")
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        trx = pd.read_csv(ruta)
+        
+        print('Levanta archivo de transacciones', ruta)
+        trx = pd.read_csv(ruta)      
 
         print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
         # Filtrar transacciones invalidas
@@ -85,14 +87,29 @@ def create_transactions(geolocalizar_trx_config,
             crear_hora=crear_hora,
         )
         print(trx.shape)
-        trx, tmp_trx_inicial = agrego_factor_expansion(trx)
+       
+        trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
+        
+        # Guardo los días que se están analizando en la corrida actual
+        dias_ultima_corrida = pd.DataFrame(trx.dia.unique(), columns=['dia']).tail(1)
+        conn = iniciar_conexion_db(tipo='data')
+        dias_ultima_corrida.to_sql("dias_ultima_corrida", conn, if_exists="replace", index=False)
+
+        # borro si ya existen transacciones de una corrida anterior
+        values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+        query = f"DELETE FROM transacciones WHERE dia IN ({values})"
+        conn.execute(query)
+        conn.commit()
 
         # Eliminar trx fuera del bbox
         trx = eliminar_trx_fuera_bbox(trx)
         print(trx.shape)
         agrego_indicador(
             trx,
-            'Cantidad de transacciones latlon válidos', 'transacciones', 1)
+            'Cantidad de transacciones latlon válidos', 
+            'transacciones', 
+            1,
+            var_fex='factor_expansion')
 
         # chequear que no haya faltantes en id
         if trx["id"].isna().any():
@@ -109,8 +126,8 @@ def create_transactions(geolocalizar_trx_config,
         trx["id"] = crear_id_interno(
             conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
-    # Elminar transacciones unicas en el dia
-    trx = eliminar_tarjetas_trx_unica(trx)
+    # # Elminar transacciones unicas en el dia
+    # trx = eliminar_tarjetas_trx_unica(trx)  #### No borrar transacciones únicas (quedan en estas con fex=0)
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
@@ -153,9 +170,9 @@ def create_transactions(geolocalizar_trx_config,
 
     lista_cols_db = [
         "id",
-        "id_original",
-        "id_tarjeta",
         "fecha",
+        "id_original",
+        "id_tarjeta",        
         "dia",
         "tiempo",
         "hora",
@@ -189,8 +206,20 @@ def create_transactions(geolocalizar_trx_config,
     trx = trx.loc[trx.id_tarjeta.isin(tmp_trx_limpio.id_tarjeta), :]
 
     agrego_indicador(
-        trx, 'Cantidad de transacciones limpias', 'transacciones', 1)
+        trx, 
+        'Cantidad de transacciones limpias', 
+        'transacciones', 
+        1,
+        var_fex='factor_expansion')
+    
 
+    trx["fecha"] = pd.to_datetime(
+                trx["fecha"], format=formato_fecha, errors="coerce"
+                        )
+
+    
+    trx = trx.sort_values('id')
+    
     trx.to_sql("transacciones", conn, if_exists="append", index=False)
     print("Fin subir base")
 
@@ -308,7 +337,7 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     return df
 
 
-def agrego_factor_expansion(trx):
+def agrego_factor_expansion(trx, conn):
     # Traigo var_fex si existe
     configs = leer_configs_generales()
     try:
@@ -320,11 +349,15 @@ def agrego_factor_expansion(trx):
         trx['factor_expansion'] = 1
 
     agrego_indicador(
-        trx, 'Cantidad de transacciones totales', 'transacciones', 0)
+        trx, 
+        'Cantidad de transacciones totales', 
+        'transacciones', 
+        0, 
+        var_fex='factor_expansion')
 
     agrego_indicador(trx[trx.id_tarjeta.notna()].groupby(
         ['dia', 'id_tarjeta'], as_index=False).factor_expansion.min(),
-        'Cantidad de tarjetas únicas', 'tarjetas', 0)
+        'Cantidad de tarjetas únicas', 'tarjetas', 0, var_fex='factor_expansion')
 
     tmp_trx_inicial = trx.dropna(subset=['id_tarjeta'])
 
@@ -336,6 +369,29 @@ def agrego_factor_expansion(trx):
     tmp_trx_inicial = tmp_trx_inicial\
         .groupby(['dia', 'id_tarjeta'], as_index=False)\
         .agg(cant_trx=('id', 'count'))
+    
+    # Agrego viajes x id_linea para cálculo de factor de expansión    
+    transacciones_linea = trx[trx.id_linea.notna()].groupby(['dia', 'id_linea'], 
+                                                            as_index=False
+                                                           ).factor_expansion.sum(
+                                                                    ).rename(columns={'factor_expansion':'transacciones'})
+
+    # borro si ya existen transacciones_linea de una corrida anterior
+    dias_ultima_corrida = pd.read_sql_query(
+                                """
+                                SELECT *
+                                FROM dias_ultima_corrida
+                                """,
+                                conn,
+                                )    
+
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM transacciones_linea WHERE dia IN ({values})"
+    conn.execute(query)
+    conn.commit()
+
+    transacciones_linea.to_sql("transacciones_linea", conn, if_exists="append", index=False)
+
 
     return trx, tmp_trx_inicial
 
@@ -442,6 +498,7 @@ def geolocalizar_trx(
     id_tarjeta_trx = nombres_variables_trx['id_tarjeta_trx']
 
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
+    print('Levanta archivo de transacciones', trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
 
     print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
@@ -467,7 +524,18 @@ def geolocalizar_trx(
         conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
     # Agregar factor de expansion
-    trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco)
+    trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco, conn)
+    
+    # Guardo los días que se están analizando en la corrida actual
+    dias_ultima_corrida = pd.DataFrame(trx_eco.dia.unique(), columns=['dia']).tail(1)
+    conn = iniciar_conexion_db(tipo='data')
+    dias_ultima_corrida.to_sql("dias_ultima_corrida", conn, if_exists="replace", index=False)
+
+    # borro si ya existen transacciones de una corrida anterior
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM transacciones WHERE dia IN ({values})"
+    conn.execute(query)
+    conn.commit()
 
     # Eliminar datos con faltantes en variables fundamentales
     if configs['lineas_contienen_ramales']:
@@ -497,8 +565,8 @@ def geolocalizar_trx(
 
     trx_eco = trx_eco.dropna(subset=cols)
 
-    # Eliminar trx unica en el dia
-    trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
+    # # Eliminar trx unica en el dia
+    # trx_eco = eliminar_tarjetas_trx_unica(trx_eco) #### No borrar transacciones únicas (quedan en estas con fex=0)
 
     cols = ['id',
             'id_original',

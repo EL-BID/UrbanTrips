@@ -19,15 +19,34 @@ def create_legs_from_transactions(trx_order_params):
     print("Estableciendo conexion con la db")
 
     conn = iniciar_conexion_db(tipo='data')
-    q = """
-    SELECT * from transacciones t
-    where t.id > (select    coalesce(max(id),-1) from etapas)
-    """
+    # q = """
+    # SELECT * from transacciones t
+    # where t.id > (select coalesce(max(id),-1) from etapas)
+    # """
+    # legs = pd.read_sql_query(
+    #     q,
+    #     conn,
+    #     parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
+    # )
+    
+    dias_ultima_corrida = pd.read_sql_query(
+                                    """
+                                    SELECT *
+                                    FROM dias_ultima_corrida
+                                    """,
+                                    conn,
+                                    )    
+    
     legs = pd.read_sql_query(
-        q,
-        conn,
-        parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
-    )
+                            """
+                            SELECT *
+                            FROM transacciones t 
+                            JOIN dias_ultima_corrida d
+                            ON t.dia = d.dia
+                            """,
+                            conn,
+                            parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"}
+                            )
 
     # asignar id h3
     configs = leer_configs_generales()
@@ -43,37 +62,13 @@ def create_legs_from_transactions(trx_order_params):
         raise ValueError("ordenamiento_transacciones mal especificado")
     # asignar nuevo id tarjeta trx simultaneas
     legs = change_card_id_for_concurrent_trx(
-        legs, trx_order_params)
-    # elminar casos de nuevas tarjetas con trx unica
-    legs = eliminar_tarjetas_trx_unica(legs)
+        legs, trx_order_params, dias_ultima_corrida)
+    
+#     # elminar casos de nuevas tarjetas con trx unica
+#     legs = eliminar_tarjetas_trx_unica(legs) #### No borrar transacciones únicas (quedan en estas con fex=0)
+    
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
-
-    print("Creando factores de expansion...")
-    # Actualizo factores de expansión
-    # Crear un factor de expansion de las trx que no se subieron a etapas
-    factores_expansion = legs\
-        .groupby(['dia', 'id_tarjeta'], as_index=False)\
-        .agg(
-            cant_trx=('id', 'count'),
-            factor_expansion_original=('factor_expansion', 'min')
-        )
-
-    factores_expansion['factor_expansion'] = 0
-    factores_expansion['factor_calibracion'] = 0
-    factores_expansion = factores_expansion.reindex(
-        columns=['dia',
-                 'id_tarjeta',
-                 'factor_expansion',
-                 'factor_expansion_original',
-                 'factor_calibracion',
-                 'cant_trx',
-                 'id_tarjeta_valido'
-                 ])
-
-    # Subir a la base
-    factores_expansion.to_sql("factores_expansion",
-                              conn, if_exists="append", index=False)
 
     legs = legs.reindex(
         columns=[
@@ -90,12 +85,23 @@ def create_legs_from_transactions(trx_order_params):
             "interno",
             "latitud",
             "longitud",
-            "h3_o"
+            "h3_o",
+            "factor_expansion"
         ]
     )
+    
+    legs = legs.rename(columns={"factor_expansion":"factor_expansion_original"})
+    
     print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
+    
+    # borro si ya existen etapas de una corrida anterior
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM etapas WHERE dia IN ({values})"
+    conn.execute(query)
+    conn.commit()
 
     legs.to_sql("etapas", conn, if_exists="append", index=False)
+    
     print("Fin subir etapas")
     agrego_indicador(legs,
                      'Cantidad de etapas pre imputacion de destinos',
@@ -130,7 +136,7 @@ def crear_delta_trx(trx):
 
 
 @duracion
-def change_card_id_for_concurrent_trx(trx, trx_order_params):
+def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida):
     """
     Changes card id for those cards with concurrent transactions as defined by
      the parameters in  .
@@ -171,6 +177,13 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params):
 
     print(f"Subiendo {len(tarjetas_duplicadas)} tarjetas duplicadas a la db")
     if len(tarjetas_duplicadas) > 0:
+        
+        # borro si ya existen etapas de una corrida anterior
+        values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+        query = f"DELETE FROM tarjetas_duplicadas WHERE dia IN ({values})"
+        conn.execute(query)
+        conn.commit()
+        
         tarjetas_duplicadas.to_sql(
             "tarjetas_duplicadas", conn, if_exists="append", index=False
         )
