@@ -582,11 +582,73 @@ def crear_tabla_gps(conn_data):
                 interno int,
                 fecha datetime,
                 latitud FLOAT,
-                longitud FLOAT
+                longitud FLOAT,
+                velocity float,
+                service_type text,
+                distance_km float,
+                h3 text
                 )
             ;
             """
     )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_gps_points
+                (
+                id INT PRIMARY KEY NOT NULL,
+                original_service_id int not null,
+                new_service_id int not null,
+                service_id int not null,
+                id_ramal_gps_point int,
+                node_id int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services
+                (
+                id_linea int,
+                dia text,
+                interno int,
+                original_service_id int,
+                service_id int,
+                total_points int,
+                distance_km float,
+                min_ts int,
+                max_ts int,
+                min_datetime text,
+                max_datetime text,
+                prop_idling float,
+                valid int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_stats
+                (
+                id_linea int,
+                dia text,
+                cant_servicios_originales int,
+                cant_servicios_nuevos int,
+                cant_servicios_nuevos_validos int,
+                n_servicios_nuevos_cortos int ,
+                prop_servicos_cortos_nuevos_idling float,
+                distancia_recorrida_original float,
+                prop_distancia_recuperada float,
+                servicios_originales_sin_dividir float
+                )
+            ;
+            """
+    )
+
+    conn_data.commit()
 
 
 def agrego_indicador(df_indicador,
@@ -970,3 +1032,36 @@ def check_config_fecha(df, columns_with_date, date_format):
     string = "Corrija el formato de fecha en config. Actualmente se pierden" +\
         f"{round((checkeo * 100),2)} por ciento de registros"
     assert checkeo < 0.8, string
+
+
+def check_table_in_db(table_name, tipo_db):
+    """
+    Checks if a tbale exists in a db
+
+    Parameters
+    ----------
+    table_name : str
+        Name of table to check for
+    tipo_db : str
+        db where to check. Must be data or insumos
+
+    Returns
+    -------
+    bool
+        if that table exists in that db
+    """
+    conn = iniciar_conexion_db(tipo=tipo_db)
+    cur = conn.cursor()
+
+    q = f"""
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='{table_name}';
+    """
+    listOfTables = cur.execute(q).fetchall()
+
+    if listOfTables == []:
+        print(f"No existe la tabla {table_name} en la base")
+        return False
+    else:
+        return True

@@ -5,7 +5,8 @@ from shapely import line_interpolate_point
 import libpysal
 from urbantrips.carto import carto
 from urbantrips.geo import geo
-from urbantrips.utils.utils import (duracion, iniciar_conexion_db)
+from urbantrips.utils.utils import (
+    duracion, iniciar_conexion_db, leer_configs_generales)
 
 
 @duracion
@@ -14,8 +15,15 @@ def create_stops_table():
     Reads stops.csv file if present and uploads it to
     stops table in the db
     """
+    configs = leer_configs_generales()
+    stops_file_name = 'stops.csv'
 
-    stops_path = os.path.join("data", "data_ciudad", "stops.csv")
+    if 'nombre_archivo_paradas' in configs:
+        if configs['nombre_archivo_paradas'] is not None:
+            stops_file_name = configs['nombre_archivo_paradas']
+
+    stops_path = os.path.join("data", "data_ciudad", stops_file_name)
+
     if os.path.isfile(stops_path):
         stops = pd.read_csv(stops_path)
         upload_stops_table(stops)
@@ -36,6 +44,8 @@ def upload_stops_table(stops):
             'stop_x', 'stop_y', 'node_x', 'node_y']
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
+
+    print("Subiendo paradas a stops")
     stops.to_sql("stops", conn, if_exists="replace", index=False)
 
 

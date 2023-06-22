@@ -74,78 +74,53 @@ tipo_trx_invalidas:
         - 'CHECK OUT SIN CHECKIN'
         - 'CHECK OUT'
 
+sssssssssssssssss# Especificar como se nombra a los modos en los archivos  
+modos:
+    autobus: COL
+    tren: TRE
+    metro: SUB
+    tranvia:
+    brt:
+ 
+ 
+# PARAMETROS DE POSICIONAMIENTO GPS
+
+# Utilizar un dataset de posicionamiento GPS para geolocalizar transacciones
+geolocalizar_trx: False
+
+# Nombre del archivo con los posicionamientos GPS a consumir
+nombre_archivo_gps: 
+
+# Nombre de las variables necesarias por Urbantrips tal cual aparecen en el archivo
+nombres_variables_gps:
+    id_gps: 
+    id_linea_gps: 
+    id_ramal_gps: 
+    interno_gps: 
+    fecha_gps: 
+    latitud_gps: 
+    longitud_gps:  
+
+trust_service_type_gps: False
+
+# PARAMETROS DE LINEAS, RAMALES, RECORRIDOS Y PARADAS 
+
+# Las lineas a ser utilizadas se subdividen en ramales?
+lineas_contienen_ramales: True
+
+# Nombre del archivo con la metadada de lineas y/o ramales
+nombre_archivo_informacion_lineas: lineas_amba_test.csv
+
+# Nombre del archivo con las rutas de las lineas y/o ramales
+recorridos_geojson: recorridos_amba.geojson
+
+# Nombre del archivo con las paradas para todas las lineas y/o ramales con orden y node_id 
+nombre_archivo_paradas: 
+
+
+ 
 # Poner geo1 el nombre del archivo geojson, var1 el nombre de la variable que contiene la etiqueta a utilizar, orden1 el orden de las etiquetas en los graficos
 zonificaciones:
-    geo1: coronas.geojson
-    var1: Corona
-    orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
-    geo2: partidos.geojson
-    var2: Partido
-    orden2: ['Comuna 1', 
-             'Comuna 2',
-             'Comuna 3',
-             'Comuna 4',
-             'Comuna 5',
-             'Comuna 6',
-             'Comuna 7',
-             'Comuna 8',
-             'Comuna 9',
-             'Comuna 10',
-             'Comuna 11',
-             'Comuna 12',
-             'Comuna 13',
-             'Comuna 14',
-             'Comuna 15',
-             'Almirante Brown',
-             'Avellaneda',
-             'Berazategui',
-             'Berisso',
-             'Brandsen',
-             'Campana',
-             'Carmen de Areco',
-             'Cañuelas',
-             'Ensenada',
-             'Escobar',
-             'Esteban Echeverría',
-             'Exaltación de la Cruz',
-             'Ezeiza',
-             'Florencio Varela',
-             'General Las Heras',
-             'General Rodríguez',
-             'General San Martín',
-             'Hurlingham',
-             'Ituzaingó',
-             'José C. Paz',
-             'La Matanza',
-             'La Plata',
-             'Lanús',
-             'Lobos',
-             'Lomas de Zamora',
-             'Luján',
-             'Magdalena',
-             'Malvinas Argentinas',
-             'Marcos Paz',
-             'Mercedes',
-             'Merlo',
-             'Moreno',
-             'Morón',
-             'Navarro',
-             'Pilar',
-             'Presidente Perón',
-             'Punta Indio',
-             'Quilmes',
-             'San Andrés de Giles',
-             'San Antonio de Areco',
-             'San Fernando',
-             'San Isidro',
-             'San Miguel',
-             'San Vicente',
-             'Tigre',
-             'Tres de Febrero',
-             'Vicente López',
-             'Zárate']
-    geo3: partidos.geojson
-    var3: Zona
-    orden3: ['CABA', 'Sur', 'Oeste', 'Norte', 'Zarate - Campana', 'Gran La Plata']
+
 
 

@@ -63,7 +63,7 @@ def get_stop_hex_ring(h, ring_size):
     """
     This functions takes a h3 index referencing a public transit stop
     a h3 ring size, and returns a DataFrame with that stops and all the
-    hexs within that ring 
+    hexs within that ring
     """
     rings = list(h3.k_ring(h, ring_size))
     df = pd.DataFrame({"parada": [h] * (len(rings)), "area_influencia": rings})
@@ -276,7 +276,7 @@ def check_all_geoms_linestring(gdf):
 def get_points_over_route(route_geom, distance):
     """
     Interpolates points over a projected route geom in meters
-    every x meters set by distance 
+    every x meters set by distance
     """
     ranges = range(0, int(route_geom.length), distance)
     points = line_interpolate_point(route_geom, ranges).tolist()
@@ -334,3 +334,25 @@ def get_epsg_m():
     epsg_m = configs['epsg_m']
 
     return epsg_m
+
+
+def distancia_h3(row, *args, **kwargs):
+    """
+    Computes for a distance between a h3 point and its lag
+
+    Parameters
+    ----------
+    row : dict
+        row with a h3 coord and its lag
+
+    Returns
+    ----------
+    int
+        distance in h3
+
+    """
+    try:
+        out = h3.h3_distance(row["h3"], row["h3_lag"])
+    except ValueError as e:
+        out = None
+    return out

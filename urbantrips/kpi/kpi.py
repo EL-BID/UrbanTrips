@@ -562,23 +562,6 @@ def compute_kpi():
     """
     gps = pd.read_sql(q, conn_data)
 
-    # Georeferenciar con h3
-    gps["h3"] = gps.apply(geo.h3_from_row, axis=1,
-                          args=(res, "latitud", "longitud"))
-
-    # Producir un lag con respecto al siguiente posicionamiento gps
-    gps["h3_lag"] = (
-        gps.reindex(columns=["dia", "id_linea", "interno", "h3"])
-        .groupby(["dia", "id_linea", "interno"])
-        .shift(-1)
-    )
-
-    # Calcular distancia h3
-    gps = gps.dropna(subset=["h3", "h3_lag"])
-    gps_dict = gps.to_dict("records")
-    gps["dist_km"] = list(map(distancia_h3, gps_dict))
-    gps["dist_km"] = gps["dist_km"] * distancia_entre_hex
-
     print("Leyendo datos de demanda")
     q = """
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
@@ -607,7 +590,7 @@ def compute_kpi():
     # Calcular kilometros vehiculo dia kvd
     oferta_interno = gps\
         .groupby(["id_linea", "dia", "interno"], as_index=False)\
-        .agg(kvd=("dist_km", "sum"))
+        .agg(kvd=("distance_km", "sum"))
 
     # Eliminar los vehiculos que tengan 0 kms recorridos
     oferta_interno = oferta_interno.loc[oferta_interno.kvd > 0]
@@ -712,14 +695,6 @@ def compute_kpi():
         if_exists="append",
         index=False,
     )
-
-
-def distancia_h3(row, *args, **kwargs):
-    try:
-        out = h3.h3_distance(row["h3"], row["h3_lag"])
-    except ValueError as e:
-        out = None
-    return out
 
 
 def indicadores_demanda_interno(df):

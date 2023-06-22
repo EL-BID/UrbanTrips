@@ -1,3 +1,4 @@
+import h3
 import os
 import pandas as pd
 import warnings
@@ -249,20 +250,20 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
     service_id_dict_rename_col = {}
     # if service id column provided as dict:
-    if 'original_service_id_gps' in nombres_variables:
+    if 'service_type_gps' in nombres_variables:
         service_id_col = (
-            isinstance(nombres_variables['original_service_id_gps'], dict) &
-            (nombres_variables['original_service_id_gps'] is not None)
+            isinstance(nombres_variables['service_type_gps'], dict) &
+            (nombres_variables['service_type_gps'] is not None)
         )
 
         if service_id_col:
             # get service id data
-            service_id_dict = nombres_variables.pop('original_service_id_gps')
+            service_id_dict = nombres_variables.pop('service_type_gps')
             # get the name in the original df
             service_id_col_name = list(service_id_dict.keys())[0]
             # create a rename dict
             service_id_dict_rename_col = {
-                service_id_col_name: 'original_service_id_gps'}
+                service_id_col_name: 'service_type_gps'}
 
             # create a replace values dict
             service_id_values = {v: k for k,
@@ -659,7 +660,8 @@ def geolocalizar_trx(
     return trx, tmp_trx_inicial
 
 
-def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, formato_fecha):
+def process_and_upload_gps_table(nombre_archivo_gps,
+                                 nombres_variables_gps, formato_fecha):
     """
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
@@ -716,6 +718,16 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
     gps["id"] = crear_id_interno(
         conn, n_rows=n_rows_gps, tipo_tabla='gps')
 
+    # si se informa un service type que el start_service exista
+    if 'service_type' in gps.columns:
+        if not (gps.service_type == 'start_service').any():
+            raise Exception(
+                "No hay valores que indiquen el inicio de un servicio. "
+                "Revisar el configs para service_type_gps")
+
+    # compute distance between gps points
+    gps = compute_distance_km_gps(gps)
+
     cols = ['id',
             'id_original',
             'dia',
@@ -724,9 +736,45 @@ def process_and_upload_gps_table(nombre_archivo_gps, nombres_variables_gps, form
             'interno',
             'fecha',
             'latitud',
-            'longitud']
+            'longitud',
+            'velocity',
+            'service_type',
+            'distance_km',
+            'h3'
+            ]
+
     gps = gps.reindex(columns=cols)
 
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
     gps.to_sql("gps", conn, if_exists="append", index=False)
+
+
+@duracion
+def compute_distance_km_gps(gps_df):
+
+    res = 11
+    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+    distancia_entre_hex = distancia_entre_hex * 2
+
+    # Georeferenciar con h3
+    gps_df["h3"] = gps_df.apply(geo.h3_from_row, axis=1,
+                                args=(res, "latitud", "longitud"))
+
+    gps_df = gps_df.sort_values(['dia', 'id_linea', 'interno', 'fecha'])
+
+    # Producir un lag con respecto al siguiente posicionamiento gps
+    gps_df["h3_lag"] = (
+        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
+        .groupby(["dia", "id_linea", "interno"])
+        .shift(-1)
+    )
+
+    # Calcular distancia h3
+    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
+    gps_dict = gps_df.to_dict("records")
+    gps_df.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
+    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
+        distancia_entre_hex
+    gps_df = gps_df.drop(['h3_lag'], axis=1)
+    return gps_df
