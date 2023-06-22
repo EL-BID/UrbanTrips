@@ -66,16 +66,20 @@ def infer_destinations():
     etapas = etapas.drop(['od_validado', 'h3_d'], axis=1)
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
+
     if destinos_min_dist:
         print("Imputando destinos por minimizacion de distancias...")
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial)
+        # no usar h3_d que en este caso es el potencial, las coords siguientes
+        etapas = etapas.drop('h3_d', axis=1)
+        etapas = etapas.merge(destinos, on='id', how='left')
 
     else:
         print("Imputando destinos por siguiente etapa...")
         destinos = validar_destinos(etapas_destinos_potencial)
 
-    etapas = etapas.merge(
-        destinos, on=['id', 'h3_d'], how='left')
+        etapas = etapas.merge(
+            destinos, on=['id', 'h3_d'], how='left')
 
     etapas = etapas\
         .sort_values(

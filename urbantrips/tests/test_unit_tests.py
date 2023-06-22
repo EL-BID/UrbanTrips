@@ -415,26 +415,29 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     q = """
     select e.*
     from etapas e
-    left join  (select *, 1 as en_destinos from destinos) d
-    on e.id = d.id
-    where d.id is null
     order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
     """
     etapas_sin_d = pd.read_sql_query(q, conn_data)
+    etapas_sin_d = etapas_sin_d.drop(['h3_d', 'od_validado'], axis=1)
 
     etapas_destinos_potencial = dest.imputar_destino_potencial(etapas_sin_d)
     destinos = dest.imputar_destino_min_distancia(etapas_destinos_potencial)
-    destinos.to_sql("destinos", conn_data, if_exists="append", index=False)
 
-    q = """
-    select e.*,d.h3_d,d.od_validado
-    from etapas e, destinos d
-    where e.id = d.id
-    """
-    etapas = pd.read_sql(q, conn_data)
+    etapas_sin_d = etapas_sin_d.drop('h3_d', axis=1)
+    etapas = etapas_sin_d.merge(destinos, on=['id'], how='left')
+
+    etapas = etapas\
+        .sort_values(
+            ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'hora', 'tiempo'])\
+        .reset_index(drop=True)
+
+    etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
+    etapas['h3_d'] = etapas['h3_d'].fillna('')
 
     etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
 
+    etapa.reindex(columns=['id_viaje', 'id_etapa',
+                  'h3_o', 'h3_d', 'od_validado'])
     # casos para armar tests con nuevos destinos
     # tarjeta 3839538659. la vuelta en tren que termine en la estacion de tren
     assert (etapa.loc[(etapa.id_viaje == 2) & (etapa.id_etapa == 2), 'h3_d']
@@ -451,7 +454,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     # en villa fiorito
     etapa = etapas.loc[etapas.id_tarjeta == '1939538599', :]
     assert (etapa.loc[(etapa.id_viaje == 3) & (
-        etapa.id_etapa == 2), 'h3_d'].isna().iloc[0])
+        etapa.id_etapa == 2), 'h3_d'].iloc[0] == '')
 
 
 def test_viz_lowes():
@@ -762,11 +765,8 @@ def test_gps(matriz_validacion_test_amba):
     kpi.compute_kpi()
 
     q = """
-        SELECT e.dia,e.id_tarjeta,f.factor_expansion
+        SELECT e.dia,e.id_tarjeta,e.factor_expansion_linea as factor_expansion
         from etapas e
-        LEFT JOIN factores_expansion f
-        ON e.id_tarjeta = f.id_tarjeta
-        AND e.dia = f.dia
     """
     fe = pd.read_sql(q, conn_data)
     tot_pax = fe.factor_expansion.sum()
