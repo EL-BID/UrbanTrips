@@ -284,7 +284,7 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
      - id de la linea del vehiculo.
    * - *dia*
      - text
-     - dia de la transacción.
+     - dia del inicio del servicio.
    * - *interno*
      - int
      - numero de interno o vehículo utilizado en la transacción.
@@ -353,6 +353,9 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
 
 **Tablas de estadisticos**
 
+Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.
+
+
 .. list-table:: indicadores
    :widths: 25 25 50
    :header-rows: 1
@@ -360,9 +363,25 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *a*
+   * - *dia*
+     - text
+     - dia de lastransacciones procesadas en esta corrida.
+   * - *detalle*
+     - text
+     - tipo de indicador a calcular.
+   * - *indicador*
      - int
-     - 
+     - cantidad de observaciones registradas para ese indicador en ese dia.          
+   * - *tabla*
+     - text
+     - tabla donde	se almacenan esas observaciones.
+   * - *nivel*
+     - int
+     - nivel del indicador que expresa la relación con un indicador previo más global.
+   * - *porcentaje*
+     - float
+     - la cantidad de observaciones expresadas como porcentaje de un indicador previo más global.     
+     
 
 
 .. list-table:: services_stats
@@ -372,9 +391,37 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *a*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea de los servicios.
+   * - *dia*
+     - text
+     - dia de los datos sobre los cuales se calculan los estadísticos.
+   * - *cant_servicios_originales*
+     - int
+     - cantidad de servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.
+   * - *cant_servicios_nuevos*
+     - int
+     - cantidad de servicios tal como fueron inferidos por UrbanTrips.
+   * - *cant_servicios_nuevos_validos*
+     - int
+     - cantidad de servicios inferidos por UrbanTrips considerados validos.
+   * - *n_servicios_nuevos_cortos*
+     - int
+     - cantidad de servicios inferidos por UrbanTrips con menos de 5 puntos gps.
+   * - *prop_servicios_cortos_nuevos_idling*
+     - float
+     - proporcion de servicios nuevos cortos que se encuentran detenidos.
+   * - *distancia_recorrida_original*
+     - int
+     - distancia acumulada en km por servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.     
+   * - *prop_distancia_recuperada*
+     - int
+     - proporción de la distancia recorrida original recuperada en los servicios validos inferidos por UrbanTrips.      
+   * - *servicios_originales_sin_dividir*
+     - float
+     - proporción de servicios originales dentro de los cuales hay uno y solo un servicio valido inferio por UrbanTrips.
+      
 
 
 
@@ -385,9 +432,42 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *a*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea sobre el que se calculan los estadísticos.
+   * - *day_type*
+     - text
+     - dia o tipo de día sobre el cual se calcula los estadísticos.
+   * - *n_sections*
+     - int
+     - cantidad de secciones en las que se segmentó el recorrido representativo de la linea.
+   * - *section_meters*
+     - int
+     - largo en metros de la sección sobre la que se computa los estadísticos de ocupación. 
+   * - *sentido*
+     - text
+     - sentido de las etapas utilizadas para calcular los estadísticos de ocupación.
+   * - *section_id*
+     - float
+     - id de la sección para la que se calcula los estadísticos. Tambíén el % del LRS del inicio de la sección sobre el recorrido representativo de la linea.
+   * - *X*
+     - float
+     - coordenada del inicio de la sección.
+   * - *y*
+     - float
+     - coordenada del inicio de la sección.
+   * - *hora_min*
+     - int
+     - hora mínima de las etapas a utilizar para calcular los estadísticos.
+   * - *hora_max*
+     - int
+     - hora máxima de las etapas a utilizar para calcular los estadísticos.
+   * - *cantidad_etapas*
+     - int
+     - cantidad de etapas en esa sección para ese día y horas.
+   * - *prop_etapas*
+     - float
+     - proporción de etapas de esa sección sobre el total de etapas para ese día y horas.
 
 
 
