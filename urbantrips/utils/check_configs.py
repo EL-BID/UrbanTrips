@@ -228,12 +228,11 @@ def check_config():
 
     if configs['zonificaciones']:
         for i in configs['zonificaciones']:
-            if 'geo' in i:
-                if configs['zonificaciones'][i]:
-                    geo_file = os.path.join(
-                        "data", "data_ciudad", configs['zonificaciones'][i])
-                    assert os.path.exists(
-                        geo_file), f"File {geo_file} does not exist"
+            if ('geo' in i) and (configs['zonificaciones'][i]):
+                geo_file = os.path.join(
+                    "data", "data_ciudad", configs['zonificaciones'][i])
+                assert os.path.exists(
+                    geo_file), f"File {geo_file} does not exist"
 
     # check epsg in meters
     assert 'epsg_m' in configs, "Debe haber un atributo `epsg_m` en config " +\
@@ -332,7 +331,6 @@ def create_config():
                     config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0])            
                     config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
 
-    # path = 'example.yaml'
     with open(path, 'w', encoding='utf8') as file:
 
         file.write('# Archivo de configuración para urbantrips\n\n' )
@@ -342,9 +340,8 @@ def create_config():
 
             for _, x in tmp.iterrows():
                 x.default = check_if_list(x.default)
-                if _ == 0:
-                    if len(x.descripcion_general)>0:
-                        file.write(f'# {x.descripcion_general}\n' )
+                if (_ == 0) and (len(x.descripcion_general)>0):
+                    file.write(f'# {x.descripcion_general}\n' )
 
                 if len(tmp.variable.unique()) == 1:
                     if _ == 0:
@@ -367,7 +364,7 @@ def create_config():
 
                         else:
                             file.write(f'    {x.subvar}: '.ljust(15))
-                            file.write(f'['.ljust(48))                        
+                            file.write('['.ljust(48))                        
                             if len(x.descripcion_campo)>0:                            
                                 file.write(f'# {x.descripcion_campo}'.ljust(15))                        
                             file.write('\n')
@@ -400,7 +397,7 @@ def create_config():
 
                         else:
                             file.write(f'    {x.variable}: '.ljust(15))
-                            file.write(f'['.ljust(48))
+                            file.write('['.ljust(48))
                             if len(x.descripcion_campo)>0:                            
                                 file.write(f'# {x.descripcion_campo}'.ljust(15))                        
                             file.write('\n')
