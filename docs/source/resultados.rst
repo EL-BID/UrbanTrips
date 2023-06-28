@@ -62,7 +62,7 @@ Un grupo de tablas guardan los microdatos de las transacciónes, etapas, viajes,
      - longitud.
    * - *factor_expansion*
      - float
-     - factor de expansión original.
+     - factor de expansión original tal cual viene en transacciones. Si no es una muestra es 1.
 
                         
             
@@ -121,15 +121,12 @@ Un grupo de tablas guardan los microdatos de las transacciónes, etapas, viajes,
    * - *od_validado*
      - int
      - indica si la etapa es válida (1) o no puede imputarse un destino (0). 
-   * - *factor_expansion_original*
-     - float
-     - factor de expansión para las etapas.
    * - *factor_expansion_linea*
      - float
-     - factor de expansión para las etapas que expande cada etapa para que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.
+     - factor de expansión para las etapas que expande cada etapa de modo que que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.
    * - *factor_expansion_tarjeta*
      - float
-     - factor de expansión para las etapas que expande cada etapa para que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.
+     - factor de expansión para las etapas que expande cada etapa modo que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.
 
 
 
@@ -530,9 +527,21 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea
+   * - *nombre_linea*
+     - text
+     - nombre de fantasía de la linea o el que figura en el cartel 
+   * - *modo*
+     - text
+     - Modo estandarizado de la linea.
+   * - *empresa*
+     - text
+     - empresa a la que pertenece la linea.     
+   * - *descripcion*
+     - text
+     - campo que almacena algun texto descriptivo de la linea.        
      
 .. list-table:: metadata_ramales
    :widths: 25 25 50
@@ -541,9 +550,24 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_ramal*
      - int
-     - 
+     - id del ramal
+   * - *id_linea*
+     - int
+     - id de la linea a la que pertenece el ramal
+   * - *nombre_ramal*
+     - text
+     - nombre de fantasía del ramal o el que figura en el cartel 
+   * - *modo*
+     - text
+     - Modo estandarizado del ramal.
+   * - *empresa*
+     - text
+     - empresa a la que pertenece la linea.     
+   * - *descripcion*
+     - text
+     - campo que almacena algun texto descriptivo del ramal	.        
 
 .. list-table:: matriz_validacion
    :widths: 25 25 50
@@ -552,9 +576,17 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea a la que pertenece la parada.
+   * - *parada*
+     - text
+     - coordenada h3 a la que pertenece la parada.
+   * - *area_influencia*
+     - text
+     - coordenada h3 de una celda adyacente parte del area de influencia de la parada.
+     
+     
 
 .. list-table:: lines_geoms
    :widths: 25 25 50
@@ -563,9 +595,14 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea al que pertenece el recorrido.
+   * - *wkt*
+     - text
+     - recorrido de la linea en formato WKT.
+     
+     
 
 .. list-table:: branches_geoms
    :widths: 25 25 50
@@ -574,9 +611,12 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_ramal*
      - int
-     - 
+     - id del ramal al que pertenece el recorrido.
+   * - *wkt*
+     - text
+     - recorrido del ramal en formato WKT.
 
 .. list-table:: stops
    :widths: 25 25 50
@@ -585,9 +625,31 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *id_linea*
      - int
-     - 
+     - id de la linea a la que pertenece la parada.
+   * - *id_ramal*
+     - int
+     - id del ramal al que pertenece la parada.
+   * - *node_id*
+     - int
+     - id del nodo que unifica paradas de la misma linea en un nodo unico.
+   * - *branch_stop_order*
+     - int
+     - orden de paso de la parada en el ramal.
+   * - stop_x
+     - float
+     - coordenada de la parada.     
+   * - stop_y
+     - float
+     - coordenada de la parada.
+   * - node_x
+     - float
+     - coordenada del nodo.
+   * - node_y
+     - float
+     - coordenada del nodo.
+
 
 .. list-table:: zonas
    :widths: 25 25 50
@@ -596,9 +658,23 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
+   * - *h3*
+     - text
+     - indice h3.
+   * - *fex*
+     - float
+     - cantidad de etapas con origen en el indice. 
+   * - *latitud*
+     - float
+     - latitud del centroide del indice h3.
+   * - *longitud*
+     - float
+     - longitud del centroide del indice h3.
+   * - *Zona_voi*
      - int
-     - 
+     - id de la zona voronoi al que pertenece el indice h3.     
+
+     
 
 .. list-table:: distancias
    :widths: 25 25 50
@@ -607,9 +683,27 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - Campo
      - Tipo de dato
      - Descripción
-   * - *s*
-     - int
-     - 
-    
+   * - *h3_o*
+     - text
+     - indice h3 de origen.
+   * - *h3_d*
+     - text
+     - indice h3 de destino.    
+   * - *h3_o_norm*
+     - text
+     - indice h3 de origen con el sentido normalizado.
+   * - *h3_d_norm*
+     - text
+     - indice h3 de destino con el sentido normalizado.
+   * - *distance_osm_drive*
+     - float
+     - distancia calculada sobre red de callejero en km - manejando.    
+   * - *distance_osm_walk*
+     - float
+     - distancia calculada sobre red de callejero en km- caminando.
+   * - *distance_h3*
+     - float
+     - distancia euclidiana en km.
+
 
 
