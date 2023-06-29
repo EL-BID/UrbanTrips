@@ -43,7 +43,9 @@ Por último el ``formato_fecha`` especifica el formato en el que se encuentra el
 Parámetros de imputación de destinos
 ------------------------------------
 
-Este otro grupo de parámetros controla el método de imputación de destinos. Por un lado establece el criterio de tolerancia de la distancia entre la siguiente transaccion de esa tarjeta y alguna parada de la linea utilizada en la etapa a la que se está imputando el destino. Si la distancia es mayor a esta tolerancia, no se imputará destino. El parametro  ``imputar_destinos_min_distancia`` establece si se imputará la localización de la siguiente transacción como destino o la localización de la parada de la linea utilizada en la etapa que minimice la distancia con respecto a la siguiente transacción.
+Este otro grupo de parámetros controla el método de imputación de destinos. Urbantrips utiliza como referencia para imputar para el destino de la transacción `t` la localización de la transacción `t + 1`. Asume que una persona que se tomo la Línea 1 se baja en una parada de esa linea "cercana" a su siguiente transacción. Si la siguiente transacción se encuentra muy lejos, se asume que hubo algun modo de transporte no registrado en la tarjeta en el medio y por ende no se puede imputar destino con cierta confiabilidad. El parámetro ``tolerancia_parada_destino`` establece este criterio de tolerancia en terminios de distancia (en metros). Si la distancia es mayor a esta tolerancia, no se imputará destino. 
+
+Por otro lado, Urbantrips puede imputar el destino de la transacción `t` en la misma ubicación que `t + 1` (haya allí una parada de la Línea 1 o no) o puede escoger la parada de la Línea 1 más cercana a la localización de `t + 1`. El parametro  ``imputar_destinos_min_distancia`` establece si se imputará la localización de la siguiente transacción como destino o la localización de la parada de la linea utilizada en esa etapa que minimice la distancia con respecto a la siguiente transacción.
 
  .. code:: 
  
