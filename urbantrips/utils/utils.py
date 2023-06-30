@@ -9,10 +9,6 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 
-# from urbantrips.utils.check_configs import (check_config_fecha,
-#                                     check_config,
-#                                     )
-
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
