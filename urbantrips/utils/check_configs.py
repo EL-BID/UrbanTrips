@@ -36,7 +36,7 @@ def check_if_list(string):
         try:
             # Convert the string to a list using ast.literal_eval()
             result = ast.literal_eval(string)
-        except:
+        except ValueError:
             pass
         
     return result
@@ -98,7 +98,7 @@ def check_config_fecha(df, columns_with_date, date_format):
     string = f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el " +\
         f"{round((checkeo * 100),2)} por ciento de registros" +\
         f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
-    # assert checkeo < 0.8, string
+
     result = None
     if checkeo >= 0.8:
         result = string
@@ -226,7 +226,7 @@ def check_config():
                     if len(x.subvar) > 0:
 
                         if type(x.default) != list:
-                            if not x.default == '':
+                            if x.default != '':
                                 if type(x.default) == str:
                                     file.write(f'    {x.subvar}: "{x.default}"'.ljust(67) ) #subvars
 
@@ -258,7 +258,7 @@ def check_config():
                         
                         
                         if type(x.default) != list:     
-                            if not x.default == '':
+                            if x.default != '':
                                 if type(x.default) == str:
                                     file.write(f'{x.variable}: "{x.default}"'.ljust(67) )
 
@@ -343,14 +343,14 @@ def check_config():
 
         try:
             resolucion_h3 = int(config_default.loc[(config_default.variable == 'resolucion_h3'), 'default'].values[0])
-        except:
+        except ValueError:
             resolucion_h3 = -99
         if (resolucion_h3 < 0) | (resolucion_h3 > 16):
             errores += ["El parámetro 'resolucion_h3' debe ser un entero entre 0 y 16"]
 
         try:
             tolerancia_parada_destino = int(config_default.loc[(config_default.variable == 'tolerancia_parada_destino'), 'default'].values[0])
-        except:
+        except ValueError:
             tolerancia_parada_destino = -99
 
         if (tolerancia_parada_destino < 0) | (tolerancia_parada_destino > 10000):
