@@ -115,6 +115,7 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
                 file.write(content)
 
 def create_configuracion(configs):
+
     configuracion = pd.DataFrame([], 
                              columns=['item', 
                                       'variable', 
@@ -123,7 +124,8 @@ def create_configuracion(configs):
                                       'default',
                                       'obligatorio', 
                                       'descripcion_campo', 
-                                      'descripcion_general'])
+                                      'descripcion_general',
+                                      'valor'])
 
     if configs:
         for i in configs:   
@@ -142,7 +144,7 @@ def create_configuracion(configs):
                     configuracion = pd.concat([
                             configuracion,
                             pd.DataFrame([[i, x, y]], columns=['variable', 'subvar', 'valor']) ])
-    return configuracion
+    return configuracion.fillna('')
     
 def revise_configs(configs):
 
@@ -150,21 +152,23 @@ def revise_configs(configs):
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
     config_default = pd.read_excel(conf_path).fillna('')
-    
-    config_default['valor'] = '0'
-    for _, i in config_default.iterrows():
 
+    for _, i in config_default.iterrows():
+        
+        try:
+            valor = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0]
+        except (IndexError, ValueError):
+            valor = ''
+        try:
+            subvar = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].subvar.values[0]
+        except (IndexError, ValueError):
+            subvar = ''
+        
         if (i.subvar_param):
-            if (len(configuracion[(configuracion.variable==i.variable)])>0) & \               
-                (configuracion[(configuracion.variable==i.variable)].valor.notna().values[0]):
-                config_default.loc[_, 'subvar'] = configuracion[(configuracion.variable==i.variable)].subvar.values[0]
-                config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)].valor.values[0])
-                config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
-        else:
-            if (len(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)]) > 0) & \
-               (configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.notna().values[0]):
-                    config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0])            
-                    config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
+            config_default.loc[_, 'subvar'] = subvar
+
+        if valor:
+            config_default.loc[_, 'default'] = valor
 
     return config_default
 
@@ -255,6 +259,7 @@ def write_config(config_default):
             file.write('\n')
             
 def check_config_errors(config_default):
+
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
     configuraciones = pd.read_excel(conf_path).fillna('')
     
@@ -302,10 +307,11 @@ def check_config_errors(config_default):
                 if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
                     errores += ['"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
 
-
+        config_default.loc[config_default.default=='True', 'default'] = True
+        config_default.loc[config_default.default=='False', 'default'] = False
         for i in vars_boolean:
-            if not ((config_default.loc[(config_default.variable == i[0])&(config_default.subvar == i[1]), 'default'].values[0] == 'True') | \
-                    (config_default.loc[(config_default.variable == i[0])&(config_default.subvar == i[1]), 'default'].values[0] == 'False')):
+            if not ((config_default.loc[(config_default.variable == i[0])&(config_default.subvar == i[1]), 'default'].values[0] == True) | \
+                    (config_default.loc[(config_default.variable == i[0])&(config_default.subvar == i[1]), 'default'].values[0] == False)):
                 if len(i[1]) > 0:
                     errores += [f'"{i[1]}" debe ser True o False']
                 else:
@@ -351,8 +357,6 @@ def check_config():
     Returns:
     None
     """
-
-
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     configs = leer_configs_generales()
     config_default = revise_configs(configs)
