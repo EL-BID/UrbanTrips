@@ -114,18 +114,16 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
             with open(file_path, 'w') as file:
                 file.write(content)
 
-                
-def revise_configs(configs):
-
+def create_configuracion(configs):
     configuracion = pd.DataFrame([], 
-                                 columns=['item', 
-                                          'variable', 
-                                          'subvar', 
-                                          'subvar_param', 
-                                          'default',
-                                          'obligatorio', 
-                                          'descripcion_campo', 
-                                          'descripcion_general'])
+                             columns=['item', 
+                                      'variable', 
+                                      'subvar', 
+                                      'subvar_param', 
+                                      'default',
+                                      'obligatorio', 
+                                      'descripcion_campo', 
+                                      'descripcion_general'])
 
     if configs:
         for i in configs:   
@@ -144,6 +142,11 @@ def revise_configs(configs):
                     configuracion = pd.concat([
                             configuracion,
                             pd.DataFrame([[i, x, y]], columns=['variable', 'subvar', 'valor']) ])
+    return configuracion
+    
+def revise_configs(configs):
+
+    configuracion = create_configuracion(configs)
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
     config_default = pd.read_excel(conf_path).fillna('')
