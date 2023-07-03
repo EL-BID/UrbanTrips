@@ -9,7 +9,6 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 
-
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
@@ -505,6 +504,9 @@ def create_db():
     print("Todas las tablas creadas")
 
 
+
+
+    
 def leer_configs_generales():
     """
     Esta funcion lee los configs generales
@@ -516,6 +518,7 @@ def leer_configs_generales():
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
         print(f'Error al leer el archivo de configuracion: {error}')
+        config = {}
 
     return config
 
@@ -821,218 +824,6 @@ def crear_tablas_indicadores_operativos():
     )
 
     conn_data.close()
-
-
-def check_config():
-    """
-    This function takes a configuration file in yaml format
-    and read its content. Then check for any inconsistencies
-    in the file, printing an error message if one is found.
-
-    Args:
-    None
-
-    Returns:
-    None
-
-    """
-    print("Chequeando archivo de configuracion")
-    configs = leer_configs_generales()
-    nombre_archivo_trx = configs["nombre_archivo_trx"]
-
-    ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-    trx = pd.read_csv(ruta, nrows=1000)
-
-    # chequear que esten los atributos obligatorios
-    configs_obligatorios = [
-        'geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
-        'nombre_archivo_trx', 'nombres_variables_trx',
-        'imputar_destinos_min_distancia', 'formato_fecha', 'columna_hora',
-        'ordenamiento_transacciones', 'lineas_contienen_ramales']
-
-    for param in configs_obligatorios:
-        if param not in configs:
-            raise KeyError(
-                f'Error: El archivo de configuracion no especifica el parámetro {param}')
-
-    # check branch param
-    mensaje = "Debe especificarse `lineas_contienen_ramales`"
-    assert 'lineas_contienen_ramales' in configs, mensaje
-    assert configs['lineas_contienen_ramales'] is not None, mensaje
-    assert isinstance(configs['lineas_contienen_ramales'],
-                      bool), '`lineas_contienen_ramales` debe ser True o False'
-
-    # Chequear que los parametros tengan valor correcto
-    assert isinstance(configs['geolocalizar_trx'],
-                      bool), "El parámetro geolocalizar_trx debe ser True o False"
-
-    assert isinstance(configs['columna_hora'],
-                      bool), "El parámetro columna_hora debe ser True o False"
-
-    assert isinstance(configs['resolucion_h3'], int) and configs['resolucion_h3'] >= 0 and configs[
-        'resolucion_h3'] <= 15, "El parámetro resolucion_h3 debe ser un entero entre 0 y 16"
-
-    assert isinstance(configs['tolerancia_parada_destino'], int) and configs['tolerancia_parada_destino'] >= 0 and configs[
-        'tolerancia_parada_destino'] <= 10000, "El parámetro tolerancia_parada_destino debe ser un entero entre 0 y 10000"
-
-    assert not isinstance(configs['nombre_archivo_trx'], type(
-        None)), "El parámetro nombre_archivo_trx no puede estar vacío"
-
-    # chequear nombres de variables en archivo trx
-    nombres_variables_trx = configs['nombres_variables_trx']
-    assert isinstance(nombres_variables_trx,
-                      dict), "El parámetro nombres_variables_trx debe especificarse como un diccionario"
-
-    nombres_variables_trx = pd.DataFrame(
-        {'trx_name': nombres_variables_trx.keys(), 'csv_name': nombres_variables_trx.values()})
-
-    nombres_variables_trx_s = nombres_variables_trx.csv_name.dropna()
-    nombres_var_config_en_trx = nombres_variables_trx_s.isin(trx.columns)
-
-    if not nombres_var_config_en_trx.all():
-        raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo csv de transacciones: ' +
-                       ','.join(nombres_variables_trx_s[~nombres_var_config_en_trx]))
-
-    # check mandatory attributes for trx
-    atributos_trx_obligatorios = pd.Series(
-        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx'])
-
-    if not configs['geolocalizar_trx']:
-        trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, trx_coords])
-    else:
-        # if geocoding vehicle id but be present
-        interno_col = pd.Series(['interno_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, interno_col])
-
-    if configs['lineas_contienen_ramales']:
-        # if branches branch id must be present
-        ramal_trx = pd.Series(['id_ramal_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, ramal_trx])
-
-    attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
-        nombres_variables_trx.dropna().trx_name)
-
-    assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes: " + \
-        ','.join(atributos_trx_obligatorios[~attr_obligatorios_en_csv])
-
-    # check date
-    columns_with_date = configs['nombres_variables_trx']['fecha_trx']
-    date_format = configs['formato_fecha']
-    check_config_fecha(
-        df=trx, columns_with_date=columns_with_date, date_format=date_format)
-
-    # check consistency in params
-
-    if configs['ordenamiento_transacciones'] == 'fecha_completa':
-
-        assert isinstance(configs['ventana_viajes'], int) and configs['ventana_viajes'] >= 1 and configs[
-            'ventana_viajes'] <= 1000, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_viajes' debe ser un entero mayor a 0"
-
-        assert isinstance(configs['ventana_duplicado'],
-                          int) and configs['ventana_duplicado'] >= 1, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_duplicado' debe ser un entero mayor a 0"
-
-    # check consistency in geocoding
-
-    if configs['geolocalizar_trx']:
-        mensaje = "Si geolocalizar_trx = True entonces se debe especificar un archivo con informacion gps" + \
-            " con los parámetros `nombre_archivo_gps` y `nombres_variables_gps`"
-        assert 'nombre_archivo_gps' in configs, mensaje
-        assert configs['nombre_archivo_gps'] is not None, mensaje
-
-        assert 'nombres_variables_gps' in configs, mensaje
-        nombres_variables_gps = configs['nombres_variables_gps']
-
-        assert isinstance(nombres_variables_gps,
-                          dict), "El parámetro nombres_variables_gps debe especificarse como un diccionario"
-
-        ruta = os.path.join("data", "data_ciudad",
-                            configs['nombre_archivo_gps'])
-        gps = pd.read_csv(ruta, nrows=1000)
-
-        nombres_variables_gps = pd.DataFrame(
-            {
-                'trx_name': nombres_variables_gps.keys(),
-                'csv_name': nombres_variables_gps.values()
-            }
-        )
-
-        nombres_variables_gps_s = nombres_variables_gps.csv_name.dropna()
-        nombres_var_config_en_gps = nombres_variables_gps_s.isin(gps.columns)
-
-        if not nombres_var_config_en_gps.all():
-            raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
-                           nombres_variables_gps_s[~nombres_var_config_en_gps])
-
-        # chequear que todos los atributos obligatorios de trx
-        # tengan un atributo en el csv
-        atributos_gps_obligatorios = pd.Series(
-            ['id_linea_gps',
-             'interno_gps',
-             'fecha_gps',
-             'latitud_gps',
-             'longitud_gps'])
-
-        if configs['lineas_contienen_ramales']:
-            ramal_gps = pd.Series(['id_ramal_gps'])
-            atributos_gps_obligatorios = pd.concat(
-                [atributos_gps_obligatorios, ramal_gps])
-
-        attr_obligatorios_en_csv = atributos_gps_obligatorios.isin(
-            nombres_variables_gps.trx_name)
-
-        assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
-            ','.join(atributos_gps_obligatorios[~attr_obligatorios_en_csv])
-
-        # chequear validez de fecha
-        columns_with_date = configs['nombres_variables_gps']['fecha_gps']
-        check_config_fecha(
-            df=gps,
-            columns_with_date=columns_with_date, date_format=date_format)
-
-    # Checkear que existan los archivos de zonficación especificados config
-    assert 'zonificaciones' in configs, "Debe haber un atributo " +\
-        "`zonificaciones` en config aunque este vacío"
-
-    if configs['zonificaciones']:
-        for i in configs['zonificaciones']:
-            if 'geo' in i:
-                geo_file = os.path.join(
-                    "data", "data_ciudad", configs['zonificaciones'][i])
-                assert os.path.exists(
-                    geo_file), f"File {geo_file} does not exist"
-
-    # check epsg in meters
-    assert 'epsg_m' in configs, "Debe haber un atributo `epsg_m` en config " +\
-        "especificando un id de EPSG para una proyeccion en metros"
-
-    assert isinstance(
-        configs['epsg_m'], int), "Debe haber un id de EPSG en metros en" +\
-        " configs['epsg_m'] "
-
-    print("Proceso de chequeo de archivo de configuración concluido con éxito")
-    return None
-
-
-def check_config_fecha(df, columns_with_date, date_format):
-    """
-    Esta funcion toma un dataframe, una columna donde se guardan fechas,
-    un formato de fecha, intenta parsear las fechas y arroja un error
-    si mas del 80% de las fechas no pueden parsearse
-    """
-    fechas = pd.to_datetime(
-        df[columns_with_date], format=date_format, errors="coerce"
-    )
-
-    # Chequear si el formato funciona
-    checkeo = fechas.isna().sum() / len(df)
-    string = "Corrija el formato de fecha en config. Actualmente se pierden" +\
-        f"{round((checkeo * 100),2)} por ciento de registros"
-    assert checkeo < 0.8, string
-
 
 def check_table_in_db(table_name, tipo_db):
     """
