@@ -155,14 +155,14 @@ def revise_configs(configs):
     for _, i in config_default.iterrows():
 
         if (i.subvar_param):
-            if len(configuracion[(configuracion.variable==i.variable)])>0:                    
-                if configuracion[(configuracion.variable==i.variable)].valor.notna().values[0]:
-                    config_default.loc[_, 'subvar'] = configuracion[(configuracion.variable==i.variable)].subvar.values[0]
-                    config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)].valor.values[0])
-                    config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
+            if (len(configuracion[(configuracion.variable==i.variable)])>0) &                    
+                (configuracion[(configuracion.variable==i.variable)].valor.notna().values[0]):
+                config_default.loc[_, 'subvar'] = configuracion[(configuracion.variable==i.variable)].subvar.values[0]
+                config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)].valor.values[0])
+                config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
         else:
-            if len(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)]) > 0:
-                if configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.notna().values[0]:
+            if (len(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)]) > 0) &
+               (configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.notna().values[0]):
                     config_default.loc[_, 'valor'] = str(configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0])            
                     config_default.loc[_, 'default'] = config_default.loc[_, 'valor']
 
