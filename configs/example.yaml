@@ -1,0 +1,107 @@
+# Archivo de configuración para urbantrips
+
+# Bases de datos
+nombre_archivo_trx: "amba_muestra5.csv"                            # Especificar el archivo con las transacciones a consumir
+
+alias_db_data: "amba_muestra5"                                     # nombre del sqlite donde se guardan los datos procesados
+
+alias_db_insumos: "amba"                                           # nombre del sqlite donde se guardan los insumos generales
+
+
+# Nombre de columnas en el archivo de transacciones
+nombres_variables_trx:
+    id_trx: "id"                                                   # columna con id único del archivo de transacciones
+    fecha_trx: "FECHA"                                             # columna con fecha de la transacción
+    id_tarjeta_trx: "id_tarjeta"                                   # columna con id de la tarjeta
+    modo_trx: "modo"                                               # columna con modo de transporte
+    hora_trx: "hora"                                               # columna con hora de la transacción
+    id_linea_trx: "id_linea"                                       # columna con el id de la línea
+    id_ramal_trx:                                                  # columna con el ramal de la línea
+    interno_trx: "interno_bus"                                     # columna con interno de la línea
+    orden_trx: "etapa_red_sube"                                    # columna con el orden de la transacción (si falta hora/minuto en fecha_trx)
+    latitud_trx: "lat"                                             # columna con la latitud de la transacción
+    longitud_trx: "lon"                                            # columna con longitud de la transacción
+    factor_expansion: "fex_linea"                                  # columna con el factor de expansión
+
+# Parámetros de transacciones
+ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha o por variable orden_trx
+
+ventana_viajes: "120"                                              # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
+
+ventana_duplicado: "5"                                             # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
+
+geolocalizar_trx: "0"                                              
+
+tipo_trx_invalidas:
+    tipo_trx_tren: [                                               # lista con el contenido a eliminar de la variable seleccionada
+                "CHECK OUT SIN CHECKIN",
+                "CHECK OUT",
+                      ]
+
+
+# Imputación de destino
+tolerancia_parada_destino: "2200"                                  # Distancia para la validación de los destinos (metros)
+
+imputar_destinos_min_distancia: "0"                                # Busca la parada que minimiza la distancia con respecto a la siguiente trancción
+
+
+# Parámetros geográficos
+resolucion_h3: "8"                                                 # Resolución de los hexágonos
+
+epsg_m: "9265"                                                     # Parámetros geográficos: crs
+
+
+nombre_archivo_gps:
+
+# Nombre de columnas en el archivo de GPS
+nombres_variables_gps:
+    id_gps:                                                        
+    id_linea_gps:                                                  
+    id_ramal_gps:                                                  
+    interno_gps:                                                   
+    fecha_gps:                                                     
+    latitud_gps:                                                   
+    longitud_gps:                                                  
+
+# Información para procesamiento de líneas
+nombre_archivo_informacion_lineas:                                 
+informacion_lineas_contiene_ramales: "True"                        
+lineas_contienen_ramales: "False"                                  # Especificar si las líneas de colectivo contienen ramales
+
+
+formato_fecha: "%d/%m/%Y %H:%M:%S"                                 
+columna_hora:                                                      
+
+modos:
+    autobus:                                                       
+    tren:                                                          
+    metro:                                                         
+    tranvia:                                                       
+    brt:                                                           
+
+recorridos_geojson:
+
+filtro_latlong_bbox:
+    minx:                                                          
+    miny:                                                          
+    maxx:                                                          
+    maxy:                                                          
+
+# Zonificaciones
+zonificaciones:
+    geo1:                                                          
+    var1:                                                          
+    orden1:                                                        
+    geo2:                                                          
+    var2:                                                          
+    orden2:                                                        
+    geo3:                                                          
+    var3:                                                          
+    orden3:                                                        
+    geo4:                                                          
+    var4:                                                          
+    orden4:                                                        
+    geo5:                                                          
+    var5:                                                          
+    orden5:                                                        
+

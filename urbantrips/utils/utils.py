@@ -518,6 +518,7 @@ def leer_configs_generales():
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
         print(f'Error al leer el archivo de configuracion: {error}')
+        config = {}
 
     return config
 
