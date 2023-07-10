@@ -149,7 +149,7 @@ def bring_latlon(x, latlon='lat'):
         posi = 1
     try:
         result = float(x.split(',')[posi])
-    except: #AttributeError:
+    except (AttributeError, IndexError): 
         result = 0
     return result
 
