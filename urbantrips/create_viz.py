@@ -3,10 +3,10 @@ from urbantrips.datamodel.misc import persist_datamodel_tables
 from urbantrips.viz import viz
 from urbantrips.viz_ppt_utils import viz_ppt_utils
 from urbantrips.utils import utils
-
+from urbantrips.utils.check_configs import check_config
 
 def main():
-    utils.check_config()
+    check_config()
 
     # Prduce main viz
     viz.create_visualizations()

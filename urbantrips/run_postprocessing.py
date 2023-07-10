@@ -3,10 +3,10 @@ from urbantrips.kpi import kpi
 from urbantrips.viz import viz
 from urbantrips.carto import carto
 from urbantrips.utils import utils
-
+from urbantrips.utils.check_configs import check_config
 
 def main():
-    utils.check_config()
+    check_config()
 
     # Compute and viz route section load by line
     kpi.compute_route_section_load(id_linea=False, rango_hrs=False)

@@ -71,7 +71,11 @@ def get_stop_hex_ring(h, ring_size):
 
 
 def h3togeo(x):
-    return str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
+    try:
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])            
+    except (TypeError, ValueError):
+        result = ''
+    return result
 
 
 def h3dist(x, distancia_entre_hex=1, h3_o='', h3_d=''):
@@ -138,35 +142,35 @@ def create_voronoi(centroids, var_zona='Zona'):
     return regions_df
 
 
+def bring_latlon(x, latlon='lat'):
+    if latlon == 'lat':
+        posi = 0
+    if latlon == 'lon':
+        posi = 1
+    try:
+        result = float(x.split(',')[posi])
+    except: #AttributeError:
+        result = 0
+    return result
+
 def normalizo_lat_lon(df,
                       h3_o='h3_o',
                       h3_d='h3_d',
                       origen='',
                       destino=''):
+    
     if len(origen) == 0:
         origen = h3_o
     if len(destino) == 0:
         destino = h3_d
 
     df["origin"] = df[h3_o].apply(h3togeo)
-    df['lon_o_tmp'] = (
-        df["origin"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    df['lat_o_tmp'] = (
-        df["origin"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
-
-    df["destination"] = df[h3_d].apply(h3togeo)
-    df['lon_d_tmp'] = (
-        df["destination"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    df['lat_d_tmp'] = (
-        df["destination"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
+    df['lon_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lon')
+    df['lat_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lat')
+       
+    df["destination"] = df[h3_d].apply(h3togeo)        
+    df['lon_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lon')
+    df['lat_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lat')
 
     if 'h3_' not in origen:
         cols = {destino: origen, 'lat_d_tmp': 'lat_o_tmp',
