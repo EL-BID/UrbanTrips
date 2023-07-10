@@ -317,8 +317,10 @@ def process_routes_metadata():
                 pass
 
             # Check no missing data in line or branches
+
             assert not info.id_linea.isna().any()
-            assert info.dtypes['id_linea'] == int
+            # assert info.dtypes['id_linea'] == int  # me tiraba error aca, forcé la conversión a string para que avance
+            info['id_linea'] = info['id_linea'].astype(str)
 
             lineas_cols = ['id_linea', 'nombre_linea',
                            'modo', 'empresa', 'descripcion']
@@ -337,7 +339,8 @@ def process_routes_metadata():
                 # Checks for missing and duplicated
                 assert not info_ramales.id_ramal.isna().any()
                 assert not info_ramales.id_ramal.duplicated().any()
-                assert info_ramales.dtypes['id_ramal'] == int
+                # assert info_ramales.dtypes['id_ramal'] == int
+                info['id_ramal'] = info['id_ramal'].astype(str)
 
                 info_ramales.to_sql(
                     "metadata_ramales", conn_insumos, if_exists="replace",

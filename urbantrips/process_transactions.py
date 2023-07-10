@@ -4,11 +4,11 @@ from urbantrips.destinations import destinations as dest
 from urbantrips.geo import geo
 from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
-
+from urbantrips.utils.check_configs import check_config
 
 def main():
     # Check config file consistency
-    utils.check_config()
+    check_config()
 
     # Read config file
     configs = utils.leer_configs_generales()

@@ -194,6 +194,7 @@ def write_config(config_default):
                     if len(x.subvar) > 0:
 
                         if type(x.default) != list:
+                            
                             if x.default != '':
                                 if (type(x.default) == str) & ~((x.default == 'True')|(x.default == 'False')):
                                     file.write(f'    {x.subvar}: "{x.default}"'.ljust(67) ) #subvars
@@ -306,7 +307,7 @@ def check_config_errors(config_default):
                     errores += ['"ventana_viajes" debe tener una valor en minutos definido (ej. 60 minutos)']
                 if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
                     errores += ['"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
-
+        
         config_default.loc[config_default.default=='True', 'default'] = True
         config_default.loc[config_default.default=='False', 'default'] = False
         for i in vars_boolean:
@@ -339,6 +340,69 @@ def check_config_errors(config_default):
         if (tolerancia_parada_destino < 0) | (tolerancia_parada_destino > 10000):
             errores += ["El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"]
 
+        # ordenamiento de transacciones
+        if config_default[config_default.variable=='ordenamiento_transacciones'].default.values[0] == 'fecha_completa':
+            if len(date_format) < 14:
+                errores += ['La variable "fecha_trx" debe tener hora/minuto para ordenamiento']
+        elif config_default[config_default.variable=='ordenamiento_transacciones'].default.values[0] == 'orden_trx':
+            if not orden_trx:
+                errores += ['La variable "orden_trx" debe estar especificada para ordenar transacciones']
+        else:
+            errores += ['"ordenamiento_transacciones" debe ser "fecha_completa" o "orden_trx"']
+        
+        # Chequea exista variable ramal si lineas contienen ramales
+        lineas_contienen_ramales = config_default[config_default.variable=='lineas_contienen_ramales'].default.values[0]
+        if (lineas_contienen_ramales)& \
+           (not config_default[(config_default.variable=='nombres_variables_trx')& \
+                      (config_default.subvar=='id_ramal_trx')].default.values[0]):
+
+            errores += ['Debe especificarse el campo "id_ramal_trx" del archivo de transacciones']
+
+        nombre_archivo_informacion_lineas = config_default.loc[
+                                                config_default.variable == 'nombre_archivo_informacion_lineas'].default.values[0]     
+        
+        if nombre_archivo_informacion_lineas:
+            ruta = os.path.join("data", "data_ciudad", nombre_archivo_informacion_lineas)
+            if not os.path.isfile(ruta):
+                errores += [f'No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas']
+            else:
+                # Check all columns are present
+                if lineas_contienen_ramales:
+                    cols = ['id_linea', 'nombre_linea',
+                                        'id_ramal', 'nombre_ramal', 'modo']
+                else:
+                    cols = ['id_linea', 'nombre_linea', 'modo']
+
+                info = pd.read_csv(ruta)
+                
+                if not pd.Series(cols).isin(info.columns).all():
+                    errores += 'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas}"'
+            
+        # chequea modos
+        modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
+        modos_faltantes = [i for i in info.modo.unique() if not i in modos]
+        if modos_faltantes:
+            errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
+            
+    geolocalizar_trx = config_default.loc[config_default.variable == 'geolocalizar_trx'].default.values[0]    
+    nombre_archivo_gps = config_default.loc[config_default.variable == 'nombre_archivo_gps'].default.values[0]
+    
+    if (geolocalizar_trx) and (not nombre_archivo_gps):
+        errores += ['Para gelocalizar transacciones debe estar especificado el archivo de transacciones gps']
+    
+    if nombre_archivo_gps:
+        ruta = os.path.join("data", "data_ciudad", nombre_archivo_gps)    
+        if not os.path.isfile(ruta):
+            errores += [f'No se encuentra el archivo de transacciones gps {ruta}']
+            cols = ['id_linea_gps', 'interno_gps', 'fecha_gps', 'latitud_gps', 'longitud_gps']
+            for i in cols:
+                var_gps = config_default.loc[(config_default.variable == 'nombres_variables_gps')&
+                                             (config_default.subvar == i)].default.values[0]
+                if not var_gps:
+                    errores += [f'Debe especificarse la variable {i} del archivo de transacciones gps']
+    
+
+    
     error_txt = '\n'
     for i in errores:
         error_txt += 'ERROR: '+i + '\n'

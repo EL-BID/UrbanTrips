@@ -23,9 +23,10 @@ Cotenido
    primeros_pasos
    configuracion
    inputs
+   factores_expansion
    lineas_ramales
    resultados
-   servicios
+   servicios   
    
    
 .. note::
