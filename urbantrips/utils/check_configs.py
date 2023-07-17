@@ -147,33 +147,43 @@ def create_configuracion(configs):
     return configuracion.fillna('')
     
 def revise_configs(configs):
-
+    
     configuracion = create_configuracion(configs)
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
     config_default = pd.read_excel(conf_path).fillna('')
 
     for _, i in config_default.iterrows():
-        
-        try:
-            valor = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0]
-        except (IndexError, ValueError):
-            valor = ''
-        try:
-            subvar = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].subvar.values[0]
-        except (IndexError, ValueError):
-            subvar = ''
-        
-        if (i.subvar_param):
-            config_default.loc[_, 'subvar'] = subvar
-
+        if not (i.subvar_param):
+            try:
+                valor = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].valor.values[0]
+            except (IndexError, ValueError):
+                valor = ''
+            try:
+                subvar = configuracion[(configuracion.variable==i.variable)&(configuracion.subvar==i.subvar)].subvar.values[0]
+            except (IndexError, ValueError):
+                subvar = ''
+        else:        
+            try:
+                subvar = configuracion[(configuracion.variable==i.variable)].subvar.values[0]
+            except (IndexError, ValueError):
+                subvar = ''
+                
+            try:
+                valor = configuracion[(configuracion.variable==i.variable)].valor.values[0]
+            except (IndexError, ValueError):
+                valor = ''
+        if subvar:  
+            config_default.loc[_, 'subvar'] = subvar      
         if valor:
-            config_default.loc[_, 'default'] = valor
-
+            if type(valor) == list:
+                config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = f'{valor}'
+            else:
+                config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = valor
+        
     return config_default
 
 def write_config(config_default):
-
     path = os.path.join("configs", "configuraciones_generales.yaml")
 
     with open(path, 'w', encoding='utf8') as file:
@@ -185,17 +195,19 @@ def write_config(config_default):
 
             for _, x in tmp.iterrows():  
                 x.default = check_if_list(x.default)
+                
                 if (_ == 0) and (len(x.descripcion_general)>0):
                     file.write(f'# {x.descripcion_general}\n' )
 
-                if len(tmp.variable.unique()) == 1:
-                    if _ == 0:
-                        file.write(f'{x.variable}:\n' )
-                    if len(x.subvar) > 0:
+                if len(tmp.variable.unique()) == 1:  
 
+                    if len(x.subvar) > 0:                        
+                        if _ == 0:                        
+                            file.write(f'{x.variable}: \n' )
                         if type(x.default) != list:
                             
                             if x.default != '':
+                                
                                 if (type(x.default) == str) & ~((x.default == 'True')|(x.default == 'False')):
                                     file.write(f'    {x.subvar}: "{x.default}"'.ljust(67) ) #subvars
 
@@ -209,8 +221,9 @@ def write_config(config_default):
                                 file.write(f'# {x.descripcion_campo}')                        
 
                         else:
+                            
                             file.write(f'    {x.subvar}: '.ljust(15))
-                            file.write('['.ljust(48))                        
+                            file.write('['.ljust(52))                        
                             if len(x.descripcion_campo)>0:                            
                                 file.write(f'# {x.descripcion_campo}'.ljust(15))                        
                             file.write('\n')
@@ -222,42 +235,54 @@ def write_config(config_default):
                             file.write(''.ljust(22)+']\n')
 
                         file.write('\n')
-                else:
-                    if len(x.variable) > 0:
                         
+                    else:           
                         
-                        if type(x.default) != list:     
-                            if x.default != '':
-                                if (type(x.default) == str) & ~((x.default == 'True')|(x.default == 'False')):
-                                    file.write(f'{x.variable}: "{x.default}"'.ljust(67) )
+                        if x.default != '':                            
+                            if (type(x.default) == str) & ~((x.default == 'True')|(x.default == 'False')):
+                                file.write(f'{x.variable}: "{x.default}"'.ljust(67) ) #subvars
+                            else:
+                                file.write(f'{x.variable}: {x.default}'.ljust(67) ) #subvars
+                        if len(x.descripcion_campo)>0:                            
+                            file.write(f'# {x.descripcion_campo}'.ljust(15))                        
+                            file.write('\n')
 
-                                else:
-                                    file.write(f'{x.variable}: {x.default}'.ljust(67) )
+                elif len(x.variable) > 0:
+                    
+                    if type(x.default) != list:     
+                        if x.default != '':
+                            if (type(x.default) == str) & ~((x.default == 'True')|(x.default == 'False')):
+                                file.write(f'{x.variable}: "{x.default}"'.ljust(67) )
 
                             else:
-                                file.write(f'{x.variable}: '.ljust(67) )
-                            
-
-                            if len(x.descripcion_campo)>0:                                 
-                                file.write(f'# {x.descripcion_campo}\n')                        
+                                file.write(f'{x.variable}: {x.default}'.ljust(67) )
 
                         else:
-                            file.write(f'    {x.variable}: '.ljust(15))
-                            file.write('['.ljust(48))
-                            if len(x.descripcion_campo)>0:                            
-                                file.write(f'# {x.descripcion_campo}'.ljust(15))                        
-                            file.write('\n')
+                            file.write(f'{x.variable}: '.ljust(67) )
+                        
 
-                            for z in x.default:
-                                file.write(''.ljust(16))
-                                file.write(f'"{z}",\n')
+                        if len(x.descripcion_campo)>0:                                 
+                            file.write(f'# {x.descripcion_campo}\n')                        
 
-                            file.write(''.ljust(22)+']\n')
-
-
+                    else:
+                        
+                        file.write(f'    {x.variable}: '.ljust(15))
+                        file.write('['.ljust(48))
+                        if len(x.descripcion_campo)>0:                            
+                            file.write(f'# {x.descripcion_campo}'.ljust(15))                        
                         file.write('\n')
 
+                        for z in x.default:
+                            file.write(''.ljust(16))
+                            file.write(f'"{z}",\n')
+
+                        file.write(''.ljust(22)+']\n')
+
+
+                    file.write('\n')
+
             file.write('\n')
+
             
 def check_config_errors(config_default):
 
