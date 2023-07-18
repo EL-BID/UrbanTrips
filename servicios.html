@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="es" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clasificación de servicios &mdash; documentación de urbantrips - 0.2.0</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+        <script src="_static/translations.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Índice" href="genindex.html" />
+    <link rel="search" title="Búsqueda" href="search.html" />
+    <link rel="prev" title="Resultados finales" href="resultados.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            urbantrips
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Buscar documentos" aria-label="Buscar documentos" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Clasificación de servicios</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#como-se-clasifican-nuevos-servicios">Como se clasifican nuevos servicios?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#posibles-problemas-y-soluciones-propuestas">Posibles problemas y soluciones propuestas</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">urbantrips</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Clasificación de servicios</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/servicios.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="clasificacion-de-servicios">
+<h1>Clasificación de servicios<a class="headerlink" href="#clasificacion-de-servicios" title="Enlace permanente a este encabezado"></a></h1>
+<p>Normalmente en el modelo de datos de los Sistemas de Recaudación Electrónicos para transporte público existe una tabla de datos con la localización de los vehículos de las diferentes líneas en el tiempo (en UrbanTrips la tabla <code class="docutils literal notranslate"><span class="pre">gps</span></code>). En algunos de estos modelos, existe en esa tabla un atributo que indica cuando un vehículo comienza un servicio, es decir que se presta a subir pasajeros mientras recorre el recorrido de la línea y ramal para el que presta ese servicio. En algunas ocasiones el conductor marca un inicio de servicio para todo su turno, realizando en realidad más de un servicio y posiblemente ramales diferentes en esos servicios.</p>
+<p>Como los servicios son una unidad de información vital para obtener ciertos indicadores estadísticos del sistema, UrbanTrips procede a crear servicios en base a trazas de puntos gps cuando esta declaración de los servicios por parte del conductor no es del todo confiable. Previamente a correr los servicios es necesario que exista una tabla de gps cargada y procesada en la base de datos. Esto se puede hacer en UrbanTrips con la siguiente función, extrayendo los parámetros del archivo de configuración.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">trx</span><span class="o">.</span><span class="n">process_and_upload_gps_table</span><span class="p">(</span>
+     <span class="n">nombre_archivo_gps</span><span class="o">=</span><span class="n">nombre_archivo_gps</span><span class="p">,</span>
+     <span class="n">nombres_variables_gps</span><span class="o">=</span><span class="n">nombres_variables_gps</span><span class="p">,</span>
+     <span class="n">formato_fecha</span><span class="o">=</span><span class="n">formato_fecha</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Dicha tabla debe tener un atributo donde se especifique el inicio de un servivcio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion del especificando el [ATTR] y los valores correspondientes del siguiente modo:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">service_type_gps</span><span class="p">:</span>
+<span class="w">                     </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]:</span>
+<span class="w">                             </span><span class="nt">start_service</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
+<span class="w">                             </span><span class="nt">finish_service</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">trust_service_type_gps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+</pre></div>
+</div>
+<p>Por ultimo solo queda correr</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">services</span><span class="o">.</span><span class="n">process_services</span><span class="p">()</span>
+</pre></div>
+</div>
+<section id="como-se-clasifican-nuevos-servicios">
+<h2>Como se clasifican nuevos servicios?<a class="headerlink" href="#como-se-clasifican-nuevos-servicios" title="Enlace permanente a este encabezado"></a></h2>
+<p>UrbanTrips tomará los puntos gps que pertenezcan a un servicio tal cual fue declarado por el conductor (con el registro de apertura y cierre en la tabla gps) y procederá a clasificarlos en uno o más servicios, con su id nuevo, en base a un algoritmo que toma como elemento fundamental el orden de paso por las paradas.</p>
+<p>En ese sentido, para que el proceso funcione debe estar cargada la tabla <code class="docutils literal notranslate"><span class="pre">stops</span></code> donde se define para cada linea y ramal una serie de paradas indicadas con el orden de paso de cada ramal. Esto se crea con la siguiente función en base a un archivo csv que debe estar creado (para la creación de paradas puede seguir el notebook <code class="docutils literal notranslate"><span class="pre">Stops</span> <span class="pre">and</span> <span class="pre">nodes</span> <span class="pre">creation</span> <span class="pre">helper.ipynb</span></code> que permitirá crear paradas en base a recorridos).</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">stops</span><span class="o">.</span><span class="n">create_stops_table</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>El proceso se puede resumir del siguiente modo: cada punto gps se asignará a la parada más cercana de esa linea, con su correspondiente orden de paso. Cuando se registra una inversión en el orden de paso por parada, es decir pase de un orden ascendente a descendente o viceversa, se abrira un nuevo servicio.</p>
+<p>En el ejemplo del caso más sencillo, se puede ver que el punto con <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">10</span></code> es donde el orden de paso de paradas se invierte, por lo tanto, es a partir de ese punto que UrbanTrips regista un nuevo servicio.</p>
+<a class="reference internal image-reference" href="_images/servicios_caso_simple.png"><img alt="Clasificacion servicios linea" src="_images/servicios_caso_simple.png" style="width: 800px;" /></a>
+<p>Puede suceder que una línea tenga más de un ramal. En ese caso, se evaluará el punto gps en todos los ramales de esa linea, siempre que estén dentro de una distancia razonable. Los nodos de los ramales lejanos no serán evaluados como posible orden de paso de parada. Luego se evaluará si se registra una inversión en el sentido del orden de paso por paradas. En este caso es en el <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">7</span></code> en ambos ramales.</p>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal.png" style="width: 800px;" /></a>
+</section>
+<section id="posibles-problemas-y-soluciones-propuestas">
+<h2>Posibles problemas y soluciones propuestas<a class="headerlink" href="#posibles-problemas-y-soluciones-propuestas" title="Enlace permanente a este encabezado"></a></h2>
+<p>En el ejemplo anterior, no había ambiguedad posible dado que la inversión de sentido sucede sobre un nodo que pertenece al troncal compartido por ambos ramales. Es decir, el mismo punto gps evalúa una inversión del sentido de paso por parada en ambos ramales al mismo tiempo. Pero esto no siempre puede ser así. Puede suceder que haya inversiones en diferentes momentos para los diferentes ramales.  Un caso típico es la existencia de un ramal que un fraccionado de un ramal más largo.</p>
+<p>En este caso se registran dos inversiones de sentido. Por un lado en <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">7</span></code> al dar la vuelta sobre el ramal más extenso. Pero también se registra una inversión en <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">9</span></code>, dado que todos los puntos gps que iban más alla del ramal corto o fraccionado fueron evaluados como <code class="docutils literal notranslate"><span class="pre">NaN</span></code> o en el nodo 3 y recién percibe una inversión en el sentido del orden de paso de parada en el nodo 2. La forma que tiene UrbanTripos de resolver esto es la siguiente. Para cambiar de servicio se debe registar una inversión en todos los ramales a los cuales pertenece ese nodo. En este caso, como el nodo 5 solo pertenece al ramal A, es suficiente con que se register una sola inversión de sentido para que asigne un nuevo servicio. Pero como en el nodo 3 participan ambos ramales, a menos que esa inversión se registre en los dos, Urbantrips no abrirá un nuevo servicio.</p>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_fraccionado.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_fraccionado.png" style="width: 800px;" /></a>
+<p>Otro caso particular se da cuando existe una configuración de ramales en una linea donde hay una inversión de sentido legítima que no implica un cambio de servicio. Un ramal puede ir y venir sobre sus propios pasos, teniendo paradas a lo largo de ese recorrido. Esto puede inducir un problema en este algoritmo de clasificación de servicios. Tomemos el siguiente ejemplo:</p>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_1.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_1.png" style="width: 800px;" /></a>
+<p>Para resolverlo, dichas paradas pueden agregarse en un único nodo mediante el campo <code class="docutils literal notranslate"><span class="pre">node_id</span></code>. El proceso de clasificación de paradas en realidad utilizará los nodos. Con lo cual, si todas las paradas que puedan implicar una legitima inversión del sentido de paso quedan agrupadas en un único nodo, el algoritmo no registrará ese cambio.</p>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_2.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_2.png" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion.gif"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion.gif" style="width: 800px;" /></a>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
+        <a href="resultados.html" class="btn btn-neutral float-left" title="Resultados finales" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Derechos de autor 2023, Felipe Gonzalez &amp; Sebastian Anapolsky.</p>
+  </div>
+
+  Compilado con <a href="https://www.sphinx-doc.org/">Sphinx</a> usando un
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">tema</a>
+    proporcionado por <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

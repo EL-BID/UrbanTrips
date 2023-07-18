@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="es" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Factores de expansión &mdash; documentación de urbantrips - 0.2.0</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+        <script src="_static/translations.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Índice" href="genindex.html" />
+    <link rel="search" title="Búsqueda" href="search.html" />
+    <link rel="next" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" />
+    <link rel="prev" title="Input de datos" href="inputs.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            urbantrips
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Buscar documentos" aria-label="Buscar documentos" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Factores de expansión</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">urbantrips</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Factores de expansión</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/factores_expansion.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="factores-de-expansion">
+<h1>Factores de expansión<a class="headerlink" href="#factores-de-expansion" title="Enlace permanente a este encabezado"></a></h1>
+<p>El factor de expansión es una medida estadística que se utiliza para ajustar los datos recopilados en una muestra y hacer estimaciones más precisas sobre una población total. Se calcula mediante la relación entre el tamaño real de la población objetivo y el tamaño de la muestra utilizada. Este factor se aplica a cada respuesta individual para compensar posibles desviaciones en la representatividad de la muestra. Al utilizar el factor de expansión, se busca extrapolar los resultados de la muestra a toda la población objetivo, teniendo en cuenta características de la población objetivos u otros criterios relevantes, permitiendo obtener estimaciones más confiables y representativas de la realidad.</p>
+<p>El proceso UrbanTrips puede correrse a partir de una muestra del archivo un archivo de transacciones de uno o varios días completos. En el caso de realizarse una muestra, deberá ser una muestra de tarjetas teniendo en cuenta para las tarjetas muestreadas se incluyan todas las transacciones para el/los días del proceso.</p>
+<p>Esta muestra debe contener un campo factor de expansión que será especificado en el archivo de configuración en el campo factor_expansion en nombres_variables_trx del archivo de transacciones nombre_archivo_trx. En el caso de no especificarse el factor de expansión el proceso le asignará valor 1 a todas las transacciones.</p>
+<p>Ejecución del proceso</p>
+<p>Durante la ejecución del proceso, se realizarán validaciones a las transacciones y tarjetas que puede resultar en la eliminación de una cierta cantidad de registros. Para que los resultados se ajusten a la población total, el proceso va a construir una serie de factores de expansión teniendo en cuenta el total de transacciones, tarjetas únicas y transacciones por línea en el archivo de transacciones antes de la validación. Los campos relacionados al factor de expansión son los siguientes:</p>
+<p>Factor_expansion_original: se encuentra en la tabla de transacciones, es el factor de expansión original que venía especificado en el archivo de transacciones (en caso de ser una muestra). En caso de no ser una muestra, el valor va a ser 1 para todos los registros.</p>
+<p>Factor_expansion_tarjeta: Este factor expande a la cantidad total de tarjetas que se encuentra en el archivo de transacciones original antes de realizarse la depuración por la validación de datos. Este campo se encuentra en la tabla de etapas, viajes y tarjetas.</p>
+<p>Factor_expansion_linea: Este factor calibra el factor_expansion_tarjeta teniendo en cuenta la cantidad de transacciones por línea que se encuentran en el archivo de transacciones original antes de realizarse la depuración por la validación de datos. Este campo se encuentra en la tabla de etapas, viajes y tarjetas.</p>
+<p>Se recomienda usar factor_expansion_linea para el análisis de etapas o viajes y el factor_expansion_tarjeta si se están analizando usuarios.</p>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
+        <a href="inputs.html" class="btn btn-neutral float-left" title="Input de datos" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="lineas_ramales.html" class="btn btn-neutral float-right" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Derechos de autor 2023, Felipe Gonzalez &amp; Sebastian Anapolsky.</p>
+  </div>
+
+  Compilado con <a href="https://www.sphinx-doc.org/">Sphinx</a> usando un
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">tema</a>
+    proporcionado por <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

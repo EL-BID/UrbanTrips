@@ -20,6 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
+    <link rel="next" title="Clasificación de servicios" href="servicios.html" />
     <link rel="prev" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" /> 
 </head>
 
@@ -53,6 +54,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-insumos">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
 </ul>
 
         </div>
@@ -81,12 +83,982 @@
              
   <section id="resultados-finales">
 <h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h1>
-<p>Los resultados se guardarán en bases de <code class="docutils literal notranslate"><span class="pre">SQLite</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen dos tipos de bases fundamentales <code class="docutils literal notranslate"><span class="pre">data</span></code> e <code class="docutils literal notranslate"><span class="pre">insumos</span></code>. <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<p>Los resultados se guardarán en bases de <code class="docutils literal notranslate"><span class="pre">SQLite</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen dos tipos de bases fundamentales <code class="docutils literal notranslate"><span class="pre">data</span></code> e <code class="docutils literal notranslate"><span class="pre">insumos</span></code>. <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a transacciónes, etapas, viajes, usuarios y toda información que se actualiza con cada corrida de Urbantrips que procesa una nueva tanda de datos. Utilizando los alias del archivo de configuracion, pueden crearse diferentes bases de tipo data, una para cada periodo agregado de tiempo. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
 <section id="modelo-de-datos-de-base-data">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code><a class="headerlink" href="#modelo-de-datos-de-base-data" title="Enlace permanente a este encabezado"></a></h2>
+<p>Un grupo de tablas guardan los microdatos de las transacciónes, etapas, viajes, usuarios, servicios, gps, etc. Mientras que otro grupo de tablas guardarán los estadísticos que los analistas utilizando UrbanTrips vayan calculando para diferentes lineas.</p>
+<p><strong>Tablas de microdatos</strong></p>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">transacciónes</span><a class="headerlink" href="#id1" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id</em></p></td>
+<td><p>int</p></td>
+<td><p>id unico que identifica cada transacción en esta base de datos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_original</em></p></td>
+<td><p>text</p></td>
+<td><p>id de la transacción original en el csv usado en la corrida.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fecha</em></p></td>
+<td><p>datetime</p></td>
+<td><p>fecha de la transacción.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tiempo</em></p></td>
+<td><p>text</p></td>
+<td><p>Hora minutos y segundos de la transacción en formato HH::MM::SS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora</em></p></td>
+<td><p>int</p></td>
+<td><p>Hora de la transacción de 0 a 23.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>Modo estandarizado de la transacción.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea utilizada en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>orden_trx</em></p></td>
+<td><p>int</p></td>
+<td><p>entero incremental que indica la etapa dentro de una cadena de viajes.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>latitud</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>longitud</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión original tal cual viene en transacciones. Si no es una muestra es 1.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id2">
+<caption><span class="caption-text">etapas</span><a class="headerlink" href="#id2" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id</em></p></td>
+<td><p>int</p></td>
+<td><p>id unico que identifica cada transacción en esta base de datos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de la etapa.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_viaje</em></p></td>
+<td><p>text</p></td>
+<td><p>id del viaje de esa tarjeta para ese dia.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_etapa</em></p></td>
+<td><p>text</p></td>
+<td><p>id de la etapa de esa tarjeta para ese dia y ese viaje.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tiempo</em></p></td>
+<td><p>text</p></td>
+<td><p>Hora minutos y segundos del inicio de la etapa en formato HH::MM::SS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora</em></p></td>
+<td><p>int</p></td>
+<td><p>Hora de la transacción de 0 a 23.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>Modo estandarizado de la etapa.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea utilizada en la etapa.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal utilizado en la etapa.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la etapa.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>latitud</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>longitud</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_o</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de las coordenadas de origen.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_d</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de las coordenadas de destino.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>od_validado</em></p></td>
+<td><p>int</p></td>
+<td><p>indica si la etapa es válida (1) o no puede imputarse un destino (0).</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion_linea</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa de modo que que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa modo que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id3">
+<caption><span class="caption-text">viajes</span><a class="headerlink" href="#id3" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_viaje</em></p></td>
+<td><p>text</p></td>
+<td><p>id del viaje de esa tarjeta para ese dia.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia del viaje.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tiempo</em></p></td>
+<td><p>text</p></td>
+<td><p>Hora minutos y segundos del inicio del viaje en formato HH::MM::SS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora</em></p></td>
+<td><p>int</p></td>
+<td><p>Hora de la transacción de 0 a 23.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>Modo estandarizado del viaje. Si es etapa simple toma el de la etapa, si no puede tomar valores Multietapa (mas de una etapa mismo modo) o Multimodal.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>autobus</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en autobus.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tren</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en tren.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>metro</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en metro.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tranvia</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en tranvia.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>brt</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en brt.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>otros</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en otros modos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_o</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de las coordenadas de origen.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_d</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de las coordenadas de destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>od_validado</em></p></td>
+<td><p>int</p></td>
+<td><p>indica si todas las etapas del viaje son válidas (1) o no puede imputarse un destino en alguna (0).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>factor_expansion_linea</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id4">
+<caption><span class="caption-text">usuarios</span><a class="headerlink" href="#id4" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia del viaje.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>od_validado</em></p></td>
+<td><p>int</p></td>
+<td><p>indica si todas las etapas de todos los viajes son válidas (1) o no puede imputarse un destino en alguna (0).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>cant_viajes</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de viajes hechos por esa tarjeta en ese dia.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion_linea</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id5">
+<caption><span class="caption-text">gps</span><a class="headerlink" href="#id5" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id</em></p></td>
+<td><p>int</p></td>
+<td><p>id unico que identifica cada punto gps en esta base de datos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_original</em></p></td>
+<td><p>text</p></td>
+<td><p>id del punto gps original en el csv usado en la corrida.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea utilizada en la transacción.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fecha</em></p></td>
+<td><p>datetime</p></td>
+<td><p>fecha de la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>latitud</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>longitud</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>velocity</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad instantanea del punto gps tal cual la registra el gps (campo opcional).</p></td>
+</tr>
+<tr class="row-even"><td><p><em>service_type</em></p></td>
+<td><p>text</p></td>
+<td><p>indica el inicio y cierra del servicio tal cual lo declara el conductor del vehículo.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>distance_km</em></p></td>
+<td><p>text</p></td>
+<td><p>distancia en km entre puntos gps sucesivos en el tiempo para el mismo interno.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de las coordenadas de destino.</p></td>
+</tr>
+</tbody>
+</table>
+<p>La tabla <code class="docutils literal notranslate"><span class="pre">services</span></code> agrupa los servicios ofertados por las diferentes lineas, sin clasificarlos por ramal. Cada servicio tiene un id tal cual fue identificado por el conductor del vehículo y otro tal como fue identificado por UrbanTrips. Para cada servicio se agregan algunos datos como la hora de inicio y de fin, la cantidad de puntos gps, el porcentaje de puntos donde el vehículo estuvo detenido, etc. Existe otra tabla relacionada a esta (<code class="docutils literal notranslate"><span class="pre">services_gps_points</span></code>) donde cada punto gps  de la tabla <code class="docutils literal notranslate"><span class="pre">gps</span></code> queda registrado en un nuevo servicio indicando el <code class="docutils literal notranslate"><span class="pre">node_id</span></code> más cercano y el ramal al que pertenece.</p>
+<table class="docutils align-default" id="id6">
+<caption><span class="caption-text">services</span><a class="headerlink" href="#id6" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea del vehiculo.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia del inicio del servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>original_service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id del servicio tal cual lo declara el conductor del vehículo.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id del servicio en función del criterio que sigue UrbanTrips.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>total_points</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de puntos gps dentro del servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_km</em></p></td>
+<td><p>text</p></td>
+<td><p>distancia total en km recorrida en el servicio.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>min_ts</em></p></td>
+<td><p>text</p></td>
+<td><p>fecha de inicio del servicio en segundos Unix epoch.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>max_ts</em></p></td>
+<td><p>text</p></td>
+<td><p>fecha de fin del servicio en segundos Unix epoch.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>min_datetime</em></p></td>
+<td><p>text</p></td>
+<td><p>fecha de inicio del servicio en formato YYYY-MM-DD HH:MM:SS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>max_datetime</em></p></td>
+<td><p>text</p></td>
+<td><p>fecha de fin del servicio en formato YYYY-MM-DD HH:MM:SS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop_idling</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de puntos detenidos (distancia entre puntos menor a 100m) sobre el total de puntos gps.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>valid</em></p></td>
+<td><p>int</p></td>
+<td><p>indica si un servicio es considerado valido (1) o no (0) de acuerdo a si tiene mas de 5 puntos gps y una proporción de detención inferior a .5.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id7">
+<caption><span class="caption-text">services_gps_points</span><a class="headerlink" href="#id7" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id</em></p></td>
+<td><p>int</p></td>
+<td><p>id unico que identifica cada punto gps en esta base de datos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>original_service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id del servicio tal cual lo declara el conductor del vehículo.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>new_service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>incremental que indica un nuevo servicio dentro del original_service_id.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id del servicio en función del criterio que sigue UrbanTrips.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_ramal_gps_point</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal con el node_id más cercano.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>node_od</em></p></td>
+<td><p>int</p></td>
+<td><p>node_id del ramal más cercano.</p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tablas de estadisticos</strong></p>
+<p>Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.</p>
+<table class="docutils align-default" id="id8">
+<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id8" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de lastransacciones procesadas en esta corrida.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>detalle</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de indicador a calcular.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>indicador</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de observaciones registradas para ese indicador en ese dia.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tabla</em></p></td>
+<td><p>text</p></td>
+<td><p>tabla donde      se almacenan esas observaciones.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nivel</em></p></td>
+<td><p>int</p></td>
+<td><p>nivel del indicador que expresa la relación con un indicador previo más global.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>porcentaje</em></p></td>
+<td><p>float</p></td>
+<td><p>la cantidad de observaciones expresadas como porcentaje de un indicador previo más global.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id9">
+<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id9" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea de los servicios.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de los datos sobre los cuales se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>cant_servicios_originales</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>cant_servicios_nuevos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios tal como fueron inferidos por UrbanTrips.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>cant_servicios_nuevos_validos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios inferidos por UrbanTrips considerados validos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>n_servicios_nuevos_cortos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios inferidos por UrbanTrips con menos de 5 puntos gps.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>prop_servicios_cortos_nuevos_idling</em></p></td>
+<td><p>float</p></td>
+<td><p>proporcion de servicios nuevos cortos que se encuentran detenidos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>distancia_recorrida_original</em></p></td>
+<td><p>int</p></td>
+<td><p>distancia acumulada en km por servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>prop_distancia_recuperada</em></p></td>
+<td><p>int</p></td>
+<td><p>proporción de la distancia recorrida original recuperada en los servicios validos inferidos por UrbanTrips.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>servicios_originales_sin_dividir</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de servicios originales dentro de los cuales hay uno y solo un servicio valido inferio por UrbanTrips.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id10">
+<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id10" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea sobre el que se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>day_type</em></p></td>
+<td><p>text</p></td>
+<td><p>dia o tipo de día sobre el cual se calcula los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones en las que se segmentó el recorrido representativo de la linea.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_meters</em></p></td>
+<td><p>int</p></td>
+<td><p>largo en metros de la sección sobre la que se computa los estadísticos de ocupación.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>sentido</em></p></td>
+<td><p>text</p></td>
+<td><p>sentido de las etapas utilizadas para calcular los estadísticos de ocupación.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_id</em></p></td>
+<td><p>float</p></td>
+<td><p>id de la sección para la que se calcula los estadísticos. Tambíén el % del LRS del inicio de la sección sobre el recorrido representativo de la linea.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>X</em></p></td>
+<td><p>float</p></td>
+<td><p>coordenada del inicio de la sección.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>y</em></p></td>
+<td><p>float</p></td>
+<td><p>coordenada del inicio de la sección.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora_min</em></p></td>
+<td><p>int</p></td>
+<td><p>hora mínima de las etapas a utilizar para calcular los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hora_max</em></p></td>
+<td><p>int</p></td>
+<td><p>hora máxima de las etapas a utilizar para calcular los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>cantidad_etapas</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas en esa sección para ese día y horas.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop_etapas</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de etapas de esa sección sobre el total de etapas para ese día y horas.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id11">
+<caption><span class="caption-text">indicadores_operativos_linea</span><a class="headerlink" href="#id11" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tot_veh</em></p></td>
+<td><p>int</p></td>
+<td><p>Total de vehículos ofertados en el día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tot_km</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de kilómetros ofertados en el día.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tot_pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros en el día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt_mean</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dmt_median</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>pvd</em></p></td>
+<td><p>float</p></td>
+<td><p>Pasajeros promedio transportados por vehículo por día.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>kvd</em></p></td>
+<td><p>float</p></td>
+<td><p>Kilómetros promedio recorridos por vehículo por día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>ipk</em></p></td>
+<td><p>float</p></td>
+<td><p>Índice Pasajero Kilómetro.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo.</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 <section id="modelo-de-datos-de-base-insumos">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Enlace permanente a este encabezado"></a></h2>
+<p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<table class="docutils align-default" id="id12">
+<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id12" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>nombre_linea</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de fantasía de la linea o el que figura en el cartel</p></td>
+</tr>
+<tr class="row-even"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>Modo estandarizado de la linea.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>empresa</em></p></td>
+<td><p>text</p></td>
+<td><p>empresa a la que pertenece la linea.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>descripcion</em></p></td>
+<td><p>text</p></td>
+<td><p>campo que almacena algun texto descriptivo de la linea.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id13">
+<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id13" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea a la que pertenece el ramal</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nombre_ramal</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de fantasía del ramal o el que figura en el cartel</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>Modo estandarizado del ramal.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>empresa</em></p></td>
+<td><p>text</p></td>
+<td><p>empresa a la que pertenece la linea.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>descripcion</em></p></td>
+<td><p>text</p></td>
+<td><p>campo que almacena algun texto descriptivo del ramal     .</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id14">
+<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id14" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea a la que pertenece la parada.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>parada</em></p></td>
+<td><p>text</p></td>
+<td><p>coordenada h3 a la que pertenece la parada.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>area_influencia</em></p></td>
+<td><p>text</p></td>
+<td><p>coordenada h3 de una celda adyacente parte del area de influencia de la parada.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id15">
+<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id15" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea al que pertenece el recorrido.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>recorrido de la linea en formato WKT.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id16">
+<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id16" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal al que pertenece el recorrido.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>recorrido del ramal en formato WKT.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id17">
+<caption><span class="caption-text">stops</span><a class="headerlink" href="#id17" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea a la que pertenece la parada.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal al que pertenece la parada.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>node_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id del nodo que unifica paradas de la misma linea en un nodo unico.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>branch_stop_order</em></p></td>
+<td><p>int</p></td>
+<td><p>orden de paso de la parada en el ramal.</p></td>
+</tr>
+<tr class="row-even"><td><p>stop_x</p></td>
+<td><p>float</p></td>
+<td><p>coordenada de la parada.</p></td>
+</tr>
+<tr class="row-odd"><td><p>stop_y</p></td>
+<td><p>float</p></td>
+<td><p>coordenada de la parada.</p></td>
+</tr>
+<tr class="row-even"><td><p>node_x</p></td>
+<td><p>float</p></td>
+<td><p>coordenada del nodo.</p></td>
+</tr>
+<tr class="row-odd"><td><p>node_y</p></td>
+<td><p>float</p></td>
+<td><p>coordenada del nodo.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id18">
+<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id18" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>h3</em></p></td>
+<td><p>text</p></td>
+<td><p>indice h3.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fex</em></p></td>
+<td><p>float</p></td>
+<td><p>cantidad de etapas con origen en el indice.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>latitud</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud del centroide del indice h3.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>longitud</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud del centroide del indice h3.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Zona_voi</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la zona voronoi al que pertenece el indice h3.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id19">
+<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id19" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>h3_o</em></p></td>
+<td><p>text</p></td>
+<td><p>indice h3 de origen.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_d</em></p></td>
+<td><p>text</p></td>
+<td><p>indice h3 de destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_o_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>indice h3 de origen con el sentido normalizado.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_d_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>indice h3 de destino con el sentido normalizado.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_osm_drive</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia calculada sobre red de callejero en km - manejando.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>distance_osm_walk</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia calculada sobre red de callejero en km- caminando.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_h3</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia euclidiana en km.</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 </section>
 
@@ -95,6 +1067,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
         <a href="lineas_ramales.html" class="btn btn-neutral float-left" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="servicios.html" class="btn btn-neutral float-right" title="Clasificación de servicios" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
