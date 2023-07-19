@@ -16,17 +16,15 @@ Dicha tabla debe tener un atributo donde se especifique el inicio de un servivci
 
 .. code:: yaml
 
-   service_type_gps:
-        		[ATTR]:
-        			start_service: [VAL]
-        			finish_service: [VAL]
-
+    servicios_gps: [ATTR]
+    valor_inicio_servicio: [VAL]
+    valor_fin_servicio: [VAL]
 
 A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.  
 
 .. code:: yaml
 
-   trust_service_type_gps: False
+   utilizar_servicios_gps: False
 
 Por ultimo solo queda correr
 

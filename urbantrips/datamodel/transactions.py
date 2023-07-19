@@ -249,36 +249,38 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
     tengan equivalente en nombres_variables apareceran con NULL
     """
 
-    service_id_dict_rename_col = {}
-    # if service id column provided as dict:
-    if 'service_type_gps' in nombres_variables:
-        service_id_col = (
-            isinstance(nombres_variables['service_type_gps'], dict) &
-            (nombres_variables['service_type_gps'] is not None)
-        )
+    # if service id column provided in gps table:
+    if (
+        ('servicios_gps' in nombres_variables)
+        and (nombres_variables['servicios_gps'] is not None)
+    ):
 
-        if service_id_col:
-            # get service id data
-            service_id_dict = nombres_variables.pop('service_type_gps')
-            # get the name in the original df
-            service_id_col_name = list(service_id_dict.keys())[0]
-            # create a rename dict
-            service_id_dict_rename_col = {
-                service_id_col_name: 'service_type_gps'}
+        # get the name in the original df holding service type data
+        service_id_col_name = nombres_variables.pop('servicios_gps')
 
-            # create a replace values dict
-            service_id_values = {v: k for k,
-                                 v in service_id_dict[service_id_col_name]
-                                 .items()}
-            df[service_id_col_name] = df[service_id_col_name].replace(
-                service_id_values)
-            # remove all values besides start and end of service
-            not_service_id_values = ~df[service_id_col_name].isin(
-                service_id_values.values())
-            df.loc[not_service_id_values, service_id_col_name] = None
+        start_service_value = nombres_variables.pop('valor_inicio_servicio')
+        finish_service_value = nombres_variables.pop(
+            'valor_fin_servicio')
+
+        # create a replace values dict
+        service_id_values = {
+            start_service_value: 'start_service',
+            finish_service_value: 'finish_service'
+        }
+
+        df['service_type'] = df[service_id_col_name].replace(
+            service_id_values)
+
+        # add to the naming dict the new service type attr
+        nombres_variables.update({'service_type': ''})
+
+        # remove all values besides start and end of service
+        not_service_id_values = ~df[service_id_col_name].isin(
+            service_id_values.values())
+
+        df.loc[not_service_id_values, service_id_col_name] = None
 
     renombrar_columnas = {v: k for k, v in nombres_variables.items()}
-    renombrar_columnas.update(service_id_dict_rename_col)
 
     print("Renombrando columnas:", renombrar_columnas)
 
@@ -729,7 +731,7 @@ def process_and_upload_gps_table(nombre_archivo_gps,
         if not (gps.service_type == 'start_service').any():
             raise Exception(
                 "No hay valores que indiquen el inicio de un servicio. "
-                "Revisar el configs para service_type_gps")
+                "Revisar el configs para servicios_gps")
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)

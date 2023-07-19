@@ -405,8 +405,8 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
     # check configs if trust in service type gps
     configs = utils.leer_configs_generales()
 
-    if 'trust_service_type_gps' in configs:
-        trust_service_type_gps = configs['trust_service_type_gps']
+    if 'utilizar_servicios_gps' in configs:
+        trust_service_type_gps = configs['utilizar_servicios_gps']
 
     else:
         trust_service_type_gps = False

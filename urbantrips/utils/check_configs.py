@@ -175,7 +175,7 @@ def revise_configs(configs):
                 valor = ''
         if subvar:  
             config_default.loc[_, 'subvar'] = subvar      
-        if valor:
+        if str(valor):
             if type(valor) == list:
                 config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = f'{valor}'
             else:
