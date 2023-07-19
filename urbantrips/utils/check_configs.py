@@ -334,7 +334,7 @@ def check_config_errors(config_default):
 
         # chequea modos
         modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
-        modos_faltantes = [i for i in trx.modo.unique() if not i in modos]
+        modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
         if modos_faltantes:
             errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
         
@@ -430,10 +430,10 @@ def check_config_errors(config_default):
         if utilizar_servicios_gps:
             servicios_gps = config_default.loc[config_default.subvar == 'servicios_gps'].default.values[0]   
             if not servicios_gps:
-                errores += [f'Si se van a utilizar los servicios gps se debe especificar la variable "servicios_gps"']
+                errores += ['Si se van a utilizar los servicios gps se debe especificar la variable "servicios_gps"']
             valor_inicio_servicio = config_default.loc[config_default.variable == 'valor_inicio_servicio'].default.values[0]   
             if not valor_inicio_servicio:
-                errores += [f'Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"']
+                errores += ['Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"']
 
     
     error_txt = '\n'

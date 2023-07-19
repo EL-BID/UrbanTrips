@@ -1138,24 +1138,13 @@ def imprime_graficos_hora(viajes,
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
-    viajesxhora_dash_ant = pd.read_sql_query(
-        """
-    SELECT *
-    FROM viajes_hora
-    """,
-        conn_dash,
-    )
-
-    viajesxhora_dash_ant = viajesxhora_dash_ant[~(
-        (viajesxhora_dash_ant.desc_dia == desc_dia) &
-        (viajesxhora_dash_ant.tipo_dia == tipo_dia)
-    )]
-
-    viajesxhora_dash = pd.concat(
-        [viajesxhora_dash_ant, viajesxhora_dash], ignore_index=True)
+    query = f'DELETE FROM viajes_hora WHERE desc_dia = "{desc_dia}" and tipo_dia = "{tipo_dia}"'
+    conn_dash.execute(query)
+    conn_dash.commit()
 
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
-                            if_exists="replace", index=False)
+                            if_exists="append", index=False)
+
     conn_dash.close()
 
     # Viajes por hora
@@ -1220,22 +1209,11 @@ def imprime_graficos_hora(viajes,
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
-    vi_dash_ant = pd.read_sql_query(
-        """
-    SELECT *
-    FROM distribucion
-    """,
-        conn_dash,
-    )
+    query = f'DELETE FROM distribucion WHERE desc_dia = "{desc_dia}" and tipo_dia = "{tipo_dia}"'
+    conn_dash.execute(query)
+    conn_dash.commit()
 
-    vi_dash_ant = vi_dash_ant[~(
-        (vi_dash_ant.desc_dia == desc_dia) &
-        (vi_dash_ant.tipo_dia == tipo_dia)
-    )]
-
-    vi_dash = pd.concat([vi_dash_ant, vi_dash], ignore_index=True)
-
-    vi_dash.to_sql("distribucion", conn_dash, if_exists="replace", index=False)
+    vi_dash.to_sql("distribucion", conn_dash, if_exists="append", index=False)
     conn_dash.close()
 
     ytitle = "Viajes"
@@ -1971,29 +1949,20 @@ def lineas_deseo(df,
 
                     conn_dash = iniciar_conexion_db(tipo='dash')
 
-                    df_folium_ant = pd.read_sql_query(
-                        """
-                                        SELECT *
-                                        FROM lineas_deseo
-                                        """,
-                        conn_dash,
-                    )
+                    query = f"""
+                    DELETE FROM lineas_deseo 
+                        WHERE 
+                        desc_dia = '{desc_dia}' and 
+                        tipo_dia = '{tipo_dia}' and
+                        var_zona = '{var_zona.replace('h3_r', 'H3 Resolucion ')}' and
+                        filtro1 = '{filtro1}'
+                    """
 
-                    df_folium_ant = (
-                        df_folium_ant[~(
-                            (df_folium_ant.desc_dia == desc_dia) &
-                            (df_folium_ant.tipo_dia == tipo_dia) &
-                            (df_folium_ant.var_zona == var_zona
-                             .replace('h3_r', 'H3 Resolucion ')) &
-                            (df_folium_ant.filtro1 == filtro1)
-                        )]
-                    )
-
-                    df_folium = pd.concat(
-                        [df_folium_ant, df_folium], ignore_index=True)
+                    conn_dash.execute(query)
+                    conn_dash.commit()
 
                     df_folium.to_sql("lineas_deseo", conn_dash,
-                                     if_exists="replace", index=False)
+                                     if_exists="append", index=False)
                     conn_dash.close()
 
                     crear_mapa_folium(df_agg,
