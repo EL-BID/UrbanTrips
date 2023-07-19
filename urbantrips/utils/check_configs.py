@@ -262,7 +262,7 @@ def write_config(config_default):
                         
 
                         if len(x.descripcion_campo)>0:                                 
-                            file.write(f'# {x.descripcion_campo}\n')                        
+                            file.write(f'# {x.descripcion_campo}')                        
 
                     else:
                         
@@ -296,7 +296,6 @@ def check_config_errors(config_default):
     vars_required = []
     for _, i in configuraciones[configuraciones.obligatorio==True].iterrows():
         vars_required += [[i.variable, i.subvar]]
-
             
     errores = []
     nombre_archivo_trx = config_default.loc[config_default.variable == 'nombre_archivo_trx'].default.values[0]
@@ -332,6 +331,12 @@ def check_config_errors(config_default):
                     errores += ['"ventana_viajes" debe tener una valor en minutos definido (ej. 60 minutos)']
                 if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
                     errores += ['"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
+
+        # chequea modos
+        modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
+        modos_faltantes = [i for i in trx.modo.unique() if not i in modos]
+        if modos_faltantes:
+            errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
         
         config_default.loc[config_default.default=='True', 'default'] = True
         config_default.loc[config_default.default=='False', 'default'] = False
@@ -403,11 +408,6 @@ def check_config_errors(config_default):
                 if not pd.Series(cols).isin(info.columns).all():
                     errores += 'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas}"'
             
-        # chequea modos
-        modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
-        modos_faltantes = [i for i in info.modo.unique() if not i in modos]
-        if modos_faltantes:
-            errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
             
     geolocalizar_trx = config_default.loc[config_default.variable == 'geolocalizar_trx'].default.values[0]    
     nombre_archivo_gps = config_default.loc[config_default.variable == 'nombre_archivo_gps'].default.values[0]
@@ -425,7 +425,15 @@ def check_config_errors(config_default):
                                              (config_default.subvar == i)].default.values[0]
                 if not var_gps:
                     errores += [f'Debe especificarse la variable {i} del archivo de transacciones gps']
-    
+
+        utilizar_servicios_gps = config_default.loc[config_default.variable == 'utilizar_servicios_gps'].default.values[0]   
+        if utilizar_servicios_gps:
+            servicios_gps = config_default.loc[config_default.subvar == 'servicios_gps'].default.values[0]   
+            if not servicios_gps:
+                errores += [f'Si se van a utilizar los servicios gps se debe especificar la variable "servicios_gps"']
+            valor_inicio_servicio = config_default.loc[config_default.variable == 'valor_inicio_servicio'].default.values[0]   
+            if not valor_inicio_servicio:
+                errores += [f'Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"']
 
     
     error_txt = '\n'
