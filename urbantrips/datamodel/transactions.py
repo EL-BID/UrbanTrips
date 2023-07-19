@@ -251,16 +251,16 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
     # if service id column provided in gps table:
     if (
-        ('service_type_gps' in nombres_variables)
-        and (nombres_variables['service_type_gps'] is not None)
+        ('servicios_gps' in nombres_variables)
+        and (nombres_variables['servicios_gps'] is not None)
     ):
 
         # get the name in the original df holding service type data
-        service_id_col_name = nombres_variables['service_type_gps']
+        service_id_col_name = nombres_variables.pop('servicios_gps')
 
-        start_service_value = nombres_variables.pop('service_type_start_value')
+        start_service_value = nombres_variables.pop('valor_inicio_servicio')
         finish_service_value = nombres_variables.pop(
-            'service_type_finish_value')
+            'valor_fin_servicio')
 
         # create a replace values dict
         service_id_values = {
@@ -268,8 +268,11 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
             finish_service_value: 'finish_service'
         }
 
-        df[service_id_col_name] = df[service_id_col_name].replace(
+        df['service_type'] = df[service_id_col_name].replace(
             service_id_values)
+
+        # add to the naming dict the new service type attr
+        nombres_variables.update({'service_type': ''})
 
         # remove all values besides start and end of service
         not_service_id_values = ~df[service_id_col_name].isin(
@@ -728,7 +731,7 @@ def process_and_upload_gps_table(nombre_archivo_gps,
         if not (gps.service_type == 'start_service').any():
             raise Exception(
                 "No hay valores que indiquen el inicio de un servicio. "
-                "Revisar el configs para service_type_gps")
+                "Revisar el configs para servicios_gps")
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)
