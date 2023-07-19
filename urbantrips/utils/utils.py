@@ -9,7 +9,6 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 
-
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
@@ -51,6 +50,9 @@ def create_directories():
     os.makedirs(db_path, exist_ok=True)
 
     db_path = os.path.join("resultados", "ppts")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("resultados", "geojson")
     os.makedirs(db_path, exist_ok=True)
 
 
@@ -113,10 +115,10 @@ def create_db():
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT NOT NULL,
+            fecha datetime NOT NULL,
             id_original text,
             id_tarjeta text,
-            fecha datetime,
             dia text,
             tiempo text,
             hora int,
@@ -135,8 +137,16 @@ def create_db():
 
     conn_data.execute(
         """
+        CREATE TABLE IF NOT EXISTS dias_ultima_corrida
+            (dia INT NOT NULL)
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
         CREATE TABLE IF NOT EXISTS etapas
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT PRIMARY KEY NOT NULL,
             id_tarjeta text,
             dia text,
             id_viaje int,
@@ -149,7 +159,12 @@ def create_db():
             interno int,
             latitud float,
             longitud float,
-            h3_o text
+            h3_o text,
+            h3_d text,
+            od_validado int,
+            factor_expansion_original float,
+            factor_expansion_linea float,
+            factor_expansion_tarjeta float
             )
         ;
         """
@@ -174,7 +189,9 @@ def create_db():
             otros int,
             h3_o text,
             h3_d text,
-            od_validado int
+            od_validado int,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -187,7 +204,9 @@ def create_db():
             id_tarjeta text NOT NULL,
             dia text NOT NULL,
             od_validado int,
-            cant_viajes float
+            cant_viajes float,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -195,28 +214,13 @@ def create_db():
 
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS factores_expansion
+        CREATE TABLE IF NOT EXISTS transacciones_linea
             (
             dia text NOT NULL,
-            id_tarjeta text NOT NULL,
-            factor_expansion float,
-            factor_expansion_original float,
-            factor_calibracion float,
-            cant_trx int,
-            id_tarjeta_valido int
+            id_linea int NOT NULL,
+            transacciones float
             )
         ;
-        """
-    )
-
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS destinos
-        (id INT PRIMARY KEY     NOT NULL,
-        h3_d text,
-        od_validado int
-        )
-
         """
     )
 
@@ -240,6 +244,8 @@ def create_db():
         section_meters int,
         sentido text not null,
         section_id float not null,
+        x float,
+        y float,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
@@ -324,7 +330,7 @@ def create_db():
         ;
         """
     )
-    
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS matrices
@@ -335,12 +341,12 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null
+        Viajes int not null
         )
         ;
         """
     )
-    
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS lineas_deseo
@@ -351,7 +357,7 @@ def create_db():
         filtro1 text not null,
         Origen text not null,
         Destino text not null,
-        Viajes text not null,
+        Viajes int not null,
         lon_o float,
         lat_o float,
         lon_d float,
@@ -361,6 +367,79 @@ def create_db():
         """
     )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viajes_hora
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Hora int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribucion
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Distancia int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS indicadores
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Titulo text,
+        orden int,
+        Indicador text,
+        Valor text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
 
     conn_insumos.execute(
         """
@@ -420,10 +499,14 @@ def create_db():
 
     conn_data.close()
     conn_insumos.close()
-
+    conn_dash.close()
+    print("Fin crear base")
     print("Todas las tablas creadas")
 
 
+
+
+    
 def leer_configs_generales():
     """
     Esta funcion lee los configs generales
@@ -435,6 +518,7 @@ def leer_configs_generales():
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
         print(f'Error al leer el archivo de configuracion: {error}')
+        config = {}
 
     return config
 
@@ -501,11 +585,73 @@ def crear_tabla_gps(conn_data):
                 interno int,
                 fecha datetime,
                 latitud FLOAT,
-                longitud FLOAT
+                longitud FLOAT,
+                velocity float,
+                service_type text,
+                distance_km float,
+                h3 text
                 )
             ;
             """
     )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_gps_points
+                (
+                id INT PRIMARY KEY NOT NULL,
+                original_service_id int not null,
+                new_service_id int not null,
+                service_id int not null,
+                id_ramal_gps_point int,
+                node_id int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services
+                (
+                id_linea int,
+                dia text,
+                interno int,
+                original_service_id int,
+                service_id int,
+                total_points int,
+                distance_km float,
+                min_ts int,
+                max_ts int,
+                min_datetime text,
+                max_datetime text,
+                prop_idling float,
+                valid int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_stats
+                (
+                id_linea int,
+                dia text,
+                cant_servicios_originales int,
+                cant_servicios_nuevos int,
+                cant_servicios_nuevos_validos int,
+                n_servicios_nuevos_cortos int ,
+                prop_servicos_cortos_nuevos_idling float,
+                distancia_recorrida_original float,
+                prop_distancia_recuperada float,
+                servicios_originales_sin_dividir float
+                )
+            ;
+            """
+    )
+
+    conn_data.commit()
 
 
 def agrego_indicador(df_indicador,
@@ -513,7 +659,7 @@ def agrego_indicador(df_indicador,
                      tabla,
                      nivel=0,
                      var='indicador',
-                     var_fex='factor_expansion',
+                     var_fex='factor_expansion_linea',
                      aggfunc='sum'):
     '''
     Agrego indicadores de tablas utilizadas
@@ -679,213 +825,34 @@ def crear_tablas_indicadores_operativos():
 
     conn_data.close()
 
-
-def check_config():
+def check_table_in_db(table_name, tipo_db):
     """
-    This function takes a configuration file in yaml format
-    and read its content. Then check for any inconsistencies
-    in the file, printing an error message if one is found.
+    Checks if a tbale exists in a db
 
-    Args:
-    None
+    Parameters
+    ----------
+    table_name : str
+        Name of table to check for
+    tipo_db : str
+        db where to check. Must be data or insumos
 
-    Returns:
-    None
-
+    Returns
+    -------
+    bool
+        if that table exists in that db
     """
-    print("Chequeando archivo de configuracion")
-    configs = leer_configs_generales()
-    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    conn = iniciar_conexion_db(tipo=tipo_db)
+    cur = conn.cursor()
 
-    ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-    trx = pd.read_csv(ruta, nrows=1000)
+    q = f"""
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='{table_name}';
+    """
+    listOfTables = cur.execute(q).fetchall()
 
-    # chequear que esten los atributos obligatorios
-    configs_obligatorios = [
-        'geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
-        'nombre_archivo_trx', 'nombres_variables_trx',
-        'imputar_destinos_min_distancia', 'formato_fecha', 'columna_hora',
-        'ordenamiento_transacciones', 'lineas_contienen_ramales']
-
-    for param in configs_obligatorios:
-        if param not in configs:
-            raise KeyError(
-                f'Error: El archivo de configuracion no especifica el parámetro {param}')
-
-    # check branch param
-    mensaje = "Debe especificarse `lineas_contienen_ramales`"
-    assert 'lineas_contienen_ramales' in configs, mensaje
-    assert configs['lineas_contienen_ramales'] is not None, mensaje
-    assert isinstance(configs['lineas_contienen_ramales'],
-                      bool), '`lineas_contienen_ramales` debe ser True o False'
-
-    # Chequear que los parametros tengan valor correcto
-    assert isinstance(configs['geolocalizar_trx'],
-                      bool), "El parámetro geolocalizar_trx debe ser True o False"
-
-    assert isinstance(configs['columna_hora'],
-                      bool), "El parámetro columna_hora debe ser True o False"
-
-    assert isinstance(configs['resolucion_h3'], int) and configs['resolucion_h3'] >= 0 and configs[
-        'resolucion_h3'] <= 15, "El parámetro resolucion_h3 debe ser un entero entre 0 y 16"
-
-    assert isinstance(configs['tolerancia_parada_destino'], int) and configs['tolerancia_parada_destino'] >= 0 and configs[
-        'tolerancia_parada_destino'] <= 10000, "El parámetro tolerancia_parada_destino debe ser un entero entre 0 y 10000"
-
-    assert not isinstance(configs['nombre_archivo_trx'], type(
-        None)), "El parámetro nombre_archivo_trx no puede estar vacío"
-
-    # chequear nombres de variables en archivo trx
-    nombres_variables_trx = configs['nombres_variables_trx']
-    assert isinstance(nombres_variables_trx,
-                      dict), "El parámetro nombres_variables_trx debe especificarse como un diccionario"
-
-    nombres_variables_trx = pd.DataFrame(
-        {'trx_name': nombres_variables_trx.keys(), 'csv_name': nombres_variables_trx.values()})
-
-    nombres_variables_trx_s = nombres_variables_trx.csv_name.dropna()
-    nombres_var_config_en_trx = nombres_variables_trx_s.isin(trx.columns)
-
-    if not nombres_var_config_en_trx.all():
-        raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo csv de transacciones: ' +
-                       ','.join(nombres_variables_trx_s[~nombres_var_config_en_trx]))
-
-    # check mandatory attributes for trx
-    atributos_trx_obligatorios = pd.Series(
-        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx'])
-
-    if not configs['geolocalizar_trx']:
-        trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, trx_coords])
+    if listOfTables == []:
+        print(f"No existe la tabla {table_name} en la base")
+        return False
     else:
-        # if geocoding vehicle id but be present
-        interno_col = pd.Series(['interno_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, interno_col])
-
-    if configs['lineas_contienen_ramales']:
-        # if branches branch id must be present
-        ramal_trx = pd.Series(['id_ramal_trx'])
-        atributos_trx_obligatorios = pd.concat(
-            [atributos_trx_obligatorios, ramal_trx])
-
-    attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
-        nombres_variables_trx.dropna().trx_name)
-
-    assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes: " + \
-        ','.join(atributos_trx_obligatorios[~attr_obligatorios_en_csv])
-
-    # check date
-    columns_with_date = configs['nombres_variables_trx']['fecha_trx']
-    date_format = configs['formato_fecha']
-    check_config_fecha(
-        df=trx, columns_with_date=columns_with_date, date_format=date_format)
-
-    # check consistency in params
-
-    if configs['ordenamiento_transacciones'] == 'fecha_completa':
-
-        assert isinstance(configs['ventana_viajes'], int) and configs['ventana_viajes'] >= 1 and configs[
-            'ventana_viajes'] <= 1000, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_viajes' debe ser un entero mayor a 0"
-
-        assert isinstance(configs['ventana_duplicado'],
-                          int) and configs['ventana_duplicado'] >= 1, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_duplicado' debe ser un entero mayor a 0"
-
-    # check consistency in geocoding
-
-    if configs['geolocalizar_trx']:
-        mensaje = "Si geolocalizar_trx = True entonces se debe especificar un archivo con informacion gps" + \
-            " con los parámetros `nombre_archivo_gps` y `nombres_variables_gps`"
-        assert 'nombre_archivo_gps' in configs, mensaje
-        assert configs['nombre_archivo_gps'] is not None, mensaje
-
-        assert 'nombres_variables_gps' in configs, mensaje
-        nombres_variables_gps = configs['nombres_variables_gps']
-
-        assert isinstance(nombres_variables_gps,
-                          dict), "El parámetro nombres_variables_gps debe especificarse como un diccionario"
-
-        ruta = os.path.join("data", "data_ciudad",
-                            configs['nombre_archivo_gps'])
-        gps = pd.read_csv(ruta, nrows=1000)
-
-        nombres_variables_gps = pd.DataFrame(
-            {
-                'trx_name': nombres_variables_gps.keys(),
-                'csv_name': nombres_variables_gps.values()
-            }
-        )
-
-        nombres_variables_gps_s = nombres_variables_gps.csv_name.dropna()
-        nombres_var_config_en_gps = nombres_variables_gps_s.isin(gps.columns)
-
-        if not nombres_var_config_en_gps.all():
-            raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
-                           nombres_variables_gps_s[~nombres_var_config_en_gps])
-
-        # chequear que todos los atributos obligatorios de trx
-        # tengan un atributo en el csv
-        atributos_gps_obligatorios = pd.Series(
-            ['id_linea_gps',
-             'interno_gps',
-             'fecha_gps',
-             'latitud_gps',
-             'longitud_gps'])
-
-        if configs['lineas_contienen_ramales']:
-            ramal_gps = pd.Series(['id_ramal_gps'])
-            atributos_gps_obligatorios = pd.concat(
-                [atributos_gps_obligatorios, ramal_gps])
-
-        attr_obligatorios_en_csv = atributos_gps_obligatorios.isin(
-            nombres_variables_gps.trx_name)
-
-        assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
-            ','.join(atributos_gps_obligatorios[~attr_obligatorios_en_csv])
-
-        # chequear validez de fecha
-        columns_with_date = configs['nombres_variables_gps']['fecha_gps']
-        check_config_fecha(
-            df=gps,
-            columns_with_date=columns_with_date, date_format=date_format)
-
-    # Checkear que existan los archivos de zonficación especificados config
-    assert 'zonificaciones' in configs, "Debe haber un atributo " +\
-        "`zonificaciones` en config aunque este vacío"
-
-    if configs['zonificaciones']:
-        for i in configs['zonificaciones']:
-            if 'geo' in i:
-                geo_file = os.path.join(
-                    "data", "data_ciudad", configs['zonificaciones'][i])
-                assert os.path.exists(
-                    geo_file), f"File {geo_file} does not exist"
-
-    # check epsg in meters
-    assert 'epsg_m' in configs, "Debe haber un atributo `epsg_m` en config " +\
-        "especificando un id de EPSG para una proyeccion en metros"
-
-    assert isinstance(
-        configs['epsg_m'], int), "Debe haber un id de EPSG en metros en" +\
-        " configs['epsg_m'] "
-
-    print("Proceso de chequeo de archivo de configuración concluido con éxito")
-    return None
-
-
-def check_config_fecha(df, columns_with_date, date_format):
-    """
-    Esta funcion toma un dataframe, una columna donde se guardan fechas,
-    un formato de fecha, intenta parsear las fechas y arroja un error
-    si mas del 80% de las fechas no pueden parsearse
-    """
-    fechas = pd.to_datetime(
-        df[columns_with_date], format=date_format, errors="coerce"
-    )
-
-    # Chequear si el formato funciona
-    checkeo = fechas.isna().sum() / len(df)
-    string = "Corrija el formato de fecha en config. Actualmente se pierden" +\
-        f"{round((checkeo * 100),2)} por ciento de registros"
-    assert checkeo < 0.8, string
+        return True

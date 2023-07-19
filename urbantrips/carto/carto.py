@@ -14,7 +14,7 @@ from functools import partial
 from math import sqrt
 from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
-    create_voronoi, normalizo_lat_lon, h3dist
+    create_voronoi, normalizo_lat_lon, h3dist, bring_latlon
 )
 from urbantrips.viz import viz
 from urbantrips.utils.utils import (
@@ -22,6 +22,7 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     leer_configs_generales,
     leer_alias)
+
 
 
 @duracion
@@ -91,7 +92,9 @@ def create_zones_table():
     # leer origenes de la tabla etapas
     etapas = pd.read_sql_query(
         """
-        SELECT id, h3_o as h3, latitud, longitud from etapas
+        SELECT id, h3_o as h3, latitud, longitud, factor_expansion_linea
+        from etapas
+        where od_validado == 1
         """,
         conn_data,
     )
@@ -114,9 +117,10 @@ def create_zones_table():
         etapas.groupby(
             "h3",
             as_index=False,
-        ).agg({'id': 'count',
+        ).agg({'factor_expansion_linea': 'sum',
                'latitud': 'mean',
-               'longitud': 'mean'}).rename(columns={'id': 'fex'})
+               'longitud': 'mean'})
+        .rename(columns={'factor_expansion_linea': 'fex'})
     )
     # TODO: redo how geoms are created here
     zonas = pd.concat([zonas, zonas_ant], ignore_index=True)
@@ -131,14 +135,8 @@ def create_zones_table():
 
     # Crea la latitud y la longitud en base al h3
     zonas["origin"] = zonas["h3"].apply(h3togeo)
-    zonas["lon"] = (
-        zonas["origin"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    zonas["lat"] = (
-        zonas["origin"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
+    zonas["lon"] = zonas["origin"].apply(bring_latlon, latlon='lon')
+    zonas["lat"] = zonas["origin"].apply(bring_latlon, latlon='lat')
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -162,7 +160,7 @@ def create_zones_table():
                 zonas = gpd.sjoin(zonas, zn, how="left")
                 zonas = zonas.drop(["index_right"], axis=1)
 
-            except KeyError:
+            except (KeyError, TypeError):
                 pass
 
     zonas = zonas.drop(["geometry"], axis=1)
@@ -201,15 +199,19 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
                                       res=res)
 
     # Computa para ese hexagono el promedio ponderado de latlong
-    hexs = zonas.groupby('h3_r',
-                         as_index=False).fex.sum()
-    hexs = hexs.merge(zonas
+    zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
+
+    hexs = zonas_for_hexs.groupby('h3_r',
+                                  as_index=False).fex.sum()
+
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
-                          lambda x: np.average(x['longitud'], weights=x['fex']))
+                          lambda x: np.average(
+                              x['longitud'], weights=x['fex']))
                       .reset_index().rename(columns={0: 'longitud'}),
                       how='left')
-    hexs = hexs.merge(zonas
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
                           lambda x: np.average(x['latitud'], weights=x['fex'])
@@ -248,14 +250,14 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
         hexs_tmp = hexs.groupby('h3_r', as_index=False).fex.sum()
         hexs_tmp = hexs_tmp.merge(
-            hexs
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(
                 lambda x: np.average(x['longitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'longitud'}),
             how='left')
         hexs_tmp = hexs_tmp.merge(
-            hexs
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'latitud'}),
@@ -286,6 +288,9 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
         columns={'index': 'Zona_voi'})
     voi['Zona_voi'] = voi['Zona_voi']+1
     voi['Zona_voi'] = voi['Zona_voi'].astype(str)
+
+    file = os.path.join("data", "data_ciudad", 'zona_voi.geojson')
+    voi[['Zona_voi', 'geometry']].to_file(file)
 
     zonas = zonas.drop(['h3_r'], axis=1)
     zonas['geometry'] = zonas['h3'].apply(add_geometry)
@@ -326,13 +331,13 @@ def create_distances_table(use_parallel=False):
     q = """
     select distinct h3_o,h3_d
     from viajes
+    WHERE h3_d != ''
     union
     select distinct h3_o,h3_d
     from (
             SELECT h3_o,h3_d
             from etapas
-            INNER JOIN destinos
-            ON etapas.id = destinos.id
+            WHERE h3_d != ''
     )
     """
     pares_h3_data = pd.read_sql_query(q, conn_data).dropna()
@@ -415,33 +420,15 @@ def calculo_distancias_osm(
         if (origin not in df.columns) & (len(h3_o) > 0):
             origin = "origin"
             df[origin] = df[h3_o].apply(h3togeo)
-        df["lon_o_tmp"] = (
-            df[origin].str.split(",").apply(
-                lambda x: x[1]).str.strip().astype(float)
-        )
-        df["lat_o_tmp"] = (
-            df[origin].str.split(",").apply(
-                lambda x: x[0]).str.strip().astype(float)
-        )
+        df["lon_o_tmp"] = df[origin].apply(bring_latlon, latlon='lon')
+        df["lat_o_tmp"] = df[origin].apply(bring_latlon, latlon='lat')
 
     if (lon_d_tmp not in df.columns) | (lat_d_tmp not in df.columns):
         if (destination not in df.columns) & (len(h3_d) > 0):
             destination = "destination"
             df[destination] = df[h3_d].apply(h3togeo)
-        df["lon_d_tmp"] = (
-            df[destination]
-            .str.split(",")
-            .apply(lambda x: x[1])
-            .str.strip()
-            .astype(float)
-        )
-        df["lat_d_tmp"] = (
-            df[destination]
-            .str.split(",")
-            .apply(lambda x: x[0])
-            .str.strip()
-            .astype(float)
-        )
+        df["lon_d_tmp"] = df[destination].apply(bring_latlon, latlon='lon')
+        df["lat_d_tmp"] = df[destination].apply(bring_latlon, latlon='lat')
 
     ymin, xmin, ymax, xmax = (
         min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
@@ -506,7 +493,7 @@ def calculo_distancias_osm(
     if 'distance_osm_walk' in df.columns:
         df.loc[df.distance_osm_walk > 2000, "distance_osm_walk"] = np.nan
 
-    df = df[cols + var_distances]
+    df = df[cols + var_distances].copy()
 
     if (len(h3_o) > 0) & (len(h3_d) > 0):
         df["distance_h3"] = df[[h3_o, h3_d]].apply(
@@ -553,7 +540,7 @@ def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
 
     try:
         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
-    except:
+    except NetworkXNoPath:
         ret = np.nan
     return ret
 
