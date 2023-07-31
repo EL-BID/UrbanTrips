@@ -325,15 +325,9 @@ def plot_lineas(lineas, id_linea, day_type, n_sections):
                  )
 
     prov = cx.providers.Stamen.TonerLite
-    try:
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
-    except (UnidentifiedImageError):
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
-    except (r_ConnectionError):
-        pass
+
+    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
 
     plt.close(f)
     return f
