@@ -340,12 +340,12 @@ def create_distances_table(use_parallel=False):
             WHERE h3_d != ''
     )
     """
-    pares_h3_data = pd.read_sql_query(q, conn_data).dropna()
+    pares_h3_data = pd.read_sql_query(q, conn_data)
 
     q = """
     select h3_o,h3_d, 1 as d from distancias
     """
-    pares_h3_distancias = pd.read_sql_query(q, conn_insumos).dropna()
+    pares_h3_distancias = pd.read_sql_query(q, conn_insumos)
 
     # Unir pares od h desde data y desde distancias y quedarse con
     # los que estan en data pero no en distancias
@@ -364,31 +364,56 @@ def create_distances_table(use_parallel=False):
         print('No se pudo usar la librería pandana. ')
         print('Se va a utilizar osmnx para el cálculo de distancias')
         print('')
-        agg2 = pares_h3_norm.groupby(
+        agg2_total = pares_h3_norm.groupby(
             ['h3_o_norm', 'h3_d_norm'],
             as_index=False).size().drop(['size'], axis=1)
 
-        agg2 = calculo_distancias_osm(
-            agg2,
-            h3_o="h3_o_norm",
-            h3_d="h3_d_norm",
-            distancia_entre_hex=distancia_entre_hex,
-            processing="osmnx",
-            modes=["drive"],
-            use_parallel=use_parallel
-        )
-
-        distancias_new = pares_h3_norm.merge(agg2, how='left', on=[
-            "h3_o_norm", 'h3_d_norm'])
-
-        cols = ['h3_o', 'h3_d', 'h3_o_norm', 'h3_d_norm',
-                'distance_osm_drive', 'distance_osm_walk', 'distance_h3']
-
-        distancias_new = distancias_new.reindex(columns=cols)
-        distancias_new.to_sql("distancias", conn_insumos,
-                              if_exists="append", index=False)
-
-
+        # Determine the size of each chunk (500 rows in this case)
+        chunk_size = 2000
+        
+        # Get the total number of rows in the DataFrame
+        total_rows = len(agg2_total)
+        
+        # Loop through the DataFrame in chunks of 500 rows
+        for start in range(0, total_rows, chunk_size):
+            end = start + chunk_size
+            # Select the chunk of 500 rows from the DataFrame
+            agg2 = agg2_total.iloc[start:end].copy()
+            # Call the process_chunk function with the selected chunk
+            print(f'Bajando distancias entre {start} a {end}')
+            
+            agg2 = calculo_distancias_osm(
+                agg2,
+                h3_o="h3_o_norm",
+                h3_d="h3_d_norm",
+                distancia_entre_hex=distancia_entre_hex,
+                processing="osmnx",
+                modes=["drive"],
+                use_parallel=use_parallel
+            )
+    
+            dist1 = agg2.copy()
+            dist1['h3_o'] = dist1['h3_o_norm']
+            dist1['h3_d'] = dist1['h3_d_norm']
+            dist2 = agg2.copy()
+            dist2['h3_d'] = dist2['h3_o_norm']
+            dist2['h3_o'] = dist2['h3_d_norm']
+            distancias_new = pd.concat([dist1, dist2], ignore_index=True)
+            distancias_new = distancias_new.groupby(['h3_o', 
+                                                     'h3_d', 
+                                                     'h3_o_norm', 
+                                                     'h3_d_norm'], as_index=False)[['distance_osm_drive',      
+                                                                                    'distance_h3']].first()
+    
+            distancias_new.to_sql("distancias", conn_insumos,
+                                  if_exists="append", index=False)
+    
+            conn_insumos.close()
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+            
+        conn_insumos.close()
+        conn_data.close()
+    
 def calculo_distancias_osm(
     df,
     origin="",
@@ -403,7 +428,7 @@ def calculo_distancias_osm(
     modes=["drive", "walk"],
     distancia_entre_hex=1,
     use_parallel=False
-):
+    ):
 
     cols = df.columns.tolist()
 
@@ -445,13 +470,9 @@ def calculo_distancias_osm(
 
     for mode in modes:
         print("")
-        print(f"Coords OSM {mode} - Download map")
-        print("ymin, xmin, ymax, xmax", ymin, xmin, ymax, xmax)
-        print('Comienzo descarga de red', datetime.now())
-
-        print("")
+        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax {round(ymin,3)}, {round(xmin,3)}, {round(ymax,3)}, {round(xmax,3)} - {str(datetime.now())[:19]}")
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
-        print('Fin descarga de red', datetime.now())
+        print('Fin descarga de red', str(datetime.now())[:19])
 
         G = ox.add_edge_speeds(G)
         G = ox.add_edge_travel_times(G)
@@ -536,7 +557,7 @@ def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
 
     if idmatrix % 2000 == 0:
         date_str = datetime.now().strftime("%H:%M:%S")
-        print(f"{date_str} processing {int(idmatrix)} / {lenx}")
+        print(f"{date_str} processing {int(idmatrix)} / ")
 
     try:
         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")

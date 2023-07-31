@@ -6,7 +6,7 @@ from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 
-def main():
+def main(process_routes=True):
     # Check config file consistency
     check_config()
 
@@ -67,11 +67,12 @@ def main():
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    # Inferir route geometries based on legs data
-    routes.infer_routes_geoms(plotear_lineas=False)
-
-    # Build final routes from official an inferred sources
-    routes.build_routes_from_official_inferred()
+    if process_routes:
+        # Inferir route geometries based on legs data
+        routes.infer_routes_geoms(plotear_lineas=False)
+    
+        # Build final routes from official an inferred sources
+        routes.build_routes_from_official_inferred()
 
 
 if __name__ == "__main__":

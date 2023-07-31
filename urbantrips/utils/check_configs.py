@@ -180,7 +180,15 @@ def revise_configs(configs):
                 config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = f'{valor}'
             else:
                 config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = valor
-        
+    # Chequea si existe hora
+    # hora_trx
+    hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                           (config_default.subvar=='hora_trx'), 'default'].values[0]
+    if hora_trx:
+        config_default.loc[(config_default.variable=='columna_hora'), 'default'] = True
+    else:
+        config_default.loc[(config_default.variable=='columna_hora'), 'default'] = False
+
     return config_default
 
 def write_config(config_default):
@@ -331,6 +339,33 @@ def check_config_errors(config_default):
                     errores += ['"ventana_viajes" debe tener una valor en minutos definido (ej. 60 minutos)']
                 if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
                     errores += ['"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
+
+            # check factor_expansion
+            factor_expansion = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                                   (config_default.subvar=='factor_expansion'), 'default'].values[0]
+            if factor_expansion:
+                if factor_expansion not in trx.columns:
+                    errores += [f'La variable {factor_expansion} no se encuentra en la tabla de transacciones']
+                else:
+                    if len( trx[(trx[factor_expansion].isna())|(trx[factor_expansion]==0)] ) > 0:
+                        errores += [f'La variable {factor_expansion} no tiene valores o los valores son igual a cero']
+            # hora_trx
+            hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                                   (config_default.subvar=='hora_trx'), 'default'].values[0]
+            if hora_trx:
+                if hora_trx not in trx.columns:
+                    errores += [f'La variable {hora_trx} no se encuentra en la tabla de transacciones']
+                else:
+                    if len( trx[(trx[hora_trx].isna())] ) > 0:
+                        errores += [f'La variable {hora_trx} no tiene valores']
+                
+            # tipo_trx_invalidas
+            tipo_trx_invalidas = config_default.loc[(config_default.variable == 'tipo_trx_invalidas'), 'subvar'].values[0]
+            if tipo_trx_invalidas:
+                if tipo_trx_invalidas not in trx.columns:
+                    errores += [f'La variable {tipo_trx_invalidas} no se encuentra en la tabla de transacciones']
+
+        
 
         # chequea modos
         modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()

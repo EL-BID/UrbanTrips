@@ -161,3 +161,13 @@ configs/configuraciones_generales.yaml
 educacion.ipynb
 configs/configuraciones_generales_2019_all.yaml
 configs/configuraciones_generales____.yaml
+configs/configuraciones_generales_2019_m20.yaml
+configs/configuraciones_generales_2019_m30.yaml
+configs/configuraciones_generales_2019_m40.yaml
+configs/configuraciones_generales_202209_40.yaml
+configs/configuraciones_generales_202209_all.yaml
+configs/configuraciones_generales_test.yaml
+configs/configuraciones_generales.yaml
+*.yaml
+*.ipynb
+run_services.ipynb
