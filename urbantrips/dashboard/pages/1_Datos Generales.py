@@ -5,7 +5,7 @@ import folium
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
 from PIL import Image
-
+import requests
 import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
