@@ -63,7 +63,10 @@ def infer_destinations():
 
     etapas = pd.read_sql_query(q, conn_data)
 
-    etapas = etapas.drop(['od_validado', 'h3_d'], axis=1)
+    if 'od_validado' in etapas.columns:
+        etapas = etapas.drop(['od_validado'], axis=1)
+    if 'h3_d' in etapas.columns:
+        etapas = etapas.drop(['h3_d'], axis=1)
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
 
@@ -106,7 +109,7 @@ def infer_destinations():
 
     etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
 
-    print("Fin subir destinos")
+    print("Fin subir etapas con destinos imputados")
     conn_data.close()
 
     return None

@@ -757,20 +757,20 @@ def imprimir_matrices_od(viajes,
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)][var_fex].idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)][var_fex].idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)][var_fex].idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             imprime_od(
                 df[(df.hora.astype(int) >= manana-1) &
                     (df.hora.astype(int) <= manana+1)],
@@ -791,7 +791,7 @@ def imprimir_matrices_od(viajes,
                 filtro1='Punta mañana'
             )
 
-        if mediodia != np.nan:
+        if mediodia != None:
             imprime_od(
                 df[(df.hora.astype(int) >= mediodia-1) &
                     (df.hora.astype(int) <= mediodia+1)],
@@ -813,7 +813,7 @@ def imprimir_matrices_od(viajes,
 
             )
 
-        if tarde != np.nan:
+        if tarde != None:
             imprime_od(
                 df[(df.hora.astype(int) >= tarde-1) &
                     (df.hora.astype(int) <= tarde+1)],
@@ -969,21 +969,21 @@ def imprime_lineas_deseo(df,
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)].cant.idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)].cant.idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
 
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)].cant.idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= manana-1) &
                 (df.hora.astype(int) <= manana+1)],
@@ -1006,7 +1006,7 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Mañana')
 
-        if mediodia != np.nan:
+        if mediodia != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= mediodia-1) &
                 (df.hora.astype(int) <= mediodia+1)],
@@ -1029,7 +1029,7 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Mediodía')
 
-        if tarde != np.nan:
+        if tarde != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= tarde-1) &
                 (df.hora.astype(int) <= tarde+1)],
@@ -1541,7 +1541,7 @@ def imprime_od(
             )
 
         for _ in od_heatmap.columns:
-            od_heatmap.loc[od_heatmap[_] == 0, _] = np.nan
+            od_heatmap.loc[od_heatmap[_] == 0, _] = None
 
         if margins:
             od_heatmap_sintot = od_heatmap.copy()

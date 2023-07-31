@@ -363,7 +363,7 @@ def agrego_factor_expansion(trx, conn):
         'Cantidad de tarjetas únicas', 'tarjetas', 0,
         var_fex='factor_expansion')
 
-    tmp_trx_inicial = trx.dropna(subset=['id_tarjeta'])
+    tmp_trx_inicial = trx.dropna(subset=['id_tarjeta']).copy()
 
     # Si id_tarjeta tenía nan y eran float sacar el .0
     if tmp_trx_inicial.id_tarjeta.dtype == 'float':
