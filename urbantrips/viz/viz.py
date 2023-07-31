@@ -562,7 +562,10 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
 
         gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
 
+        gdf_d_dash['nombre_linea'] = id_linea_str
+
         cols = ['id_linea',
+                'nombre_linea',
                 'day_type',
                 'n_sections',
                 'sentido',
