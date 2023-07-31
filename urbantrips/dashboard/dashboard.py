@@ -95,7 +95,7 @@ def levanto_tabla_sql(tabla_sql):
 @st.cache_data
 def get_logo():
     if not os.path.isdir(os.path.join("docs")):
-        os.mkdir(file_logo)
+        os.mkdir(os.path.join("docs"))
     file_logo = os.path.join(
         "docs", "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
