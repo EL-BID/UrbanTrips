@@ -20,6 +20,22 @@ from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
 
+def create_linestring(df, 
+                      lat_o='lat_o', 
+                      lon_o='lon_o', 
+                      lat_d='lat_d', 
+                      lon_d='lon_d'):
+
+    # Create LineString objects from the coordinates
+    geometry = [LineString([(row['lon_o'], row['lat_o']),
+                           (row['lon_d'], row['lat_d'])])
+                for _, row in df.iterrows()]
+
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+
+    return gdf
+
 def leer_configs_generales():
     """
     Esta funcion lee los configs generales
