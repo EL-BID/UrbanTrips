@@ -9,6 +9,7 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 
+
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
@@ -426,6 +427,7 @@ def create_db():
         """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
+        nombre_linea str,
         day_type text nor null,
         n_sections int,
         sentido text not null,
@@ -504,9 +506,6 @@ def create_db():
     print("Todas las tablas creadas")
 
 
-
-
-    
 def leer_configs_generales():
     """
     Esta funcion lee los configs generales
@@ -824,6 +823,7 @@ def crear_tablas_indicadores_operativos():
     )
 
     conn_data.close()
+
 
 def check_table_in_db(table_name, tipo_db):
     """

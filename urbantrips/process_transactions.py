@@ -6,6 +6,7 @@ from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 
+
 def main():
     # Check config file consistency
     check_config()
