@@ -151,7 +151,11 @@ def revise_configs(configs):
     configuracion = create_configuracion(configs)
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
-    config_default = pd.read_excel(conf_path).fillna('')
+    if os.path.isfile(conf_path):
+        config_default = pd.read_excel(conf_path).fillna('')
+    else:
+        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/configuraciones.xlsx'
+        config_default = pd.read_excel(github_csv_url).fillna('')
 
     for _, i in config_default.iterrows():
         if not (i.subvar_param):
@@ -295,7 +299,11 @@ def write_config(config_default):
 def check_config_errors(config_default):
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
-    configuraciones = pd.read_excel(conf_path).fillna('')
+    if os.path.isfile(conf_path):
+        config_default = pd.read_excel(conf_path).fillna('')
+    else:
+        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/configuraciones.xlsx'
+        config_default = pd.read_excel(github_csv_url).fillna('')
     
     vars_boolean = []
     for _, i in configuraciones[(configuraciones.default.notna())&(configuraciones.default != '')].iterrows():
