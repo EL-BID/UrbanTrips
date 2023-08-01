@@ -300,10 +300,10 @@ def check_config_errors(config_default):
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
     if os.path.isfile(conf_path):
-        config_default = pd.read_excel(conf_path).fillna('')
+        configuraciones  = pd.read_excel(conf_path).fillna('')
     else:
         github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/configuraciones.xlsx'
-        config_default = pd.read_excel(github_csv_url).fillna('')
+        configuraciones  = pd.read_excel(github_csv_url).fillna('')
     
     vars_boolean = []
     for _, i in configuraciones[(configuraciones.default.notna())&(configuraciones.default != '')].iterrows():
