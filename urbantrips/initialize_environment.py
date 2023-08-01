@@ -6,11 +6,11 @@ from urbantrips.carto import routes, stops
 from urbantrips.utils.check_configs import check_config
 
 def main():
-    # Check config file consistency
-    check_config()
-
     # Create basic dir structure:
     utils.create_directories()
+
+    # Check config file consistency
+    check_config()
 
     # Create DB:
     utils.create_db()
