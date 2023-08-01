@@ -12,13 +12,25 @@ Como los servicios son una unidad de información vital para obtener ciertos ind
     	nombres_variables_gps=nombres_variables_gps,
     	formato_fecha=formato_fecha)
 
-Dicha tabla debe tener un atributo donde se especifique el inicio de un servivcio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion del especificando el [ATTR] y los valores correspondientes del siguiente modo:
+Dicha tabla debe tener un atributo donde se especifique el inicio de un servicio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion. Por un lado especificando la columna que almacena los datos de servicio, en el mismo lugar que se especifican las otras columnas de la tabla gps en ``servicios_gps``. Por otro lado los valores que en esa columna indican una apertura y cierre de servicios en los parámetros ``valor_inicio_servicio`` y ``valor_fin_servicio``:
+
 
 .. code:: yaml
+    nombres_variables_gps:
+        id_gps: DTSN
+        id_linea_gps: [ATTR]
+        id_ramal_gps: [ATTR]
+        interno_gps: [ATTR]
+        fecha_gps: [ATTR]
+        latitud_gps: [ATTR]
+        longitud_gps:  [ATTR]
+        servicios_gps: [ATTR]
+        velocity_gps: [ATTR]
 
-    servicios_gps: [ATTR]
+    trust_service_type_gps: False
     valor_inicio_servicio: [VAL]
     valor_fin_servicio: [VAL]
+
 
 A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.  
 
