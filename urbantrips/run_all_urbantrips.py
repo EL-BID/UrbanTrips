@@ -10,6 +10,6 @@ def main():
     process_transactions.main()
     run_postprocessing.main()
     create_viz.main()
-    !streamlit run urbantrips/dashboard/dashboard.py
+    
 if __name__ == "__main__":
     main()
