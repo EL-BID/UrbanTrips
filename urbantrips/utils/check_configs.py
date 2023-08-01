@@ -367,11 +367,11 @@ def check_config_errors(config_default):
 
         
 
-        # chequea modos
-        modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
-        modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
-        if modos_faltantes:
-            errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
+            # chequea modos
+            modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
+            modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
+            if modos_faltantes:
+                errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
         
         config_default.loc[config_default.default=='True', 'default'] = True
         config_default.loc[config_default.default=='False', 'default'] = False

@@ -21,3 +21,5 @@ streamlit
 streamlit_folium
 Pillow
 plotly
+notebook
+jupyterlab

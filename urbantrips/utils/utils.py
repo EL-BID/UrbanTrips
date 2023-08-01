@@ -32,6 +32,12 @@ def create_directories():
     db_path = os.path.join("data", "db")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("data", "data_ciudad")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("configs")
+    os.makedirs(db_path, exist_ok=True)
+
     db_path = os.path.join("resultados", "tablas")
     os.makedirs(db_path, exist_ok=True)
 
