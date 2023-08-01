@@ -312,7 +312,9 @@ def check_config_errors(config_default):
     vars_required = []
     for _, i in configuraciones[configuraciones.obligatorio==True].iterrows():
         vars_required += [[i.variable, i.subvar]]
-            
+
+    orden_trx = None
+    
     errores = []
     nombre_archivo_trx = config_default.loc[config_default.variable == 'nombre_archivo_trx'].default.values[0]
     if not nombre_archivo_trx:            
