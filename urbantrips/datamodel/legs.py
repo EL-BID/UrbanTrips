@@ -15,8 +15,9 @@ def create_legs_from_transactions(trx_order_params):
     las estructura en etapas con sus id y id viaje
     y crea la tabla etapas en la db
     """
-    print("ESTRUCTURANDO TRANSACCIONES EN ETAPAS")
-    print("Estableciendo conexion con la db")
+    print('')
+    print('create_legs_from_transactions')
+    print('-----------------------------')
 
     conn = iniciar_conexion_db(tipo='data')
     # q = """

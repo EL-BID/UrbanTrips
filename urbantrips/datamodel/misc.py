@@ -11,9 +11,11 @@ def persist_datamodel_tables():
     le suma informacion de distancias y de zonas
     y las guarda en csv
     """
-
-    print('Guarda tablas de etapas, viajes y usuarios en formato .csv')
-
+    
+    print('')
+    print('persist_datamodel_tables')
+    print('----------------------')
+    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')

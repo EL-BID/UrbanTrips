@@ -46,6 +46,9 @@ def compute_route_section_load(
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
 
     """
+    print('')
+    print('compute_route_section_load')
+    print('----------------------------')
 
     dat_type_is_a_date = is_date_string(day_type)
 

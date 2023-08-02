@@ -26,6 +26,9 @@ def create_transactions(geolocalizar_trx_config,
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
     """
+    print('')
+    print('create_transactions')
+    print('-------------------')
 
     print("Estableciendo conexion con la db")
     conn = iniciar_conexion_db(tipo='data')

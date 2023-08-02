@@ -97,6 +97,9 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         minimum width of linea for low section loads to be displayed
 
     """
+    print('')
+    print('visualize_route_section_load')
+    print('----------------------------')
     if id_linea:
 
         if type(id_linea) == int:
@@ -2132,6 +2135,10 @@ def create_visualizations():
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
+    print('')
+    print('create_visualizations')
+    print('---------------------')
+    
     pd.options.mode.chained_assignment = None
 
     # Leer informacion de viajes y distancias

@@ -17,6 +17,10 @@ def infer_destinations():
     Esta funcion lee las etapas de la db, imputa destinos potenciales
     y los valida
     """
+    print('')
+    print('infer_destinations')
+    print('------------------')
+    
     configs = leer_configs_generales()
     mensaje = "Utilizando como destino el origen de la siguiente etapa"
     try:
