@@ -499,6 +499,9 @@ def create_db():
         """
     )
 
+    # create KPI tables
+    create_kpi_tables()
+
     conn_data.close()
     conn_insumos.close()
     conn_dash.close()
@@ -778,9 +781,10 @@ def eliminar_tarjetas_trx_unica(trx):
     return trx
 
 
-def crear_tablas_indicadores_operativos():
-    """Esta funcion crea la tablas en la db para albergar los datos de
-    los indicadores operativos"""
+def create_kpi_tables():
+    """
+    Creates KPI tables in the data db
+    """
 
     conn_data = iniciar_conexion_db(tipo='data')
 
@@ -798,7 +802,8 @@ def crear_tablas_indicadores_operativos():
                 pvd float,
                 kvd float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
                 )
             ;
             """
