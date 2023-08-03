@@ -548,19 +548,22 @@ def compute_kpi():
         return None
 
     # read data
-    legs, gps = read_data_for_kpi()
+    legs, gps = read_data_for_daily_kpi()
 
-    # compute KPI per line, day and type of day
-    compute_kpi_by_line(legs=legs, gps=gps)
+    if legs:
+        # compute KPI per line and type of day
+        compute_kpi_by_line_typeday(legs=legs, gps=gps)
 
-    # compute KPI by service and day
-    compute_kpi_by_service(legs=legs, gps=gps)
+        # compute KPI per line and date
+
+        # compute KPI by service and day
+        # compute_kpi_by_service(legs=legs, gps=gps)
 
 
-def read_data_for_kpi():
+def read_data_for_daily_kpi():
     """
-    Read legs and gps data from db, adds distances to legs
-    and returns those datasets
+    Read legs and gps micro data from db and
+    merges distances to legs
 
     Parameters
     ----------
@@ -578,49 +581,65 @@ def read_data_for_kpi():
     conn_data = iniciar_conexion_db(tipo="data")
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
+    # get day with stats computed
+    processed_days_q = """
+    select distinct dia
+    from indicadores_operativos_linea
+    """
+    processed_days = pd.read_sql(processed_days_q, conn_data)
+    processed_days = processed_days.dia
+    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+
     print("Leyendo datos de oferta")
-    q = """
+    q = f"""
     select * from gps
+    where dia not in ({processed_days})
     order by dia, id_linea, interno, fecha
     """
     gps = pd.read_sql(q, conn_data)
 
     print("Leyendo datos de demanda")
-    q = """
+    q = f"""
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
         e.h3_d, e.factor_expansion_linea
         from etapas e
         where e.od_validado==1
+        and dia not in ({processed_days})
     """
     legs = pd.read_sql(q, conn_data)
 
-    print("Leyendo distancias")
-    distances = pd.read_sql_query(
-        """
-        SELECT *
-        FROM distancias
-        """,
-        conn_insumos,
-    )
+    if (len(gps) > 0) & (len(legs) > 0):
+        print("Leyendo distancias")
+        distances = pd.read_sql_query(
+            """
+            SELECT *
+            FROM distancias
+            """,
+            conn_insumos,
+        )
 
-    # TODO: USE DIFERENT DISTANCES, GRAPH
+        # TODO: USE DIFERENT DISTANCES, GRAPH
 
-    # use distances h3 when osm missing
-    distances.loc[:, ['distance']] = (
-        distances.distance_osm_drive.combine_first(distances.distance_h3)
-    )
-    distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
+        # use distances h3 when osm missing
+        distances.loc[:, ['distance']] = (
+            distances.distance_osm_drive.combine_first(distances.distance_h3)
+        )
+        distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
 
-    # add legs' distances
-    legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
+        # add legs' distances
+        legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
+    else:
+        print("No hay datos sin KPI procesados")
+        legs = False
+        gps = False
     print("Fin carga de datos de oferta y demanda")
     return legs, gps
 
 
-def compute_kpi_by_line(legs, gps):
+def compute_kpi_by_line_day(legs, gps):
     """
     Takes data for supply and demand and computes KPI at line level
-    for each day and type of day
+    for each day 
 
     Parameters
     ----------
@@ -635,60 +654,108 @@ def compute_kpi_by_line(legs, gps):
     None
 
     """
-
-    # TODO: ACCOUNT FOR PRESENT DATA
-    # TODO: UPLOAD ONLY NEW NEWS AND UPDATE WEEKDAY AND WEEKEND
-
-    # POR LINEA Y DIA
-    # SUMAR DISTANCIAS A ETAPAS
-    # VER EL OFERTA INTERNO QUE TIENE EL KVD
-    # TODO: SUMAR WEEKDAY Y WEEKEND
-    # TODO: CONSIDERAR DATA VIEJA
-
     conn_data = iniciar_conexion_db(tipo="data")
 
-    print("Calculando indicadores de demanda por linea y dia")
-
-    # get day of the week
-    weekend = pd.to_datetime(legs['dia']).dt.dayofweek > 4
-    legs.loc[:, ['type_day']] = 'weekday'
-    legs.loc[weekend, ['type_day']] = 'weekend'
-
-    # get day of the week
-    weekend = pd.to_datetime(gps['dia']).dt.dayofweek > 4
-    gps.loc[:, ['type_day']] = 'weekday'
-    gps.loc[weekend, ['type_day']] = 'weekend'
-
     # demand data
-    type_of_day_demand_stats = legs.groupby(['id_linea', 'type_day'], as_index=False).apply(
-        demand_stats
-    )
+    day_demand_stats = legs\
+        .groupby(['id_linea', 'dia'], as_index=False)\
+        .apply(demand_stats)
+
     # supply data
-    type_of_day_supply_stats = gps.groupby(['id_linea', 'type_day'], as_index=False).apply(
-        supply_stats
-    )
+    day_supply_stats = gps\
+        .groupby(['id_linea', 'dia'], as_index=False)\
+        .apply(supply_stats)
 
-    type_of_day_stats = type_of_day_demand_stats.merge(
-        type_of_day_supply_stats, how='inner', on=['id_linea', 'type_day'])
+    day_stats = day_demand_stats\
+        .merge(day_supply_stats,
+               how='inner', on=['id_linea', 'dia'])
 
-    type_of_day_stats['pvd'] = type_of_day_stats.tot_pax / \
-        type_of_day_stats.tot_veh
-    type_of_day_stats['kvd'] = type_of_day_stats.tot_km / \
-        type_of_day_stats.tot_veh
-    type_of_day_stats['ipk'] = type_of_day_stats.tot_pax / \
-        type_of_day_stats.tot_km
+    # compute KPI
+    day_stats['pvd'] = day_stats.tot_pax / \
+        day_stats.tot_veh
+    day_stats['kvd'] = day_stats.tot_km / \
+        day_stats.tot_veh
+    day_stats['ipk'] = day_stats.tot_pax / \
+        day_stats.tot_km
 
     # Calcular espacios-km ofertados (EKO) y los espacios-km demandados (EKD).
-    type_of_day_stats['ekd_mean'] = type_of_day_stats.tot_pax / \
-        type_of_day_stats.dmt_mean
-    type_of_day_stats['ekd_median'] = type_of_day_stats.tot_pax / \
-        type_of_day_stats.dmt_median
-    type_of_day_stats['eko'] = type_of_day_stats.tot_km * 60
+    day_stats['ekd_mean'] = day_stats.tot_pax * \
+        day_stats.dmt_mean
+    day_stats['ekd_median'] = day_stats.tot_pax * \
+        day_stats.dmt_median
+    day_stats['eko'] = day_stats.tot_km * 60
 
-    type_of_day_stats['fo_mean'] = type_of_day_stats.ekd_mean / \
-        type_of_day_stats.eko
-    type_of_day_stats['fo_median'] = type_of_day_stats.ekd_median / \
-        type_of_day_stats.eko
+    day_stats['fo_mean'] = day_stats.ekd_mean / \
+        day_stats.eko
+    day_stats['fo_median'] = day_stats.ekd_median / \
+        day_stats.eko
+
+    cols = [
+        "id_linea",
+        "dia",
+        "tot_veh",
+        "tot_km",
+        "tot_pax",
+        "dmt_mean",
+        "dmt_median",
+        "pvd",
+        "kvd",
+        "ipk",
+        "fo_mean",
+        "fo_median"
+    ]
+
+    day_stats = day_stats.reindex(columns=cols)
+
+    day_stats.to_sql(
+        "indicadores_operativos_linea",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    return day_stats
+
+
+def compute_kpi_by_line_typeday():
+    """
+    Takes data for supply and demand and computes KPI at line level
+    for weekday and weekend
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+
+    """
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    # delete old data
+    delete_q = """
+    DELETE FROM indicadores_operativos_linea
+    where dia in ('weekday','weekend')
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    # read daily data
+    q = """
+    select * from indicadores_operativos_linea
+    """
+    daily_data = pd.read_sql(q, conn_data)
+
+    # get day of the week
+    weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
+    daily_data.loc[:, ['dia']] = 'weekday'
+    daily_data.loc[weekend, ['dia']] = 'weekend'
+
+    # compute aggregated stats
+    type_of_day_stats = daily_data\
+        .groupby(['id_linea', 'dia'], as_index=False)\
+        .mean()
 
     print("Subiendo indicadores por linea a la db")
 
@@ -708,12 +775,15 @@ def compute_kpi_by_line(legs, gps):
     ]
 
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
+
     type_of_day_stats.to_sql(
         "indicadores_operativos_linea",
         conn_data,
         if_exists="append",
         index=False,
     )
+
+    return type_of_day_stats
 
 
 def compute_kpi_by_service(legs, gps):
@@ -800,22 +870,19 @@ def compute_kpi_by_service(legs, gps):
 def demand_stats(df):
     d = {}
     d["tot_pax"] = df["factor_expansion_linea"].sum()
-    d["tot_days"] = len(df.dia.unique())
-
     d["dmt_mean"] = np.average(
         a=df['distance'], weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
         data=df['distance'].tolist(),
         weights=df.factor_expansion_linea.tolist()
     )
-    return pd.Series(d, index=["tot_pax", "tot_days", "dmt_mean", "dmt_median"])
+
+    return pd.Series(d, index=["tot_pax", "dmt_mean", "dmt_median"])
 
 
 def supply_stats(df):
     d = {}
-
-    d["tot_days"] = len(df.dia.unique())
     d["tot_veh"] = len(df.interno.unique())
     d["tot_km"] = df.distance_km.sum()
 
-    return pd.Series(d, index=["tot_days", "tot_veh", "tot_km"])
+    return pd.Series(d, index=["tot_veh", "tot_km"])
