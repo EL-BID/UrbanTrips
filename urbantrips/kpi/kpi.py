@@ -551,13 +551,14 @@ def compute_kpi():
     legs, gps = read_data_for_daily_kpi()
 
     if legs:
+        # compute KPI per line and date
+        compute_kpi_by_line_day(legs=legs, gps=gps)
+
         # compute KPI per line and type of day
         compute_kpi_by_line_typeday(legs=legs, gps=gps)
 
-        # compute KPI per line and date
-
         # compute KPI by service and day
-        # compute_kpi_by_service(legs=legs, gps=gps)
+        compute_kpi_by_service()
 
 
 def read_data_for_daily_kpi():
@@ -572,14 +573,13 @@ def read_data_for_daily_kpi():
     Returns
     -------
     legs: pandas.DataFrame
-        data frame with legs data 
+        data frame with legs data
 
     gps: pandas.DataFrame
         gps vehicle tracking data
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # get day with stats computed
     processed_days_q = """
@@ -609,25 +609,8 @@ def read_data_for_daily_kpi():
     legs = pd.read_sql(q, conn_data)
 
     if (len(gps) > 0) & (len(legs) > 0):
-        print("Leyendo distancias")
-        distances = pd.read_sql_query(
-            """
-            SELECT *
-            FROM distancias
-            """,
-            conn_insumos,
-        )
-
-        # TODO: USE DIFERENT DISTANCES, GRAPH
-
-        # use distances h3 when osm missing
-        distances.loc[:, ['distance']] = (
-            distances.distance_osm_drive.combine_first(distances.distance_h3)
-        )
-        distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
-
-        # add legs' distances
-        legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
+        # add distances
+        legs = add_distances_to_legs(legs)
     else:
         print("No hay datos sin KPI procesados")
         legs = False
@@ -636,10 +619,56 @@ def read_data_for_daily_kpi():
     return legs, gps
 
 
+def add_distances_to_legs(legs):
+    """
+    Takes legs data and add distances to each leg
+
+    Parameters
+    ----------
+    legs : pandas.DataFrame
+        DataFrame with legs data
+
+    Returns
+    -------
+    legs : pandas.DataFrame
+        DataFrame with legs and distances data
+
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    print("Leyendo distancias")
+    distances = pd.read_sql_query(
+        """
+        SELECT *
+        FROM distancias
+        """,
+        conn_insumos,
+    )
+
+    # TODO: USE DIFERENT DISTANCES, GRAPH
+
+    print("Sumando distancias a etapas")
+    # use distances h3 when osm missing
+    distances.loc[:, ['distance']] = (
+        distances.distance_osm_drive.combine_first(distances.distance_h3)
+    )
+    distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
+
+    # add legs' distances
+    legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
+
+    no_distance = legs.distance.isna().sum()/len(legs) * 100
+    print("Hay un {:.2f} % de etapas sin distancias ".format(no_distance))
+    conn_insumos.close()
+
+    return legs
+
+
+@duracion
 def compute_kpi_by_line_day(legs, gps):
     """
     Takes data for supply and demand and computes KPI at line level
-    for each day 
+    for each day
 
     Parameters
     ----------
@@ -717,6 +746,7 @@ def compute_kpi_by_line_day(legs, gps):
     return day_stats
 
 
+@duracion
 def compute_kpi_by_line_typeday():
     """
     Takes data for supply and demand and computes KPI at line level
@@ -786,7 +816,8 @@ def compute_kpi_by_line_typeday():
     return type_of_day_stats
 
 
-def compute_kpi_by_service(legs, gps):
+@duracion
+def compute_kpi_by_service():
     """
     Takes data for supply and demand and computes KPI at service level
     for each day
@@ -805,66 +836,160 @@ def compute_kpi_by_service(legs, gps):
 
     """
 
+    conn_data = iniciar_conexion_db(tipo="data")
+
     # TODO: ACCOUNT FOR PRESENT DATA, NOT TO READ FROM EXISTING DAYS
 
-    # INTERNO
+    print("Leyendo demanda por servicios validos")
+    q_valid_services = """
+        with fechas_procesadas as (
+            select distinct dia from indicadores_operativos_servicio
+        ),
+        demand as (
+            select e.id_tarjeta, e.id, id_linea, dia, interno,
+              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
+            e.h3_o,
+            e.h3_d, e.factor_expansion_linea
+            from etapas e
+            where od_validado = 1
+            and id_linea in (select distinct id_linea from gps)
+            and dia not in fechas_procesadas
+        valid_services as (
+            select id_linea,dia,interno, service_id, min_ts, max_ts
+            from services
+            where valid = 1
+        ),
+        valid_demand as (
+            select d.*, s.service_id
+            from demand d
+            join valid_services s
+            on d.id_linea = s.id_linea
+            and d.dia = s.dia
+            and d.interno = s.interno
+            and d.ts >= s.min_ts
+            and d.ts <= s.max_ts
+            )
+            select * from valid_demand
+        ;
+        """
 
-    print("Calculando indicadores de oferta por interno")
+    valid_demand = pd.read_sql(q_valid_services, conn_data)
 
-    # Calcular kilometros vehiculo dia kvd
-    oferta_interno = gps\
-        .groupby(["id_linea", "dia", "interno"], as_index=False)\
-        .agg(kvd=("distance_km", "sum"))
+    print("Leyendo demanda por servicios invalidos")
+    q_invalid_services = """
+        with fechas_procesadas as (
+            select distinct dia from indicadores_operativos_servicio
+        ),
+        demand as (
+            select e.id_tarjeta, e.id, id_linea, dia, interno,
+              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
+            e.h3_o,
+            e.h3_d, e.factor_expansion_linea
+            from etapas e
+            where od_validado = 1
+            and id_linea in (select distinct id_linea from gps)
+            and dia not in fechas_procesadas
+        ),
+        valid_services as (
+            select id_linea,dia,interno, service_id, min_ts, max_ts
+            from services
+            where valid = 1
+        ),
+        invalid_demand as (
+            select d.*, s.service_id
+            from demand d
+            left join valid_services s
+            on d.id_linea = s.id_linea
+            and d.dia = s.dia
+            and d.interno = s.interno
+            and d.ts >= s.min_ts
+            and d.ts <= s.max_ts
+            ),
+        legs_no_service as (
+            select e.id_tarjeta, e.id, id_linea, dia, interno, ts,
+              tiempo, h3_o, h3_d,factor_expansion_linea
+            from invalid_demand e
+            where service_id is null
+        )
+        select d.*, s.service_id
+        from legs_no_service d
+        left join valid_services s
+        on d.id_linea = s.id_linea
+        and d.dia = s.dia
+        and d.interno = s.interno
+        and d.ts <= s.min_ts -- valid services begining after the leg start
+        order by d.id_tarjeta,d.dia,d.id_linea,d.interno, s.min_ts asc
+        ;
+        """
 
-    # Eliminar los vehiculos que tengan 0 kms recorridos
-    oferta_interno = oferta_interno.loc[oferta_interno.kvd > 0]
+    invalid_demand_dups = pd.read_sql(q_invalid_services, conn_data)
 
-    print("Calculando indicadores de demanda por interno")
+    # remove duplicates leaving the first, i.e. next valid service in time
+    invalid_demand = invalid_demand_dups.drop_duplicates(
+        subset=['id'], keep='first')
+    invalid_demand = invalid_demand.dropna(subset=['service_id'])
 
-    # calcular pax veh dia (pvd) y distancia media recorrida (dmt)
-    demanda_interno = etapas.groupby(
-        ["id_linea", "dia", "interno"], as_index=False
-    ).apply(indicadores_demanda_interno)
+    # create single demand by service df
+    service_demand = pd.concat([valid_demand, invalid_demand])
 
-    print("Calculando indicadores operativos por dia e interno")
-    indicadores_interno = oferta_interno.merge(
-        demanda_interno, how="left", on=["id_linea", "dia", "interno"]
+    # add distances to demand data
+    service_demand = add_distances_to_legs(legs=service_demand)
+
+    # TODO: remove this line when factor is corrected
+    service_demand['factor_expansion_linea'] = (
+        service_demand['factor_expansion_linea'].replace(0, 1)
     )
-    internos_sin_demanda = indicadores_interno.pvd.isna().sum()
-    internos_sin_demanda = round(
-        internos_sin_demanda / len(indicadores_interno) * 100, 2
-    )
-    print(f"Hay {internos_sin_demanda} por ciento de internos sin demanda")
+    # compute demand stats
+    service_demand_stats = service_demand\
+        .groupby(['dia', 'id_linea', 'interno', 'service_id'], as_index=False)\
+        .apply(demand_stats)
 
-    print("Calculando IPK y FO")
-    # calcular indice pasajero kilometros (ipk) y factor de ocupacion (fo)
-    indicadores_interno["ipk"] = indicadores_interno.pvd / \
-        indicadores_interno.kvd
+    # read supply service data
+    service_supply_q = """
+        select
+            dia,id_linea,interno,service_id,
+            distance_km as tot_km, min_datetime,max_datetime
+        from
+            services where valid = 1
+        """
+    service_supply = pd.read_sql(service_supply_q, conn_data)
 
-    # Calcular espacios-km ofertados (EKO) y los espacios-km demandados (EKD).
-    eko = indicadores_interno.kvd * 60
-    ekd = indicadores_interno.pvd * indicadores_interno.dmt_mean
-    indicadores_interno["fo"] = ekd / eko
+    # merge supply and demand data
+    service_stats = service_supply\
+        .merge(service_demand_stats, how='left',
+               on=['dia', 'id_linea', 'interno', 'service_id'])
+    service_stats.tot_pax = service_stats.tot_pax.fillna(0)
 
-    print("Subiendo indicadores por interno a la db")
-    cols = [
-        "id_linea",
-        "dia",
-        "interno",
-        "kvd",
-        "pvd",
-        "dmt_mean",
-        "dmt_median",
-        "ipk",
-        "fo",
-    ]
-    indicadores_interno = indicadores_interno.reindex(columns=cols)
-    indicadores_interno.to_sql(
-        "indicadores_operativos_interno",
+    # compute stats
+    service_stats['ipk'] = service_stats['tot_pax'] / service_stats['tot_km']
+    service_stats['ekd_mean'] = service_stats['tot_pax'] * \
+        service_stats['dmt_mean']
+    service_stats['ekd_median'] = service_stats['tot_pax'] * \
+        service_stats['dmt_median']
+    service_stats['eko'] = service_stats['tot_km'] * 60
+    service_stats['fo_mean'] = service_stats['ekd_mean'] / service_stats['eko']
+    service_stats['fo_median'] = service_stats['ekd_median'] / \
+        service_stats['eko']
+
+    service_stats['hora_inicio'] = service_stats.min_datetime.str[10:13].map(
+        int)
+    service_stats['hora_fin'] = service_stats.max_datetime.str[10:13].map(int)
+
+    # reindex to meet schema
+    cols = ['id_linea', 'dia', 'interno', 'service_id',
+            'hora_inicio', 'hora_fin', 'tot_km', 'tot_pax', 'dmt_mean',
+            'dmt_median', 'ipk', 'fo_mean', 'fo_median']
+
+    service_stats = service_stats.reindex(columns=cols)
+
+    service_stats.to_sql(
+        "indicadores_operativos_servicio",
         conn_data,
         if_exists="append",
         index=False,
     )
+
+    return service_stats
 
 
 def demand_stats(df):

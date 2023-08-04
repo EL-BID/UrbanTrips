@@ -811,17 +811,21 @@ def create_kpi_tables():
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_interno
+            CREATE TABLE IF NOT EXISTS indicadores_operativos_servicio
                 (
                 id_linea int not null,
                 dia text not null,
                 interno text not null,
-                kvd float,
-                pvd float,
+                service_id int not null,
+                hora_inicio float,
+                hora_fin float,
+                tot_km float,
+                tot_pax float,
                 dmt_mean float,
                 dmt_median float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
                 )
             ;
             """
