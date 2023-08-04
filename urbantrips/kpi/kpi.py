@@ -3,7 +3,6 @@ import geopandas as gpd
 import warnings
 import pandas as pd
 import numpy as np
-import h3
 import weightedstats as ws
 from math import floor
 import re
@@ -550,12 +549,12 @@ def compute_kpi():
     # read data
     legs, gps = read_data_for_daily_kpi()
 
-    if legs:
+    if (len(legs) > 0) & (len(gps) > 0):
         # compute KPI per line and date
         compute_kpi_by_line_day(legs=legs, gps=gps)
 
         # compute KPI per line and type of day
-        compute_kpi_by_line_typeday(legs=legs, gps=gps)
+        compute_kpi_by_line_typeday()
 
         # compute KPI by service and day
         compute_kpi_by_service()
@@ -613,8 +612,8 @@ def read_data_for_daily_kpi():
         legs = add_distances_to_legs(legs)
     else:
         print("No hay datos sin KPI procesados")
-        legs = False
-        gps = False
+        legs = pd.DataFrame()
+        gps = pd.DataFrame()
     print("Fin carga de datos de oferta y demanda")
     return legs, gps
 
@@ -854,6 +853,7 @@ def compute_kpi_by_service():
             where od_validado = 1
             and id_linea in (select distinct id_linea from gps)
             and dia not in fechas_procesadas
+        ),
         valid_services as (
             select id_linea,dia,interno, service_id, min_ts, max_ts
             from services
