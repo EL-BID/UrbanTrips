@@ -13,6 +13,8 @@ from urbantrips.utils.utils import (
 )
 
 
+# SECTION LOAD
+
 @duracion
 def compute_route_section_load(
     id_linea=False,
@@ -521,6 +523,8 @@ def get_route_section_id(point, route_geom):
     return floor_rounding(route_geom.project(point, normalized=True))
 
 
+# GENERAL PURPOSE KPIS
+
 @duracion
 def compute_kpi():
     """
@@ -1028,6 +1032,7 @@ def compute_services_by_line_hour_day():
     None
 
     """
+    conn_data = iniciar_conexion_db(tipo="data")
 
     processed_days_q = """
     select distinct dia
@@ -1042,7 +1047,7 @@ def compute_services_by_line_hour_day():
     daily_services_q = f"""
     select
         id_linea, dia, min_datetime
-    from 
+    from
         services
     where
         valid = 1
@@ -1106,7 +1111,7 @@ def compute_services_by_line_hour_typeday():
 
     """
 
-    conn_data = utils.iniciar_conexion_db(tipo="data")
+    conn_data = iniciar_conexion_db(tipo="data")
 
     # delete old data
     delete_q = """
@@ -1122,32 +1127,40 @@ def compute_services_by_line_hour_typeday():
     """
     daily_data = pd.read_sql(q, conn_data)
 
-    # get day of the week
-    weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
-    daily_data.loc[:, ['dia']] = 'weekday'
-    daily_data.loc[weekend, ['dia']] = 'weekend'
+    if len(daily_data) > 0:
 
-    # compute aggregated stats
-    type_of_day_stats = daily_data\
-        .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
-        .mean()
+        print("Procesando servicios por tipo de dia")
 
-    print("Subiendo indicadores por linea a la db")
+        # get day of the week
+        weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
+        daily_data.loc[:, ['dia']] = 'weekday'
+        daily_data.loc[weekend, ['dia']] = 'weekend'
 
-    cols = [
-        "id_linea",
-        "dia",
-        "hora",
-        "servicios"
-    ]
+        # compute aggregated stats
+        type_of_day_stats = daily_data\
+            .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
+            .mean()
 
-    type_of_day_stats = type_of_day_stats.reindex(columns=cols)
+        print("Subiendo datos a la DB")
 
-    type_of_day_stats.to_sql(
-        "services_by_line_hour",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+        cols = [
+            "id_linea",
+            "dia",
+            "hora",
+            "servicios"
+        ]
+
+        type_of_day_stats = type_of_day_stats.reindex(columns=cols)
+
+        type_of_day_stats.to_sql(
+            "services_by_line_hour",
+            conn_data,
+            if_exists="append",
+            index=False,
+        )
+        print("Datos subidos a la DB")
+
+    else:
+        print("Todos los dias fueron procesados")
 
     return type_of_day_stats
