@@ -2240,3 +2240,68 @@ def create_visualizations():
                          k_jenks=5)
 
     save_zones()
+
+
+def plot_dispatched_services_by_line_day(df):
+    """
+    Reads services' data and plots how many services
+    by line, type of day (weekday weekend), and hour.
+    Saves it in results dir
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        dataframe with dispatched services by hour from 
+        services_by_line_hour table with  
+
+    Returns
+    -------
+    None
+
+    """
+    line_id = df.id_linea.unique().item()
+    day = df.dia.unique().item()
+
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+
+    s = f"select nombre_linea from metadata_lineas" +\
+        f" where id_linea = {line_id};"
+    id_linea_str = pd.read_sql(s, conn_insumos)
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+        id_linea_str = id_linea_str + ' -'
+    else:
+        id_linea_str = ''
+
+    f, ax = plt.subplots(figsize=(8, 6))
+    sns.barplot(
+        data=df,
+        x="hora",
+        y="servicios",
+        hue="id_linea",
+        ax=ax)
+
+    ax.get_legend().remove()
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Cantidad de servicios despachados")
+
+    f.suptitle(f"Cantidad de servicios despachados por hora y día",
+               fontdict={'size': 18,
+                         'weight': 'bold'})
+    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day}",
+                 fontdict={"fontsize": 11})
+
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.spines.bottom.set_visible(False)
+    ax.spines.left.set_visible(False)
+    ax.spines.left.set_position(('outward', 10))
+    ax.spines.bottom.set_position(('outward', 10))
+
+    ax.grid(axis='y')
+
+    for frm in ['png', 'pdf']:
+        archivo = f'servicios_despachados_id_linea_{line_id}_{day}.{frm}'
+        db_path = os.path.join("resultados", frm, archivo)
+        f.savefig(db_path, dpi=300)
