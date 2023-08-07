@@ -1052,6 +1052,7 @@ def compute_dispatched_services_by_line_hour_day():
 
     """
     conn_data = iniciar_conexion_db(tipo="data")
+    conn_dash = iniciar_conexion_db(tipo="dash")
 
     processed_days_q = """
     select distinct dia
@@ -1073,7 +1074,7 @@ def compute_dispatched_services_by_line_hour_day():
     and dia not in ({processed_days})
     ;
     """
-    print()
+
     daily_services = pd.read_sql(daily_services_q, conn_data)
 
     if len(daily_services) > 0:
@@ -1086,7 +1087,7 @@ def compute_dispatched_services_by_line_hour_day():
         daily_services = daily_services.drop(['min_datetime'], axis=1)
 
         # computing services by hour
-        frecuencies_stats = daily_services\
+        dispatched_services_stats = daily_services\
             .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
             .agg(servicios=('hora', 'count'))
 
@@ -1101,14 +1102,25 @@ def compute_dispatched_services_by_line_hour_day():
             "servicios"
         ]
 
-        frecuencies_stats = frecuencies_stats.reindex(columns=cols)
+        dispatched_services_stats = dispatched_services_stats.reindex(
+            columns=cols)
 
-        frecuencies_stats.to_sql(
+        dispatched_services_stats.to_sql(
             "services_by_line_hour",
             conn_data,
             if_exists="append",
             index=False,
         )
+
+        dispatched_services_stats.to_sql(
+            "services_by_line_hour",
+            conn_dash,
+            if_exists="append",
+            index=False,
+        )
+        conn_data.close()
+        conn_dash.close()
+
         print("Datos subidos a la DB")
     else:
         print("Todos los dias fueron procesados")
@@ -1131,6 +1143,7 @@ def compute_dispatched_services_by_line_hour_typeday():
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
+    conn_dash = iniciar_conexion_db(tipo="dash")
 
     # delete old data
     delete_q = """
@@ -1177,6 +1190,24 @@ def compute_dispatched_services_by_line_hour_typeday():
             if_exists="append",
             index=False,
         )
+
+        # delete old dash data
+        delete_q = """
+        DELETE FROM services_by_line_hour
+        where dia in ('weekday','weekend')
+        """
+        conn_dash.execute(delete_q)
+        conn_dash.commit()
+
+        type_of_day_stats.to_sql(
+            "services_by_line_hour",
+            conn_dash,
+            if_exists="append",
+            index=False,
+        )
+        conn_data.close()
+        conn_dash.close()
+
         print("Datos subidos a la DB")
 
     else:

@@ -787,6 +787,7 @@ def create_kpi_tables():
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
     conn_data.execute(
         """
@@ -843,8 +844,20 @@ def create_kpi_tables():
             ;
             """
     )
-
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
     conn_data.close()
+    conn_dash.close()
 
 
 def check_table_in_db(table_name, tipo_db):
