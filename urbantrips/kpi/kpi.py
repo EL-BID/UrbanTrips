@@ -12,8 +12,66 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db
 )
 
+# KPI WRAPPER
 
-# SECTION LOAD
+
+@duracion
+def compute_kpi():
+    """
+    Esta funcion toma los datos de oferta de la tabla gps
+    los datos de demanda de la tabla trx
+    y produce una serie de indicadores operativos por
+    dia y linea y por dia, linea, interno
+    """
+
+    print("Produciendo indicadores operativos...")
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    cur = conn_data.cursor()
+    q = """
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='gps';
+    """
+    listOfTables = cur.execute(q).fetchall()
+
+    if listOfTables == []:
+        print("No existe tabla GPS en la base")
+        print("No se pudeden computar indicadores de oferta")
+        return None
+
+    # read data
+    legs, gps = read_data_for_daily_kpi()
+
+    if (len(legs) > 0) & (len(gps) > 0):
+        # compute KPI per line and date
+        compute_kpi_by_line_day(legs=legs, gps=gps)
+
+        # compute KPI per line and type of day
+        compute_kpi_by_line_typeday()
+
+    # Run KPI at service level
+    cur = conn_data.cursor()
+    q = "select count(*) from services where valid = 1;"
+    valid_services = cur.execute(q).fetchall()[0][0]
+
+    if valid_services > 0:
+
+        # compute KPI by service and day
+        compute_kpi_by_service()
+
+        # compute amount of hourly services by line and day
+        compute_amount_services_by_line_hour_day()
+
+        # compute amount of hourly services by line and type of day
+        compute_amount_services_by_line_hour_typeday
+    else:
+
+        print("No hay servicios procesados.")
+        print("Correr la funcion services.process_services()")
+
+
+# SECTION LOAD KPI
 
 @duracion
 def compute_route_section_load(
@@ -522,63 +580,7 @@ def get_route_section_id(point, route_geom):
     """
     return floor_rounding(route_geom.project(point, normalized=True))
 
-
 # GENERAL PURPOSE KPIS
-
-@duracion
-def compute_kpi():
-    """
-    Esta funcion toma los datos de oferta de la tabla gps
-    los datos de demanda de la tabla trx
-    y produce una serie de indicadores operativos por
-    dia y linea y por dia, linea, interno
-    """
-
-    print("Produciendo indicadores operativos...")
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    cur = conn_data.cursor()
-    q = """
-        SELECT tbl_name FROM sqlite_master
-        WHERE type='table'
-        AND tbl_name='gps';
-    """
-    listOfTables = cur.execute(q).fetchall()
-
-    if listOfTables == []:
-        print("No existe tabla GPS en la base")
-        print("No se pudeden computar indicadores de oferta")
-        return None
-
-    # read data
-    legs, gps = read_data_for_daily_kpi()
-
-    if (len(legs) > 0) & (len(gps) > 0):
-        # compute KPI per line and date
-        compute_kpi_by_line_day(legs=legs, gps=gps)
-
-        # compute KPI per line and type of day
-        compute_kpi_by_line_typeday()
-
-    # Run KPI at service level
-    cur = conn_data.cursor()
-    q = "select count(*) from services where valid = 1;"
-    valid_services = cur.execute(q).fetchall()[0][0]
-
-    if valid_services > 0:
-
-        # compute KPI by service and day
-        compute_kpi_by_service()
-
-        # compute amount of hourly services by line and day
-        compute_amount_services_by_line_hour_day()
-
-        # compute amount of hourly services by line and type of day
-        compute_amount_services_by_line_hour_typeday
-    else:
-
-        print("No hay servicios procesados.")
-        print("Correr la funcion services.process_services()")
 
 
 def read_data_for_daily_kpi():
@@ -1031,8 +1033,8 @@ def supply_stats(df):
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
 
-# SERVICES' KPIS
 
+# SERVICES' KPIS
 
 @duracion
 def compute_amount_services_by_line_hour_day():
