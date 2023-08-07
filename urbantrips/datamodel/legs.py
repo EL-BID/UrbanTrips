@@ -8,16 +8,14 @@ from urbantrips.utils.utils import (
     agrego_indicador,
     eliminar_tarjetas_trx_unica)
 
-
+@duracion
 def create_legs_from_transactions(trx_order_params):
     """
     Esta function toma las transacciones de la db
     las estructura en etapas con sus id y id viaje
     y crea la tabla etapas en la db
     """
-    print('')
-    print('create_legs_from_transactions')
-    print('-----------------------------')
+
 
     conn = iniciar_conexion_db(tipo='data')
     # q = """
@@ -114,7 +112,7 @@ def create_legs_from_transactions(trx_order_params):
     conn.close()
 
 
-@duracion
+
 def crear_delta_trx(trx):
     """
     Esta funcion toma una tabla trx con un campo de fecha completo
@@ -138,7 +136,7 @@ def crear_delta_trx(trx):
     return trx
 
 
-@duracion
+
 def change_card_id_for_concurrent_trx(trx,
                                       trx_order_params, dias_ultima_corrida):
     """
@@ -196,8 +194,6 @@ def change_card_id_for_concurrent_trx(trx,
 
     return trx_c
 
-
-@duracion
 def cambiar_id_tarjeta_trx_simul_fecha(trx, ventana_duplicado):
     """
     Esta funcion toma un DF de trx y una ventana de tiempo en minutos
@@ -294,7 +290,7 @@ def cambiar_id_tarjeta_trx_simul_orden_trx(trx):
     return trx, tarjetas_duplicadas
 
 
-@duracion
+
 def asignar_id_viaje_etapa(trx, trx_order_params):
     """
     Esta funcion toma un DF de trx

@@ -9,6 +9,7 @@ import re
 import ast
 from urbantrips.utils.utils import (leer_configs_generales,
                                     iniciar_conexion_db,
+                                    duracion
                                     )
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -56,23 +57,6 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
         # Save the modified content to the same file
         with open(file_path, 'w') as file:
             file.write(content)
-            
-def check_config():
-    """
-    This function takes a configuration file in yaml format
-    and read its content. Then check for any inconsistencies
-    in the file, printing an error message if one is found.
-
-    Args:
-    None
-
-    Returns:
-    None
-
-    """
-
-
-
 
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -451,7 +435,7 @@ def check_config_errors(config_default):
                 info = pd.read_csv(ruta)
                 
                 if not pd.Series(cols).isin(info.columns).all():
-                    errores += 'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas}"'
+                    errores += [f'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas} - deben estar los campos {cols}"']
             
             
     geolocalizar_trx = config_default.loc[config_default.variable == 'geolocalizar_trx'].default.values[0]    
@@ -487,6 +471,7 @@ def check_config_errors(config_default):
     assert error_txt == '\n', error_txt
     print('Se concluyó el chequeo del archivo de configuración')
 
+@ duracion
 def check_config():
     """
     This function takes a configuration file in yaml format
@@ -499,6 +484,7 @@ def check_config():
     Returns:
     None
     """
+    
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     configs = leer_configs_generales()
     config_default = revise_configs(configs)

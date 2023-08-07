@@ -139,7 +139,7 @@ def get_logo():
     image = Image.open(file_logo)
     return image
 
-def plot_lineas(lineas, id_linea, day_type, n_sections):
+def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections):
 
     gdf = lineas[(lineas.id_linea == id_linea)&
                     (lineas.day_type == day_type)&
@@ -193,7 +193,10 @@ def plot_lineas(lineas, id_linea, day_type, n_sections):
         raise Exception(
             "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
 
-    title = f"Línea {id_linea}"
+    if nombre_linea == '':
+        title = f"Línea {id_linea}"
+    else:
+        title = f"Línea {id_linea} - {nombre_linea}"
     f.suptitle(title, fontsize=20)
 
     # Matching bar plot with route direction
@@ -332,6 +335,10 @@ def plot_lineas(lineas, id_linea, day_type, n_sections):
     plt.close(f)
     return f
 
+@st.cache_data
+def traigo_nombre_lineas(_lineas):
+    return _lineas[_lineas.nombre_linea.notna()].groupby('id_linea', as_index=False).nombre_linea.first().sort_values('nombre_linea')
+    
 
 st.set_page_config(layout="wide")
 
@@ -341,12 +348,19 @@ st.image(logo)
 col1, col2 = st.columns([1, 4])
 
 lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
+nombre_lineas = traigo_nombre_lineas(lineas)
 
 if len(lineas) > 0:             
-
-    id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
+    
+    if len(nombre_lineas)>0:
+        nombre_linea = col1.selectbox('Línea ', options=nombre_lineas.nombre_linea.unique())
+        id_linea = nombre_lineas[nombre_lineas.nombre_linea==nombre_linea].id_linea.values[0]
+    else:
+        nombre_linea = ''
+        id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
+        
     day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
     n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
 
-    f_lineas = plot_lineas(lineas, id_linea, day_type, n_sections)
+    f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections)
     col2.pyplot(f_lineas)

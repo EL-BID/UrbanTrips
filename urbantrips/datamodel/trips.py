@@ -79,15 +79,13 @@ def crear_viaje_temp(df):
 def crear_cumsum_mismo_od(s):
     return s.cumsum().fillna(method='ffill').fillna(0)
 
-
+@duracion
 def create_trips_from_legs():
     """
     Esta función corrige los factores de expansión y toma la tabla de etapas
     produce la de viajes y usuarios
     """
-    print('')
-    print('create_trips_from_legs')
-    print('----------------------')
+
     
     # Leer etapas que no esten en ya viajes por id_tarjeta, id_viaje, dia
     conn = iniciar_conexion_db(tipo='data')
@@ -352,9 +350,6 @@ def rearrange_trip_id_same_od():
     al eslabonarse en viajes, resultan con un mismo par od
     """
 
-    print('')
-    print("rearrange_trip_id_same_od")
-    print('-------------------------')
     conn_data = iniciar_conexion_db(tipo='data')
 
     print("Leer etapas")

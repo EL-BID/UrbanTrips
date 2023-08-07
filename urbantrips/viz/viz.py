@@ -32,7 +32,8 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     traigo_db_path,
     iniciar_conexion_db,
-    leer_alias)
+    leer_alias,
+    duracion)
 
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
@@ -64,7 +65,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     else:
         print(f"No se pudo producir un grafico para el id_linea {id_linea}")
 
-
+@duracion
 def visualize_route_section_load(id_linea=False, rango_hrs=False,
                                  day_type='weekday',
                                  n_sections=10, section_meters=None,
@@ -97,9 +98,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         minimum width of linea for low section loads to be displayed
 
     """
-    print('')
-    print('visualize_route_section_load')
-    print('----------------------------')
+
     if id_linea:
 
         if type(id_linea) == int:
@@ -365,7 +364,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     gdf_d1['geometry'] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
 
     # creating plot
-    print("Creando gráfico")
     f = plt.figure(tight_layout=True, figsize=(20, 15))
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
@@ -538,6 +536,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
+    # except: # agregué para que no rompa y termine el proceso
+    #     pass
 
     for frm in ['png', 'pdf']:
         archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
@@ -2130,14 +2130,11 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
-
+@duracion
 def create_visualizations():
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
-    print('')
-    print('create_visualizations')
-    print('---------------------')
     
     pd.options.mode.chained_assignment = None
 

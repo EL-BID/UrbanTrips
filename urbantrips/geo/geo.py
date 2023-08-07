@@ -2,7 +2,7 @@ from shapely import line_interpolate_point
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from urbantrips.utils.utils import duracion, leer_configs_generales
+from urbantrips.utils.utils import leer_configs_generales
 from itertools import repeat
 import h3
 from math import ceil
@@ -11,7 +11,6 @@ import libpysal
 import statsmodels.api as sm
 
 
-@ duracion
 def referenciar_h3(df, res, nombre_h3, lat='latitud', lon='longitud'):
     """
     Esta funcion toma un DF con latitud y longitud y georeferencia
