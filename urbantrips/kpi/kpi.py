@@ -61,10 +61,10 @@ def compute_kpi():
         compute_kpi_by_service()
 
         # compute amount of hourly services by line and day
-        compute_amount_services_by_line_hour_day()
+        compute_dispatched_services_by_line_hour_day()
 
         # compute amount of hourly services by line and type of day
-        compute_amount_services_by_line_hour_typeday
+        compute_dispatched_services_by_line_hour_typeday()
     else:
 
         print("No hay servicios procesados.")
@@ -1037,7 +1037,7 @@ def supply_stats(df):
 # SERVICES' KPIS
 
 @duracion
-def compute_amount_services_by_line_hour_day():
+def compute_dispatched_services_by_line_hour_day():
     """
     Reads services' data and computes how many services
     by line, day and hour
@@ -1115,7 +1115,7 @@ def compute_amount_services_by_line_hour_day():
 
 
 @duracion
-def compute_amount_services_by_line_hour_typeday():
+def compute_dispatched_services_by_line_hour_typeday():
     """
     Reads services' data and computes how many services
     by line, type of day (weekday weekend), and hour
