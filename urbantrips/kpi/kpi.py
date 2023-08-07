@@ -560,8 +560,25 @@ def compute_kpi():
         # compute KPI per line and type of day
         compute_kpi_by_line_typeday()
 
+    # Run KPI at service level
+    cur = conn_data.cursor()
+    q = "select count(*) from services where valid = 1;"
+    valid_services = cur.execute(q).fetchall()[0][0]
+
+    if valid_services > 0:
+
         # compute KPI by service and day
         compute_kpi_by_service()
+
+        # compute amount of hourly services by line and day
+        compute_amount_services_by_line_hour_day()
+
+        # compute amount of hourly services by line and type of day
+        compute_amount_services_by_line_hour_typeday
+    else:
+
+        print("No hay servicios procesados.")
+        print("Correr la funcion services.process_services()")
 
 
 def read_data_for_daily_kpi():
@@ -822,7 +839,7 @@ def compute_kpi_by_line_typeday():
 @duracion
 def compute_kpi_by_service():
     """
-    Takes data for supply and demand and computes KPI at service level
+    Reads supply and demand data and computes KPI at service level
     for each day
 
     Parameters
@@ -840,8 +857,6 @@ def compute_kpi_by_service():
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
-
-    # TODO: ACCOUNT FOR PRESENT DATA, NOT TO READ FROM EXISTING DAYS
 
     print("Leyendo demanda por servicios validos")
     q_valid_services = """
@@ -1016,9 +1031,11 @@ def supply_stats(df):
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
 
+# SERVICES' KPIS
+
 
 @duracion
-def compute_services_by_line_hour_day():
+def compute_amount_services_by_line_hour_day():
     """
     Reads services' data and computes how many services
     by line, day and hour
@@ -1096,7 +1113,7 @@ def compute_services_by_line_hour_day():
 
 
 @duracion
-def compute_services_by_line_hour_typeday():
+def compute_amount_services_by_line_hour_typeday():
     """
     Reads services' data and computes how many services
     by line, type of day (weekday weekend), and hour
@@ -1161,6 +1178,7 @@ def compute_services_by_line_hour_typeday():
         print("Datos subidos a la DB")
 
     else:
-        print("Todos los dias fueron procesados")
+        print("No hay datos de servicios por hora")
+        print("Correr la funcion kpi.compute_services_by_line_hour_day()")
 
     return type_of_day_stats
