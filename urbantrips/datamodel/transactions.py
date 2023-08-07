@@ -26,8 +26,6 @@ def create_transactions(geolocalizar_trx_config,
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
     """
-
-    print("Estableciendo conexion con la db")
     conn = iniciar_conexion_db(tipo='data')
 
     print("Abriendo archivos de configuracion")
@@ -42,10 +40,9 @@ def create_transactions(geolocalizar_trx_config,
     except KeyError:
         pass
 
-    print("Leyendo archivo de transacciones")
     if geolocalizar_trx_config:
 
-        print("desde transacciones geolocalizadas")
+        print("Transacciones geolocalizadas")
         # Cargar las transacciones geolocalizadas
         trx, tmp_trx_inicial = geolocalizar_trx(
             nombre_archivo_trx_eco=nombre_archivo_trx,
@@ -57,9 +54,7 @@ def create_transactions(geolocalizar_trx_config,
         )
 
     else:
-        print("desde archivo csv de transacciones")
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-
         print('Levanta archivo de transacciones', ruta)
         trx = pd.read_csv(ruta)
 
@@ -227,7 +222,6 @@ def create_transactions(geolocalizar_trx_config,
     conn.close()
 
 
-@ duracion
 def filtrar_transacciones_invalidas(trx, tipo_trx_invalidas):
     """
     Esta funcion toma un DF de transacciones y el dict de columnas
@@ -290,8 +284,6 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
     return df
 
-
-@ duracion
 def convertir_fechas(df, formato_fecha, crear_hora=False):
     """
     Esta funcion toma una DF de transacciones con el campo 'fecha'
@@ -400,8 +392,6 @@ def agrego_factor_expansion(trx, conn):
 
     return trx, tmp_trx_inicial
 
-
-@ duracion
 def eliminar_trx_fuera_bbox(trx):
     """
     Esta funcion toma una DF de transacciones, lee las coordenadas validas
@@ -431,8 +421,6 @@ def eliminar_trx_fuera_bbox(trx):
         print("No se especificó una ventana para la bbox")
     return trx
 
-
-@ duracion
 def eliminar_NAs_variables_fundamentales(trx, subset):
     """
     Esta funcion toma un DF de trx y elmina los casos con NA en variables
@@ -475,8 +463,6 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
 
     return new_ids
 
-
-@ duracion
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,

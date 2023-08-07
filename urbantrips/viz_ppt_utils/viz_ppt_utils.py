@@ -342,7 +342,9 @@ def slide_1(prs,
 
 
 def create_ppt():
-# if True:
+    print('')
+    print('create_ppt')
+    print('----------')
     
     meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     

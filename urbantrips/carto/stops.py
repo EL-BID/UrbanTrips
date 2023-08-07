@@ -34,7 +34,6 @@ def create_stops_table():
               )
 
 
-@duracion
 def upload_stops_table(stops):
     """
     Reads a stops table, checks it and uploads it to db
@@ -49,7 +48,6 @@ def upload_stops_table(stops):
     stops.to_sql("stops", conn, if_exists="replace", index=False)
 
 
-@duracion
 def create_temporary_stops_csv_with_node_id(geojson_path):
     """
     Takes a geojson with a LineString for each line and or branch

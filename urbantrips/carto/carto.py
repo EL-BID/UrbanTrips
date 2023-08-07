@@ -32,7 +32,7 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
-
+    
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -83,8 +83,6 @@ def create_zones_table():
     in the config file and produces a table with the corresponding zone
     for each h3 with data in etapas
     """
-
-    print("Creo zonificación para matrices OD")
 
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
@@ -174,8 +172,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     """
     This function creates transport zones based on the points in the dataset
     """
-    print('Crea zonas de transporte')
-
+    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -320,6 +317,7 @@ def create_distances_table(use_parallel=False):
     Esta tabla toma los h3 de la tablas de etapas y viajes
     y calcula diferentes distancias para cada par que no tenga
     """
+
     configs = leer_configs_generales()
     resolucion_h3 = configs["resolucion_h3"]
     distancia_entre_hex = h3.edge_length(resolution=resolucion_h3, unit="km")
