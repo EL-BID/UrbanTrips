@@ -1140,8 +1140,12 @@ def imprime_graficos_hora(viajes,
                                 'tipo_dia', 'Hora', 'Viajes', 'Modo']
 
     conn_dash = iniciar_conexion_db(tipo='dash')
-
-    query = f'DELETE FROM viajes_hora WHERE desc_dia = "{desc_dia}" and tipo_dia = "{tipo_dia}"'
+    query = f"""
+        DELETE FROM viajes_hora
+        WHERE desc_dia = "{desc_dia}"
+        and tipo_dia = "{tipo_dia}"
+    """
+    query = f''
     conn_dash.execute(query)
     conn_dash.commit()
 
@@ -1211,8 +1215,11 @@ def imprime_graficos_hora(viajes,
     vi_dash.columns = ['desc_dia', 'tipo_dia', 'Distancia', 'Viajes', 'Modo']
 
     conn_dash = iniciar_conexion_db(tipo='dash')
-
-    query = f'DELETE FROM distribucion WHERE desc_dia = "{desc_dia}" and tipo_dia = "{tipo_dia}"'
+    query = f"""
+        DELETE FROM distribucion
+        WHERE desc_dia = "{desc_dia}"
+        and tipo_dia = "{tipo_dia}"
+        """
     conn_dash.execute(query)
     conn_dash.commit()
 
@@ -1951,13 +1958,14 @@ def lineas_deseo(df,
                     df_folium['filtro1'] = filtro1
 
                     conn_dash = iniciar_conexion_db(tipo='dash')
+                    var_zona_q = var_zona.replace('h3_r', 'H3 Resolucion ')
 
                     query = f"""
-                    DELETE FROM lineas_deseo 
-                        WHERE 
-                        desc_dia = '{desc_dia}' and 
+                    DELETE FROM lineas_deseo
+                        WHERE
+                        desc_dia = '{desc_dia}' and
                         tipo_dia = '{tipo_dia}' and
-                        var_zona = '{var_zona.replace('h3_r', 'H3 Resolucion ')}' and
+                        var_zona = '{var_zona_q}' and
                         filtro1 = '{filtro1}'
                     """
 
@@ -2241,6 +2249,17 @@ def create_visualizations():
 
     save_zones()
 
+    # Plot dispatched services by line and hour on weekdays
+    q = """
+    select *
+    from services_by_line_hour
+    where dia = 'weekday';
+    """
+    service_data = pd.read_sql(q, conn_data)
+
+    service_data.groupby(['id_linea']).apply(
+        plot_dispatched_services_by_line_day)
+
 
 def plot_dispatched_services_by_line_day(df):
     """
@@ -2251,8 +2270,8 @@ def plot_dispatched_services_by_line_day(df):
     Parameters
     ----------
     df : pandas.DataFrame
-        dataframe with dispatched services by hour from 
-        services_by_line_hour table with  
+        dataframe with dispatched services by hour from
+        services_by_line_hour table with
 
     Returns
     -------
@@ -2262,17 +2281,21 @@ def plot_dispatched_services_by_line_day(df):
     line_id = df.id_linea.unique().item()
     day = df.dia.unique().item()
 
-    conn_data = utils.iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     s = f"select nombre_linea from metadata_lineas" +\
         f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
+    conn_insumos.close()
 
     if len(id_linea_str) > 0:
         id_linea_str = id_linea_str.nombre_linea.item()
         id_linea_str = id_linea_str + ' -'
     else:
         id_linea_str = ''
+
+    print("Creando plot de servicios despachados por linea")
+    print("id linea:", line_id)
 
     f, ax = plt.subplots(figsize=(8, 6))
     sns.barplot(
@@ -2305,3 +2328,4 @@ def plot_dispatched_services_by_line_day(df):
         archivo = f'servicios_despachados_id_linea_{line_id}_{day}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
+        plt.close()
