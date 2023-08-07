@@ -22,4 +22,7 @@ download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTr
 download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Colectivos.py.py', 
                     file_name = 'urbantrips/dashboard/pages/2_Colectivos.py.py')
 
-!streamlit run urbantrips/dashboard/dashboard.py
+print('')
+print('Debe correr desde la terminal streamlit run urbantrips/dashboard/dashboard.py')
+print('')
+# !streamlit run urbantrips/dashboard/dashboard.py
