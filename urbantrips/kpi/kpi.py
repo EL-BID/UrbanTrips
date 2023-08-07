@@ -1011,3 +1011,143 @@ def supply_stats(df):
     d["tot_km"] = df.distance_km.sum()
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
+
+
+@duracion
+def compute_services_by_line_hour_day():
+    """
+    Reads services' data and computes how many services
+    by line, day and hour
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+
+    """
+
+    processed_days_q = """
+    select distinct dia
+    from services_by_line_hour
+    """
+    processed_days = pd.read_sql(processed_days_q, conn_data)
+    processed_days = processed_days.dia
+    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+
+    print("Leyendo datos de servicios")
+
+    daily_services_q = f"""
+    select
+        id_linea, dia, min_datetime
+    from 
+        services
+    where
+        valid = 1
+    and dia not in ({processed_days})
+    ;
+    """
+    print()
+    daily_services = pd.read_sql(daily_services_q, conn_data)
+
+    if len(daily_services) > 0:
+
+        print("Procesando servicios por hora")
+
+        daily_services['hora'] = daily_services.min_datetime.str[10:13].map(
+            int)
+
+        daily_services = daily_services.drop(['min_datetime'], axis=1)
+
+        # computing services by hour
+        frecuencies_stats = daily_services\
+            .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
+            .agg(servicios=('hora', 'count'))
+
+        print("Fin procesamiento servicios por hora")
+
+        print("Subiendo datos a la DB")
+
+        cols = [
+            "id_linea",
+            "dia",
+            "hora",
+            "servicios"
+        ]
+
+        frecuencies_stats = frecuencies_stats.reindex(columns=cols)
+
+        frecuencies_stats.to_sql(
+            "services_by_line_hour",
+            conn_data,
+            if_exists="append",
+            index=False,
+        )
+        print("Datos subidos a la DB")
+    else:
+        print("Todos los dias fueron procesados")
+
+
+@duracion
+def compute_services_by_line_hour_typeday():
+    """
+    Reads services' data and computes how many services
+    by line, type of day (weekday weekend), and hour
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+
+    """
+
+    conn_data = utils.iniciar_conexion_db(tipo="data")
+
+    # delete old data
+    delete_q = """
+    DELETE FROM services_by_line_hour
+    where dia in ('weekday','weekend')
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    # read daily data
+    q = """
+    select * from services_by_line_hour
+    """
+    daily_data = pd.read_sql(q, conn_data)
+
+    # get day of the week
+    weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
+    daily_data.loc[:, ['dia']] = 'weekday'
+    daily_data.loc[weekend, ['dia']] = 'weekend'
+
+    # compute aggregated stats
+    type_of_day_stats = daily_data\
+        .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
+        .mean()
+
+    print("Subiendo indicadores por linea a la db")
+
+    cols = [
+        "id_linea",
+        "dia",
+        "hora",
+        "servicios"
+    ]
+
+    type_of_day_stats = type_of_day_stats.reindex(columns=cols)
+
+    type_of_day_stats.to_sql(
+        "services_by_line_hour",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    return type_of_day_stats

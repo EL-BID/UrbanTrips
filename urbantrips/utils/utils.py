@@ -831,6 +831,19 @@ def create_kpi_tables():
             """
     )
 
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+
     conn_data.close()
 
 
