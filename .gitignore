@@ -179,3 +179,5 @@ run_services.ipynb
 *.ipynb
 run_services.ipynb
 run_services.ipynb
+*.yaml
+*.ipynb

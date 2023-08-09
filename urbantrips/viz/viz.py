@@ -536,8 +536,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    # except: # agregué para que no rompa y termine el proceso
-    #     pass
+    except: # agregué para que no rompa y termine el proceso
+        pass
 
     for frm in ['png', 'pdf']:
         archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
@@ -1144,12 +1144,8 @@ def imprime_graficos_hora(viajes,
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
-    query = f'DELETE FROM viajes_hora WHERE desc_dia = "{desc_dia}" and tipo_dia = "{tipo_dia}"'
-    conn_dash.execute(query)
-    conn_dash.commit()
-
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
-                            if_exists="append", index=False)
+                            if_exists="replace", index=False)
 
     conn_dash.close()
 
