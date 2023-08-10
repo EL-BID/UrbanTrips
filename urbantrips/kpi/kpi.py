@@ -6,10 +6,12 @@ import numpy as np
 import weightedstats as ws
 from math import floor
 import re
+import h3
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db
+    iniciar_conexion_db,
+    leer_configs_generales
 )
 
 # KPI WRAPPER
@@ -656,6 +658,10 @@ def add_distances_to_legs(legs):
         DataFrame with legs and distances data
 
     """
+    configs = leer_configs_generales()
+    h3_original_res = configs['resolucion_h3']
+    min_distance = h3.edge_length(resolution=h3_original_res, unit="km")
+
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     print("Leyendo distancias")
@@ -678,6 +684,9 @@ def add_distances_to_legs(legs):
 
     # add legs' distances
     legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
+
+    # add minimum distance in km as length of h3
+    legs.distance = legs.distance.map(lambda x: max(x, min_distance))
 
     no_distance = legs.distance.isna().sum()/len(legs) * 100
     print("Hay un {:.2f} % de etapas sin distancias ".format(no_distance))
