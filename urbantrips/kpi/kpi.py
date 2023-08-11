@@ -72,7 +72,8 @@ def compute_kpi():
     else:
 
         print("No hay servicios procesados.")
-        print("Correr la funcion services.process_services()")
+        print("Puede correr la funcion services.process_services()")
+        print("si cuenta con una tabla de gps que indique servicios")
 
 
 # SECTION LOAD KPI
@@ -1218,6 +1219,14 @@ def run_basic_kpi():
         if_exists="append",
         index=False,
     )
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    kpi_by_line_hr.to_sql(
+        "basic_kpi_by_line_hr",
+        conn_dash,
+        if_exists="append",
+        index=False,
+    )
+    conn_dash.close()
 
     # COMPUTE KPI BY DAY AND LINE
     print("Calculando pasajero equivalente otros KPI por dia y linea")

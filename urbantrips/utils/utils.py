@@ -857,7 +857,7 @@ def create_kpi_tables():
             """
     )
 
-    conn_dash.execute(
+    conn_data.execute(
         """
             CREATE TABLE IF NOT EXISTS basic_kpi_by_vehicle_hr
                 (
@@ -875,7 +875,7 @@ def create_kpi_tables():
             """
     )
 
-    conn_dash.execute(
+    conn_data.execute(
         """
             CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
                 (
@@ -892,12 +892,29 @@ def create_kpi_tables():
             """
     )
 
-    conn_dash.execute(
+    conn_data.execute(
         """
             CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
                 (
                 dia text not null,
                 id_linea int not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                hora int  not null,
                 veh float,
                 pax float,
                 dmt float,
