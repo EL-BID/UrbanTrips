@@ -2293,6 +2293,13 @@ def plot_dispatched_services_by_line_day(df):
     line_id = df.id_linea.unique().item()
     day = df.dia.unique().item()
 
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     s = f"select nombre_linea from metadata_lineas" +\
@@ -2324,7 +2331,7 @@ def plot_dispatched_services_by_line_day(df):
     f.suptitle(f"Cantidad de servicios despachados por hora y día",
                fontdict={'size': 18,
                          'weight': 'bold'})
-    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day}",
+    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
                  fontdict={"fontsize": 11})
 
     ax.spines.right.set_visible(False)
@@ -2363,6 +2370,13 @@ def plot_basic_kpi_wrapper(df):
 def plot_basic_kpi(kpi_by_line_hr):
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
 
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -2413,7 +2427,7 @@ def plot_basic_kpi(kpi_by_line_hr):
                fontdict={'size': 18,
                          'weight': 'bold'})
 
-    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day}",
+    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
                  fontdict={"fontsize": 11})
     # Add a footnote below and to the right side of the chart
     note = """
