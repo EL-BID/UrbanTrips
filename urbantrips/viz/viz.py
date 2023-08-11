@@ -2249,7 +2249,16 @@ def create_visualizations():
 
     save_zones()
 
-    # Plot dispatched services by line and hour on weekdays
+    # plor dispatched services
+    plot_dispatched_services_wrapper()
+
+    # plot basic kpi if exists
+    plot_basic_kpi_wrapper()
+
+
+def plot_dispatched_services_wrapper(df):
+    conn_data = iniciar_conexion_db(tipo='data')
+
     q = """
     select *
     from services_by_line_hour
@@ -2257,8 +2266,11 @@ def create_visualizations():
     """
     service_data = pd.read_sql(q, conn_data)
 
-    service_data.groupby(['id_linea']).apply(
-        plot_dispatched_services_by_line_day)
+    if len(service_data) > 0:
+        service_data.groupby(['id_linea']).apply(
+            plot_dispatched_services_by_line_day)
+
+    conn_data.close()
 
 
 def plot_dispatched_services_by_line_day(df):
@@ -2328,4 +2340,102 @@ def plot_dispatched_services_by_line_day(df):
         archivo = f'servicios_despachados_id_linea_{line_id}_{day}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
+        plt.close()
+
+
+def plot_basic_kpi_wrapper(df):
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    q = """
+    select *
+    from basic_kpi_by_line_hr
+    where dia = 'weekday';
+    """
+    kpi_data = pd.read_sql(q, conn_data)
+
+    if len(kpi_data) > 0:
+        kpi_data.groupby(['id_linea']).apply(
+            plot_basic_kpi)
+
+    conn_data.close()
+
+
+def plot_basic_kpi(kpi_by_line_hr):
+    line_id = kpi_by_line_hr.id_linea.unique().item()
+    day = kpi_by_line_hr.dia.unique().item()
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    s = f"select nombre_linea from metadata_lineas" +\
+        f" where id_linea = {line_id};"
+
+    id_linea_str = pd.read_sql(s, conn_insumos)
+    conn_insumos.close()
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+        id_linea_str = id_linea_str + ' -'
+    else:
+        id_linea_str = ''
+
+    # Create empty df with 0 - 23 hrs
+    kpi_stats_line_plot = pd.DataFrame(
+        {'id_linea': [line_id] * 24, 'hora': range(0, 24)})
+
+    kpi_stats_line_plot = kpi_stats_line_plot\
+        .merge(kpi_by_line_hr.query(f"id_linea == {line_id}"),
+               on=['id_linea', 'hora'],
+               how='left')
+
+    supply_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.veh.max()
+    demand_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.pax.max()
+
+    kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
+    kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
+
+    print("Creando plot de KPI basicos por linea")
+    print("id linea:", line_id)
+
+    f, ax = plt.subplots(figsize=(8, 6))
+
+    sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                color='silver', ax=ax, label='Factor de ocupación')
+
+    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                 color='Purple', label='Oferta - veh/hr')
+    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                 color='Orange', label='Demanda - pax/hr')
+
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Factor de Ocupación (%)")
+
+    f.suptitle(f"Indicadores de oferta y demanda estadarizados",
+               fontdict={'size': 18,
+                         'weight': 'bold'})
+
+    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day}",
+                 fontdict={"fontsize": 11})
+    # Add a footnote below and to the right side of the chart
+    note = """
+        Los indicadores de Oferta y Demanda se estandarizaron para que
+        coincidan con el eje de Factor de Ocupación
+        """
+    ax_note = ax.annotate(note,
+                          xy=(0, -.18),
+                          xycoords='axes fraction',
+                          ha='left',
+                          va="center",
+                          fontsize=10)
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.spines.bottom.set_visible(False)
+    ax.spines.left.set_visible(False)
+    ax.spines.left.set_position(('outward', 10))
+    ax.spines.bottom.set_position(('outward', 10))
+
+    for frm in ['png', 'pdf']:
+        archivo = f'kpi_basicos_id_linea_{line_id}_{day}.{frm}'
+        db_path = os.path.join("resultados", frm, archivo)
+        f.savefig(db_path, dpi=300, bbox_extra_artists=(
+            ax_note,), bbox_inches='tight')
         plt.close()
