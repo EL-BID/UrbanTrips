@@ -1070,10 +1070,6 @@ def run_basic_kpi():
     legs.loc[:, ['time']] = pd.to_datetime(
         legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
 
-    # BORRAR
-    # legs['dia'] = '2022-11-10'
-    legs = legs.sample(frac=.5)
-
     print("Calculando velocidades comerciales")
     # compute vehicle speed per hour
     speed_vehicle_hour = legs\
@@ -1207,6 +1203,7 @@ def run_basic_kpi():
         columns={'speed_kmh_line_h': 'speed_kmh'})
 
     print("Subiendo a la base de datos")
+
     # set schema and upload to db
     cols = ['dia', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of',
             'speed_kmh']
@@ -1277,7 +1274,9 @@ def run_basic_kpi():
         index=False,
     )
 
+    # compute aggregated stats by weekday and weekend
     compute_basic_kpi_line_typeday()
+    compute_basic_kpi_line_hr_typeday()
 
     conn_data.close()
 
@@ -1320,6 +1319,52 @@ def compute_basic_kpi_line_typeday():
 
     kpi_by_line_typeday.to_sql(
         "basic_kpi_by_line_day",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    conn_data.close()
+
+
+def compute_basic_kpi_line_hr_typeday():
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    print("Borrando datos desactualizados por tipo de dia")
+
+    # delete old type of day data data
+    delete_q = """
+    DELETE FROM basic_kpi_by_line_hr
+    where dia in ('weekday','weekend')
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    print("Calculando KPI basicos por tipo de dia")
+    q = """
+    select * from basic_kpi_by_line_hr;
+    """
+
+    kpi_by_line_hr = pd.read_sql(q, conn_data)
+
+    # get day of the week
+    weekend = pd.to_datetime(kpi_by_line_hr['dia'].copy()).dt.dayofweek > 4
+    kpi_by_line_hr.loc[:, ['dia']] = 'weekday'
+    kpi_by_line_hr.loc[weekend, ['dia']] = 'weekend'
+
+    # compute aggregated stats
+    kpi_by_line_typeday = kpi_by_line_hr\
+        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
+        .mean()
+
+    print("Subiendo a la base de datos")
+    # set schema and upload to db
+    cols = ['dia', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+
+    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+
+    kpi_by_line_typeday.to_sql(
+        "basic_kpi_by_line_hr",
         conn_data,
         if_exists="append",
         index=False,
