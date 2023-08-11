@@ -585,8 +585,8 @@ def get_route_section_id(point, route_geom):
     """
     return floor_rounding(route_geom.project(point, normalized=True))
 
-# GENERAL PURPOSE KPIS WITH GPS
 
+# GENERAL PURPOSE KPIS WITH GPS
 
 def read_data_for_daily_kpi():
     """
@@ -850,6 +850,8 @@ def compute_kpi_by_line_typeday():
     return type_of_day_stats
 
 
+# KPIS BY SERVICE
+
 @duracion
 def compute_kpi_by_service():
     """
@@ -1048,6 +1050,7 @@ def supply_stats(df):
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
+@duracion
 def run_basic_kpi():
     conn_data = iniciar_conexion_db(tipo='data')
 
