@@ -39,8 +39,10 @@ def compute_kpi():
 
     if listOfTables == []:
         print("No existe tabla GPS en la base")
-        print("No se pudeden computar indicadores de oferta")
-        return None
+        print("Se calcularán KPI básicos en base a datos de demanda")
+
+        # runing basic kpi
+        run_basic_kpi()
 
     # read data
     legs, gps = read_data_for_daily_kpi()
@@ -58,7 +60,7 @@ def compute_kpi():
     valid_services = cur.execute(q).fetchall()[0][0]
 
     if valid_services > 0:
-
+        print("Computando estadisticos por servicio")
         # compute KPI by service and day
         compute_kpi_by_service()
 
@@ -582,7 +584,7 @@ def get_route_section_id(point, route_geom):
     """
     return floor_rounding(route_geom.project(point, normalized=True))
 
-# GENERAL PURPOSE KPIS
+# GENERAL PURPOSE KPIS WITH GPS
 
 
 def read_data_for_daily_kpi():
@@ -1042,8 +1044,361 @@ def supply_stats(df):
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
 
+# GENERAL PURPOSE KPI WITH NO GPS
+
+
+def run_basic_kpi():
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    # read already process days
+    processed_days = get_processed_days(table_name='basic_kpi_by_line_day')
+
+    # read unprocessed data from legs
+
+    q = f"""
+        select *
+        from etapas
+        where od_validado = 1
+        and dia not in ({processed_days})
+        ;
+    """
+    print("Leyendo datos de demanda")
+    legs = pd.read_sql(q, conn_data)
+    legs = add_distances_to_legs(legs=legs)
+    legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
+    legs.loc[:, ['time']] = pd.to_datetime(
+        legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
+
+    # BORRAR
+    # legs['dia'] = '2022-11-10'
+    legs = legs.sample(frac=.5)
+
+    print("Calculando velocidades comerciales")
+    # compute vehicle speed per hour
+    speed_vehicle_hour = legs\
+        .groupby(['dia', 'id_linea', 'interno'])\
+        .apply(compute_speed_by_veh_hour)\
+        .droplevel(3).reset_index()
+
+    # set a max speed te remove outliers
+    speed_max = 60
+    speed_vehicle_hour.loc[speed_vehicle_hour.speed_kmh_veh_h >
+                           speed_max, 'speed_kmh_veh_h'] = speed_max
+
+    print("Eliminando casos atipicos en velocidades comerciales")
+    # compute standar deviation to remove low speed outliers
+    speed_dev = speed_vehicle_hour\
+        .groupby(['dia', 'id_linea'], as_index=False)\
+        .agg(
+            mean=('speed_kmh_veh_h', 'mean'),
+            std=('speed_kmh_veh_h', 'std')
+        )
+    speed_dev['speed_min'] = speed_dev['mean'] - \
+        (2 * speed_dev['std']).map(lambda x: max(1, x))
+    speed_dev = speed_dev.reindex(columns=['dia', 'id_linea', 'speed_min'])
+
+    speed_vehicle_hour = speed_vehicle_hour.merge(
+        speed_dev, on=['dia', 'id_linea'], how='left')
+
+    speed_mask = (speed_vehicle_hour.speed_kmh_veh_h < speed_max) &\
+        (speed_vehicle_hour.speed_kmh_veh_h > speed_vehicle_hour.speed_min)
+
+    speed_vehicle_hour = speed_vehicle_hour.loc[speed_mask, [
+        'dia', 'id_linea', 'interno', 'hora', 'speed_kmh_veh_h']]
+
+    # compute by hour to fill nans in vehicle speed
+    speed_line_hour = speed_vehicle_hour\
+        .drop('interno', axis=1)\
+        .groupby(['dia', 'id_linea', 'hora'], as_index=False).mean()\
+        .rename(columns={'speed_kmh_veh_h': 'speed_kmh_line_h'})
+
+    speed_line_day = speed_vehicle_hour\
+        .drop('interno', axis=1)\
+        .groupby(['dia', 'id_linea'], as_index=False).mean()\
+        .rename(columns={'speed_kmh_veh_h': 'speed_kmh_line_day'})
+
+    # add commercial speed to demand data
+    legs = legs\
+        .merge(speed_vehicle_hour,
+               on=['dia', 'id_linea', 'interno', 'hora'], how='left')\
+        .merge(speed_line_hour, on=['dia', 'id_linea', 'hora'], how='left')
+
+    legs['speed_kmh'] = legs.speed_kmh_veh_h.combine_first(
+        legs.speed_kmh_line_h)
+
+    print("Calculando pasajero equivalente otros KPI por dia"
+          ", linea, interno y hora")
+
+    # get an vehicle space equivalent passenger
+    legs['eq_pax'] = (legs.distance / legs.speed_kmh) * \
+        legs.factor_expansion_linea
+
+    # COMPUTE KPI BY DAY LINE VEHICLE HOUR
+    kpi_by_veh = legs\
+        .reindex(columns=['dia', 'id_linea', 'interno', 'hora',
+                          'factor_expansion_linea', 'eq_pax', 'distance'])\
+        .groupby(['dia', 'id_linea', 'interno', 'hora'], as_index=False)\
+        .agg(
+            tot_pax=('factor_expansion_linea', 'sum'),
+            eq_pax=('eq_pax', 'sum'),
+            dmt=('distance', 'mean')
+        )
+
+    # compute ocupation factor
+    kpi_by_veh['of'] = kpi_by_veh.eq_pax/60 * 100
+
+    # add average commercial speed data
+    kpi_by_veh = kpi_by_veh\
+        .merge(speed_vehicle_hour,
+               on=['dia', 'id_linea', 'interno', 'hora'], how='left')
+    kpi_by_veh = kpi_by_veh.rename(columns={'speed_kmh_veh_h': 'speed_kmh'})
+
+    print("Subiendo a la base de datos")
+    # set schema and upload to db
+    cols = ['dia', 'id_linea', 'interno', 'hora', 'tot_pax', 'eq_pax',
+            'dmt', 'of', 'speed_kmh']
+
+    kpi_by_veh = kpi_by_veh.reindex(columns=cols)
+
+    kpi_by_veh.to_sql(
+        "basic_kpi_by_vehicle_hr",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    print("Calculando pasajero equivalente otros KPI por dia, linea y hora")
+
+    # COMPUTE KPI BY DAY LINE HOUR
+
+    # compute ocupation factor
+    ocupation_factor_line_hour = kpi_by_veh\
+        .reindex(columns=['dia', 'id_linea', 'hora', 'of'])\
+        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
+        .mean()
+
+    # compute supply as unique vehicles day per hour
+    supply = legs\
+        .reindex(columns=['dia', 'id_linea', 'interno', 'hora'])\
+        .drop_duplicates().groupby(['dia', 'id_linea', 'hora']).size()\
+        .reset_index()\
+        .rename(columns={0: 'veh'})
+
+    # compute demand as total legs per hour and DMT
+    demand = legs\
+        .reindex(columns=['dia', 'id_linea', 'hora',
+                          'factor_expansion_linea', 'distance'])\
+        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
+        .agg(
+            pax=('factor_expansion_linea', 'sum'),
+            dmt=('distance', 'mean')
+        )
+
+    # compute line kpi table
+    kpi_by_line_hr = supply\
+        .merge(demand, on=['dia', 'id_linea', 'hora'], how='left')\
+        .merge(ocupation_factor_line_hour,
+               on=['dia', 'id_linea', 'hora'], how='left')
+
+    kpi_by_line_hr = kpi_by_line_hr.merge(
+        speed_line_hour, on=['dia', 'id_linea', 'hora'], how='left')
+    kpi_by_line_hr = kpi_by_line_hr.rename(
+        columns={'speed_kmh_line_h': 'speed_kmh'})
+
+    print("Subiendo a la base de datos")
+    # set schema and upload to db
+    cols = ['dia', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of',
+            'speed_kmh']
+
+    kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
+
+    kpi_by_line_hr.to_sql(
+        "basic_kpi_by_line_hr",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    # COMPUTE KPI BY DAY AND LINE
+    print("Calculando pasajero equivalente otros KPI por dia y linea")
+
+    # compute daily stats
+    ocupation_factor_line = kpi_by_veh\
+        .reindex(columns=['dia', 'id_linea', 'of'])\
+        .groupby(['dia', 'id_linea'], as_index=False).mean()
+
+    # compute supply as unique vehicles day
+    daily_supply = legs\
+        .reindex(columns=['dia', 'id_linea', 'interno'])\
+        .drop_duplicates().groupby(['dia', 'id_linea'])\
+        .size()\
+        .reset_index()\
+        .rename(columns={0: 'veh'})
+
+    # compute demand as total legs per hour and DMT
+    daily_demand = legs\
+        .reindex(columns=['dia', 'id_linea',
+                          'factor_expansion_linea', 'distance'])\
+        .groupby(['dia', 'id_linea'], as_index=False)\
+        .agg(
+            pax=('factor_expansion_linea', 'sum'),
+            dmt=('distance', 'mean'),
+        )
+
+    # compute line kpi table
+    kpi_by_line_day = daily_supply\
+        .merge(daily_demand, on=['dia', 'id_linea'], how='left')\
+        .merge(ocupation_factor_line, on=['dia', 'id_linea'], how='left')
+
+    kpi_by_line_day = kpi_by_line_day.merge(
+        speed_line_day, on=['dia', 'id_linea'], how='left')
+    kpi_by_line_day = kpi_by_line_day.rename(
+        columns={'speed_kmh_line_day': 'speed_kmh'})
+
+    print("Subiendo a la base de datos")
+    # set schema and upload to db
+    cols = ['dia', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+
+    kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
+
+    kpi_by_line_day.to_sql(
+        "basic_kpi_by_line_day",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    compute_basic_kpi_line_typeday()
+
+    conn_data.close()
+
+
+def compute_basic_kpi_line_typeday():
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    print("Borrando datos desactualizados por tipo de dia")
+
+    # delete old type of day data data
+    delete_q = """
+    DELETE FROM basic_kpi_by_line_day
+    where dia in ('weekday','weekend')
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    print("Calculando KPI basicos por tipo de dia")
+    q = """
+    select * from basic_kpi_by_line_day;
+    """
+    kpi_by_line_day = pd.read_sql(q, conn_data)
+
+    # get day of the week
+    weekend = pd.to_datetime(kpi_by_line_day['dia'].copy()).dt.dayofweek > 4
+    kpi_by_line_day.loc[:, ['dia']] = 'weekday'
+    kpi_by_line_day.loc[weekend, ['dia']] = 'weekend'
+    kpi_by_line_day
+
+    # compute aggregated stats
+    kpi_by_line_typeday = kpi_by_line_day\
+        .groupby(['dia', 'id_linea',], as_index=False)\
+        .mean()
+
+    print("Subiendo a la base de datos")
+    # set schema and upload to db
+    cols = ['dia', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+
+    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+
+    kpi_by_line_typeday.to_sql(
+        "basic_kpi_by_line_day",
+        conn_data,
+        if_exists="append",
+        index=False,
+    )
+
+    conn_data.close()
+
+
+def compute_speed_by_veh_hour(legs_vehicle):
+    res = 11
+    distance_between_hex = h3.edge_length(resolution=res, unit="m")
+    distance_between_hex = distance_between_hex * 2
+
+    speed = legs_vehicle.reindex(
+        columns=['interno', 'hora', 'time', 'latitud', 'longitud'])
+    speed["h3"] = speed.apply(
+        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
+
+    # get only one h3 per vehicle hour
+    speed = speed.drop_duplicates(subset=['interno', 'hora', 'h3'])
+    if len(speed) < 2:
+        return None
+    speed = speed.sort_values('time')
+
+    # compute meters between h3
+    speed['h3_lag'] = speed['h3'].shift(1)
+    speed['time_lag'] = speed['time'].shift(1)
+
+    speed = speed.dropna(subset=['h3_lag', 'time_lag'])
+
+    speed['seconds'] = (speed['time'] - speed['time_lag']
+                        ).map(lambda x: x.total_seconds())
+
+    speed['meters'] = speed\
+        .apply(lambda row: h3.h3_distance(row['h3'], row['h3_lag']),
+               axis=1) * distance_between_hex
+
+    speed_by_hour = speed\
+        .reindex(columns=['hora', 'seconds', 'meters'])\
+        .groupby('hora', as_index=False)\
+        .agg(
+            meters=('meters', 'sum'),
+            seconds=('seconds', 'sum'),
+            n=('hora', 'count'),
+        )
+    # remove vehicles with less than 2 pax
+
+    speed_by_hour = speed_by_hour.loc[speed_by_hour.n > 2, :]
+    speed_by_hour['speed_kmh_veh_h'] = speed_by_hour.meters / \
+        speed_by_hour.seconds * 3.6
+    speed_by_hour = speed_by_hour.reindex(columns=['hora', 'speed_kmh_veh_h'])
+
+    return speed_by_hour
+
+
+def get_processed_days(table_name):
+    """
+    Takes a table name and returns all days present in
+    that table
+
+    Parameters
+    ----------
+    table_name : str
+        name of the table with processed data
+
+    Returns
+    -------
+    str
+        processed days in a coma separated str
+
+
+    """
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    # get processed days in basic data
+    processed_days_q = f"""
+    select distinct dia
+    from {table_name}
+    """
+    processed_days = pd.read_sql(processed_days_q, conn_data)
+    processed_days = processed_days.dia
+    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+
+    return processed_days
+
 
 # SERVICES' KPIS
+
 
 @duracion
 def compute_dispatched_services_by_line_hour_day():
