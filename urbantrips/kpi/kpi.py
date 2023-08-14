@@ -41,8 +41,8 @@ def compute_kpi():
         print("No existe tabla GPS en la base")
         print("Se calcularán KPI básicos en base a datos de demanda")
 
-        # runing basic kpi
-        run_basic_kpi()
+    # runing basic kpi
+    run_basic_kpi()
 
     # read data
     legs, gps = read_data_for_daily_kpi()
@@ -611,7 +611,7 @@ def read_data_for_daily_kpi():
     # get day with stats computed
     processed_days_q = """
     select distinct dia
-    from indicadores_operativos_linea
+    from kpi_by_day_line
     """
     processed_days = pd.read_sql(processed_days_q, conn_data)
     processed_days = processed_days.dia
@@ -771,7 +771,7 @@ def compute_kpi_by_line_day(legs, gps):
     day_stats = day_stats.reindex(columns=cols)
 
     day_stats.to_sql(
-        "indicadores_operativos_linea",
+        "kpi_by_day_line",
         conn_data,
         if_exists="append",
         index=False,
@@ -799,7 +799,7 @@ def compute_kpi_by_line_typeday():
 
     # delete old data
     delete_q = """
-    DELETE FROM indicadores_operativos_linea
+    DELETE FROM kpi_by_day_line
     where dia in ('weekday','weekend')
     """
     conn_data.execute(delete_q)
@@ -807,7 +807,7 @@ def compute_kpi_by_line_typeday():
 
     # read daily data
     q = """
-    select * from indicadores_operativos_linea
+    select * from kpi_by_day_line
     """
     daily_data = pd.read_sql(q, conn_data)
 
@@ -841,7 +841,7 @@ def compute_kpi_by_line_typeday():
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
 
     type_of_day_stats.to_sql(
-        "indicadores_operativos_linea",
+        "kpi_by_day_line",
         conn_data,
         if_exists="append",
         index=False,
@@ -877,7 +877,7 @@ def compute_kpi_by_service():
     print("Leyendo demanda por servicios validos")
     q_valid_services = """
         with fechas_procesadas as (
-            select distinct dia from indicadores_operativos_servicio
+            select distinct dia from kpi_by_day_line_service
         ),
         demand as (
             select e.id_tarjeta, e.id, id_linea, dia, interno,
@@ -913,7 +913,7 @@ def compute_kpi_by_service():
     print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
         with fechas_procesadas as (
-            select distinct dia from indicadores_operativos_servicio
+            select distinct dia from kpi_by_day_line_service
         ),
         demand as (
             select e.id_tarjeta, e.id, id_linea, dia, interno,
@@ -1018,7 +1018,7 @@ def compute_kpi_by_service():
     service_stats = service_stats.reindex(columns=cols)
 
     service_stats.to_sql(
-        "indicadores_operativos_servicio",
+        "kpi_by_day_line_service",
         conn_data,
         if_exists="append",
         index=False,

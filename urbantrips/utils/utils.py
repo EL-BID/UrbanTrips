@@ -791,7 +791,7 @@ def create_kpi_tables():
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_linea
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line
                 (
                 id_linea int not null,
                 dia text not null,
@@ -812,7 +812,7 @@ def create_kpi_tables():
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_servicio
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line_service
                 (
                 id_linea int not null,
                 dia text not null,
