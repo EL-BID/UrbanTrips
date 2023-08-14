@@ -16,6 +16,7 @@ Dicha tabla debe tener un atributo donde se especifique el inicio de un servicio
 
 
 .. code:: yaml
+
     nombres_variables_gps:
         id_gps: DTSN
         id_linea_gps: [ATTR]
@@ -30,6 +31,7 @@ Dicha tabla debe tener un atributo donde se especifique el inicio de un servicio
     trust_service_type_gps: False
     valor_inicio_servicio: [VAL]
     valor_fin_servicio: [VAL]
+
 
 
 A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.  
