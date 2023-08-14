@@ -110,6 +110,7 @@ def compute_route_section_load(
 
     """
 
+
     dat_type_is_a_date = is_date_string(day_type)
 
     # check day type format
@@ -133,14 +134,6 @@ def compute_route_section_load(
     q_delete = delete_old_route_section_load_data_q(
         id_linea, rango_hrs, n_sections, section_meters, day_type
     )
-
-    print(
-        f"Eliminando datos de carga por tramo para linea {id_linea} "
-        f"horas {rango_hrs} tipo de dia {day_type} n_sections  {n_sections}"
-        f"section meters {section_meters}"
-    )
-
-    print(q_delete)
 
     cur = conn_data.cursor()
     cur.execute(q_delete)
@@ -607,6 +600,11 @@ def read_data_for_daily_kpi():
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
+
+    if listOfTables == []:
+        print("No existe tabla GPS en la base (no se pudeden computar indicadores de oferta)")
+        
+        return None
 
     # get day with stats computed
     processed_days_q = """

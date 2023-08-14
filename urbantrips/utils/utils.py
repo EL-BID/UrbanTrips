@@ -8,28 +8,40 @@ import h3
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
+import datetime
+os.environ['USE_PYGEOS'] = '0'
 
 
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
-        # print(f"{f.__name__} [{args}, {kw}] ", end="", flush=True)
-        print(f"{f.__name__} ", end="", flush=True)
+        print('')
+        print(f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
+        print('-' * (len(f.__name__)+22))
+        
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
-        print(f" Finalizado. Tardo {te - ts:.2f} segundos")
+        print(f"Finalizado {f.__name__}. Tardo {te - ts:.2f} segundos")
+        print('')
         return result
 
     return wrap
 
-
+@ duracion
 def create_directories():
     """
     This function creates the basic directory structure
     for Urbantrips to work
     """
+    
     db_path = os.path.join("data", "db")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("data", "data_ciudad")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("configs")
     os.makedirs(db_path, exist_ok=True)
 
     db_path = os.path.join("resultados", "tablas")

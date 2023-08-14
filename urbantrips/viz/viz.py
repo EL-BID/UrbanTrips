@@ -32,7 +32,8 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     traigo_db_path,
     iniciar_conexion_db,
-    leer_alias)
+    leer_alias,
+    duracion)
 
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
@@ -64,7 +65,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     else:
         print(f"No se pudo producir un grafico para el id_linea {id_linea}")
 
-
+@duracion
 def visualize_route_section_load(id_linea=False, rango_hrs=False,
                                  day_type='weekday',
                                  n_sections=10, section_meters=None,
@@ -97,6 +98,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         minimum width of linea for low section loads to be displayed
 
     """
+
     if id_linea:
 
         if type(id_linea) == int:
@@ -362,7 +364,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     gdf_d1['geometry'] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
 
     # creating plot
-    print("Creando gráfico")
     f = plt.figure(tight_layout=True, figsize=(20, 15))
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
@@ -534,6 +535,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
+        pass
+    except: # agregué para que no rompa y termine el proceso
         pass
 
     for frm in ['png', 'pdf']:
@@ -757,20 +760,20 @@ def imprimir_matrices_od(viajes,
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)][var_fex].idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)][var_fex].idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)][var_fex].idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             imprime_od(
                 df[(df.hora.astype(int) >= manana-1) &
                     (df.hora.astype(int) <= manana+1)],
@@ -791,7 +794,7 @@ def imprimir_matrices_od(viajes,
                 filtro1='Punta mañana'
             )
 
-        if mediodia != np.nan:
+        if mediodia != None:
             imprime_od(
                 df[(df.hora.astype(int) >= mediodia-1) &
                     (df.hora.astype(int) <= mediodia+1)],
@@ -813,7 +816,7 @@ def imprimir_matrices_od(viajes,
 
             )
 
-        if tarde != np.nan:
+        if tarde != None:
             imprime_od(
                 df[(df.hora.astype(int) >= tarde-1) &
                     (df.hora.astype(int) <= tarde+1)],
@@ -969,21 +972,21 @@ def imprime_lineas_deseo(df,
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)].cant.idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)].cant.idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
 
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)].cant.idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= manana-1) &
                 (df.hora.astype(int) <= manana+1)],
@@ -1006,7 +1009,7 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Mañana')
 
-        if mediodia != np.nan:
+        if mediodia != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= mediodia-1) &
                 (df.hora.astype(int) <= mediodia+1)],
@@ -1029,7 +1032,7 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Mediodía')
 
-        if tarde != np.nan:
+        if tarde != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= tarde-1) &
                 (df.hora.astype(int) <= tarde+1)],
@@ -1140,6 +1143,7 @@ def imprime_graficos_hora(viajes,
                                 'tipo_dia', 'Hora', 'Viajes', 'Modo']
 
     conn_dash = iniciar_conexion_db(tipo='dash')
+
     query = f"""
         DELETE FROM viajes_hora
         WHERE desc_dia = "{desc_dia}"
@@ -1149,8 +1153,9 @@ def imprime_graficos_hora(viajes,
     conn_dash.execute(query)
     conn_dash.commit()
 
+
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
-                            if_exists="append", index=False)
+                            if_exists="replace", index=False)
 
     conn_dash.close()
 
@@ -1548,7 +1553,7 @@ def imprime_od(
             )
 
         for _ in od_heatmap.columns:
-            od_heatmap.loc[od_heatmap[_] == 0, _] = np.nan
+            od_heatmap.loc[od_heatmap[_] == 0, _] = None
 
         if margins:
             od_heatmap_sintot = od_heatmap.copy()
@@ -2135,11 +2140,12 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
-
+@duracion
 def create_visualizations():
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
+    
     pd.options.mode.chained_assignment = None
 
     # Leer informacion de viajes y distancias

@@ -17,6 +17,7 @@ def infer_destinations():
     Esta funcion lee las etapas de la db, imputa destinos potenciales
     y los valida
     """
+    
     configs = leer_configs_generales()
     mensaje = "Utilizando como destino el origen de la siguiente etapa"
     try:
@@ -36,15 +37,6 @@ def infer_destinations():
 
     conn_data = iniciar_conexion_db(tipo='data')
 
-    # q = """
-    # select e.*
-    # from etapas e
-    # left join  (select *, 1 as en_destinos from destinos) d
-    # on e.id = d.id
-    # where d.id is null
-    # order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
-    # """
-
     dias_ultima_corrida = pd.read_sql_query(
         """
                                 SELECT *
@@ -63,7 +55,10 @@ def infer_destinations():
 
     etapas = pd.read_sql_query(q, conn_data)
 
-    etapas = etapas.drop(['od_validado', 'h3_d'], axis=1)
+    if 'od_validado' in etapas.columns:
+        etapas = etapas.drop(['od_validado'], axis=1)
+    if 'h3_d' in etapas.columns:
+        etapas = etapas.drop(['h3_d'], axis=1)
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
 
@@ -92,12 +87,6 @@ def infer_destinations():
     # calcular indicador de imputacion de destinos
     calcular_indicadores_destinos_etapas(etapas)
 
-    # # eliminar registros con destinos mal imputados
-    # dias = destinos.dia.unique()
-    # dias = ','.join(dias)
-    # eliminar_etapas_sin_destino(dias)
-    # print("Fin subir destinos")
-
     # borro si ya existen etapas de una corrida anterior
     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
@@ -106,13 +95,10 @@ def infer_destinations():
 
     etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
 
-    print("Fin subir destinos")
     conn_data.close()
 
     return None
 
-
-@duracion
 def imputar_destino_potencial(etapas):
     """
     Esta funcion toma un DF de etapas, ordena por
@@ -251,7 +237,7 @@ def h3_distance_stops(row):
     return h3.h3_distance(row['lag_etapa'], row['h3_d'])
 
 
-@duracion
+
 def validar_destinos(destinos):
     """
     Esta funcion toma una DF con destinos potenciales imputados
@@ -307,62 +293,4 @@ def calcular_indicadores_destinos_etapas(etapas):
                      var_fex='')
 
 
-# @duracion
-# def eliminar_etapas_sin_destino(dias):
-#     """
-#     Esta funcion elimina de la tabla etapas y destinos todas
-#     las transacciones de tarjetas con al menos un destino sin
-#     imputar
-#     """
 
-#     print("Eliminando dias, tarjetas con etapas sin destinos")
-
-#     conn_data = iniciar_conexion_db(tipo='data')
-
-#     q = """
-#     delete from etapas
-#     where exists
-#         (
-#             select 1
-#             from (
-#                 SELECT distinct dia, id_tarjeta
-#                 FROM etapas e
-#                 LEFT JOIN destinos d
-#                 ON e.id = d.id
-#                 where od_validado = 0
-#                 ) d_mal
-#             where etapas.dia = d_mal.dia
-#             and etapas.id_tarjeta = d_mal.id_tarjeta
-#     )
-#     """
-
-#     cur = conn_data.cursor()
-#     cur.execute(q)
-#     conn_data.commit()
-
-#     q = """
-#     delete from destinos
-#     where not exists
-#         (
-#         select 1
-#         from etapas
-#         where etapas.id = destinos.id
-#     )
-#     """
-#     cur = conn_data.cursor()
-#     cur.execute(q)
-#     conn_data.commit()
-
-#     q = f"""
-#         select *
-#         from etapas
-#         where dia in ('{dias}')
-#         """
-#     etapas = pd.read_sql(q, conn_data)
-
-#     agrego_indicador(etapas,
-#                      'Cantidad de etapas con tarjetas' +
-#                      ' con destinos totalmente validados',
-#                      'etapas',
-#                      1,
-#                      var_fex='')

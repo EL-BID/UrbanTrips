@@ -6,15 +6,16 @@ from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 
 
-def main():
+def main(process_routes=True):
     check_config()
 
-    # Compute and viz route section load by line
-    kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
-    viz.visualize_route_section_load(
-        id_linea=False, rango_hrs=False,
-        save_gdf=True, indicador='prop_etapas', factor=500,
-        factor_min=50, )
+    if process_routes:
+        # Compute and viz route section load by line
+        kpi.compute_route_section_load(id_linea=False, rango_hrs=False)
+        viz.visualize_route_section_load(
+            id_linea=False, rango_hrs=False,
+            save_gdf=True, indicador='prop_etapas', factor=500,
+            factor_min=50, )
 
     # Create TAZs
     carto.create_zones_table()

@@ -9,6 +9,7 @@ import re
 import ast
 from urbantrips.utils.utils import (leer_configs_generales,
                                     iniciar_conexion_db,
+                                    duracion
                                     )
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -56,23 +57,6 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
         # Save the modified content to the same file
         with open(file_path, 'w') as file:
             file.write(content)
-            
-def check_config():
-    """
-    This function takes a configuration file in yaml format
-    and read its content. Then check for any inconsistencies
-    in the file, printing an error message if one is found.
-
-    Args:
-    None
-
-    Returns:
-    None
-
-    """
-
-
-
 
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -151,7 +135,11 @@ def revise_configs(configs):
     configuracion = create_configuracion(configs)
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
-    config_default = pd.read_excel(conf_path).fillna('')
+    if os.path.isfile(conf_path):
+        config_default = pd.read_excel(conf_path).fillna('')
+    else:
+        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/configuraciones.xlsx'
+        config_default = pd.read_excel(github_csv_url).fillna('')
 
     for _, i in config_default.iterrows():
         if not (i.subvar_param):
@@ -180,7 +168,15 @@ def revise_configs(configs):
                 config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = f'{valor}'
             else:
                 config_default.loc[_, 'default'] = config_default.loc[_, 'default'] = valor
-        
+    # Chequea si existe hora
+    # hora_trx
+    hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                           (config_default.subvar=='hora_trx'), 'default'].values[0]
+    if hora_trx:
+        config_default.loc[(config_default.variable=='columna_hora'), 'default'] = True
+    else:
+        config_default.loc[(config_default.variable=='columna_hora'), 'default'] = False
+
     return config_default
 
 def write_config(config_default):
@@ -287,7 +283,11 @@ def write_config(config_default):
 def check_config_errors(config_default):
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
-    configuraciones = pd.read_excel(conf_path).fillna('')
+    if os.path.isfile(conf_path):
+        configuraciones  = pd.read_excel(conf_path).fillna('')
+    else:
+        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/configuraciones.xlsx'
+        configuraciones  = pd.read_excel(github_csv_url).fillna('')
     
     vars_boolean = []
     for _, i in configuraciones[(configuraciones.default.notna())&(configuraciones.default != '')].iterrows():
@@ -296,7 +296,9 @@ def check_config_errors(config_default):
     vars_required = []
     for _, i in configuraciones[configuraciones.obligatorio==True].iterrows():
         vars_required += [[i.variable, i.subvar]]
-            
+
+    orden_trx = None
+    
     errores = []
     nombre_archivo_trx = config_default.loc[config_default.variable == 'nombre_archivo_trx'].default.values[0]
     if not nombre_archivo_trx:            
@@ -332,11 +334,38 @@ def check_config_errors(config_default):
                 if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
                     errores += ['"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
 
-        # chequea modos
-        modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
-        modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
-        if modos_faltantes:
-            errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
+            # check factor_expansion
+            factor_expansion = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                                   (config_default.subvar=='factor_expansion'), 'default'].values[0]
+            if factor_expansion:
+                if factor_expansion not in trx.columns:
+                    errores += [f'La variable {factor_expansion} no se encuentra en la tabla de transacciones']
+                else:
+                    if len( trx[(trx[factor_expansion].isna())|(trx[factor_expansion]==0)] ) > 0:
+                        errores += [f'La variable {factor_expansion} no tiene valores o los valores son igual a cero']
+            # hora_trx
+            hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx')&
+                                                   (config_default.subvar=='hora_trx'), 'default'].values[0]
+            if hora_trx:
+                if hora_trx not in trx.columns:
+                    errores += [f'La variable {hora_trx} no se encuentra en la tabla de transacciones']
+                else:
+                    if len( trx[(trx[hora_trx].isna())] ) > 0:
+                        errores += [f'La variable {hora_trx} no tiene valores']
+                
+            # tipo_trx_invalidas
+            tipo_trx_invalidas = config_default.loc[(config_default.variable == 'tipo_trx_invalidas'), 'subvar'].values[0]
+            if tipo_trx_invalidas:
+                if tipo_trx_invalidas not in trx.columns:
+                    errores += [f'La variable {tipo_trx_invalidas} no se encuentra en la tabla de transacciones']
+
+        
+
+            # chequea modos
+            modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
+            modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
+            if modos_faltantes:
+                errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
         
         config_default.loc[config_default.default=='True', 'default'] = True
         config_default.loc[config_default.default=='False', 'default'] = False
@@ -406,7 +435,7 @@ def check_config_errors(config_default):
                 info = pd.read_csv(ruta)
                 
                 if not pd.Series(cols).isin(info.columns).all():
-                    errores += 'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas}"'
+                    errores += [f'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas} - deben estar los campos {cols}"']
             
             
     geolocalizar_trx = config_default.loc[config_default.variable == 'geolocalizar_trx'].default.values[0]    
@@ -442,6 +471,7 @@ def check_config_errors(config_default):
     assert error_txt == '\n', error_txt
     print('Se concluyó el chequeo del archivo de configuración')
 
+@ duracion
 def check_config():
     """
     This function takes a configuration file in yaml format
@@ -454,6 +484,7 @@ def check_config():
     Returns:
     None
     """
+    
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     configs = leer_configs_generales()
     config_default = revise_configs(configs)

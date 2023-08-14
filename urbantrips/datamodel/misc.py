@@ -2,9 +2,9 @@ import pandas as pd
 import os
 from pandas.io.sql import DatabaseError
 from urbantrips.utils.utils import (iniciar_conexion_db,
-                                    leer_alias, agrego_indicador)
+                                    leer_alias, agrego_indicador, duracion)
 
-
+@duracion
 def persist_datamodel_tables():
     """
     Esta funcion lee los datos de etapas, viajes y usuarios
@@ -12,8 +12,7 @@ def persist_datamodel_tables():
     y las guarda en csv
     """
 
-    print('Guarda tablas de etapas, viajes y usuarios en formato .csv')
-
+    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')

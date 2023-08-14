@@ -81,13 +81,13 @@ def process_routes_geoms():
 
     conn_insumos.close()
 
-
+@duracion
 def infer_routes_geoms(plotear_lineas):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
     de las lineas y lo guarda en la db
     """
-    print('Creo líneas de transporte')
+
 
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
@@ -122,8 +122,9 @@ def infer_routes_geoms(plotear_lineas):
     conn_insumos.close()
     conn_data.close()
 
-
+@duracion
 def build_routes_from_official_inferred():
+    
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     # Delete old data
