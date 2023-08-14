@@ -112,4 +112,18 @@ Para resolverlo, dichas paradas pueden agregarse en un único nodo mediante el c
   :alt: Clasificacion servicios ramal
 
 
+Resultados
+----------
 
+Los resultados de la clasificación de servicios quedan en una serie de tablas dentro de la db de los datos (para más información puede consultar :doc:`resultados`). Estas tablas pueden ofrecer información para diagnósticar la clasificación.
+
+
+*  ``services``: agrupa los servicios ofertados por las diferentes lineas, sin clasificarlos por ramal. Cada servicio tiene un id tal cual fue identificado por el conductor del vehículo y otro tal como fue identificado por UrbanTrips. Para cada servicio se agregan algunos datos como la hora de inicio y de fin, la cantidad de puntos gps, el porcentaje de puntos donde el vehículo estuvo detenido, etc.
+*  ``services_gps_points``:  vincula cada punto gps de la tabla ``gps`` con la tabla ``services``. A su vez indican el ``node_id`` más cercano y el ramal al que pertenece.
+*  ``services_stats``: para cada línea y día arroja una batería de estadísticos comparando los servicios tal cual venían declarados en la información original con los servicios tal cual fueron inferidos por UrbanTrips (la cantidad de servicios nuevos y cuántos de ellos resultan válidos, cúantos de estos son servicios con muy pocos puntos gps o con demasiado tiempo quietos, la distancia recorrida acumulada  originalmente y aquella que se obtiene de utilizar sólo los servicios válidos y la proporción de servicios original sin subdividir en otros por parte de UrbanTrips).  
+*  ``services_by_line_hour``: una tabla que resume por linea, dia y hora la cantidad de servicios ofertados.
+
+
+
+
+ 

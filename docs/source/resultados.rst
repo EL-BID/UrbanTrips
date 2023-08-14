@@ -468,7 +468,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
 
 
 
-.. list-table:: indicadores_operativos_linea
+.. list-table:: kpi_by_day_line
    :widths: 25 25 50
    :header-rows: 1
 
@@ -505,14 +505,164 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *ipk*
      - float
      - Índice Pasajero Kilómetro.
-   * - *fo*
+   * - *fo_mean*
      - float
-     - Factor de ocupación tomando 60 ubicaciónes por vehículo.
+     - Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.
+   * - *fo_median*
+     - float
+     - Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.
 
 
 
  
+.. list-table:: kpi_by_day_line_service
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - id identificando la linea
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *interno*
+     - int
+     - numero de interno o vehículo utilizado en la transacción.
+   * - *service_id*
+     - int
+     - numero de service dentro del vehiculo o interno para esa linea y dia.
+   * - *hora_inicio*
+     - float
+     - hora de inicio del servicio.
+   * - *hora_fin*
+     - float
+     - hora de cierre del servicio.
+   * - *tot_km*
+     - float
+     - Total de kilómetros ofertados por el servicio.
+   * - *tot_pax*
+     - float
+     - Total de pasajeros transportados por el servicio.
+   * - *dmt_mean*
+     - float
+     - Distancia media recorrida por pasajero del servicio.
+   * - *dmt_median*
+     - float
+     - Distancia mediana recorrida por pasajero del servicio.
+   * - *ipk*
+     - float
+     - Índice Pasajero Kilómetro.
+   * - *fo_mean*
+     - float
+     - Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.
+   * - *fo_median*
+     - float
+     - Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.            
             
+
+
+.. list-table:: basic_kpi_by_vehicle_hr
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_linea*
+     - int
+     - id identificando la linea
+   * - *interno*
+     - int
+     - numero de interno o vehículo utilizado en la transacción.
+   * - *hora*
+     - float
+     - hora en la que se encuentra circulando el vehiculo.
+   * - *tot_pax*
+     - float
+     - Total de pasajeros transportados por el vehiculo para esa hora.
+   * - *eq_pax*
+     - float
+     - Total de pasajeros equivalentes transportados por ese vehículo durante esa hora.
+   * - *dmt*
+     - float
+     - Distancia media recorrida por pasajero del vehiculo para esa hora.
+   * - *of*
+     - float
+     - Factor de ocupación calculado como la relación entre la DMT y la velocidad comercial.
+   * - *speed_kmh*
+     - float
+     - Velocidad comercial promedio de ese vehiculo a esa hora.
+
+
+
+.. list-table:: basic_kpi_by_line_hr
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_linea*
+     - int
+     - id identificando la linea
+   * - *hora*
+     - float
+     - hora del día.
+   * - *veh*
+     - float
+     - Total de vehículos únicos circulando a esa hora para esa linea y día.
+   * - *pax*
+     - float
+     - Total de pasajeros que iniciaron una etapa en esa linea a esa hora y día.
+   * - *dmt*
+     - float
+     - Distancia media recorrida por pasajero del vehiculo para esa hora y día.
+   * - *of*
+     - float
+     - Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.
+   * - *speed_kmh*
+     - float
+     - Velocidad comercial promedio de esa línea a esa hora para ese día.
+
+
+.. list-table:: basic_kpi_by_line_day
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_linea*
+     - int
+     - id identificando la linea
+   * - *veh*
+     - float
+     - Total de vehículos únicos circulando para esa linea y día.
+   * - *pax*
+     - float
+     - Total de pasajeros que utilizaron esa linea ese día.
+   * - *dmt*
+     - float
+     - Distancia media recorrida por pasajero en esa línea ese día.
+   * - *of*
+     - float
+     - Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.
+   * - *speed_kmh*
+     - float
+     - Velocidad comercial promedio de esa línea para ese día.
+
 
 Modelo de datos de base ``insumos``
 -----------------------------------
