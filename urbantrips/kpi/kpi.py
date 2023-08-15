@@ -1066,6 +1066,10 @@ def run_basic_kpi():
     """
     print("Leyendo datos de demanda")
     legs = pd.read_sql(q, conn_data)
+
+    if len(legs) < 5:
+        return None
+
     legs = add_distances_to_legs(legs=legs)
     legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
     legs.loc[:, ['time']] = pd.to_datetime(
@@ -1075,8 +1079,9 @@ def run_basic_kpi():
     # compute vehicle speed per hour
     speed_vehicle_hour = legs\
         .groupby(['dia', 'id_linea', 'interno'])\
-        .apply(compute_speed_by_veh_hour)\
-        .droplevel(3).reset_index()
+        .apply(compute_speed_by_veh_hour)
+
+    speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
 
     # set a max speed te remove outliers
     speed_max = 60
@@ -1367,6 +1372,9 @@ def compute_basic_kpi_line_hr_typeday():
 
 
 def compute_speed_by_veh_hour(legs_vehicle):
+    if len(legs_vehicle) < 2:
+        return None
+
     res = 11
     distance_between_hex = h3.edge_length(resolution=res, unit="m")
     distance_between_hex = distance_between_hex * 2
