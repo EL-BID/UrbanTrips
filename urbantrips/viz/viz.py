@@ -2262,7 +2262,7 @@ def create_visualizations():
     plot_basic_kpi_wrapper()
 
 
-def plot_dispatched_services_wrapper(df):
+def plot_dispatched_services_wrapper():
     conn_data = iniciar_conexion_db(tipo='data')
 
     q = """
@@ -2356,7 +2356,7 @@ def plot_dispatched_services_by_line_day(df):
         plt.close()
 
 
-def plot_basic_kpi_wrapper(df):
+def plot_basic_kpi_wrapper():
     conn_data = iniciar_conexion_db(tipo='data')
 
     q = """
@@ -2459,3 +2459,15 @@ def plot_basic_kpi(kpi_by_line_hr):
         f.savefig(db_path, dpi=300, bbox_extra_artists=(
             ax_note,), bbox_inches='tight')
         plt.close()
+
+    # add to dash
+    kpi_stats_line_plot['nombre_linea'] = id_linea_str
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    kpi_stats_line_plot.to_sql(
+        "basic_kpi_by_line_hr",
+        conn_dash,
+        if_exists="append",
+        index=False,
+    )
+    conn_dash.close()
