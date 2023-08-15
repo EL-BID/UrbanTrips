@@ -771,12 +771,12 @@ def test_gps(matriz_validacion_test_amba):
     tot_pax = fe.factor_expansion.sum()
 
     kpi_df = pd.read_sql(
-        "select * from indicadores_operativos_linea;", conn_data)
+        "select * from kpi_by_day_line;", conn_data)
 
-    assert round(kpi_df.tot_km.item()) == 16
-    assert kpi_df.tot_veh.item() == 2
-    assert kpi_df.dmt_mean.item() == mean_distances
-    assert kpi_df.tot_pax.item() == tot_pax
+    assert round(kpi_df.tot_km.iloc[0]) == 16
+    assert kpi_df.tot_veh.iloc[0] == 2
+    assert kpi_df.dmt_mean.iloc[0] == mean_distances
+    assert kpi_df.tot_pax.iloc[0] == tot_pax
 
     carto.create_zones_table()
 
