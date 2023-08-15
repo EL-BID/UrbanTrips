@@ -110,7 +110,6 @@ def compute_route_section_load(
 
     """
 
-
     dat_type_is_a_date = is_date_string(day_type)
 
     # check day type format
@@ -601,9 +600,18 @@ def read_data_for_daily_kpi():
 
     conn_data = iniciar_conexion_db(tipo="data")
 
+    cur = conn_data.cursor()
+    q = """
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='gps';
+    """
+    listOfTables = cur.execute(q).fetchall()
+
     if listOfTables == []:
-        print("No existe tabla GPS en la base (no se pudeden computar indicadores de oferta)")
-        
+        print(
+            "No existe tabla GPS en la base (no se pudeden computar indicadores de oferta)")
+
         return None
 
     # get day with stats computed
