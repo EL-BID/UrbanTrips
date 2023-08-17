@@ -439,6 +439,19 @@ def create_db():
 
     conn_dash.execute(
         """
+        CREATE TABLE IF NOT EXISTS particion_modal
+        (
+        desc_dia str, 
+        tipo str, 
+        modo str, 
+        modal float
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
         nombre_linea str,
