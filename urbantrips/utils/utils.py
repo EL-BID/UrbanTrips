@@ -928,7 +928,7 @@ def create_kpi_tables():
                 (
                 dia text not null,
                 id_linea int not null,
-                nombre_dia text,
+                nombre_linea text,
                 hora int  not null,
                 veh float,
                 pax float,
