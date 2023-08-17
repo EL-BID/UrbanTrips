@@ -287,7 +287,7 @@ def create_db():
         """
         CREATE TABLE IF NOT EXISTS matriz_validacion
         (
-        id_linea int,
+        id_linea_agg int,
         parada text,
         area_influencia text
         )
@@ -310,9 +310,11 @@ def create_db():
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS metadata_lineas
-            (id_linea INT PRIMARY KEY     NOT NULL,
+            (id_linea INT PRIMARY KEY NOT NULL,
             nombre_linea text not null,
-            modo text not null,
+            id_linea_agg INT,
+            nombre_linea_agg ING
+            modo text,
             empresa text,
             descripcion text
             )

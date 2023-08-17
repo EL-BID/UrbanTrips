@@ -39,24 +39,39 @@ def update_stations_catchment_area(ring_size):
     # Leer las paradas en base a las etapas
     q = """
     select id_linea,h3_o as parada from etapas
-    group by id_linea,h3_o having count(*) >1 and parada <> 0
     """
     paradas_etapas = pd.read_sql(q, conn_data)
 
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    paradas_etapas = paradas_etapas.merge(metadata_lineas[['id_linea', 
+                                           'id_linea_agg']], 
+                          how='left', 
+                          on='id_linea').drop(['id_linea'], axis=1)
+
+    paradas_etapas = paradas_etapas.groupby(['id_linea_agg', 'parada'], as_index=False).size()
+    paradas_etapas = paradas_etapas[(paradas_etapas['size']>1)].drop(['size'], axis=1)
+
     # Leer las paradas ya existentes en la matriz
     q = """
-    select distinct id_linea, parada, 1 as m from matriz_validacion
+    select distinct id_linea_agg, parada, 1 as m from matriz_validacion
     """
     paradas_en_matriz = pd.read_sql(q, conn_insumos)
-
+    
     # Detectar que paradas son nuevas para cada linea
     paradas_nuevas = paradas_etapas\
         .merge(paradas_en_matriz,
-               on=['id_linea', 'parada'],
+               on=['id_linea_agg', 'parada'],
                how='left')
 
     paradas_nuevas = paradas_nuevas.loc[paradas_nuevas.m.isna(), [
-        'id_linea', 'parada']]
+        'id_linea_agg', 'parada']]
 
     if len(paradas_nuevas) > 0:
         areas_influencia_nuevas = pd.concat(

@@ -83,6 +83,7 @@ def create_transactions(geolocalizar_trx_config,
         )
         print(trx.shape)
 
+
         trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
 
         # Guardo los días que se están analizando en la corrida actual
@@ -107,6 +108,14 @@ def create_transactions(geolocalizar_trx_config,
             'transacciones',
             1,
             var_fex='factor_expansion')
+
+        agrego_indicador(
+        trx,
+        'Registros válidas en transacciones',
+        'transacciones',
+        1,
+        var_fex='')
+
 
         # chequear que no haya faltantes en id
         if trx["id"].isna().any():
@@ -202,6 +211,8 @@ def create_transactions(geolocalizar_trx_config,
     # Mantener solo las trx de tarjeta con todas las transacciones validas
     print('Borrar informacion de tarjetas con transacciones no validas')
     trx = trx.loc[trx.id_tarjeta.isin(tmp_trx_limpio.id_tarjeta), :]
+
+
 
     agrego_indicador(
         trx,
@@ -491,6 +502,14 @@ def geolocalizar_trx(
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
     print('Levanta archivo de transacciones', ruta_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
+
+    agrego_indicador(
+        trx_eco,
+        'Registros en transacciones',
+        'transacciones',
+        1,
+        var_fex='')
+
 
     print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
     # Filtrar transacciones invalidas

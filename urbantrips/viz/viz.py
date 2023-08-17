@@ -1196,6 +1196,17 @@ def imprime_graficos_hora(viajes,
     vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
                 ].sort_values('distance_osm_drive')
 
+
+    vi['pc'] = round(vi.cant / vi.cant.sum() * 100, 5)
+    vi['csum'] = vi.pc.cumsum()
+    vi = vi[vi.csum<=99.5]
+    vi['Viajes (en miles)'] = round(vi.cant/1000)
+
+    vi_modo['pc'] = round(vi_modo.cant / vi_modo.cant.sum() * 100, 5)
+    vi_modo['csum'] = vi_modo.pc.cumsum()
+    vi_modo = vi_modo[vi_modo.csum<=99.5]
+
+
     # guarda distribución de viajes para dashboard
 
     vi_dash = vi.copy()
@@ -1231,7 +1242,7 @@ def imprime_graficos_hora(viajes,
     ax = fig.add_subplot(111)
 
     sns.histplot(x='distance_osm_drive', weights='cant',
-                 data=vi, bins=len(vi), element='poly', ax=ax)
+                 data=vi, bins=len(vi),ax=ax) # element='poly', 
     ax.set_title(title, fontsize=12)
     ax.set_xlabel("Distancia (kms)", fontsize=10)
     ax.set_ylabel(ytitle, fontsize=10)

@@ -276,7 +276,9 @@ def process_routes_metadata():
     and uploads metadata to the db
     """
 
+
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_data = iniciar_conexion_db(tipo='data')
 
     # Deletes old data
     conn_insumos.execute("DELETE FROM metadata_lineas;")
@@ -284,75 +286,93 @@ def process_routes_metadata():
     conn_insumos.commit()
 
     configs = leer_configs_generales()
+
     try:
         tabla_lineas = configs["nombre_archivo_informacion_lineas"]
         branches_present = configs["lineas_contienen_ramales"]
-
-        if tabla_lineas is not None:
-            print('Leyendo tabla con informacion de lineas')
-            ruta = os.path.join("data", "data_ciudad", tabla_lineas)
-            info = pd.read_csv(ruta)
-
-            # Check all columns are present
-            if branches_present:
-                cols = ['id_linea', 'nombre_linea',
-                                    'id_ramal', 'nombre_ramal', 'modo']
-            else:
-                cols = ['id_linea', 'nombre_linea', 'modo']
-
-            assert pd.Series(cols).isin(info.columns).all()
-
-            # Check modes matches config standarized modes
-            try:
-                modos_homologados = configs["modos"]
-                zipped = zip(modos_homologados.values(),
-                             modos_homologados.keys())
-                modos_homologados = {k: v for k, v in zipped}
-
-                assert pd.Series(info.modo.unique()).isin(
-                    modos_homologados.keys()).all()
-
-                info['modo'] = info['modo'].replace(modos_homologados)
-
-            except KeyError:
-                pass
-
-            # Check no missing data in line or branches
-
-            assert not info.id_linea.isna().any()
-            # assert info.dtypes['id_linea'] == int  # me tiraba error aca, forcé la conversión a string para que avance
-            info['id_linea'] = info['id_linea'].astype(str)
-
-            lineas_cols = ['id_linea', 'nombre_linea',
-                           'modo', 'empresa', 'descripcion']
-
-            info_lineas = info.reindex(columns=lineas_cols)
-
-            if branches_present:
-                info_lineas = info_lineas.drop_duplicates(subset='id_linea')
-
-                ramales_cols = ['id_ramal', 'id_linea',
-                                'nombre_ramal', 'modo', 'empresa',
-                                'descripcion']
-
-                info_ramales = info.reindex(columns=ramales_cols)
-
-                # Checks for missing and duplicated
-                assert not info_ramales.id_ramal.isna().any()
-                assert not info_ramales.id_ramal.duplicated().any()
-                # assert info_ramales.dtypes['id_ramal'] == int
-                info['id_ramal'] = info['id_ramal'].astype(str)
-
-                info_ramales.to_sql(
-                    "metadata_ramales", conn_insumos, if_exists="replace",
-                    index=False)
-
-            info_lineas.to_sql(
-                "metadata_lineas", conn_insumos, if_exists="replace",
-                index=False)
-
     except KeyError:
+        tabla_lineas = None
+        branches_present = False
         print("No hay tabla con informacion configs")
+
+    # Check modes matches config standarized modes
+    try:
+        modos_homologados = configs["modos"]
+        zipped = zip(modos_homologados.values(),
+                     modos_homologados.keys())
+        modos_homologados = {k: v for k, v in zipped}
+        
+    except KeyError:            
+        pass
+    
+    # líneas es obligatorio
+    
+    print('Leyendo tabla con informacion de lineas')
+    ruta = os.path.join("data", "data_ciudad", tabla_lineas)
+    info = pd.read_csv(ruta)
+
+    # Check all columns are present
+    if branches_present:
+        cols = ['id_linea', 'nombre_linea',
+                            'id_ramal', 'nombre_ramal', 'modo'] 
+    else:
+        cols = ['id_linea', 'nombre_linea', 'modo'] 
+
+    assert pd.Series(cols).isin(info.columns).all(), f"La tabla {ruta} debe tener los campos: {cols}"
+
+    if 'id_linea_agg' not in info.columns:
+        info['id_linea_agg'] = info['id_linea']
+        info['nombre_linea_agg'] = info['nombre_linea']
+        cols += ['id_linea_agg', 'nombre_linea_agg']
+
+    cols += [i for i in info.columns if i not in cols]
+    cols = [i for i in info.columns if i in ["id_linea", 
+                                             "nombre_linea", 
+                                             "id_linea_agg", 
+                                             "nombre_linea_agg", 
+                                             "modo", 
+                                             "empresa", 
+                                             "descripcion" ]]
+    
+    assert pd.Series(info.modo.unique()).isin(
+        modos_homologados.keys()).all()
+    
+    info['modo'] = info['modo'].replace(modos_homologados)
+
+    info.loc[info.id_linea_agg.isna(), 'nombre_linea_agg'] = info.loc[info.id_linea_agg.isna(), 'nombre_linea']
+    info.loc[info.id_linea_agg.isna(), 'id_linea_agg'] = info.loc[info.id_linea_agg.isna(), 'id_linea']
+
+    info = info.reindex(columns=cols)
+    
+    info.to_sql(
+        "metadata_lineas", conn_insumos, if_exists="replace",
+        index=False)
+
+    if branches_present:        
+        info_lineas = info.drop_duplicates(subset='id_linea')
+
+        ramales_cols = ['id_ramal', 'id_linea',
+                        'nombre_ramal', 'modo']
+
+        ramales_cols += [i for i in info_lineas.columns if i not in ramales_cols]
+        ramales_cols = [i for i in info_lineas.columns if i in ["id_ramal", 
+                                                                "id_linea", 
+                                                                "nombre_ramal", 
+                                                                "modo", 
+                                                                "empresa", 
+                                                                "descripcion"]]
+
+
+        info_ramales = info.reindex(columns=ramales_cols)
+
+        # Checks for missing and duplicated
+        assert not info_ramales.id_ramal.isna().any(), "Existen nulos en el campo id_ramal"
+        assert not info_ramales.id_ramal.duplicated().any(), "Existen duplicados en id_ramal"
+
+        info_ramales.to_sql(
+            "metadata_ramales", conn_insumos, if_exists="replace",
+            index=False)
+
     conn_insumos.close()
 
 
