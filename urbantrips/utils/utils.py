@@ -16,9 +16,10 @@ def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
         print('')
-        print(f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
+        print(
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
         print('-' * (len(f.__name__)+22))
-        
+
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
@@ -28,13 +29,14 @@ def duracion(f):
 
     return wrap
 
+
 @ duracion
 def create_directories():
     """
     This function creates the basic directory structure
     for Urbantrips to work
     """
-    
+
     db_path = os.path.join("data", "db")
     os.makedirs(db_path, exist_ok=True)
 
@@ -926,6 +928,7 @@ def create_kpi_tables():
                 (
                 dia text not null,
                 id_linea int not null,
+                nombre_linea text,
                 hora int  not null,
                 veh float,
                 pax float,

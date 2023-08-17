@@ -65,6 +65,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     else:
         print(f"No se pudo producir un grafico para el id_linea {id_linea}")
 
+
 @duracion
 def visualize_route_section_load(id_linea=False, rango_hrs=False,
                                  day_type='weekday',
@@ -536,7 +537,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    except: # agregué para que no rompa y termine el proceso
+    except:  # agregué para que no rompa y termine el proceso
         pass
 
     for frm in ['png', 'pdf']:
@@ -1152,7 +1153,6 @@ def imprime_graficos_hora(viajes,
     query = f''
     conn_dash.execute(query)
     conn_dash.commit()
-
 
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
                             if_exists="replace", index=False)
@@ -2140,12 +2140,13 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
+
 @duracion
 def create_visualizations():
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
-    
+
     pd.options.mode.chained_assignment = None
 
     # Leer informacion de viajes y distancias
@@ -2462,6 +2463,19 @@ def plot_basic_kpi(kpi_by_line_hr):
 
     # add to dash
     kpi_stats_line_plot['nombre_linea'] = id_linea_str
+    kpi_stats_line_plot['dia'] = day
+    kpi_stats_line_plot = kpi_stats_line_plot\
+        .reindex(columns=[
+            'dia',
+            'id_linea',
+            'nombre_linea',
+            'hora',
+            'veh',
+            'pax',
+            'dmt',
+            'of',
+            'speed_kmh']
+        )
 
     conn_dash = iniciar_conexion_db(tipo='dash')
     kpi_stats_line_plot.to_sql(

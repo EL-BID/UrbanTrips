@@ -1079,17 +1079,42 @@ def run_basic_kpi():
         return None
 
     legs = add_distances_to_legs(legs=legs)
-    legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
-    legs.loc[:, ['time']] = pd.to_datetime(
-        legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
 
-    print("Calculando velocidades comerciales")
-    # compute vehicle speed per hour
-    speed_vehicle_hour = legs\
-        .groupby(['dia', 'id_linea', 'interno'])\
-        .apply(compute_speed_by_veh_hour)
+    # if there is no full timestamp
+    if legs['tiempo'].isna().all():
 
-    speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
+        unique_line_ids = legs.id_linea.unique()
+        id_lines = np.repeat(unique_line_ids, 24)
+        hours = list(range(0, 24)) * len(unique_line_ids)
+
+        # fix commercial speed at 15kmh for all veh
+        speed_vehicle_hour = pd.DataFrame(
+            {'id_linea': id_lines,
+             'hora': hours,
+             'speed_kmh_veh_h': [15]*24*len(unique_line_ids)
+             }
+        )
+        speed_vehicle_hour = legs\
+            .reindex(columns=['dia', 'id_linea', 'interno'])\
+            .drop_duplicates()\
+            .merge(speed_vehicle_hour,
+                   on=['id_linea'],
+                   how='left')
+
+    # else compute commercial speed based on demand
+    else:
+        legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
+
+        legs.loc[:, ['time']] = pd.to_datetime(
+            legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
+
+        print("Calculando velocidades comerciales")
+        # compute vehicle speed per hour
+        speed_vehicle_hour = legs\
+            .groupby(['dia', 'id_linea', 'interno'])\
+            .apply(compute_speed_by_veh_hour)
+
+        speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
 
     # set a max speed te remove outliers
     speed_max = 60
@@ -1097,7 +1122,8 @@ def run_basic_kpi():
                            speed_max, 'speed_kmh_veh_h'] = speed_max
 
     print("Eliminando casos atipicos en velocidades comerciales")
-    # compute standar deviation to remove low speed outliers
+
+    # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour\
         .groupby(['dia', 'id_linea'], as_index=False)\
         .agg(
