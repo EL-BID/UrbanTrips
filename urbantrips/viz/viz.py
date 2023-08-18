@@ -300,6 +300,15 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         id_linea_str = ''
 
+    day = df['day_type'].unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
     route_geom = route_geoms.loc[id_linea]
 
     n_sections = df.n_sections.unique()[0]
@@ -409,15 +418,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         hr_str = f' {from_hr}-{to_hr} hrs'
     else:
         hr_str = ''
-
-    day = df.day_tipe.unique().item()
-
-    if day == 'weekend':
-        day_str = 'Fin de semana tipo'
-    elif day == 'weekday':
-        day_str = 'Dia de semana tipo'
-    else:
-        day_str = day
 
     title = title + hr_str + ' - ' + day_str + \
         f" {id_linea_str} (id_linea: {id_linea})"
@@ -553,7 +553,8 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     alias = leer_alias()
 
     for frm in ['png', 'pdf']:
-        archivo = f'{alias}_{day}_segmentos_id_linea_{id_linea}_{indicator}_{hr_str}.{frm}'
+        archivo = f"{alias}_{day}_segmentos_id_linea_"
+        archivo = archivo+f"{id_linea}_{indicator}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
