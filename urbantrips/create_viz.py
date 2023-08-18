@@ -15,7 +15,7 @@ def main():
     # get top 5 trx id_lines
     q = """
         select id_linea
-        from etapas e 
+        from etapas e
         where modo = 'autobus'
         group by id_linea
         order by sum(factor_expansion_linea) DESC
