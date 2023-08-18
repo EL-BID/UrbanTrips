@@ -547,8 +547,6 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    except:  # agregué para que no rompa y termine el proceso
-        pass
 
     alias = leer_alias()
 

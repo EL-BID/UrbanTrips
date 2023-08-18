@@ -208,7 +208,7 @@ def compute_route_section_load(
 
     print("Computing section load per route ...")
 
-    if len(recorridos) > 0:
+    if (len(recorridos) > 0) and (len(etapas) > 0):
 
         section_load_table = etapas.groupby("id_linea").apply(
             compute_section_load_table,
@@ -240,12 +240,14 @@ def compute_route_section_load(
         )
 
         print("Uploading data to db...")
-
         section_load_table.to_sql(
             "ocupacion_por_linea_tramo", conn_data, if_exists="append",
             index=False,)
     else:
-        print('No existen recorridos para las líneas')
+        print('No existen recorridos o etapas para las líneas')
+        print("Cantidad de lineas:", len(id_linea))
+        print("Cantidad de recorridos", len(recorridos))
+        print("Cantidad de etapas", len(etapas))
 
 
 def is_date_string(input_str):
