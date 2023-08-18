@@ -65,6 +65,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     else:
         print(f"No se pudo producir un grafico para el id_linea {id_linea}")
 
+
 @duracion
 def visualize_route_section_load(id_linea=False, rango_hrs=False,
                                  day_type='weekday',
@@ -409,8 +410,18 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         hr_str = ''
 
-    title = title + hr_str + ' - ' + f" {id_linea_str} (id_linea: {id_linea})"
-    f.suptitle(title, fontsize=20)
+    day = df.day_tipe.unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
+    title = title + hr_str + ' - ' + day_str + \
+        f" {id_linea_str} (id_linea: {id_linea})"
+    f.suptitle(title, fontsize=18)
 
     # Matching bar plot with route direction
     flecha_eo_xy = (0.4, 1.1)
@@ -536,11 +547,13 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    except: # agregué para que no rompa y termine el proceso
+    except:  # agregué para que no rompa y termine el proceso
         pass
 
+    alias = leer_alias()
+
     for frm in ['png', 'pdf']:
-        archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
+        archivo = f'{alias}_{day}_segmentos_id_linea_{id_linea}_{indicator}_{hr_str}.{frm}'
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
@@ -1152,7 +1165,6 @@ def imprime_graficos_hora(viajes,
     query = f''
     conn_dash.execute(query)
     conn_dash.commit()
-
 
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
                             if_exists="replace", index=False)
@@ -2140,12 +2152,13 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
+
 @duracion
 def create_visualizations():
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
-    
+
     pd.options.mode.chained_assignment = None
 
     # Leer informacion de viajes y distancias
