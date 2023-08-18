@@ -300,6 +300,15 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         id_linea_str = ''
 
+    day = df['day_type'].unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
     route_geom = route_geoms.loc[id_linea]
 
     n_sections = df.n_sections.unique()[0]
@@ -410,8 +419,9 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         hr_str = ''
 
-    title = title + hr_str + ' - ' + f" {id_linea_str} (id_linea: {id_linea})"
-    f.suptitle(title, fontsize=20)
+    title = title + hr_str + ' - ' + day_str + \
+        f" {id_linea_str} (id_linea: {id_linea})"
+    f.suptitle(title, fontsize=18)
 
     # Matching bar plot with route direction
     flecha_eo_xy = (0.4, 1.1)
@@ -537,11 +547,12 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
-    except:  # agregué para que no rompa y termine el proceso
-        pass
+
+    alias = leer_alias()
 
     for frm in ['png', 'pdf']:
-        archivo = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}.{frm}'
+        archivo = f"{alias}_{day}_segmentos_id_linea_"
+        archivo = archivo+f"{id_linea}_{indicator}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)

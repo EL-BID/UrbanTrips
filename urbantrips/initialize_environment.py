@@ -1,9 +1,7 @@
-import os
-os.environ['USE_PYGEOS'] = '0'
-
-from urbantrips.utils import utils
-from urbantrips.carto import routes, stops
 from urbantrips.utils.check_configs import check_config
+from urbantrips.carto import routes, stops
+from urbantrips.utils import utils
+
 
 def main():
     # Create basic dir structure:
