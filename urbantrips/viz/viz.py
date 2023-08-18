@@ -2474,6 +2474,19 @@ def plot_basic_kpi(kpi_by_line_hr):
 
     # add to dash
     kpi_stats_line_plot['nombre_linea'] = id_linea_str
+    kpi_stats_line_plot['dia'] = day
+    kpi_stats_line_plot = kpi_stats_line_plot\
+        .reindex(columns=[
+            'dia',
+            'id_linea',
+            'nombre_linea',
+            'hora',
+            'veh',
+            'pax',
+            'dmt',
+            'of',
+            'speed_kmh']
+        )
 
     conn_dash = iniciar_conexion_db(tipo='dash')
     kpi_stats_line_plot.to_sql(
