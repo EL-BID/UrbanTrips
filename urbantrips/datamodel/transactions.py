@@ -263,9 +263,10 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
         # get the name in the original df holding service type data
         service_id_col_name = nombres_variables.pop('servicios_gps')
 
-        start_service_value = nombres_variables.pop('valor_inicio_servicio')
-        finish_service_value = nombres_variables.pop(
-            'valor_fin_servicio')
+        # get the values for services start and finish
+        gps_config = leer_configs_generales()
+        start_service_value = gps_config['valor_inicio_servicio']
+        finish_service_value = gps_config['valor_fin_servicio']
 
         # create a replace values dict
         service_id_values = {

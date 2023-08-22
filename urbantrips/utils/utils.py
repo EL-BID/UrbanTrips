@@ -16,9 +16,10 @@ def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
         print('')
-        print(f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
+        print(
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
         print('-' * (len(f.__name__)+22))
-        
+
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
@@ -28,13 +29,14 @@ def duracion(f):
 
     return wrap
 
+
 @ duracion
 def create_directories():
     """
     This function creates the basic directory structure
     for Urbantrips to work
     """
-    
+
     db_path = os.path.join("data", "db")
     os.makedirs(db_path, exist_ok=True)
 
@@ -526,6 +528,9 @@ def create_db():
         """
     )
 
+    # create KPI tables
+    create_kpi_tables()
+
     conn_data.close()
     conn_insumos.close()
     conn_dash.close()
@@ -805,15 +810,17 @@ def eliminar_tarjetas_trx_unica(trx):
     return trx
 
 
-def crear_tablas_indicadores_operativos():
-    """Esta funcion crea la tablas en la db para albergar los datos de
-    los indicadores operativos"""
+def create_kpi_tables():
+    """
+    Creates KPI tables in the data db
+    """
 
     conn_data = iniciar_conexion_db(tipo='data')
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_linea
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line
                 (
                 id_linea int not null,
                 dia text not null,
@@ -825,7 +832,8 @@ def crear_tablas_indicadores_operativos():
                 pvd float,
                 kvd float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
                 )
             ;
             """
@@ -833,23 +841,122 @@ def crear_tablas_indicadores_operativos():
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_interno
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line_service
                 (
                 id_linea int not null,
                 dia text not null,
                 interno text not null,
-                kvd float,
-                pvd float,
+                service_id int not null,
+                hora_inicio float,
+                hora_fin float,
+                tot_km float,
+                tot_pax float,
                 dmt_mean float,
                 dmt_median float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_vehicle_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                interno int not null,
+                hora int  not null,
+                tot_pax float,
+                eq_pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
+                (
+                dia text not null,
+                id_linea int not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                nombre_linea text,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
                 )
             ;
             """
     )
 
     conn_data.close()
+    conn_dash.close()
 
 
 def check_table_in_db(table_name, tipo_db):

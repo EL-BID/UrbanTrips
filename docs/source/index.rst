@@ -26,6 +26,7 @@ Cotenido
    factores_expansion
    lineas_ramales
    resultados
+   kpi
    servicios   
    
    
