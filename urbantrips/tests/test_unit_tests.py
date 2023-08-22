@@ -435,8 +435,8 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
 
     etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
 
-    etapa.reindex(columns=['id_viaje', 'id_etapa',
-                  'h3_o', 'h3_d', 'od_validado'])
+    etapa = etapa.reindex(columns=['id_viaje', 'id_etapa',
+                                   'h3_o', 'h3_d', 'od_validado'])
     # casos para armar tests con nuevos destinos
     # tarjeta 3839538659. la vuelta en tren que termine en la estacion de tren
     assert (etapa.loc[(etapa.id_viaje == 2) & (etapa.id_etapa == 2), 'h3_d']
