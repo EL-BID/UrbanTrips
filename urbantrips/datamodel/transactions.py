@@ -83,7 +83,6 @@ def create_transactions(geolocalizar_trx_config,
         )
         print(trx.shape)
 
-
         trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
 
         # Guardo los días que se están analizando en la corrida actual
@@ -110,12 +109,11 @@ def create_transactions(geolocalizar_trx_config,
             var_fex='factor_expansion')
 
         agrego_indicador(
-        trx,
-        'Registros válidas en transacciones',
-        'transacciones',
-        1,
-        var_fex='')
-
+            trx,
+            'Registros válidas en transacciones',
+            'transacciones',
+            1,
+            var_fex='')
 
         # chequear que no haya faltantes en id
         if trx["id"].isna().any():
@@ -212,8 +210,6 @@ def create_transactions(geolocalizar_trx_config,
     print('Borrar informacion de tarjetas con transacciones no validas')
     trx = trx.loc[trx.id_tarjeta.isin(tmp_trx_limpio.id_tarjeta), :]
 
-
-
     agrego_indicador(
         trx,
         'Cantidad de transacciones limpias',
@@ -296,6 +292,7 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
     return df
 
+
 def convertir_fechas(df, formato_fecha, crear_hora=False):
     """
     Esta funcion toma una DF de transacciones con el campo 'fecha'
@@ -331,14 +328,14 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     # Elminar errores en conversion de fechas
     df = df.dropna(subset=['fecha'], axis=0)
 
-    df["dia"] = df.fecha.dt.strftime("%Y-%m-%d")
+    df.loc[:, ["dia"]] = df.fecha.dt.strftime("%Y-%m-%d")
 
     # Si la hora esta en otra columna, usar esa
     if crear_hora:
-        df["tiempo"] = df['fecha'].dt.strftime("%H:%M:%S")
-        df['hora'] = df['fecha'].dt.hour
+        df.loc[:, ["tiempo"]] = df['fecha'].dt.strftime("%H:%M:%S")
+        df.loc[:, ['hora']] = df['fecha'].dt.hour
     else:
-        df["tiempo"] = None
+        df.loc[:, ["tiempo"]] = None
 
     print("Fin convertir fechas")
     return df
@@ -404,6 +401,7 @@ def agrego_factor_expansion(trx, conn):
 
     return trx, tmp_trx_inicial
 
+
 def eliminar_trx_fuera_bbox(trx):
     """
     Esta funcion toma una DF de transacciones, lee las coordenadas validas
@@ -432,6 +430,7 @@ def eliminar_trx_fuera_bbox(trx):
     except KeyError:
         print("No se especificó una ventana para la bbox")
     return trx
+
 
 def eliminar_NAs_variables_fundamentales(trx, subset):
     """
@@ -475,6 +474,7 @@ def crear_id_interno(conn, n_rows, tipo_tabla):
 
     return new_ids
 
+
 def geolocalizar_trx(
     nombre_archivo_trx_eco,
     nombres_variables_trx,
@@ -504,14 +504,6 @@ def geolocalizar_trx(
     print('Levanta archivo de transacciones', ruta_trx_eco)
     trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
 
-    agrego_indicador(
-        trx_eco,
-        'Registros en transacciones',
-        'transacciones',
-        1,
-        var_fex='')
-
-
     print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
     # Filtrar transacciones invalidas
     if tipo_trx_invalidas is not None:
@@ -523,10 +515,11 @@ def geolocalizar_trx(
         nombres_variables_trx,
         postfijo="_trx",
     )
-    trx_eco = trx_eco.drop(columns=["latitud", "longitud"])
 
     # Parsear fechas. Crear hora, si tiene gps tiene hora completa
     trx_eco = convertir_fechas(trx_eco, formato_fecha, crear_hora=True)
+
+    trx_eco = trx_eco.drop(columns=["latitud", "longitud"])
 
     # Crear un id interno
     trx_eco["id_original"] = trx_eco["id"].copy()
