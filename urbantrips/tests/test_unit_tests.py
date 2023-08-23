@@ -602,6 +602,8 @@ def test_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
+    routes.process_routes_metadata()
+
     trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
@@ -731,6 +733,8 @@ def test_gps(matriz_validacion_test_amba):
                     tipo_trx_invalidas,
                     nombre_archivo_gps,
                     nombres_variables_gps)
+
+    routes.process_routes_metadata()
 
     legs.create_legs_from_transactions(trx_order_params)
 
