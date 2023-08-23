@@ -419,6 +419,22 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     etapas_sin_d = pd.read_sql_query(q, conn_data)
     etapas_sin_d = etapas_sin_d.drop(['h3_d', 'od_validado'], axis=1)
 
+    # add id_linea_agg
+    routes.process_routes_metadata()
+
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    etapas_sin_d = etapas_sin_d.merge(metadata_lineas[['id_linea',
+                                                       'id_linea_agg']],
+                                      how='left',
+                                      on='id_linea')
+
     etapas_destinos_potencial = dest.imputar_destino_potencial(etapas_sin_d)
     destinos = dest.imputar_destino_min_distancia(etapas_destinos_potencial)
 
