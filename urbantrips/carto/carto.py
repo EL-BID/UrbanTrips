@@ -415,11 +415,13 @@ def create_distances_table(use_parallel=False):
             dist2['h3_d'] = dist2['h3_o_norm']
             dist2['h3_o'] = dist2['h3_d_norm']
             distancias_new = pd.concat([dist1, dist2], ignore_index=True)
-            distancias_new = distancias_new.groupby(['h3_o',
-                                                     'h3_d',
-                                                     'h3_o_norm',
-                                                     'h3_d_norm'], as_index=False)[['distance_osm_drive',
-                                                                                    'distance_h3']].first()
+            distancias_new = distancias_new\
+                .groupby(['h3_o',
+                          'h3_d',
+                          'h3_o_norm',
+                          'h3_d_norm'],
+                         as_index=False)[['distance_osm_drive',
+                                          'distance_h3']].first()
 
             distancias_new.to_sql("distancias", conn_insumos,
                                   if_exists="append", index=False)
@@ -487,8 +489,11 @@ def calculo_distancias_osm(
 
     for mode in modes:
         print("")
-        print(
-            f"Coords OSM {mode} - ymin, xmin, ymax, xmax {round(ymin,3)}, {round(xmin,3)}, {round(ymax,3)}, {round(xmax,3)} - {str(datetime.now())[:19]}")
+        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax,")
+        print(f"{round(ymin,3)}, {round(xmin,3)}, ")
+        print(f"{round(ymax,3)}, {round(xmax,3)}")
+        print(f" - {str(datetime.now())[:19]}")
+
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
         print('Fin descarga de red', str(datetime.now())[:19])
 

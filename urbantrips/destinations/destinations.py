@@ -197,7 +197,8 @@ def imputar_destino_min_distancia(etapas):
                                             paradas_candidatas_sample])
             paradas_candidatas = paradas_candidatas.drop(['id'], axis=1)
             paradas_candidatas = lag_etapas.merge(
-                paradas_candidatas, on=['id_linea_agg', 'lag_etapa'], how='left')
+                paradas_candidatas, on=['id_linea_agg', 'lag_etapa'],
+                how='left')
 
     # Imprimir estadisticos de las distancias
     print("Promedios de distancia entre la etapa siguiente  y ")

@@ -362,7 +362,9 @@ def process_routes_metadata():
         info_ramales = info.reindex(columns=ramales_cols)
 
         # Checks for missing and duplicated
-        assert not info_ramales.id_ramal.isna().any(), "Existen nulos en el campo id_ramal"
+        s = "Existen nulos en el campo id_ramal"
+        assert not info_ramales.id_ramal.isna().any(), s
+
         assert not info_ramales.id_ramal.duplicated(
         ).any(), "Existen duplicados en id_ramal"
 

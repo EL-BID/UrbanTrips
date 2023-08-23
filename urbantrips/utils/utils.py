@@ -17,7 +17,8 @@ def duracion(f):
     def wrap(*args, **kw):
         print('')
         print(
-            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="",
+            flush=True)
         print('-' * (len(f.__name__)+22))
 
         ts = time.time()
@@ -443,9 +444,9 @@ def create_db():
         """
         CREATE TABLE IF NOT EXISTS particion_modal
         (
-        desc_dia str, 
-        tipo str, 
-        modo str, 
+        desc_dia str,
+        tipo str,
+        modo str,
         modal float
         )
         ;
