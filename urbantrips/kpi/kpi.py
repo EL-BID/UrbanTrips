@@ -611,10 +611,13 @@ def read_data_for_daily_kpi():
     listOfTables = cur.execute(q).fetchall()
 
     if listOfTables == []:
-        print(
-            "No existe tabla GPS en la base (no se pudeden computar indicadores de oferta)")
+        print("No existe tabla GPS en la base")
+        print("No se pudeden computar indicadores de oferta usando GPS")
 
-        return None
+        legs = pd.DataFrame()
+        gps = pd.DataFrame()
+
+        return legs, gps
 
     # get day with stats computed
     processed_days_q = """
