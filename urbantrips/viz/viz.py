@@ -1217,16 +1217,14 @@ def imprime_graficos_hora(viajes,
     vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
                 ].sort_values('distance_osm_drive')
 
-
     vi['pc'] = round(vi.cant / vi.cant.sum() * 100, 5)
     vi['csum'] = vi.pc.cumsum()
-    vi = vi[vi.csum<=99.5]
+    vi = vi[vi.csum <= 99.5]
     vi['Viajes (en miles)'] = round(vi.cant/1000)
 
     vi_modo['pc'] = round(vi_modo.cant / vi_modo.cant.sum() * 100, 5)
     vi_modo['csum'] = vi_modo.pc.cumsum()
-    vi_modo = vi_modo[vi_modo.csum<=99.5]
-
+    vi_modo = vi_modo[vi_modo.csum <= 99.5]
 
     # guarda distribución de viajes para dashboard
 
@@ -1266,7 +1264,7 @@ def imprime_graficos_hora(viajes,
     ax = fig.add_subplot(111)
 
     sns.histplot(x='distance_osm_drive', weights='cant',
-                 data=vi, bins=len(vi),ax=ax) # element='poly', 
+                 data=vi, bins=len(vi), ax=ax)  # element='poly',
     ax.set_title(title, fontsize=12)
     ax.set_xlabel("Distancia (kms)", fontsize=10)
     ax.set_ylabel(ytitle, fontsize=10)
@@ -2162,20 +2160,30 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
-    
+
 def particion_modal(desc_dia, viajes_dia, etapas_dia):
-    
-    particion_viajes = viajes_dia.groupby('modo', as_index=False).factor_expansion_linea.sum().round() 
-    particion_viajes['modal'] =  (particion_viajes['factor_expansion_linea'] / viajes_dia.factor_expansion_linea.sum() * 100).round()
-    particion_viajes = particion_viajes.sort_values('modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+
+    particion_viajes = viajes_dia.groupby(
+        'modo', as_index=False).factor_expansion_linea.sum().round()
+    particion_viajes['modal'] = (particion_viajes['factor_expansion_linea'] /
+                                 viajes_dia.factor_expansion_linea.sum() * 100
+                                 ).round()
+    particion_viajes = particion_viajes.sort_values(
+        'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
     particion_viajes['tipo'] = 'viajes'
     particion_viajes['desc_dia'] = desc_dia
-    particion_etapas = etapas_dia.groupby('modo', as_index=False).factor_expansion_linea.sum().round() 
-    particion_etapas['modal'] =  (particion_etapas['factor_expansion_linea'] / etapas_dia.factor_expansion_linea.sum() * 100).round()
-    particion_etapas = particion_etapas.sort_values('modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+    particion_etapas = etapas_dia.groupby(
+        'modo', as_index=False).factor_expansion_linea.sum().round()
+
+    particion_etapas['modal'] = (particion_etapas['factor_expansion_linea'] /
+                                 etapas_dia.factor_expansion_linea.sum() * 100
+                                 ).round()
+    particion_etapas = particion_etapas.sort_values(
+        'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
     particion_etapas['tipo'] = 'etapas'
     particion_etapas['desc_dia'] = desc_dia
-    particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
+    particion = pd.concat(
+        [particion_viajes, particion_etapas], ignore_index=True)
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -2183,9 +2191,9 @@ def particion_modal(desc_dia, viajes_dia, etapas_dia):
     conn_dash.execute(query)
     conn_dash.commit()
     particion['modo'] = particion.modo.str.capitalize()
-    particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
+    particion.to_sql("particion_modal", conn_dash,
+                     if_exists="append", index=False)
     conn_dash.close()
-
 
 
 @duracion
@@ -2217,7 +2225,6 @@ def create_visualizations():
         """,
         conn_data,
     )
-
 
     distancias = pd.read_sql_query(
         """
@@ -2267,7 +2274,7 @@ def create_visualizations():
 
         # partición modal
         particion_modal(desc_dia, viajes_dia, etapas_dia)
-        
+
         print('Imprimiendo tabla de matrices OD')
         # Impirmir tablas con matrices OD
         imprimir_matrices_od(viajes=viajes_dia,
@@ -2485,74 +2492,82 @@ def plot_basic_kpi(kpi_by_line_hr):
     kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
     kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
 
-    print("Creando plot de KPI basicos por linea")
-    print("id linea:", line_id)
+    missing_data = (kpi_stats_line_plot.pax.isna().all()) |\
+        (kpi_stats_line_plot.dmt.isna().all()) |\
+        (kpi_stats_line_plot.of.isna().all())
 
-    f, ax = plt.subplots(figsize=(8, 6))
+    if missing_data:
+        print("No es posible crear plot de KPI basicos por linea")
+        print("id linea:", line_id)
+    else:
+        print("Creando plot de KPI basicos por linea")
+        print("id linea:", line_id)
 
-    sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
-                color='silver', ax=ax, label='Factor de ocupación')
+        f, ax = plt.subplots(figsize=(8, 6))
 
-    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
-                 color='Purple', label='Oferta - veh/hr')
-    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
-                 color='Orange', label='Demanda - pax/hr')
+        sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                    color='silver', ax=ax, label='Factor de ocupación')
 
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Factor de Ocupación (%)")
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                     color='Purple', label='Oferta - veh/hr')
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                     color='Orange', label='Demanda - pax/hr')
 
-    f.suptitle(f"Indicadores de oferta y demanda estadarizados",
-               fontdict={'size': 18,
-                         'weight': 'bold'})
+        ax.set_xlabel("Hora")
+        ax.set_ylabel("Factor de Ocupación (%)")
 
-    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
-                 fontdict={"fontsize": 11})
-    # Add a footnote below and to the right side of the chart
-    note = """
-        Los indicadores de Oferta y Demanda se estandarizaron para que
-        coincidan con el eje de Factor de Ocupación
-        """
-    ax_note = ax.annotate(note,
-                          xy=(0, -.18),
-                          xycoords='axes fraction',
-                          ha='left',
-                          va="center",
-                          fontsize=10)
-    ax.spines.right.set_visible(False)
-    ax.spines.top.set_visible(False)
-    ax.spines.bottom.set_visible(False)
-    ax.spines.left.set_visible(False)
-    ax.spines.left.set_position(('outward', 10))
-    ax.spines.bottom.set_position(('outward', 10))
+        f.suptitle(f"Indicadores de oferta y demanda estadarizados",
+                   fontdict={'size': 18,
+                             'weight': 'bold'})
 
-    for frm in ['png', 'pdf']:
-        archivo = f'kpi_basicos_id_linea_{line_id}_{day}.{frm}'
-        db_path = os.path.join("resultados", frm, archivo)
-        f.savefig(db_path, dpi=300, bbox_extra_artists=(
-            ax_note,), bbox_inches='tight')
-        plt.close()
+        ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+                     fontdict={"fontsize": 11})
+        # Add a footnote below and to the right side of the chart
+        note = """
+            Los indicadores de Oferta y Demanda se estandarizaron para que
+            coincidan con el eje de Factor de Ocupación
+            """
+        ax_note = ax.annotate(note,
+                              xy=(0, -.18),
+                              xycoords='axes fraction',
+                              ha='left',
+                              va="center",
+                              fontsize=10)
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.spines.bottom.set_visible(False)
+        ax.spines.left.set_visible(False)
+        ax.spines.left.set_position(('outward', 10))
+        ax.spines.bottom.set_position(('outward', 10))
 
-    # add to dash
-    kpi_stats_line_plot['nombre_linea'] = id_linea_str
-    kpi_stats_line_plot['dia'] = day
-    kpi_stats_line_plot = kpi_stats_line_plot\
-        .reindex(columns=[
-            'dia',
-            'id_linea',
-            'nombre_linea',
-            'hora',
-            'veh',
-            'pax',
-            'dmt',
-            'of',
-            'speed_kmh']
+        for frm in ['png', 'pdf']:
+            archivo = f'kpi_basicos_id_linea_{line_id}_{day}.{frm}'
+            db_path = os.path.join("resultados", frm, archivo)
+            f.savefig(db_path, dpi=300, bbox_extra_artists=(
+                ax_note,), bbox_inches='tight')
+            plt.close()
+
+        # add to dash
+        kpi_stats_line_plot['nombre_linea'] = id_linea_str
+        kpi_stats_line_plot['dia'] = day
+        kpi_stats_line_plot = kpi_stats_line_plot\
+            .reindex(columns=[
+                'dia',
+                'id_linea',
+                'nombre_linea',
+                'hora',
+                'veh',
+                'pax',
+                'dmt',
+                'of',
+                'speed_kmh']
+            )
+
+        conn_dash = iniciar_conexion_db(tipo='dash')
+        kpi_stats_line_plot.to_sql(
+            "basic_kpi_by_line_hr",
+            conn_dash,
+            if_exists="append",
+            index=False,
         )
-
-    conn_dash = iniciar_conexion_db(tipo='dash')
-    kpi_stats_line_plot.to_sql(
-        "basic_kpi_by_line_hr",
-        conn_dash,
-        if_exists="append",
-        index=False,
-    )
-    conn_dash.close()
+        conn_dash.close()
