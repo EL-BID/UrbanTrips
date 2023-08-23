@@ -17,7 +17,7 @@ def infer_destinations():
     Esta funcion lee las etapas de la db, imputa destinos potenciales
     y los valida
     """
-    
+
     configs = leer_configs_generales()
     mensaje = "Utilizando como destino el origen de la siguiente etapa"
     try:
@@ -64,9 +64,9 @@ def infer_destinations():
         conn_insumos,
     )
 
-    etapas = etapas.merge(metadata_lineas[['id_linea', 
-                                           'id_linea_agg']], 
-                          how='left', 
+    etapas = etapas.merge(metadata_lineas[['id_linea',
+                                           'id_linea_agg']],
+                          how='left',
                           on='id_linea')
 
     if 'od_validado' in etapas.columns:
@@ -107,18 +107,19 @@ def infer_destinations():
     conn_data.execute(query)
     conn_data.commit()
 
-    etapas = etapas.drop(['id_linea_agg'], 
+    etapas = etapas.drop(['id_linea_agg'],
                          axis=1)
 
-    etapas.to_sql("etapas", 
-                  conn_data, 
-                  if_exists="append", 
+    etapas.to_sql("etapas",
+                  conn_data,
+                  if_exists="append",
                   index=False)
 
     conn_data.close()
     conn_insumos.close()
 
     return None
+
 
 def imputar_destino_potencial(etapas):
     """
@@ -258,7 +259,6 @@ def h3_distance_stops(row):
     return h3.h3_distance(row['lag_etapa'], row['h3_d'])
 
 
-
 def validar_destinos(destinos):
     """
     Esta funcion toma una DF con destinos potenciales imputados
@@ -266,9 +266,11 @@ def validar_destinos(destinos):
     de la linea con los adyacentes
     """
     conn_insumos = iniciar_conexion_db(tipo='insumos')
-
+    q = """
+    SELECT distinct id_linea_agg, area_influencia from matriz_validacion
+    """
     matriz_validacion = pd.read_sql_query(
-        """SELECT distinct id_linea_agg, area_influencia from matriz_validacion""",
+        q,
         conn_insumos,
     )
     # Crear pares od unicos por linea
@@ -312,6 +314,3 @@ def calcular_indicadores_destinos_etapas(etapas):
                      'etapas',
                      1,
                      var_fex='')
-
-
-
