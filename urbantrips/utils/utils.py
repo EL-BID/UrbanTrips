@@ -121,13 +121,302 @@ def iniciar_conexion_db(tipo='data'):
 
 @ duracion
 def create_db():
-    # Crear conexion con bases de data e insumos
-    conn_data = iniciar_conexion_db(tipo='data')
+    print("Creando bases de datos")
+
+    # create basic tables
+    create_basic_data_model_tables()
+
+    # other inpus tables
+    create_other_inputs_tables()
+
+    # stops and routes
+    create_stops_and_routes_carto_tables()
+
+    # create services and gps tables
+    create_gps_table()
+
+    # create KPI tables
+    create_kpi_tables()
+
+    # dashborad tables
+    create_dash_tables()
+
+    print("Fin crear base")
+    print("Todas las tablas creadas")
+
+
+def create_other_inputs_tables():
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distancias
+        (h3_o text NOT NULL,
+        h3_d text NOT NULL,
+        h3_o_norm text NOT NULL,
+        h3_d_norm text NOT NULL,
+        distance_osm_drive float,
+        distance_osm_walk float,
+        distance_h3 float
+        )
+
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matriz_validacion
+        (
+        id_linea_agg int,
+        parada text,
+        area_influencia text
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nuevos_ids_etapas_viajes
+        (id INT PRIMARY KEY     NOT NULL,
+        nuevo_id_viaje int,
+        nuevo_id_etapa int,
+        factor_expansion float
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_lineas
+            (id_linea INT PRIMARY KEY NOT NULL,
+            nombre_linea text not null,
+            id_linea_agg INT,
+            nombre_linea_agg ING
+            modo text,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_ramales
+            (id_ramal INT PRIMARY KEY     NOT NULL,
+            id_linea int not null,
+            nombre_ramal text not null,
+            modo text not null,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+    conn_insumos.close()
+
+
+def create_dash_tables():
     conn_dash = iniciar_conexion_db(tipo='dash')
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matrices
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes int not null
+        )
+        ;
+        """
+    )
 
-    print("Bases abiertas con exito")
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lineas_deseo
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes int not null,
+        lon_o float,
+        lat_o float,
+        lon_d float,
+        lat_d float
+        )
+        ;
+        """
+    )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viajes_hora
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Hora int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribucion
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Distancia int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS indicadores
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Titulo text,
+        orden int,
+        Indicador text,
+        Valor text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS particion_modal
+        (
+        desc_dia str,
+        tipo str,
+        modo str,
+        modal float
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        nombre_linea str,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
+    conn_dash.close()
+
+
+def create_stops_and_routes_carto_tables():
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inferred_lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stops
+        (id_linea INT NOT NULL,
+        id_ramal INT NOT NULL,
+        node_id INT NOT NULL,
+        branch_stop_order INT NOT NULL,
+        stop_x float NOT NULL,
+        stop_y float NOT NULL,
+        node_x float NOT NULL,
+        node_y float NOT NULL
+        )
+        ;
+        """
+    )
+    conn_insumos.close()
+
+
+def create_basic_data_model_tables():
+    conn_data = iniciar_conexion_db(tipo='data')
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
@@ -271,272 +560,7 @@ def create_db():
         """
     )
 
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS distancias
-        (h3_o text NOT NULL,
-        h3_d text NOT NULL,
-        h3_o_norm text NOT NULL,
-        h3_d_norm text NOT NULL,
-        distance_osm_drive float,
-        distance_osm_walk float,
-        distance_h3 float
-        )
-
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS matriz_validacion
-        (
-        id_linea_agg int,
-        parada text,
-        area_influencia text
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS nuevos_ids_etapas_viajes
-        (id INT PRIMARY KEY     NOT NULL,
-        nuevo_id_viaje int,
-        nuevo_id_etapa int,
-        factor_expansion float
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata_lineas
-            (id_linea INT PRIMARY KEY NOT NULL,
-            nombre_linea text not null,
-            id_linea_agg INT,
-            nombre_linea_agg ING
-            modo text,
-            empresa text,
-            descripcion text
-            )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata_ramales
-            (id_ramal INT PRIMARY KEY     NOT NULL,
-            id_linea int not null,
-            nombre_ramal text not null,
-            modo text not null,
-            empresa text,
-            descripcion text
-            )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS official_lines_geoms
-        (id_linea INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS matrices
-        (
-        desc_dia text not null,
-        tipo_dia text not null,
-        var_zona text not null,
-        filtro1 text not null,
-        Origen text not null,
-        Destino text not null,
-        Viajes int not null
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lineas_deseo
-        (
-        desc_dia text not null,
-        tipo_dia text not null,
-        var_zona text not null,
-        filtro1 text not null,
-        Origen text not null,
-        Destino text not null,
-        Viajes int not null,
-        lon_o float,
-        lat_o float,
-        lon_d float,
-        lat_d float
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS viajes_hora
-        (
-        desc_dia text not null,
-        tipo_dia text not null,
-        Hora int,
-        Viajes int,
-        Modo text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS distribucion
-        (
-        desc_dia text not null,
-        tipo_dia text not null,
-        Distancia int,
-        Viajes int,
-        Modo text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS indicadores
-        (
-        desc_dia text not null,
-        tipo_dia text not null,
-        Titulo text,
-        orden int,
-        Indicador text,
-        Valor text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS zonas
-        (
-        zona text not null,
-        tipo_zona text not null,
-        wkt text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS particion_modal
-        (
-        desc_dia str,
-        tipo str,
-        modo str,
-        modal float
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
-        (id_linea int not null,
-        nombre_linea str,
-        day_type text nor null,
-        n_sections int,
-        sentido text not null,
-        section_id float not null,
-        hora_min int,
-        hora_max int,
-        cantidad_etapas int not null,
-        prop_etapas float not null,
-        buff_factor float,
-        wkt text
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS official_branches_geoms
-        (id_ramal INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS inferred_lines_geoms
-        (id_linea INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lines_geoms
-        (id_linea INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS branches_geoms
-        (id_ramal INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS stops
-        (id_linea INT NOT NULL,
-        id_ramal INT NOT NULL,
-        node_id INT NOT NULL,
-        branch_stop_order INT NOT NULL,
-        stop_x float NOT NULL,
-        stop_y float NOT NULL,
-        node_x float NOT NULL,
-        node_y float NOT NULL
-        )
-        ;
-        """
-    )
-
-    # create KPI tables
-    create_kpi_tables()
-
     conn_data.close()
-    conn_insumos.close()
-    conn_dash.close()
-    print("Fin crear base")
-    print("Todas las tablas creadas")
 
 
 def leer_configs_generales():
@@ -583,8 +607,6 @@ def crear_tablas_geolocalizacion():
             """
     )
 
-    crear_tabla_gps(conn_data)
-
     conn_data.execute(
         """
             CREATE INDEX IF NOT EXISTS trx_idx ON trx_eco (
@@ -603,7 +625,9 @@ def crear_tablas_geolocalizacion():
     conn_data.close()
 
 
-def crear_tabla_gps(conn_data):
+def create_gps_table(conn_data):
+
+    conn_data = iniciar_conexion_db(tipo='data')
 
     conn_data.execute(
         """
@@ -684,6 +708,7 @@ def crear_tabla_gps(conn_data):
     )
 
     conn_data.commit()
+    conn_data.close()
 
 
 def agrego_indicador(df_indicador,
