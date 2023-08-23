@@ -625,7 +625,7 @@ def crear_tablas_geolocalizacion():
     conn_data.close()
 
 
-def create_gps_table(conn_data):
+def create_gps_table():
 
     conn_data = iniciar_conexion_db(tipo='data')
 
