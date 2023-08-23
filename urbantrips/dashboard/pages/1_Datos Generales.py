@@ -193,6 +193,37 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
+with st.expander ('Partición modal'):
+    
+    col1, col2, col3 = st.columns([1, 3, 3])
+    particion_modal = levanto_tabla_sql('particion_modal') 
+    desc_dia_m = col1.selectbox('Periodo', options=particion_modal.desc_dia.unique(), key='desc_dia_m')
+
+    
+    # Etapas
+    particion_modal_etapas = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo=='etapas')]    
+    if col2.checkbox('Ver datos: etapas'):
+        col2.write(particion_modal_etapas)
+    fig2 = px.bar(particion_modal_etapas, x='modo', y='modal')
+    fig2.update_layout(title_text='Partición modal de Etapas')
+    fig2.update_xaxes(title_text='Modo')
+    fig2.update_yaxes(title_text='Partición modal (%)')
+    fig2.update_traces(marker_color='brown')
+    col2.plotly_chart(fig2)
+    
+    # Viajes
+    particion_modal_viajes = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo=='viajes')]        
+    if col3.checkbox('Ver datos: viajes'):
+        col3.write(particion_modal_viajes)   
+    fig = px.bar(particion_modal_viajes, x='modo', y='modal')
+    fig.update_layout(title_text='Partición modal de Viajes')
+    fig.update_xaxes(title_text='Modo')
+    fig.update_yaxes(title_text='Partición modal (%)')
+    fig.update_traces(marker_color='navy')
+    col3.plotly_chart(fig)
+
+
+
 with st.expander ('Distancias de viajes'):
     
     col1, col2 = st.columns([1, 4])

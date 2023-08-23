@@ -419,6 +419,22 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     etapas_sin_d = pd.read_sql_query(q, conn_data)
     etapas_sin_d = etapas_sin_d.drop(['h3_d', 'od_validado'], axis=1)
 
+    # add id_linea_agg
+    routes.process_routes_metadata()
+
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    etapas_sin_d = etapas_sin_d.merge(metadata_lineas[['id_linea',
+                                                       'id_linea_agg']],
+                                      how='left',
+                                      on='id_linea')
+
     etapas_destinos_potencial = dest.imputar_destino_potencial(etapas_sin_d)
     destinos = dest.imputar_destino_min_distancia(etapas_destinos_potencial)
 
@@ -435,8 +451,8 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
 
     etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
 
-    etapa.reindex(columns=['id_viaje', 'id_etapa',
-                  'h3_o', 'h3_d', 'od_validado'])
+    etapa = etapa.reindex(columns=['id_viaje', 'id_etapa',
+                                   'h3_o', 'h3_d', 'od_validado'])
     # casos para armar tests con nuevos destinos
     # tarjeta 3839538659. la vuelta en tren que termine en la estacion de tren
     assert (etapa.loc[(etapa.id_viaje == 2) & (etapa.id_etapa == 2), 'h3_d']
@@ -586,6 +602,8 @@ def test_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
+    routes.process_routes_metadata()
+
     trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
@@ -715,6 +733,8 @@ def test_gps(matriz_validacion_test_amba):
                     tipo_trx_invalidas,
                     nombre_archivo_gps,
                     nombres_variables_gps)
+
+    routes.process_routes_metadata()
 
     legs.create_legs_from_transactions(trx_order_params)
 

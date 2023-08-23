@@ -24,7 +24,6 @@ from urbantrips.utils.utils import (
     leer_alias)
 
 
-
 @duracion
 def update_stations_catchment_area(ring_size):
     """
@@ -32,31 +31,49 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
-    
+
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     # Leer las paradas en base a las etapas
     q = """
     select id_linea,h3_o as parada from etapas
-    group by id_linea,h3_o having count(*) >1 and parada <> 0
     """
     paradas_etapas = pd.read_sql(q, conn_data)
 
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    paradas_etapas = paradas_etapas.merge(metadata_lineas[['id_linea',
+                                                           'id_linea_agg']],
+                                          how='left',
+                                          on='id_linea').drop(['id_linea'],
+                                                              axis=1)
+
+    paradas_etapas = paradas_etapas.groupby(
+        ['id_linea_agg', 'parada'], as_index=False).size()
+    paradas_etapas = paradas_etapas[(paradas_etapas['size'] > 1)].drop([
+        'size'], axis=1)
+
     # Leer las paradas ya existentes en la matriz
     q = """
-    select distinct id_linea, parada, 1 as m from matriz_validacion
+    select distinct id_linea_agg, parada, 1 as m from matriz_validacion
     """
     paradas_en_matriz = pd.read_sql(q, conn_insumos)
 
     # Detectar que paradas son nuevas para cada linea
     paradas_nuevas = paradas_etapas\
         .merge(paradas_en_matriz,
-               on=['id_linea', 'parada'],
+               on=['id_linea_agg', 'parada'],
                how='left')
 
     paradas_nuevas = paradas_nuevas.loc[paradas_nuevas.m.isna(), [
-        'id_linea', 'parada']]
+        'id_linea_agg', 'parada']]
 
     if len(paradas_nuevas) > 0:
         areas_influencia_nuevas = pd.concat(
@@ -172,7 +189,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     """
     This function creates transport zones based on the points in the dataset
     """
-    
+
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -208,6 +225,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
                               x['longitud'], weights=x['fex']))
                       .reset_index().rename(columns={0: 'longitud'}),
                       how='left')
+
     hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
@@ -368,10 +386,10 @@ def create_distances_table(use_parallel=False):
 
         # Determine the size of each chunk (500 rows in this case)
         chunk_size = 2000
-        
+
         # Get the total number of rows in the DataFrame
         total_rows = len(agg2_total)
-        
+
         # Loop through the DataFrame in chunks of 500 rows
         for start in range(0, total_rows, chunk_size):
             end = start + chunk_size
@@ -379,7 +397,7 @@ def create_distances_table(use_parallel=False):
             agg2 = agg2_total.iloc[start:end].copy()
             # Call the process_chunk function with the selected chunk
             print(f'Bajando distancias entre {start} a {end}')
-            
+
             agg2 = calculo_distancias_osm(
                 agg2,
                 h3_o="h3_o_norm",
@@ -389,7 +407,7 @@ def create_distances_table(use_parallel=False):
                 modes=["drive"],
                 use_parallel=use_parallel
             )
-    
+
             dist1 = agg2.copy()
             dist1['h3_o'] = dist1['h3_o_norm']
             dist1['h3_d'] = dist1['h3_d_norm']
@@ -397,21 +415,24 @@ def create_distances_table(use_parallel=False):
             dist2['h3_d'] = dist2['h3_o_norm']
             dist2['h3_o'] = dist2['h3_d_norm']
             distancias_new = pd.concat([dist1, dist2], ignore_index=True)
-            distancias_new = distancias_new.groupby(['h3_o', 
-                                                     'h3_d', 
-                                                     'h3_o_norm', 
-                                                     'h3_d_norm'], as_index=False)[['distance_osm_drive',      
-                                                                                    'distance_h3']].first()
-    
+            distancias_new = distancias_new\
+                .groupby(['h3_o',
+                          'h3_d',
+                          'h3_o_norm',
+                          'h3_d_norm'],
+                         as_index=False)[['distance_osm_drive',
+                                          'distance_h3']].first()
+
             distancias_new.to_sql("distancias", conn_insumos,
                                   if_exists="append", index=False)
-    
+
             conn_insumos.close()
             conn_insumos = iniciar_conexion_db(tipo='insumos')
-            
+
         conn_insumos.close()
         conn_data.close()
-    
+
+
 def calculo_distancias_osm(
     df,
     origin="",
@@ -426,7 +447,7 @@ def calculo_distancias_osm(
     modes=["drive", "walk"],
     distancia_entre_hex=1,
     use_parallel=False
-    ):
+):
 
     cols = df.columns.tolist()
 
@@ -468,7 +489,11 @@ def calculo_distancias_osm(
 
     for mode in modes:
         print("")
-        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax {round(ymin,3)}, {round(xmin,3)}, {round(ymax,3)}, {round(xmax,3)} - {str(datetime.now())[:19]}")
+        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax,")
+        print(f"{round(ymin,3)}, {round(xmin,3)}, ")
+        print(f"{round(ymax,3)}, {round(xmax,3)}")
+        print(f" - {str(datetime.now())[:19]}")
+
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
         print('Fin descarga de red', str(datetime.now())[:19])
 

@@ -17,7 +17,8 @@ def duracion(f):
     def wrap(*args, **kw):
         print('')
         print(
-            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True)
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="",
+            flush=True)
         print('-' * (len(f.__name__)+22))
 
         ts = time.time()
@@ -289,7 +290,7 @@ def create_db():
         """
         CREATE TABLE IF NOT EXISTS matriz_validacion
         (
-        id_linea int,
+        id_linea_agg int,
         parada text,
         area_influencia text
         )
@@ -312,9 +313,11 @@ def create_db():
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS metadata_lineas
-            (id_linea INT PRIMARY KEY     NOT NULL,
+            (id_linea INT PRIMARY KEY NOT NULL,
             nombre_linea text not null,
-            modo text not null,
+            id_linea_agg INT,
+            nombre_linea_agg ING
+            modo text,
             empresa text,
             descripcion text
             )
@@ -432,6 +435,19 @@ def create_db():
         zona text not null,
         tipo_zona text not null,
         wkt text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS particion_modal
+        (
+        desc_dia str,
+        tipo str,
+        modo str,
+        modal float
         )
         ;
         """

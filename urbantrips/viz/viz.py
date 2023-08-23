@@ -1217,6 +1217,17 @@ def imprime_graficos_hora(viajes,
     vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
                 ].sort_values('distance_osm_drive')
 
+
+    vi['pc'] = round(vi.cant / vi.cant.sum() * 100, 5)
+    vi['csum'] = vi.pc.cumsum()
+    vi = vi[vi.csum<=99.5]
+    vi['Viajes (en miles)'] = round(vi.cant/1000)
+
+    vi_modo['pc'] = round(vi_modo.cant / vi_modo.cant.sum() * 100, 5)
+    vi_modo['csum'] = vi_modo.pc.cumsum()
+    vi_modo = vi_modo[vi_modo.csum<=99.5]
+
+
     # guarda distribución de viajes para dashboard
 
     vi_dash = vi.copy()
@@ -1255,7 +1266,7 @@ def imprime_graficos_hora(viajes,
     ax = fig.add_subplot(111)
 
     sns.histplot(x='distance_osm_drive', weights='cant',
-                 data=vi, bins=len(vi), element='poly', ax=ax)
+                 data=vi, bins=len(vi),ax=ax) # element='poly', 
     ax.set_title(title, fontsize=12)
     ax.set_xlabel("Distancia (kms)", fontsize=10)
     ax.set_ylabel(ytitle, fontsize=10)
@@ -2151,6 +2162,31 @@ def save_zones():
     zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
 
+    
+def particion_modal(desc_dia, viajes_dia, etapas_dia):
+    
+    particion_viajes = viajes_dia.groupby('modo', as_index=False).factor_expansion_linea.sum().round() 
+    particion_viajes['modal'] =  (particion_viajes['factor_expansion_linea'] / viajes_dia.factor_expansion_linea.sum() * 100).round()
+    particion_viajes = particion_viajes.sort_values('modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+    particion_viajes['tipo'] = 'viajes'
+    particion_viajes['desc_dia'] = desc_dia
+    particion_etapas = etapas_dia.groupby('modo', as_index=False).factor_expansion_linea.sum().round() 
+    particion_etapas['modal'] =  (particion_etapas['factor_expansion_linea'] / etapas_dia.factor_expansion_linea.sum() * 100).round()
+    particion_etapas = particion_etapas.sort_values('modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+    particion_etapas['tipo'] = 'etapas'
+    particion_etapas['desc_dia'] = desc_dia
+    particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" '
+    conn_dash.execute(query)
+    conn_dash.commit()
+    particion['modo'] = particion.modo.str.capitalize()
+    particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
+    conn_dash.close()
+
+
 
 @duracion
 def create_visualizations():
@@ -2168,9 +2204,20 @@ def create_visualizations():
         """
         SELECT *
         FROM viajes
+        where od_validado==1
         """,
         conn_data,
     )
+
+    etapas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM etapas
+        where od_validado==1
+        """,
+        conn_data,
+    )
+
 
     distancias = pd.read_sql_query(
         """
@@ -2195,6 +2242,13 @@ def create_visualizations():
     viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
     viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
 
+    # Imputar anio, mes y tipo de dia
+    etapas['yr'] = pd.to_datetime(etapas.dia).dt.year
+    etapas['mo'] = pd.to_datetime(etapas.dia).dt.month
+    etapas['dow'] = pd.to_datetime(etapas.dia).dt.day_of_week
+    etapas.loc[etapas.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Día hábil'
+
     v_iter = viajes\
         .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
         .factor_expansion_linea.sum()\
@@ -2208,6 +2262,12 @@ def create_visualizations():
         viajes_dia = viajes[(viajes.yr == i.yr) & (
             viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
 
+        etapas_dia = etapas[(etapas.yr == i.yr) & (
+            etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
+
+        # partición modal
+        particion_modal(desc_dia, viajes_dia, etapas_dia)
+        
         print('Imprimiendo tabla de matrices OD')
         # Impirmir tablas con matrices OD
         imprimir_matrices_od(viajes=viajes_dia,
