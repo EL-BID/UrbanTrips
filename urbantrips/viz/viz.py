@@ -3,7 +3,7 @@ import numpy as np
 import os
 import geopandas as gpd
 from shapely import wkt
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 import h3
 import mapclassify
 import folium
@@ -384,8 +384,25 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     font_dicc = {'fontsize': 18,
                  'fontweight': 'bold'}
 
+    # create a squared box
+    minx, miny, maxx, maxy = gdf_d0.total_bounds
+    box = create_squared_polygon(minx, miny, maxx, maxy, epsg)
+    box.plot(ax=ax1, color='#ffffff00')
+    box.plot(ax=ax2, color='#ffffff00')
+
+    # get branches' geoms
+    branch_geoms = get_branch_geoms_from_line(id_linea=id_linea)
+    branch_geoms = branch_geoms.to_crs(epsg=epsg)
+
+    if branch_geoms is not None:
+        branch_geoms.plot(ax=ax1, color='Purple',
+                          alpha=0.4, linestyle='dashed')
+        branch_geoms.plot(ax=ax2, color='Orange',
+                          alpha=0.4, linestyle='dashed')
+
     gdf.plot(ax=ax1, color='black')
     gdf.plot(ax=ax2, color='black')
+
     try:
         gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
                     scheme='fisherjenks', k=5, alpha=.6)
@@ -2571,3 +2588,55 @@ def plot_basic_kpi(kpi_by_line_hr):
             index=False,
         )
         conn_dash.close()
+
+
+def get_branch_geoms_from_line(id_linea):
+    """
+    Takes a line id and returns a geoSeries with
+    all branches' geoms
+    """
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    branch_geoms_query = f"""
+        select * from branches_geoms bg 
+        where id_ramal in (
+            select id_ramal from metadata_ramales mr 
+            where id_linea = {id_linea}
+        )
+        ;
+    """
+    branch_geoms = pd.read_sql(branch_geoms_query, conn_insumos)
+    branch_geoms = gpd.GeoSeries.from_wkt(
+        branch_geoms.wkt.values,
+        index=branch_geoms.id_ramal.values,
+        crs='EPSG:4326')
+
+    conn_insumos.close()
+
+    if len(branch_geoms) == 0:
+        branch_geoms = None
+
+    return branch_geoms
+
+
+def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
+
+    width = max(max_x - min_x, max_y - min_y)
+    center_x = (max_x + min_x) / 2
+    center_y = (max_y + min_y) / 2
+
+    square_bbox_min_x = center_x - width / 2
+    square_bbox_min_y = center_y - width / 2
+    square_bbox_max_x = center_x + width / 2
+    square_bbox_max_y = center_y + width / 2
+
+    square_bbox_coords = [
+        (square_bbox_min_x, square_bbox_min_y),
+        (square_bbox_max_x, square_bbox_min_y),
+        (square_bbox_max_x, square_bbox_max_y),
+        (square_bbox_min_x, square_bbox_max_y)
+    ]
+
+    p = Polygon(square_bbox_coords)
+    s = gpd.GeoSeries([p], crs=f'EPSG:{epsg}')
+    return s
