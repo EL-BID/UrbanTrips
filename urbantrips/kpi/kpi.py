@@ -510,7 +510,8 @@ def create_route_section_ids(n_sections):
 
 def build_leg_route_sections_df(row, section_ids):
     """
-    Computes for a route a table with the load per section
+    Computes for a leg a table with all sections id trversed by
+    that leg based on the origin and destionation's section id 
 
     Parameters
     ----------
@@ -531,6 +532,7 @@ def build_leg_route_sections_df(row, section_ids):
     dia = row["dia"]
     f_exp = row["factor_expansion_linea"]
 
+    # always build it in increasing order
     if sentido == "ida":
         point_o = row["o_proj"]
         point_d = row["d_proj"]
@@ -538,14 +540,21 @@ def build_leg_route_sections_df(row, section_ids):
         point_o = row["d_proj"]
         point_d = row["o_proj"]
 
+    # when d_proj is 1, sections id exclude 1
+    if point_d == 1:
+        point_d = 0.999
+
+    # get the closest section id to origin
     o_id = section_ids - point_o
     o_id = o_id[o_id <= 0]
     o_id = o_id.idxmax()
 
+    # get the closest section id to destination
     d_id = section_ids - point_d
     d_id = d_id[d_id >= 0]
     d_id = d_id.idxmin()
 
+    # build a df with all traversed section ids
     leg_route_sections = section_ids[o_id: d_id + 1]
     leg_route_sections_df = pd.DataFrame(
         {
