@@ -309,10 +309,7 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     else:
         day_str = day
 
-    route_geom = route_geoms.loc[id_linea]
-
-    n_sections = df.n_sections.unique()[0]
-    section_ids = kpi.create_route_section_ids(n_sections)
+    section_ids = df.section_id.unique()
 
     print('Produciendo grafico de ocupacion por tramos', id_linea)
 
@@ -331,15 +328,14 @@ def viz_etapas_x_tramo_recorrido(df, route_geoms,
     df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
     # Create geoms for route in both directions
+    df_geom = df.query("sentido == 'ida'")
     geom = [LineString(
-        [
-            route_geom.interpolate(section_ids[i], normalized=True),
-            route_geom.interpolate(section_ids[i+1], normalized=True)
-        ]
-    ) for i in section_ids.index[:-1]]
-
+        [[df_geom.loc[i, 'x'], df_geom.loc[i, 'y']],
+         [df_geom.loc[i+1, 'x'], df_geom.loc[i+1, 'y']]]
+    ) for i in df_geom.index[:-1]]
     gdf = gpd.GeoDataFrame(pd.DataFrame(
-        {'section_id': section_ids[:-1]}), geometry=geom, crs='epsg:4326')
+        {'section_id': df_geom.section_id.iloc[:-1]}),
+        geometry=geom, crs='epsg:4326')
 
     # Arrows
     flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
