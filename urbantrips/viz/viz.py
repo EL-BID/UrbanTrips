@@ -105,7 +105,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         if type(id_linea) == int:
             id_linea = [id_linea]
 
-    table, recorridos = get_route_section_load(
+    table = get_route_section_load(
         id_linea=id_linea,
         rango_hrs=rango_hrs,
         day_type=day_type,
@@ -115,7 +115,6 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
     # Create a viz for each route
     table.groupby('id_linea').apply(
         viz_etapas_x_tramo_recorrido,
-        route_geoms=recorridos,
         indicator=indicador,
         factor=factor,
         factor_min=factor_min,
@@ -155,7 +154,6 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     # route id filter
     if id_linea:
@@ -183,19 +181,7 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
               " section_meters:", section_meters,
               " day_type:", day_type)
 
-    # Read route geoms
-    q_rec = f"select * from lines_geoms"
-    if id_linea:
-        q_rec = q_rec + f" where id_linea in ({lineas_str})"
-
-    recorridos = pd.read_sql(q_rec, conn_insumos)
-
-    recorridos = gpd.GeoSeries.from_wkt(
-        recorridos.wkt.values,
-        index=recorridos.id_linea.values,
-        crs='EPSG:4326')
-
-    return table, recorridos
+    return table
 
 
 def load_route_section_load_data_q(
@@ -257,7 +243,7 @@ def load_route_section_load_data_q(
     return q
 
 
-def viz_etapas_x_tramo_recorrido(df, route_geoms,
+def viz_etapas_x_tramo_recorrido(df,
                                  indicator='cantidad_etapas', factor=1,
                                  factor_min=50, return_gdfs=False,
                                  save_gdf=False):
