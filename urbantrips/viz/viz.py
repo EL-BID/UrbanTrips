@@ -314,7 +314,8 @@ def viz_etapas_x_tramo_recorrido(df,
     df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
     # Create geoms for route in both directions
-    df_geom = df.query("sentido == 'ida'")
+    df_geom = df.query("sentido == 'ida'").sort_values('section_id')
+
     geom = [LineString(
         [[df_geom.loc[i, 'x'], df_geom.loc[i, 'y']],
          [df_geom.loc[i+1, 'x'], df_geom.loc[i+1, 'y']]]
