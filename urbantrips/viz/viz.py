@@ -314,7 +314,9 @@ def viz_etapas_x_tramo_recorrido(df,
     df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
     # Create geoms for route in both directions
-    df_geom = df.query("sentido == 'ida'").sort_values('section_id')
+    df_geom = df.query("sentido == 'ida'")\
+        .sort_values('section_id')\
+        .reset_index(drop=True)
 
     geom = [LineString(
         [[df_geom.loc[i, 'x'], df_geom.loc[i, 'y']],
@@ -375,9 +377,9 @@ def viz_etapas_x_tramo_recorrido(df,
 
     # get branches' geoms
     branch_geoms = get_branch_geoms_from_line(id_linea=id_linea)
-    branch_geoms = branch_geoms.to_crs(epsg=epsg)
 
     if branch_geoms is not None:
+        branch_geoms = branch_geoms.to_crs(epsg=epsg)
         branch_geoms.plot(ax=ax1, color='Purple',
                           alpha=0.4, linestyle='dashed')
         branch_geoms.plot(ax=ax2, color='Orange',
