@@ -2438,6 +2438,8 @@ def plot_dispatched_services_by_line_day(df):
 
 
 def plot_basic_kpi_wrapper():
+    sns.set_style("whitegrid")
+
     conn_data = iniciar_conexion_db(tipo='data')
 
     q = """
@@ -2454,7 +2456,7 @@ def plot_basic_kpi_wrapper():
     conn_data.close()
 
 
-def plot_basic_kpi(kpi_by_line_hr):
+def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=True):
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
 
@@ -2488,11 +2490,18 @@ def plot_basic_kpi(kpi_by_line_hr):
                on=['id_linea', 'hora'],
                how='left')
 
-    supply_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.veh.max()
-    demand_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.pax.max()
-
-    kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
-    kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
+    if standarize_supply_demand:
+        supply_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.veh.max()
+        demand_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.pax.max()
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
+    else:
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh / \
+            kpi_stats_line_plot.veh.max() * 100
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax / \
+            kpi_stats_line_plot.pax.sum() * 100
 
     missing_data = (kpi_stats_line_plot.pax.isna().all()) |\
         (kpi_stats_line_plot.dmt.isna().all()) |\
@@ -2511,9 +2520,9 @@ def plot_basic_kpi(kpi_by_line_hr):
                     color='silver', ax=ax, label='Factor de ocupación')
 
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
-                     color='Purple', label='Oferta - veh/hr')
+                     color='Purple', label='Oferta')
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
-                     color='Orange', label='Demanda - pax/hr')
+                     color='Orange', label='Demanda')
 
         ax.set_xlabel("Hora")
         ax.set_ylabel("Factor de Ocupación (%)")
