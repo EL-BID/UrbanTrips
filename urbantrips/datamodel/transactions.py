@@ -87,7 +87,8 @@ def create_transactions(geolocalizar_trx_config,
 
         # Guardo los días que se están analizando en la corrida actual
         dias_ultima_corrida = pd.DataFrame(
-            trx.dia.unique(), columns=['dia']).tail(1)
+            trx.dia.unique(), columns=['dia'])
+
         conn = iniciar_conexion_db(tipo='data')
         dias_ultima_corrida.to_sql(
             "dias_ultima_corrida", conn, if_exists="replace", index=False)
