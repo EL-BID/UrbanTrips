@@ -239,6 +239,9 @@ def write_config(config_default):
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67) ) #subvars
                             else:
                                 file.write(f'{x.variable}: {x.default}'.ljust(67) ) #subvars
+                        else:
+                            file.write(f'{x.variable}:'.ljust(67) ) #subvars
+
                         if len(x.descripcion_campo)>0:                            
                             file.write(f'# {x.descripcion_campo}'.ljust(15))                        
                             file.write('\n')
@@ -362,11 +365,17 @@ def check_config_errors(config_default):
         
 
             # chequea modos
-            modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
-            modos_faltantes = [i for i in trx.modo.unique() if i not in modos]
-            if modos_faltantes:
-                errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
-        
+
+            var_modo = config_default[(config_default.subvar=='modo_trx')].default.values[0]
+            if var_modo:             
+                if var_modo in trx.columns:             
+                    modos = config_default[(config_default.variable=='modos')&(config_default.default!='')].default.unique()
+                    modos_faltantes = [i for i in trx[var_modo].unique() if i not in modos]
+                    if modos_faltantes:
+                        errores += [f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
+                else:
+                    errores += [f'La columna {var_modo} no se encuentra en la tabla de transacciones']
+                    
         config_default.loc[config_default.default=='True', 'default'] = True
         config_default.loc[config_default.default=='False', 'default'] = False
         for i in vars_boolean:
@@ -463,6 +472,14 @@ def check_config_errors(config_default):
             valor_inicio_servicio = config_default.loc[config_default.variable == 'valor_inicio_servicio'].default.values[0]   
             if not valor_inicio_servicio:
                 errores += ['Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"']
+
+    recorridos_geojson = config_default.loc[config_default.variable == 'recorridos_geojson'].default.values[0]    
+    if recorridos_geojson:
+        ruta = os.path.join("data", "data_ciudad", recorridos_geojson)
+        if not os.path.isfile(ruta):
+            errores += [f'No existe el archivo {recorridos_geojson} con los recorridos de las líneas de transporte público']
+
+        
 
     
     error_txt = '\n'
