@@ -1438,6 +1438,9 @@ def traigo_zonificacion(viajes,
                 except KeyError:
                     matriz_order = ""
 
+                if matriz_order is None:
+                    matriz_order = ""
+
                 if var_zona in zonas.columns:
                     matriz_zonas += [[file_zona, var_zona, matriz_order]]
                     vars_zona += [var_zona]
