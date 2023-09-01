@@ -2340,6 +2340,9 @@ def create_visualizations():
 
     save_zones()
 
+    print('Indicadores para dash')
+    indicadores_dash()
+
     # plor dispatched services
     plot_dispatched_services_wrapper()
 
@@ -2646,3 +2649,110 @@ def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
     p = Polygon(square_bbox_coords)
     s = gpd.GeoSeries([p], crs=f'EPSG:{epsg}')
     return s
+
+def format_num(num, lpad=10):
+    fnum = '{:,}'.format(num).replace(".", "*").replace(",", ".").replace("*", ",")
+    if lpad>0:
+        fnum = fnum.rjust(lpad, ' ')
+    return  fnum
+
+def indicadores_dash():
+    alias = leer_alias()
+    
+    configs = leer_configs_generales()
+    
+    conn_data = iniciar_conexion_db(tipo='data')
+    
+    
+    indicadores = pd.read_sql_query(
+        """
+        SELECT *
+        FROM indicadores
+        """,
+        conn_data,
+    )
+    
+    
+    indicadores['dia'] = pd.to_datetime(indicadores.dia)
+    indicadores['dow'] = indicadores.dia.dt.dayofweek
+    indicadores['mo'] = indicadores.dia.dt.month
+    indicadores['yr'] = indicadores.dia.dt.year
+    indicadores['desc_dia'] = indicadores['yr'].astype(str).str.zfill(4) +'/'+ indicadores['mo'].astype(str).str.zfill(2)
+    indicadores['tipo_dia'] = 'Hábil'
+    indicadores.loc[indicadores.dow>=5, 'tipo_dia'] = 'Fin de semana'
+    
+    indicadores = indicadores.groupby(['desc_dia', 'tipo_dia', 'detalle'], as_index=False).agg({'indicador':'mean', 'porcentaje':'mean'})
+    indicadores.loc[indicadores.detalle=='Cantidad de etapas con destinos validados', 'detalle'] = 'Transacciones válidas \n(Etapas con destinos validados)'
+    indicadores.loc[indicadores.detalle=='Cantidad total de viajes expandidos', 'detalle'] = 'Viajes'
+    indicadores.loc[indicadores.detalle=='Cantidad total de etapas', 'detalle'] = 'Etapas'
+    indicadores.loc[indicadores.detalle=='Cantidad total de usuarios', 'detalle'] = 'Usuarios'
+    indicadores.loc[indicadores.detalle=='Cantidad de viajes cortos (<5kms)', 'detalle'] = 'Viajes cortos (<5kms)'
+    indicadores.loc[indicadores.detalle=='Cantidad de viajes con transferencia', 'detalle'] = 'Viajes con transferencia'
+    
+    conn_data.close()
+    
+    
+    
+    
+    indicadores.loc[indicadores.detalle.isin(['Cantidad de transacciones totales', 
+                                            'Cantidad de tarjetas únicas', 
+                                            'Cantidad de transacciones limpias', 
+                                            ]), 'orden'] = 1
+    
+    indicadores.loc[indicadores.detalle.str.contains('Transacciones válidas'), 'orden'] = 1
+    
+    
+    indicadores.loc[indicadores.detalle.isin(['Viajes',
+                                            'Etapas',
+                                            'Usuarios',
+                                            'Viajes cortos (<5kms)',
+                                            'Viajes con transferencia',
+                                            'Distancia de los viajes (promedio en kms)',
+                                            'Distancia de los viajes (mediana en kms)' 
+                                            ]), 'orden'] = 2
+    
+    
+    indicadores.loc[indicadores.detalle.isin([  'Viajes autobus',
+                                                'Viajes Multietapa',
+                                                'Viajes Multimodal', 
+                                                'Viajes metro', 
+                                                'Viajes tren'
+                                            ]), 'orden'] = 3
+    
+    
+    
+    indicadores['Valor'] = indicadores.indicador.apply(format_num)
+    indicadores['porcentaje'] = indicadores.porcentaje.apply(format_num)
+    
+    indicadores = indicadores[indicadores.orden.notna()]
+    
+    indicadores.loc[~(indicadores.detalle.str.contains('Distancia')), 'Valor'] = indicadores.loc[~(indicadores.detalle.str.contains('Distancia')), 'Valor'].str.split(',').str[0]
+    
+    indicadores = indicadores.drop(['indicador'], axis=1)
+    indicadores = indicadores.rename(columns={'detalle':'Indicador'})
+    
+    indicadores.loc[indicadores.Indicador.str.contains('Transacciones válidas'), 
+                            'Valor'] += ' ('+indicadores.loc[
+                                            indicadores.Indicador.str.contains('Transacciones válidas'), 
+                                            'porcentaje'].str.replace(' ', '')+'%)'
+    
+    indicadores.loc[indicadores.orden == 3, 
+                                    'Valor'] += ' ('+indicadores.loc[indicadores.orden == 3, 
+                                    'porcentaje'].str.replace(' ', '')+'%)'
+    
+    indicadores.loc[indicadores.Indicador == 'Viajes cortos (<5kms)', 
+                                    'Valor'] += ' ('+indicadores.loc[
+                                    indicadores.Indicador == 'Viajes cortos (<5kms)', 'porcentaje'].str.replace(' ', '')+'%)'
+    indicadores.loc[indicadores.Indicador == 'Viajes con transferencia', 
+                                    'Valor'] += ' ('+indicadores.loc[
+                                    indicadores.Indicador == 'Viajes con transferencia', 'porcentaje'].str.replace(' ', '')+'%)'
+    
+    
+    indicadores.loc[indicadores.orden==1, 'Titulo'] = 'Información del dataset original'
+    indicadores.loc[indicadores.orden==2, 'Titulo'] = 'Información procesada'
+    indicadores.loc[indicadores.orden==3, 'Titulo'] = 'Partición modal'
+    
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
+    

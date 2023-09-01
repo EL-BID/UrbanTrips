@@ -453,6 +453,13 @@ def check_config_errors(config_default):
     if (geolocalizar_trx) and (not nombre_archivo_gps):
         errores += ['Para gelocalizar transacciones debe estar especificado el archivo de transacciones gps']
     
+    if not geolocalizar_trx:
+        latitud_trx = config_default.loc[config_default.subvar == 'latitud_trx'].default.values[0]   
+        longitud_trx = config_default.loc[config_default.subvar == 'longitud_trx'].default.values[0]   
+        if (not latitud_trx) | (not longitud_trx):
+            errores += ['Si geolocalizar_trx = False deben exister los campos latitud_trx y longitud_trx en la tabla de transacciones']
+            
+    
     if nombre_archivo_gps:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_gps)    
         if not os.path.isfile(ruta):

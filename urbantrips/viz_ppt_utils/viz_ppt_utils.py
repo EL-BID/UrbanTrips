@@ -233,7 +233,7 @@ def slide_1(prs,
     ind += ' ('+format_num(indicadores.loc[indicadores.detalle==ind_name].porcentaje.values[0],0)+'%)'
     slide = pptx_text(prs=prs, slide=slide,  title=f'Transacciones válidas \n(Etapas con destinos validados):', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
     slide = pptx_text(prs=prs, slide=slide,  title=ind, left=left_i+4.3, top=top_i, width=18, fontsize=18)    
-    df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información del dataset original', 1, 'Transacciones válidas \n(Etapas con destinos validados):', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
+    df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información del dataset original', 1, 'Transacciones válidas \n(Etapas con destinos validados)', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
 
 
@@ -267,7 +267,7 @@ def slide_1(prs,
     ind_name = 'Cantidad de viajes cortos (<5kms)'
     ind = format_num(indicadores.loc[indicadores.detalle==ind_name].indicador.astype(int).values[0])        
     ind += ' ('+format_num(indicadores.loc[indicadores.detalle==ind_name].porcentaje.values[0],0)+'%)'
-    slide = pptx_text(prs=prs, slide=slide,  title=f'Viajes cortos (<5kms):', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
+    slide = pptx_text(prs=prs, slide=slide,  title=f'Viajes cortos (<5kms)', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
     slide = pptx_text(prs=prs, slide=slide,  title=ind, left=left_i+4.3, top=top_i, width=18, fontsize=18)    
     df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información procesada', 2, 'Viajes cortos (<5kms)', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
@@ -311,31 +311,6 @@ def slide_1(prs,
         
         df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Partición modal', 3, ind_name, ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
-    
-    
-    df_indicadores['desc_dia'] = desc_dia
-    df_indicadores['tipo_dia'] = tipo_dia
-    
-    
-    conn_dash = iniciar_conexion_db(tipo='dash')
-
-    df_indicadores_ant = pd.read_sql_query(
-    """
-    SELECT *
-    FROM indicadores
-    """,
-    conn_dash,
-    )
-
-    df_indicadores_ant = df_indicadores_ant[~(
-               (df_indicadores_ant.desc_dia==desc_dia)&
-               (df_indicadores_ant.tipo_dia==tipo_dia)
-              )]
-
-    df_indicadores=pd.concat([df_indicadores_ant, df_indicadores], ignore_index=True)
-
-    df_indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
-    conn_dash.close()
 
     return prs
 

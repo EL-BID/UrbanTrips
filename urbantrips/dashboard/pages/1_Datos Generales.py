@@ -92,6 +92,7 @@ def iniciar_conexion_db(tipo='data'):
     y devuelve una conexion sqlite a la db
     """
     db_path = traigo_db_path(tipo)
+    assert os.path.isfile(db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 

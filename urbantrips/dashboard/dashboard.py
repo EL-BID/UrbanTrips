@@ -69,8 +69,11 @@ def iniciar_conexion_db(tipo='data'):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
-    db_path = traigo_db_path(tipo)
+    
+    db_path = traigo_db_path(tipo)    
+    assert os.path.isfile(db_path), f'No existe la base de datos para el dashboard en {db_path}'    
     conn = sqlite3.connect(db_path, timeout=10)
+    
     return conn
 
 @st.cache_data
