@@ -91,6 +91,7 @@ def iniciar_conexion_db(tipo='data'):
     y devuelve una conexion sqlite a la db
     """
     db_path = traigo_db_path(tipo)
+    assert os.path.isfile(db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
@@ -163,7 +164,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections):
     
     # creating plot
 
-    f = plt.figure(tight_layout=True, figsize=(18, 13), dpi=10)
+    f = plt.figure(tight_layout=True, figsize=(18, 10), dpi=8)
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
     ax2 = f.add_subplot(gs[0:2, 1])
@@ -329,8 +330,8 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections):
 
     prov = cx.providers.Stamen.TonerLite
 
-    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
 
     plt.close(f)
     return f
@@ -345,22 +346,91 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-col1, col2 = st.columns([1, 4])
+with st.expander ('Cargas por tramos'):
 
-lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
-nombre_lineas = traigo_nombre_lineas(lineas)
-
-if len(lineas) > 0:             
+    col1, col2 = st.columns([1, 4])
     
-    if len(nombre_lineas)>0:
-        nombre_linea = col1.selectbox('Línea ', options=nombre_lineas.nombre_linea.unique())
-        id_linea = nombre_lineas[nombre_lineas.nombre_linea==nombre_linea].id_linea.values[0]
-    else:
-        nombre_linea = ''
-        id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
+    lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
+    nombre_lineas = traigo_nombre_lineas(lineas)
+    
+    if len(lineas) > 0:             
         
-    day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
-    n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
+        if len(nombre_lineas)>0:
+            nombre_linea = col1.selectbox('Línea ', options=nombre_lineas.nombre_linea.unique())
+            id_linea = nombre_lineas[nombre_lineas.nombre_linea==nombre_linea].id_linea.values[0]
+        else:
+            nombre_linea = ''
+            id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
+            
+        day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
+        n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
+    
+        f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections)
+        col2.pyplot(f_lineas)
 
-    f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections)
-    col2.pyplot(f_lineas)
+with st.expander ('Cargas por horas'):
+    col1, col2 = st.columns([1, 4])
+    
+    kpi_lineas = levanto_tabla_sql('basic_kpi_by_line_hr')
+    
+    if len(kpi_lineas) > 0:                 
+        nombre_lineas_kpi = traigo_nombre_lineas(kpi_lineas)
+        if len(nombre_lineas_kpi) > 0:
+            nombre_linea_kpi = col1.selectbox('Línea  ', options=nombre_lineas_kpi.nombre_linea.unique())
+            id_linea_kpi = nombre_lineas_kpi[nombre_lineas_kpi.nombre_linea==nombre_linea_kpi].id_linea.values[0]
+        else:
+            nombre_linea_kpi = ''
+            id_linea_kpi = col1.selectbox('Línea ', options=kpi_lineas.id_linea.unique())
+
+    day_type_kpi = col1.selectbox('Tipo de dia  ', options=kpi_lineas.dia.unique())
+
+    kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi)&(kpi_lineas.dia == day_type_kpi)]
+
+    # Grafico Factor de Oocupación
+    f, ax = plt.subplots(figsize=(10, 4))
+    sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                color='silver', ax=ax, label='Factor de ocupación')
+    
+    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                 color='Purple', label='Oferta - veh/hr')
+    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                 color='Orange', label='Demanda - pax/hr')
+    
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Factor de Ocupación (%)")
+    
+    ax.set_title(f"Indicadores de oferta y demanda estadarizados\n{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_type_kpi}", 
+                 fontdict={'size': 12})
+    # ax.set_title(f"{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_str}",
+    #              fontdict={"fontsize": 11})
+    
+    # Add a footnote below and to the right side of the chart
+    note = """
+        *Los indicadores de Oferta y Demanda se estandarizaron para que
+        coincidan con el eje de Factor de Ocupación
+        """
+    ax_note = ax.annotate(note,
+                          xy=(0, -.22),
+                          xycoords='axes fraction',
+                          ha='left',
+                          va="center",
+                          fontsize=7)
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.spines.bottom.set_visible(False)
+    ax.spines.left.set_visible(False)
+    ax.spines.left.set_position(('outward', 10))
+    ax.spines.bottom.set_position(('outward', 10))
+    
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
+    # Put a legend to the right of the current axis
+    
+    # h = plt.ylabel('% ', fontsize=8)
+    # h.set_rotation(0)    
+    ax.tick_params(axis='both', which='major', labelsize=8)
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
+    col2.pyplot(f)
+    
+
+    

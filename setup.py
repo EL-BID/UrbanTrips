@@ -41,5 +41,11 @@ setuptools.setup(
         'matplotlib-scalebar',
         'numba',
         'mycolorpy',
-        'python-pptx']
+        'python-pptx',
+        'streamlit', 
+        'streamlit_folium', 
+        'Pillow',
+        'plotly',
+        'notebook',
+        'jupyterlab']
  )
