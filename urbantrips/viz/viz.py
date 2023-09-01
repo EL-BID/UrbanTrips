@@ -99,6 +99,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         minimum width of linea for low section loads to be displayed
 
     """
+    sns.set_style("whitegrid")
 
     if id_linea:
 
@@ -2441,6 +2442,8 @@ def plot_dispatched_services_by_line_day(df):
 
 
 def plot_basic_kpi_wrapper():
+    sns.set_style("whitegrid")
+
     conn_data = iniciar_conexion_db(tipo='data')
 
     q = """
@@ -2452,12 +2455,13 @@ def plot_basic_kpi_wrapper():
 
     if len(kpi_data) > 0:
         kpi_data.groupby(['id_linea']).apply(
-            plot_basic_kpi)
+            plot_basic_kpi, standarize_supply_demand=False)
 
     conn_data.close()
 
 
-def plot_basic_kpi(kpi_by_line_hr):
+def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
+                   *args, **kwargs):
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
 
@@ -2491,12 +2495,29 @@ def plot_basic_kpi(kpi_by_line_hr):
                on=['id_linea', 'hora'],
                how='left')
 
-    supply_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.veh.max()
-    demand_factor = kpi_stats_line_plot.of.max()/kpi_stats_line_plot.pax.max()
-
-    kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
-    kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
-
+    if standarize_supply_demand:
+        supply_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.veh.max()
+        demand_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.pax.max()
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
+        note = """
+            Los indicadores de Oferta y Demanda se estandarizaron para que
+            coincidan con máximo del eje de Factor de Ocupación
+        """
+        ylabel_str = "Factor de Ocupación (%)"
+    else:
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh / \
+            kpi_stats_line_plot.veh.sum() * 100
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax / \
+            kpi_stats_line_plot.pax.sum() * 100
+        note = """
+        Oferta y Demanda expresan la distribución porcentual por
+        hora de la sumatoria de veh-hr y de los pax-hr 
+        respectivamente 
+        """
+        ylabel_str = "%"
     missing_data = (kpi_stats_line_plot.pax.isna().all()) |\
         (kpi_stats_line_plot.dmt.isna().all()) |\
         (kpi_stats_line_plot.of.isna().all())
@@ -2514,12 +2535,12 @@ def plot_basic_kpi(kpi_by_line_hr):
                     color='silver', ax=ax, label='Factor de ocupación')
 
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
-                     color='Purple', label='Oferta - veh/hr')
+                     color='Purple', label='Oferta')
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
-                     color='Orange', label='Demanda - pax/hr')
+                     color='Orange', label='Demanda')
 
         ax.set_xlabel("Hora")
-        ax.set_ylabel("Factor de Ocupación (%)")
+        ax.set_ylabel(ylabel_str)
 
         f.suptitle(f"Indicadores de oferta y demanda estadarizados",
                    fontdict={'size': 18,
@@ -2528,10 +2549,7 @@ def plot_basic_kpi(kpi_by_line_hr):
         ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
                      fontdict={"fontsize": 11})
         # Add a footnote below and to the right side of the chart
-        note = """
-            Los indicadores de Oferta y Demanda se estandarizaron para que
-            coincidan con el eje de Factor de Ocupación
-            """
+
         ax_note = ax.annotate(note,
                               xy=(0, -.18),
                               xycoords='axes fraction',
