@@ -317,7 +317,7 @@ with st.expander ('Líneas de deseo'):
                                           k_jenks=5)
 
         with col2:
-            st_map = st_folium(map, width=700, height=450)
+            st_map = st_folium(map, width=900, height=700)
     else:
 
         col2.markdown("""
@@ -371,13 +371,16 @@ with st.expander ('Matrices OD'):
         od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
         
         fig = px.imshow(od_heatmap, text_auto=True, color_continuous_scale='Blues',)
+        
         fig.update_coloraxes(showscale=False)
+
+        
         if len(od_heatmap)<=20:
-            fig.update_layout(width=500, height=500)
-        elif (len(od_heatmap)>20)&(len(od_heatmap)<=40):
             fig.update_layout(width=800, height=800)
+        elif (len(od_heatmap)>20)&(len(od_heatmap)<=40):
+            fig.update_layout(width=1000, height=1000)
         elif len(od_heatmap)>40:
-            fig.update_layout(width=950, height=950)
+            fig.update_layout(width=1200, height=1200)
             
         col2.plotly_chart(fig)
 

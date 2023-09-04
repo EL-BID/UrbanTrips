@@ -611,7 +611,8 @@ def viz_etapas_x_tramo_recorrido(df,
             (gdf_d_dash_ant.day_type.isin(
                 gdf_d_dash.day_type.unique().tolist())) &
             (gdf_d_dash_ant.n_sections.isin(
-                gdf_d_dash.n_sections.unique().tolist()))
+                gdf_d_dash.n_sections.unique().tolist())) &
+            ((gdf_d_dash_ant.hora_min ==from_hr)&(gdf_d_dash_ant.hora_max ==to_hr))
         )]
 
         gdf_d_dash = pd.concat(
