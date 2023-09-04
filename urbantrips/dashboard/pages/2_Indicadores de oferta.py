@@ -120,7 +120,16 @@ def levanto_tabla_sql(tabla_sql,
         tabla = gpd.GeoDataFrame(tabla, 
                                    crs=4326)
         tabla = tabla.drop(['wkt'], axis=1)
-    
+
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+
+
+
     return tabla
 
 @st.cache_data
@@ -140,7 +149,7 @@ def get_logo():
     image = Image.open(file_logo)
     return image
 
-def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections):
+def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
     gdf = lineas[(lineas.id_linea == id_linea)&
                     (lineas.day_type == day_type)&
@@ -195,9 +204,11 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections):
             "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
 
     if nombre_linea == '':
-        title = f"Línea {id_linea}"
+        title = f"Línea {id_linea}\n{rango}"
     else:
-        title = f"Línea {id_linea} - {nombre_linea}"
+        title = f"Línea {id_linea} - {nombre_linea}\n{rango}"
+
+    
     f.suptitle(title, fontsize=20)
 
     # Matching bar plot with route direction
@@ -352,7 +363,8 @@ with st.expander ('Cargas por tramos'):
     
     lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
     nombre_lineas = traigo_nombre_lineas(lineas)
-    
+
+    lineas['rango'] = 'de '+lineas['hora_min'].astype(str)+' a '+ lineas['hora_max'].astype(str) + ' hs'
     if len(lineas) > 0:             
         
         if len(nombre_lineas)>0:
@@ -364,10 +376,15 @@ with st.expander ('Cargas por tramos'):
             
         day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
         n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
-    
-        f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections)
-        col2.pyplot(f_lineas)
+        rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())    
+        
+        linea_sel = lineas[(lineas.id_linea==id_linea)&(lineas.day_type==day_type)&(lineas.n_sections==n_sections)&(lineas.rango==rango)]
 
+        if len(linea_sel) > 0:        
+            f_lineas = plot_lineas(linea_sel, id_linea, nombre_linea, day_type, n_sections, rango)
+            col2.pyplot(f_lineas)
+        else:
+            st.write('No hay datos para mostrar')
 with st.expander ('Cargas por horas'):
     col1, col2 = st.columns([1, 4])
     
@@ -384,53 +401,60 @@ with st.expander ('Cargas por horas'):
 
     day_type_kpi = col1.selectbox('Tipo de dia  ', options=kpi_lineas.dia.unique())
 
+    if col2.checkbox('Ver datos: cargas por hora'):
+        col2.write(kpi_lineas)
+
+
     kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi)&(kpi_lineas.dia == day_type_kpi)]
 
-    # Grafico Factor de Oocupación
-    f, ax = plt.subplots(figsize=(10, 4))
-    sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
-                color='silver', ax=ax, label='Factor de ocupación')
-    
-    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
-                 color='Purple', label='Oferta - veh/hr')
-    sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
-                 color='Orange', label='Demanda - pax/hr')
-    
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Factor de Ocupación (%)")
-    
-    ax.set_title(f"Indicadores de oferta y demanda estadarizados\n{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_type_kpi}", 
-                 fontdict={'size': 12})
-    # ax.set_title(f"{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_str}",
-    #              fontdict={"fontsize": 11})
-    
-    # Add a footnote below and to the right side of the chart
-    note = """
-        *Los indicadores de Oferta y Demanda se estandarizaron para que
-        coincidan con el eje de Factor de Ocupación
-        """
-    ax_note = ax.annotate(note,
-                          xy=(0, -.22),
-                          xycoords='axes fraction',
-                          ha='left',
-                          va="center",
-                          fontsize=7)
-    ax.spines.right.set_visible(False)
-    ax.spines.top.set_visible(False)
-    ax.spines.bottom.set_visible(False)
-    ax.spines.left.set_visible(False)
-    ax.spines.left.set_position(('outward', 10))
-    ax.spines.bottom.set_position(('outward', 10))
-    
-    box = ax.get_position()
-    ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
-    # Put a legend to the right of the current axis
-    
-    # h = plt.ylabel('% ', fontsize=8)
-    # h.set_rotation(0)    
-    ax.tick_params(axis='both', which='major', labelsize=8)
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
-    col2.pyplot(f)
+    if len(kpi_stats_line_plot) > 0:
+
+
+        # Grafico Factor de Oocupación
+        f, ax = plt.subplots(figsize=(10, 4))
+        sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                    color='silver', ax=ax, label='Factor de ocupación')
+        
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                     color='Purple', label='Oferta - veh/hr')
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                     color='Orange', label='Demanda - pax/hr')
+        
+        ax.set_xlabel("Hora")
+        ax.set_ylabel("Factor de Ocupación (%)")
+        
+        ax.set_title(f"Indicadores de oferta y demanda estadarizados\n{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_type_kpi}", 
+                     fontdict={'size': 12})
+        
+        # Add a footnote below and to the right side of the chart
+        note = """
+            *Los indicadores de Oferta y Demanda se estandarizaron para que
+            coincidan con el eje de Factor de Ocupación
+            """
+        ax_note = ax.annotate(note,
+                              xy=(0, -.22),
+                              xycoords='axes fraction',
+                              ha='left',
+                              va="center",
+                              fontsize=7)
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.spines.bottom.set_visible(False)
+        ax.spines.left.set_visible(False)
+        ax.spines.left.set_position(('outward', 10))
+        ax.spines.bottom.set_position(('outward', 10))
+        
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
+        # Put a legend to the right of the current axis
+        
+        # h = plt.ylabel('% ', fontsize=8)
+        # h.set_rotation(0)    
+        ax.tick_params(axis='both', which='major', labelsize=8)
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
+        col2.pyplot(f)
+    else:
+        st.write('No hay datos para mostrar')
     
 
     
