@@ -449,8 +449,8 @@ with st.expander ('Cargas por tramos'):
         
         lineas = lineas[(lineas.id_linea==id_linea)&(lineas.day_type==day_type)&(lineas.n_sections==n_sections)&(lineas.rango==rango)]
 
-        if col2.checkbox('Ver datos: cargas por tramos'):
-            col2.write(lineas)
+        # if col2.checkbox('Ver datos: cargas por tramos'):
+        #     col2.write(lineas)
 
         if len(lineas) > 0:        
             f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango)
