@@ -233,7 +233,7 @@ def slide_1(prs,
     ind += ' ('+format_num(indicadores.loc[indicadores.detalle==ind_name].porcentaje.values[0],0)+'%)'
     slide = pptx_text(prs=prs, slide=slide,  title=f'Transacciones válidas \n(Etapas con destinos validados):', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
     slide = pptx_text(prs=prs, slide=slide,  title=ind, left=left_i+4.3, top=top_i, width=18, fontsize=18)    
-    df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información del dataset original', 1, 'Transacciones válidas \n(Etapas con destinos validados)', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
+    df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información del dataset original', 1, 'Transacciones válidas \n(Etapas con destinos validados):', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
 
 
@@ -267,7 +267,7 @@ def slide_1(prs,
     ind_name = 'Cantidad de viajes cortos (<5kms)'
     ind = format_num(indicadores.loc[indicadores.detalle==ind_name].indicador.astype(int).values[0])        
     ind += ' ('+format_num(indicadores.loc[indicadores.detalle==ind_name].porcentaje.values[0],0)+'%)'
-    slide = pptx_text(prs=prs, slide=slide,  title=f'Viajes cortos (<5kms)', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
+    slide = pptx_text(prs=prs, slide=slide,  title=f'Viajes cortos (<5kms):', left=left_i, top=top_i, width=18, fontsize=18, bold=True)    
     slide = pptx_text(prs=prs, slide=slide,  title=ind, left=left_i+4.3, top=top_i, width=18, fontsize=18)    
     df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Información procesada', 2, 'Viajes cortos (<5kms)', ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
@@ -311,12 +311,38 @@ def slide_1(prs,
         
         df_indicadores = pd.concat([df_indicadores, pd.DataFrame([['Partición modal', 3, ind_name, ind]], columns=['Titulo', 'orden', 'Indicador', 'Valor'])], ignore_index=True)
 
+    
+    
+    df_indicadores['desc_dia'] = desc_dia
+    df_indicadores['tipo_dia'] = tipo_dia
+    
+    
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    df_indicadores_ant = pd.read_sql_query(
+    """
+    SELECT *
+    FROM indicadores
+    """,
+    conn_dash,
+    )
+
+    df_indicadores_ant = df_indicadores_ant[~(
+               (df_indicadores_ant.desc_dia==desc_dia)&
+               (df_indicadores_ant.tipo_dia==tipo_dia)
+              )]
+
+    df_indicadores=pd.concat([df_indicadores_ant, df_indicadores], ignore_index=True)
+
+    df_indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
 
     return prs
 
 
 
 def create_ppt():
+
     print('')
     print('create_ppt')
     print('----------')
@@ -415,6 +441,63 @@ def create_ppt():
         file_graph = os.path.join(
                     "resultados", 
                     "png", 
+                    f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_x_hora.png")
+        
+        pptx_addpic(prs=prs, 
+                    slide=slide, 
+                    img_path=file_graph,  
+                    left=4.6, 
+                    top=2.1, 
+                    width=13.5)
+        
+        file_graph = os.path.join(
+            "resultados", 
+            "png", 
+            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_modo.png")
+
+        pptx_addpic(prs=prs, 
+                    slide=slide, 
+                    img_path=file_graph,  
+                    left=4.6, 
+                    top=7.2, 
+                    width=13.5)
+
+        # SLIDE 3 - 
+        
+        slide = get_new_slide(prs, desc_dia_titulo)
+        
+        file_graph = os.path.join(
+                    "resultados", 
+                    "png", 
+                    f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_dist.png")
+        
+        pptx_addpic(prs=prs, 
+                    slide=slide, 
+                    img_path=file_graph,  
+                    left=4, 
+                    top=3, 
+                    width=15)
+        
+        # file_graph = os.path.join(
+        #     "resultados", 
+        #     "png", 
+        #     f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_modo.png")
+
+        # pptx_addpic(prs=prs, 
+        #             slide=slide, 
+        #             img_path=file_graph,  
+        #             left=4.6, 
+        #             top=7.2, 
+        #             width=13.5)
+        
+        
+        # SLIDE 4 - 
+        
+        slide = get_new_slide(prs, desc_dia_titulo)
+        
+        file_graph = os.path.join(
+                    "resultados", 
+                    "png", 
                     f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
         
         pptx_addpic(prs=prs, 
@@ -422,7 +505,7 @@ def create_ppt():
                     img_path=file_graph,  
                     left=1, 
                     top=2.5, 
-                    width=10.5)
+                    width=9)
         
         file_graph = os.path.join(
             "resultados", 
@@ -434,7 +517,8 @@ def create_ppt():
                     img_path=file_graph,  
                     left=14, 
                     top=2.5, 
-                    width=8)
+                    width=9)
+
         
         
         try:

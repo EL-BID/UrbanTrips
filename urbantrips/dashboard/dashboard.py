@@ -77,7 +77,9 @@ def iniciar_conexion_db(tipo='data'):
     return conn
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql):
+def levanto_tabla_sql(tabla_sql, 
+                      has_linestring=False,
+                      has_wkt=False):
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -91,6 +93,27 @@ def levanto_tabla_sql(tabla_sql):
 
     conn_dash.close()
     
+    if has_linestring:
+        tabla = create_linestring(tabla)
+        
+    if has_wkt:
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, 
+                                   crs=4326)
+        tabla = tabla.drop(['wkt'], axis=1)
+
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
+
     return tabla
 
 

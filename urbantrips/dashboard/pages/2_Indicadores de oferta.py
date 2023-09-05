@@ -128,7 +128,10 @@ def levanto_tabla_sql(tabla_sql,
         tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
         tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
 
-
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
 
     return tabla
 
@@ -204,9 +207,9 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
             "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
 
     if nombre_linea == '':
-        title = f"Línea {id_linea}\n{rango}"
+        title = f"Id línea {id_linea} - {day_type}\n{rango}"
     else:
-        title = f"Línea {id_linea} - {nombre_linea}\n{rango}"
+        title = f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
 
     
     f.suptitle(title, fontsize=20)
@@ -348,8 +351,8 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     return f
 
 @st.cache_data
-def traigo_nombre_lineas(_lineas):
-    return _lineas[_lineas.nombre_linea.notna()].groupby('id_linea', as_index=False).nombre_linea.first().sort_values('nombre_linea')
+def traigo_nombre_lineas(df):
+    return df[df.nombre_linea.notna()].sort_values('nombre_linea').nombre_linea.unique()
     
 
 st.set_page_config(layout="wide")
@@ -357,58 +360,29 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-with st.expander ('Cargas por tramos'):
 
-    col1, col2 = st.columns([1, 4])
-    
-    lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
-    nombre_lineas = traigo_nombre_lineas(lineas)
-
-    lineas['rango'] = 'de '+lineas['hora_min'].astype(str)+' a '+ lineas['hora_max'].astype(str) + ' hs'
-    if len(lineas) > 0:             
-        
-        if len(nombre_lineas)>0:
-            nombre_linea = col1.selectbox('Línea ', options=nombre_lineas.nombre_linea.unique())
-            id_linea = nombre_lineas[nombre_lineas.nombre_linea==nombre_linea].id_linea.values[0]
-        else:
-            nombre_linea = ''
-            id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
-            
-        day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
-        n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
-        rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())    
-        
-        linea_sel = lineas[(lineas.id_linea==id_linea)&(lineas.day_type==day_type)&(lineas.n_sections==n_sections)&(lineas.rango==rango)]
-
-        if len(linea_sel) > 0:        
-            f_lineas = plot_lineas(linea_sel, id_linea, nombre_linea, day_type, n_sections, rango)
-            col2.pyplot(f_lineas)
-        else:
-            st.write('No hay datos para mostrar')
 with st.expander ('Cargas por horas'):
     col1, col2 = st.columns([1, 4])
     
     kpi_lineas = levanto_tabla_sql('basic_kpi_by_line_hr')
+    nl1 = traigo_nombre_lineas(kpi_lineas)
     
-    if len(kpi_lineas) > 0:                 
-        nombre_lineas_kpi = traigo_nombre_lineas(kpi_lineas)
-        if len(nombre_lineas_kpi) > 0:
-            nombre_linea_kpi = col1.selectbox('Línea  ', options=nombre_lineas_kpi.nombre_linea.unique())
-            id_linea_kpi = nombre_lineas_kpi[nombre_lineas_kpi.nombre_linea==nombre_linea_kpi].id_linea.values[0]
+    if len(kpi_lineas) > 0:
+        if len(nl1) > 0:
+            nombre_linea_kpi = col1.selectbox('Línea  ', options=nl1)
+            id_linea_kpi = kpi_lineas[kpi_lineas.nombre_linea==nombre_linea_kpi].id_linea.values[0]
         else:
             nombre_linea_kpi = ''
             id_linea_kpi = col1.selectbox('Línea ', options=kpi_lineas.id_linea.unique())
 
     day_type_kpi = col1.selectbox('Tipo de dia  ', options=kpi_lineas.dia.unique())
 
-    if col2.checkbox('Ver datos: cargas por hora'):
-        col2.write(kpi_lineas)
-
-
     kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi)&(kpi_lineas.dia == day_type_kpi)]
 
-    if len(kpi_stats_line_plot) > 0:
+    # if col2.checkbox('Ver datos: cargas por hora'):
+    #     col2.write(kpi_stats_line_plot)
 
+    if len(kpi_stats_line_plot) > 0:
 
         # Grafico Factor de Oocupación
         f, ax = plt.subplots(figsize=(10, 4))
@@ -423,7 +397,7 @@ with st.expander ('Cargas por horas'):
         ax.set_xlabel("Hora")
         ax.set_ylabel("Factor de Ocupación (%)")
         
-        ax.set_title(f"Indicadores de oferta y demanda estadarizados\n{nombre_linea_kpi} - id linea: {id_linea_kpi} - Tipo de día: {day_type_kpi}", 
+        ax.set_title(f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}", 
                      fontdict={'size': 12})
         
         # Add a footnote below and to the right side of the chart
@@ -447,14 +421,40 @@ with st.expander ('Cargas por horas'):
         box = ax.get_position()
         ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
         # Put a legend to the right of the current axis
-        
-        # h = plt.ylabel('% ', fontsize=8)
-        # h.set_rotation(0)    
         ax.tick_params(axis='both', which='major', labelsize=8)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
         col2.pyplot(f)
     else:
         st.write('No hay datos para mostrar')
     
+with st.expander ('Cargas por tramos'):
 
+    col1, col2 = st.columns([1, 4])
+    
+    lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
+    nl2 = traigo_nombre_lineas(lineas[['id_linea', 'nombre_linea']])
+    
+    lineas['rango'] = 'de '+lineas['hora_min'].astype(str)+' a '+ lineas['hora_max'].astype(str) + ' hs'
+    if len(lineas) > 0:
+        if len(nl2) > 0:
+            nombre_linea = col1.selectbox('Línea  ', options=nl2)
+            id_linea = lineas[lineas.nombre_linea==nombre_linea].id_linea.values[0]
+        else:
+            nombre_linea = ''
+            id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
+            
+        day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
+        n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
+        rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())    
+        
+        lineas = lineas[(lineas.id_linea==id_linea)&(lineas.day_type==day_type)&(lineas.n_sections==n_sections)&(lineas.rango==rango)]
+
+        if col2.checkbox('Ver datos: cargas por tramos'):
+            col2.write(lineas)
+
+        if len(lineas) > 0:        
+            f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango)
+            col2.pyplot(f_lineas)
+        else:
+            st.write('No hay datos para mostrar')
     

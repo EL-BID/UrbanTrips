@@ -1155,8 +1155,7 @@ def imprime_graficos_hora(viajes,
 
     viajesxhora_dash = viajesxhora_dash[[
         'tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
-    viajesxhora_dash.columns = ['desc_dia',
-                                'tipo_dia', 'Hora', 'Viajes', 'Modo']
+    viajesxhora_dash.columns = ['tipo_dia', 'desc_dia', 'Hora', 'Viajes', 'Modo']
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -1165,12 +1164,28 @@ def imprime_graficos_hora(viajes,
         WHERE desc_dia = "{desc_dia}"
         and tipo_dia = "{tipo_dia}"
     """
-    query = f''
+
     conn_dash.execute(query)
     conn_dash.commit()
+    
+    modos = viajesxhora_dash.Modo.unique().tolist()
+    hrs = [str(i).zfill(2) for i in range(0,24)]    
+    for modo in modos:
+        for hr in hrs:
+            if len(viajesxhora_dash.loc[(viajesxhora_dash.Modo==modo)&(viajesxhora_dash.Hora==hr)])==0:
+                
+                viajesxhora_dash = pd.concat([
+                                viajesxhora_dash,
+                                pd.DataFrame([[tipo_dia, 
+                               desc_dia, 
+                               hr, 
+                               0, 
+                               modo]], 
+                             columns = viajesxhora_dash.columns)
+                            ])
 
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
-                            if_exists="replace", index=False)
+                            if_exists="append", index=False)
 
     conn_dash.close()
 
@@ -2168,7 +2183,7 @@ def save_zones():
     conn_dash.close()
 
 
-def particion_modal(desc_dia, viajes_dia, etapas_dia):
+def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
 
     particion_viajes = viajes_dia.groupby(
         'modo', as_index=False).factor_expansion_linea.sum().round()
@@ -2178,6 +2193,7 @@ def particion_modal(desc_dia, viajes_dia, etapas_dia):
     particion_viajes = particion_viajes.sort_values(
         'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
     particion_viajes['tipo'] = 'viajes'
+    particion_viajes['tipo_dia'] = tipo_dia
     particion_viajes['desc_dia'] = desc_dia
     particion_etapas = etapas_dia.groupby(
         'modo', as_index=False).factor_expansion_linea.sum().round()
@@ -2189,166 +2205,19 @@ def particion_modal(desc_dia, viajes_dia, etapas_dia):
         'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
     particion_etapas['tipo'] = 'etapas'
     particion_etapas['desc_dia'] = desc_dia
+    particion_etapas['tipo_dia'] = tipo_dia
     particion = pd.concat(
         [particion_viajes, particion_etapas], ignore_index=True)
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
-    query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" '
+    query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
     conn_dash.execute(query)
     conn_dash.commit()
     particion['modo'] = particion.modo.str.capitalize()
     particion.to_sql("particion_modal", conn_dash,
                      if_exists="append", index=False)
     conn_dash.close()
-
-
-@duracion
-def create_visualizations():
-    """
-    Esta funcion corre las diferentes funciones de visualizaciones
-    """
-
-    pd.options.mode.chained_assignment = None
-
-    # Leer informacion de viajes y distancias
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-
-    viajes = pd.read_sql_query(
-        """
-        SELECT *
-        FROM viajes
-        where od_validado==1
-        """,
-        conn_data,
-    )
-
-    etapas = pd.read_sql_query(
-        """
-        SELECT *
-        FROM etapas
-        where od_validado==1
-        """,
-        conn_data,
-    )
-
-    distancias = pd.read_sql_query(
-        """
-        SELECT *
-        FROM distancias
-        """,
-        conn_insumos,
-    )
-
-    conn_insumos.close()
-    conn_data.close()
-
-    # Agrego campo de distancias de los viajes
-    viajes = viajes.merge(distancias,
-                          how='left',
-                          on=['h3_o', 'h3_d'])
-
-    # Imputar anio, mes y tipo de dia
-    viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
-    viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
-    viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
-    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
-
-    # Imputar anio, mes y tipo de dia
-    etapas['yr'] = pd.to_datetime(etapas.dia).dt.year
-    etapas['mo'] = pd.to_datetime(etapas.dia).dt.month
-    etapas['dow'] = pd.to_datetime(etapas.dia).dt.day_of_week
-    etapas.loc[etapas.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Día hábil'
-
-    v_iter = viajes\
-        .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
-        .factor_expansion_linea.sum()\
-        .iterrows()
-
-    for _, i in v_iter:
-
-        desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
-        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
-
-        viajes_dia = viajes[(viajes.yr == i.yr) & (
-            viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
-
-        etapas_dia = etapas[(etapas.yr == i.yr) & (
-            etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
-
-        # partición modal
-        particion_modal(desc_dia, viajes_dia, etapas_dia)
-
-        print('Imprimiendo tabla de matrices OD')
-        # Impirmir tablas con matrices OD
-        imprimir_matrices_od(viajes=viajes_dia,
-                             var_fex='factor_expansion_linea',
-                             title=f'Matriz OD {desc_dia}',
-                             savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                             tipo_dia=i.tipo_dia,
-                             )
-
-        print('Imprimiendo mapas de líneas de deseo')
-        # Imprimir lineas de deseo
-        imprime_lineas_deseo(df=viajes_dia,
-                             h3_o='',
-                             h3_d='',
-                             var_fex='factor_expansion_linea',
-                             title=f'Líneas de deseo {desc_dia}',
-                             savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                             tipo_dia=i.tipo_dia)
-
-        print('Imprimiendo gráficos')
-        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
-        imprime_graficos_hora(viajes_dia,
-                              title=titulo,
-                              savefile=f'{desc_dia_file}_viajes',
-                              var_fex='factor_expansion_linea',
-                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
-                              tipo_dia=i.tipo_dia)
-
-        print('Imprimiendo mapas de burbujas')
-        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-        imprime_burbujas(viajes_n,
-                         res=7,
-                         h3_o='h3_o',
-                         alpha=.4,
-                         cmap='rocket_r',
-                         var_fex='factor_expansion_linea',
-                         porc_viajes=100,
-                         title=f'Destinos de los viajes {desc_dia}',
-                         savefile=f'{desc_dia_file}_burb_destinos',
-                         show_fig=False,
-                         k_jenks=5)
-
-        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-        imprime_burbujas(viajes_n,
-                         res=7,
-                         h3_o='h3_o',
-                         alpha=.4,
-                         cmap='flare',
-                         var_fex='factor_expansion_linea',
-                         porc_viajes=100,
-                         title=f'Hogares {desc_dia}',
-                         savefile=f'{desc_dia_file}_burb_hogares',
-                         show_fig=False,
-                         k_jenks=5)
-
-    save_zones()
-
-    print('Indicadores para dash')
-    indicadores_dash()
-
-    # plor dispatched services
-    plot_dispatched_services_wrapper()
-
-    # plot basic kpi if exists
-    plot_basic_kpi_wrapper()
 
 
 def plot_dispatched_services_wrapper():
@@ -2408,8 +2277,7 @@ def plot_dispatched_services_by_line_day(df):
     else:
         id_linea_str = ''
 
-    print("Creando plot de servicios despachados por linea")
-    print("id linea:", line_id)
+    print("Creando plot de servicios despachados por linea", "id linea:", line_id)
 
     f, ax = plt.subplots(figsize=(8, 6))
     sns.barplot(
@@ -2527,11 +2395,10 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         (kpi_stats_line_plot.of.isna().all())
 
     if missing_data:
-        print("No es posible crear plot de KPI basicos por linea")
-        print("id linea:", line_id)
+        print("No es posible crear plot de KPI basicos por linea", "id linea:", line_id)
+
     else:
-        print("Creando plot de KPI basicos por linea")
-        print("id linea:", line_id)
+        print("Creando plot de KPI basicos por linea", "id linea:", line_id)
 
         f, ax = plt.subplots(figsize=(8, 6))
 
@@ -2591,6 +2458,15 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
             )
 
         conn_dash = iniciar_conexion_db(tipo='dash')
+
+        query = f"""
+            DELETE FROM basic_kpi_by_line_hr
+            WHERE dia = "{day}"
+            and id_linea = "{line_id}"
+            """
+        conn_dash.execute(query)
+        conn_dash.commit()
+        
         kpi_stats_line_plot.to_sql(
             "basic_kpi_by_line_hr",
             conn_dash,
@@ -2679,10 +2555,10 @@ def indicadores_dash():
     indicadores['mo'] = indicadores.dia.dt.month
     indicadores['yr'] = indicadores.dia.dt.year
     indicadores['desc_dia'] = indicadores['yr'].astype(str).str.zfill(4) +'/'+ indicadores['mo'].astype(str).str.zfill(2)
-    indicadores['tipo_dia'] = 'Hábil'
+    indicadores['tipo_dia'] = 'Día hábil'
     indicadores.loc[indicadores.dow>=5, 'tipo_dia'] = 'Fin de semana'
     
-    indicadores = indicadores.groupby(['desc_dia', 'tipo_dia', 'detalle'], as_index=False).agg({'indicador':'mean', 'porcentaje':'mean'})
+    indicadores = indicadores.groupby(['desc_dia', 'tipo_dia', 'detalle'], as_index=False).agg({'indicador':'mean', 'porcentaje':'mean'}).round(2)
     indicadores.loc[indicadores.detalle=='Cantidad de etapas con destinos validados', 'detalle'] = 'Transacciones válidas \n(Etapas con destinos validados)'
     indicadores.loc[indicadores.detalle=='Cantidad total de viajes expandidos', 'detalle'] = 'Viajes'
     indicadores.loc[indicadores.detalle=='Cantidad total de etapas', 'detalle'] = 'Etapas'
@@ -2757,3 +2633,149 @@ def indicadores_dash():
     indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
     conn_dash.close()
     
+@duracion
+def create_visualizations():
+    """
+    Esta funcion corre las diferentes funciones de visualizaciones
+    """
+
+    pd.options.mode.chained_assignment = None
+
+    # Leer informacion de viajes y distancias
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    viajes = pd.read_sql_query(
+        """
+        SELECT *
+        FROM viajes
+        where od_validado==1
+        """,
+        conn_data,
+    )
+
+    etapas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM etapas
+        where od_validado==1
+        """,
+        conn_data,
+    )
+
+    distancias = pd.read_sql_query(
+        """
+        SELECT *
+        FROM distancias
+        """,
+        conn_insumos,
+    )
+
+    conn_insumos.close()
+    conn_data.close()
+
+    # Agrego campo de distancias de los viajes
+    viajes = viajes.merge(distancias,
+                          how='left',
+                          on=['h3_o', 'h3_d'])
+
+    # Imputar anio, mes y tipo de dia
+    viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
+    viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
+    viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
+    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
+
+    # Imputar anio, mes y tipo de dia
+    etapas['yr'] = pd.to_datetime(etapas.dia).dt.year
+    etapas['mo'] = pd.to_datetime(etapas.dia).dt.month
+    etapas['dow'] = pd.to_datetime(etapas.dia).dt.day_of_week
+    etapas.loc[etapas.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Día hábil'
+
+    v_iter = viajes\
+        .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
+        .factor_expansion_linea.sum()\
+        .iterrows()
+
+    for _, i in v_iter:
+
+        desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
+        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
+
+        viajes_dia = viajes[(viajes.yr == i.yr) & (
+            viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
+
+        etapas_dia = etapas[(etapas.yr == i.yr) & (
+            etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
+
+        # partición modal
+        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}')
+
+        print('Imprimiendo tabla de matrices OD')
+        # Impirmir tablas con matrices OD
+        imprimir_matrices_od(viajes=viajes_dia,
+                             var_fex='factor_expansion_linea',
+                             title=f'Matriz OD {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia,
+                             )
+
+        print('Imprimiendo mapas de líneas de deseo')
+        # Imprimir lineas de deseo
+        imprime_lineas_deseo(df=viajes_dia,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='factor_expansion_linea',
+                             title=f'Líneas de deseo {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia)
+
+        print('Imprimiendo gráficos')
+        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
+        imprime_graficos_hora(viajes_dia,
+                              title=titulo,
+                              savefile=f'{desc_dia_file}_viajes',
+                              var_fex='factor_expansion_linea',
+                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                              tipo_dia=i.tipo_dia)
+
+        print('Imprimiendo mapas de burbujas')
+        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='rocket_r',
+                         var_fex='factor_expansion_linea',
+                         porc_viajes=100,
+                         title=f'Destinos de los viajes {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_destinos',
+                         show_fig=False,
+                         k_jenks=5)
+
+        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='flare',
+                         var_fex='factor_expansion_linea',
+                         porc_viajes=100,
+                         title=f'Hogares {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_hogares',
+                         show_fig=False,
+                         k_jenks=5)
+
+    save_zones()
+
+    print('Indicadores para dash')
+    indicadores_dash()
+
+    # plor dispatched services
+    plot_dispatched_services_wrapper()
+
+    # plot basic kpi if exists
+    plot_basic_kpi_wrapper()
