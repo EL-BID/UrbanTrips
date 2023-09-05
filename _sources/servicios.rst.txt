@@ -12,21 +12,33 @@ Como los servicios son una unidad de información vital para obtener ciertos ind
     	nombres_variables_gps=nombres_variables_gps,
     	formato_fecha=formato_fecha)
 
-Dicha tabla debe tener un atributo donde se especifique el inicio de un servivcio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion del especificando el [ATTR] y los valores correspondientes del siguiente modo:
+Dicha tabla debe tener un atributo donde se especifique el inicio de un servicio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion. Por un lado especificando la columna que almacena los datos de servicio, en el mismo lugar que se especifican las otras columnas de la tabla gps en ``servicios_gps``. Por otro lado los valores que en esa columna indican una apertura y cierre de servicios en los parámetros ``valor_inicio_servicio`` y ``valor_fin_servicio``:
+
 
 .. code:: yaml
 
-   service_type_gps:
-        		[ATTR]:
-        			start_service: [VAL]
-        			finish_service: [VAL]
+    nombres_variables_gps:
+        id_gps: DTSN
+        id_linea_gps: [ATTR]
+        id_ramal_gps: [ATTR]
+        interno_gps: [ATTR]
+        fecha_gps: [ATTR]
+        latitud_gps: [ATTR]
+        longitud_gps:  [ATTR]
+        servicios_gps: [ATTR]
+        velocity_gps: [ATTR]
+
+    trust_service_type_gps: False
+    valor_inicio_servicio: [VAL]
+    valor_fin_servicio: [VAL]
+
 
 
 A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.  
 
 .. code:: yaml
 
-   trust_service_type_gps: False
+   utilizar_servicios_gps: False
 
 Por ultimo solo queda correr
 
@@ -102,4 +114,18 @@ Para resolverlo, dichas paradas pueden agregarse en un único nodo mediante el c
   :alt: Clasificacion servicios ramal
 
 
+Resultados
+----------
 
+Los resultados de la clasificación de servicios quedan en una serie de tablas dentro de la db de los datos (para más información puede consultar :doc:`resultados`). Estas tablas pueden ofrecer información para diagnósticar la clasificación.
+
+
+*  ``services``: agrupa los servicios ofertados por las diferentes lineas, sin clasificarlos por ramal. Cada servicio tiene un id tal cual fue identificado por el conductor del vehículo y otro tal como fue identificado por UrbanTrips. Para cada servicio se agregan algunos datos como la hora de inicio y de fin, la cantidad de puntos gps, el porcentaje de puntos donde el vehículo estuvo detenido, etc.
+*  ``services_gps_points``:  vincula cada punto gps de la tabla ``gps`` con la tabla ``services``. A su vez indican el ``node_id`` más cercano y el ramal al que pertenece.
+*  ``services_stats``: para cada línea y día arroja una batería de estadísticos comparando los servicios tal cual venían declarados en la información original con los servicios tal cual fueron inferidos por UrbanTrips (la cantidad de servicios nuevos y cuántos de ellos resultan válidos, cúantos de estos son servicios con muy pocos puntos gps o con demasiado tiempo quietos, la distancia recorrida acumulada  originalmente y aquella que se obtiene de utilizar sólo los servicios válidos y la proporción de servicios original sin subdividir en otros por parte de UrbanTrips).  
+*  ``services_by_line_hour``: una tabla que resume por linea, dia y hora la cantidad de servicios ofertados.
+
+
+
+
+ 

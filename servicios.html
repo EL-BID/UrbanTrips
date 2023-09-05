@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="prev" title="Resultados finales" href="resultados.html" /> 
+    <link rel="prev" title="KPI" href="kpi.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -47,11 +47,14 @@
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Clasificación de servicios</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#como-se-clasifican-nuevos-servicios">Como se clasifican nuevos servicios?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#posibles-problemas-y-soluciones-propuestas">Posibles problemas y soluciones propuestas</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#resultados">Resultados</a></li>
 </ul>
 </li>
 </ul>
@@ -90,15 +93,25 @@
      <span class="n">formato_fecha</span><span class="o">=</span><span class="n">formato_fecha</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Dicha tabla debe tener un atributo donde se especifique el inicio de un servivcio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion del especificando el [ATTR] y los valores correspondientes del siguiente modo:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">service_type_gps</span><span class="p">:</span>
-<span class="w">                     </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]:</span>
-<span class="w">                             </span><span class="nt">start_service</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
-<span class="w">                             </span><span class="nt">finish_service</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
+<p>Dicha tabla debe tener un atributo donde se especifique el inicio de un servicio. Tambien puede especificarse el final del mismo. Esto debera cargarse en el archivo de configuracion. Por un lado especificando la columna que almacena los datos de servicio, en el mismo lugar que se especifican las otras columnas de la tabla gps en <code class="docutils literal notranslate"><span class="pre">servicios_gps</span></code>. Por otro lado los valores que en esa columna indican una apertura y cierre de servicios en los parámetros <code class="docutils literal notranslate"><span class="pre">valor_inicio_servicio</span></code> y <code class="docutils literal notranslate"><span class="pre">valor_fin_servicio</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">nombres_variables_gps</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">id_gps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DTSN</span>
+<span class="w">    </span><span class="nt">id_linea_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">id_ramal_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">interno_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">fecha_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">latitud_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">longitud_gps</span><span class="p">:</span><span class="w">  </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">servicios_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">velocity_gps</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ATTR</span><span class="p p-Indicator">]</span>
+
+<span class="nt">trust_service_type_gps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+<span class="nt">valor_inicio_servicio</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
+<span class="nt">valor_fin_servicio</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">VAL</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>A su vez en el archivo de configuración se debe setear el parámetro correspondiente. Si ese atributo es confiable o si UrbanTrips debe, dentro de cada servicio tal como es declarado por el conductor, clasificar nuevos servicios.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">trust_service_type_gps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">utilizar_servicios_gps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
 </pre></div>
 </div>
 <p>Por ultimo solo queda correr</p>
@@ -129,13 +142,23 @@
 <a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_2.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_2.png" style="width: 800px;" /></a>
 <a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion.gif"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion.gif" style="width: 800px;" /></a>
 </section>
+<section id="resultados">
+<h2>Resultados<a class="headerlink" href="#resultados" title="Enlace permanente a este encabezado"></a></h2>
+<p>Los resultados de la clasificación de servicios quedan en una serie de tablas dentro de la db de los datos (para más información puede consultar <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>). Estas tablas pueden ofrecer información para diagnósticar la clasificación.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">services</span></code>: agrupa los servicios ofertados por las diferentes lineas, sin clasificarlos por ramal. Cada servicio tiene un id tal cual fue identificado por el conductor del vehículo y otro tal como fue identificado por UrbanTrips. Para cada servicio se agregan algunos datos como la hora de inicio y de fin, la cantidad de puntos gps, el porcentaje de puntos donde el vehículo estuvo detenido, etc.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">services_gps_points</span></code>:  vincula cada punto gps de la tabla <code class="docutils literal notranslate"><span class="pre">gps</span></code> con la tabla <code class="docutils literal notranslate"><span class="pre">services</span></code>. A su vez indican el <code class="docutils literal notranslate"><span class="pre">node_id</span></code> más cercano y el ramal al que pertenece.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">services_stats</span></code>: para cada línea y día arroja una batería de estadísticos comparando los servicios tal cual venían declarados en la información original con los servicios tal cual fueron inferidos por UrbanTrips (la cantidad de servicios nuevos y cuántos de ellos resultan válidos, cúantos de estos son servicios con muy pocos puntos gps o con demasiado tiempo quietos, la distancia recorrida acumulada  originalmente y aquella que se obtiene de utilizar sólo los servicios válidos y la proporción de servicios original sin subdividir en otros por parte de UrbanTrips).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">services_by_line_hour</span></code>: una tabla que resume por linea, dia y hora la cantidad de servicios ofertados.</p></li>
+</ul>
+</section>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
-        <a href="resultados.html" class="btn btn-neutral float-left" title="Resultados finales" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="kpi.html" class="btn btn-neutral float-left" title="KPI" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
     </div>
 
   <hr/>

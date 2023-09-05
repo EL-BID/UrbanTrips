@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="es" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KPI &mdash; documentación de urbantrips - 0.2.0</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+        <script src="_static/translations.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Índice" href="genindex.html" />
+    <link rel="search" title="Búsqueda" href="search.html" />
+    <link rel="next" title="Clasificación de servicios" href="servicios.html" />
+    <link rel="prev" title="Resultados finales" href="resultados.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            urbantrips
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Buscar documentos" aria-label="Buscar documentos" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="instalacion.html">Instalación</a></li>
+<li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
+<li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">KPI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#en-base-a-demanda">En base a demanda</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#en-base-a-gps">En base a GPS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#en-base-a-servicios">En base a servicios</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">urbantrips</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">KPI</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/kpi.rst.txt" rel="nofollow"> Ver código fuente de la página</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="kpi">
+<h1>KPI<a class="headerlink" href="#kpi" title="Enlace permanente a este encabezado"></a></h1>
+<p>En este apartado se describen los diferentes tipos de KPI que UrbanTrips puede producir en función de los inputs con los que cada ciudad cuente. Se comienza por el caso donde solamente existen datos de demanda. En segundo lugar se abordan los KPI que puede producir cuando existen datos en de la oferta, como puede ser la tabla de GPS como así también información de servicios ofertados.</p>
+<section id="en-base-a-demanda">
+<h2>En base a demanda<a class="headerlink" href="#en-base-a-demanda" title="Enlace permanente a este encabezado"></a></h2>
+<p>Cuando no existen datos de oferta, expresada fundamentalmente en la tabla GPS de posicionamiento de vehículos, UrbanTrips puede calcular algunos elementos de oferta y demanda en base a la tabla de transacciones en base al concepto de <em>pasajero equivalente</em>. Tomando la tabla de etapas se calcula por hora y dia para el interno de cada linea el total de pasajeros que iniciaron una etapa a esa hora en ese interno, la distancia media viajada (<em>DMT</em>) y la velocidad comercial promedio a la que circula ese interno en esa hora (siempre tomando solamente las coordenadas del interno cuando recoge pasajeros).</p>
+<p>Tomando estos datos se construye para cada pasajero un <em>pasajero equivalente</em> poniendo en relación cuántas posiciones disponibles en ese interno utilizó y por cuánto tiempo. Es decir, si un pasajero recorre 5 km en un interno que circula a 10 kmh, equivaldrá a 0.5 posiciones o pasajeros equivalentes. Para calcular un factor de ocupación se considera que cada interno oferta 60 ubicaciones y se compara el total de pasajeros equivalentes en esa hora en ese interno contra ese stock fijo. Luego se procede a agregar todos estos estadísticos para diferentes niveles de agregación (interno y linea) así como también para un día de la semana tipo o dia de fin de semana tipo (siempre que hayan días procesados que pertenezcan a uno de esos tipos).</p>
+<p>Los resultados quedan almacenados en las siguientes tablas  (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>).</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">basic_kpi_by_vehicle_hr</span></code>: arroja la batería de estadísticos por vehículo para cada linea, día y hora.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">basic_kpi_by_line_hr</span></code>: arroja la batería de estadísticos promediando para cada linea, día y hora (incluyendo día de semana y de fín de semana típico).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">basic_kpi_by_line_day</span></code>: arroja la batería de estadísticos promediando para cada linea y día (incluyendo día de semana y de fín de semana típico).</p></li>
+</ul>
+<p><strong>Tramo más cargado</strong></p>
+<p>UrbanTrips también puede computar, sólo con datos de la demanda, para una línea, día y rango horario la carga o demanda para los tramos del recorrido de esa línea. El recorrido de una línea puede segmentarse en <em>n</em> tramos o en tramos cada <em>m</em> cantidad de metros. A partir de este parámetro se computan <em>x</em> cantidad de puntos sobre el recorrido de la línea. Si existe una cartografía provista por el usuario para las líneas, se utilizará ese recorrido. En caso contrario, se inferirá un recorrido a partir de las coordenadas de las transacciones de dicha línea.</p>
+<p>Para cada etapa de una línea en un rango horario se toman las coordenadas de origen y de destinos de la misma, se proyectan sobre el recorrido de la línea mediante un <a class="reference external" href="https://en.wikipedia.org/wiki/Linear_referencing">Linear Referencing System LRS</a> y se asume que dicha etapa hizo uso del recorrido de la línea entre los puntos comprendidos por el tramo de origen y el de destino, inclusive. Luego se calcula para cada punto de la línea la demanda en base a las etapas. Dado el sentido del desplazamiento de la etapa, se puede inferir el sentido de la misma, por lo cual se calcula la demanda separada por sentido. La misma se calcula tanto en cantidad de etapas como proporcional con respecto al total de etapas de esa línea para ese rango horario en ese sentido.</p>
+<p>Por ejemplo, un usuario que inicia una etapa en el punto equiparable al 10% del recorrido y desciende en el punto equiparable al 30% del recorrido en una línea segmentada en 10 tramos, habrá utilizado los puntos equivalentes al 10, 20 y 30 %. Dado el sentido ascendente del LRS, se asume un sentido de ida. Luego se calcula la cantidad de etapas que hayan atravesado el punto 10%, ya sea como origen, destino o como punto de paso. Una vez calculado para cada día, se puede calcular un promedio para los días de semana o para los fines de semana en base a los datos ya procesados para cada día.</p>
+<p>Para computar esta demanda por tramo se puede utilizar la siguiente función:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">id_linea</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rango_hrs</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>).</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kpi</span><span class="o">.</span><span class="n">compute_route_section_load</span><span class="p">(</span>
+     <span class="n">id_linea</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+             <span class="n">rango_hrs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+             <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+             <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+             <span class="n">day_type</span><span class="o">=</span><span class="s2">&quot;weekday&quot;</span>
+             <span class="p">)</span>
+</pre></div>
+</div>
+<p>Urbantrips también permite construir una visualización exploratoria en base a los datos computados previamente. La misma conformará a partir de los <em>x</em> puntos <em>x-1</em> segmentos donde el tamaño y color del mismo indicará la demanda, ya sea en cantidad total de etapas (<code class="docutils literal notranslate"><span class="pre">indicador='cantidad_etapas'</span></code>) o proporcional (<code class="docutils literal notranslate"><span class="pre">indicador</span> <span class="pre">=</span> <span class="pre">‘prop_etapas’</span></code>). La función toma un parámetro de ancho mínimo en metros que dichos segmentos van a tomar (para los segmentos con mínima o nula demanda) y un factor de expansión también en metros. Por ejemplo, si se utiliza el indicador <code class="docutils literal notranslate"><span class="pre">prop_etapas</span></code> y <code class="docutils literal notranslate"><span class="pre">factor</span> <span class="pre">=</span> <span class="pre">500</span></code> aquel segmento que tenga una demanda igual al máximo de la demanda de esa línea en ese sentido para ese rango horario, el buffer del recorrido a visualizar tendrá un ancho de 500 m (<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">*</span> <span class="pre">500</span></code>) y aquel que tenga una demanda equivalente a la mitad de esa demanda total, tendrá un ancho de 250 m en la visualización (<code class="docutils literal notranslate"><span class="pre">0,5</span> <span class="pre">*</span> <span class="pre">500</span></code>). Por otro lado, si se toma como indicador de la visualización la cantidad total de etapas y el mismo parámetro <code class="docutils literal notranslate"><span class="pre">factor</span></code>, un segmento con demanda equivalente a 100 etapas tendrá un ancho de 50.000 m  (<code class="docutils literal notranslate"><span class="pre">100</span> <span class="pre">*</span> <span class="pre">500</span></code>). Esta visualización permite guardar el geojson producto de la misma <code class="docutils literal notranslate"><span class="pre">save_gdf=True</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">viz</span><span class="o">.</span><span class="n">visualize_route_section_load</span><span class="p">(</span>
+    <span class="n">id_linea</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">rango_hrs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">day_type</span><span class="o">=</span><span class="s1">&#39;weekday&#39;</span><span class="p">,</span>
+    <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">indicador</span><span class="o">=</span><span class="s1">&#39;cantidad_etapas&#39;</span><span class="p">,</span>
+    <span class="n">factor</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">factor_min</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+    <span class="n">save_gdf</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">id_linea</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rango_hrs</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">indicador</span></code>: indicador a utilizar <code class="docutils literal notranslate"><span class="pre">‘prop_etapas’</span></code> o <code class="docutils literal notranslate"><span class="pre">'cantidad_etapas'</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">factor</span></code>: factor de escalado que el el tramo tendrá en la visualización en base al indicador utilizado.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">factor_min</span></code>: ancho mínimo en metros que el tramo tendrá en la visualización.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">save_gdf</span></code>: guardar los resultados de la visualización en un archivo geojson.</p></li>
+</ul>
+</section>
+<section id="en-base-a-gps">
+<h2>En base a GPS<a class="headerlink" href="#en-base-a-gps" title="Enlace permanente a este encabezado"></a></h2>
+<p>Cuando existe una tabla de GPS se pueden elaborar estadísicos más elaborados y precisos. En primer lugar se procura obtener un factor de ocupación comparando los Espacio Kilómetro Demandados (EKD) como proporción de los Espacio Kilómetro Ofertados (EKO). Para los primeros (EKD)  se toma la cantidad de pasajeros transportados multiplicados por una DMT que puede ser utilizando la distancia media o la mediana, para evitar la influencia de medidas extremas que puedan incidir en el indicador. Para los segundos (EKO) se toma el total de kilómetros recorridos en base a la información disponible en la tabla GPS y se los multiplca por las 60 ubicaciones que se considera posee cada interno.</p>
+<p>En segundo lugar, se obtiene un Índice Pasajero Kilómetro (IPK) poniendo en relación el total de pasajeros transportados sobre el total de kilómetros recorridos por la línea. Para obtener estos indicadores principales se obtiene otros insumos que quedan en la base de datos, como el total de pasajeros, el total de kilómetros recorridos, la distancias medias y medianas viajadas, los vehículos totales, los pasajeros por vehículo por día, y los kilómetros por vehículo por día. Esto se calcula agregado para cada linea y día procesado, así como también para un día de la semana tipo o dia de fin de semana tipo.</p>
+<p>Los resultados quedan almacenados en la tabla <code class="docutils literal notranslate"><span class="pre">kpi_by_day_line</span></code> (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>).</p>
+</section>
+<section id="en-base-a-servicios">
+<h2>En base a servicios<a class="headerlink" href="#en-base-a-servicios" title="Enlace permanente a este encabezado"></a></h2>
+<p>UrbanTrips permite obtener datos a nivel de servicios para cada vehículo de cada línea (para más información pueden leer el aparatdo de <a class="reference internal" href="servicios.html"><span class="doc">Clasificación de servicios</span></a>). Una vez que esta clafisicación de los datos de GPS en servicios ha tenido lugar, pueden obtenerse diferentes KPI al nivel de cada servicio identificado. Los resultados quedan almacenados en la tabla <code class="docutils literal notranslate"><span class="pre">kpi_by_day_line_service</span></code> (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>)</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
+        <a href="resultados.html" class="btn btn-neutral float-left" title="Resultados finales" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="servicios.html" class="btn btn-neutral float-right" title="Clasificación de servicios" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Derechos de autor 2023, Felipe Gonzalez &amp; Sebastian Anapolsky.</p>
+  </div>
+
+  Compilado con <a href="https://www.sphinx-doc.org/">Sphinx</a> usando un
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">tema</a>
+    proporcionado por <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

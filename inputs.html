@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="next" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" />
+    <link rel="next" title="Factores de expansión" href="factores_expansion.html" />
     <link rel="prev" title="Seteo del archivo de configuración" href="configuracion.html" /> 
 </head>
 
@@ -55,8 +55,11 @@
 <li class="toctree-l2"><a class="reference internal" href="#paradas">Paradas</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
 </ul>
 
         </div>
@@ -163,7 +166,7 @@
 </section>
 <section id="informacion-de-lineas-y-ramales">
 <h2>Información de lineas y ramales<a class="headerlink" href="#informacion-de-lineas-y-ramales" title="Enlace permanente a este encabezado"></a></h2>
-<p>Tabla con metadata descriptiva de las lineas y ramales.</p>
+<p>Tabla con metadata descriptiva de las lineas y ramales. La forma de tratar a las líneas y ramales en UrbanTrips es muy específica, por lo tanto se aconseja leer el apartado  <a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25%" />
@@ -204,6 +207,14 @@
 <tr class="row-even"><td><p><em>descripcion</em></p></td>
 <td><p>str</p></td>
 <td><p>Opcional. Descripción adicional de la linea o ramal.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea_agg</em></p></td>
+<td><p>int</p></td>
+<td><p>Opcional. id único de una línea que contenga más de un ramal y deba tratarse de modo unificado para imputar destinos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nombre_linea_agg</em></p></td>
+<td><p>str</p></td>
+<td><p>Opcional. descripción de la línea que contenga más de un ramal y deba tratarse de modo unificado para imputar destinos</p></td>
 </tr>
 </tbody>
 </table>
@@ -344,7 +355,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
         <a href="configuracion.html" class="btn btn-neutral float-left" title="Seteo del archivo de configuración" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
-        <a href="lineas_ramales.html" class="btn btn-neutral float-right" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="factores_expansion.html" class="btn btn-neutral float-right" title="Factores de expansión" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

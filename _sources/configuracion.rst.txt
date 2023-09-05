@@ -122,6 +122,9 @@ Parámetros de posicionamiento GPS
 
 Este parámetro se utiliza para cuando existe una tabla separada con GPS que contenga el posicionamiento de los vehículos o internos. En ese caso, se gelocalizará cada transacción en base a la tabla GPS, uniendo por `id_linea` e `interno` (haciendo a este campo obligatorio) y minimizando el tiempo de la transacción con respecto a la transacción gps del interno de esa linea. Para eso el campo ``fecha`` debe estar completo con dia, hora y minutos. Esto hace obligatoria la existencia de un csv con la información de posicionamiento de los gps. Su nombre y atributos se especifican de modo similar a lo hecho en transacciones.
 
+
+En ocasiones en la tabla de GPS puede haber información sobre los servicios prestados por cada vehículo. Para más detalles sobre esta configuración y cómo lo trabaja UrbanTrips ver el apartado **Servicios**.
+
 .. code:: 
 
    geolocalizar_trx: True
@@ -136,7 +139,12 @@ Este parámetro se utiliza para cuando existe una tabla separada con GPS que con
       fecha_gps: date_time
       latitud_gps: latitude
       longitud_gps: longitude
+      servicios_gps: TYPE
+      velocity_gps: VELOCITY
 
+   trust_service_type_gps: False
+   valor_inicio_servicio: 7
+   valor_fin_servicio: 9
 
 
 Parámetro de lineas, ramales y paradas

@@ -55,8 +55,10 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
 </ul>
 
@@ -188,6 +190,7 @@
 <section id="parametros-de-posicionamiento-gps">
 <h2>Parámetros de posicionamiento GPS<a class="headerlink" href="#parametros-de-posicionamiento-gps" title="Enlace permanente a este encabezado"></a></h2>
 <p>Este parámetro se utiliza para cuando existe una tabla separada con GPS que contenga el posicionamiento de los vehículos o internos. En ese caso, se gelocalizará cada transacción en base a la tabla GPS, uniendo por <cite>id_linea</cite> e <cite>interno</cite> (haciendo a este campo obligatorio) y minimizando el tiempo de la transacción con respecto a la transacción gps del interno de esa linea. Para eso el campo <code class="docutils literal notranslate"><span class="pre">fecha</span></code> debe estar completo con dia, hora y minutos. Esto hace obligatoria la existencia de un csv con la información de posicionamiento de los gps. Su nombre y atributos se especifican de modo similar a lo hecho en transacciones.</p>
+<p>En ocasiones en la tabla de GPS puede haber información sobre los servicios prestados por cada vehículo. Para más detalles sobre esta configuración y cómo lo trabaja UrbanTrips ver el apartado <strong>Servicios</strong>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">geolocalizar_trx</span><span class="p">:</span> <span class="kc">True</span>
 
 <span class="n">nombre_archivo_gps</span><span class="p">:</span> <span class="n">gps_semana1</span><span class="o">.</span><span class="n">csv</span>
@@ -200,6 +203,12 @@
    <span class="n">fecha_gps</span><span class="p">:</span> <span class="n">date_time</span>
    <span class="n">latitud_gps</span><span class="p">:</span> <span class="n">latitude</span>
    <span class="n">longitud_gps</span><span class="p">:</span> <span class="n">longitude</span>
+   <span class="n">servicios_gps</span><span class="p">:</span> <span class="n">TYPE</span>
+   <span class="n">velocity_gps</span><span class="p">:</span> <span class="n">VELOCITY</span>
+
+<span class="n">trust_service_type_gps</span><span class="p">:</span> <span class="kc">False</span>
+<span class="n">valor_inicio_servicio</span><span class="p">:</span> <span class="mi">7</span>
+<span class="n">valor_fin_servicio</span><span class="p">:</span> <span class="mi">9</span>
 </pre></div>
 </div>
 </section>

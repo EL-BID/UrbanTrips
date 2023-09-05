@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
-    <link rel="next" title="Clasificación de servicios" href="servicios.html" />
+    <link rel="next" title="KPI" href="kpi.html" />
     <link rel="prev" title="Sobre el concepto de lineas y ramales en UrbanTrips" href="lineas_ramales.html" /> 
 </head>
 
@@ -48,12 +48,14 @@
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
 <li class="toctree-l1"><a class="reference internal" href="lineas_ramales.html">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Resultados finales</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-data">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-insumos">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
 <li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
 </ul>
 
@@ -716,7 +718,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id11">
-<caption><span class="caption-text">indicadores_operativos_linea</span><a class="headerlink" href="#id11" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id11" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -769,9 +771,225 @@
 <td><p>float</p></td>
 <td><p>Índice Pasajero Kilómetro.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>fo</em></p></td>
+<tr class="row-even"><td><p><em>fo_mean</em></p></td>
 <td><p>float</p></td>
-<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo.</p></td>
+<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_median</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id12">
+<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id12" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-even"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de service dentro del vehiculo o interno para esa linea y dia.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora_inicio</em></p></td>
+<td><p>float</p></td>
+<td><p>hora de inicio del servicio.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hora_fin</em></p></td>
+<td><p>float</p></td>
+<td><p>hora de cierre del servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tot_km</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de kilómetros ofertados por el servicio.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tot_pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros transportados por el servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dmt_mean</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero del servicio.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt_median</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero del servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>ipk</em></p></td>
+<td><p>float</p></td>
+<td><p>Índice Pasajero Kilómetro.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_mean</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_median</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id13">
+<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id13" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea</p></td>
+</tr>
+<tr class="row-even"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hora</em></p></td>
+<td><p>float</p></td>
+<td><p>hora en la que se encuentra circulando el vehiculo.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tot_pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros transportados por el vehiculo para esa hora.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>eq_pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros equivalentes transportados por ese vehículo durante esa hora.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dmt</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero del vehiculo para esa hora.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>of</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación calculado como la relación entre la DMT y la velocidad comercial.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>speed_kmh</em></p></td>
+<td><p>float</p></td>
+<td><p>Velocidad comercial promedio de ese vehiculo a esa hora.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id14">
+<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id14" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora</em></p></td>
+<td><p>float</p></td>
+<td><p>hora del día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>veh</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de vehículos únicos circulando a esa hora para esa linea y día.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros que iniciaron una etapa en esa linea a esa hora y día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero del vehiculo para esa hora y día.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>of</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>speed_kmh</em></p></td>
+<td><p>float</p></td>
+<td><p>Velocidad comercial promedio de esa línea a esa hora para ese día.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id15">
+<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id15" title="Enlace permanente a esta tabla"></a></caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea</p></td>
+</tr>
+<tr class="row-even"><td><p><em>veh</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de vehículos únicos circulando para esa linea y día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>pax</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de pasajeros que utilizaron esa linea ese día.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dmt</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero en esa línea ese día.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>of</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>speed_kmh</em></p></td>
+<td><p>float</p></td>
+<td><p>Velocidad comercial promedio de esa línea para ese día.</p></td>
 </tr>
 </tbody>
 </table>
@@ -779,8 +997,8 @@
 <section id="modelo-de-datos-de-base-insumos">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Enlace permanente a este encabezado"></a></h2>
 <p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
-<table class="docutils align-default" id="id12">
-<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id12" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id16">
+<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id16" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -815,8 +1033,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id13">
-<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id13" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id17">
+<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id17" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -855,8 +1073,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id14">
-<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id14" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id18">
+<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id18" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -883,8 +1101,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id15">
-<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id15" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id19">
+<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id19" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -907,8 +1125,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id16">
-<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id16" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id20">
+<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id20" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -931,8 +1149,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id17">
-<caption><span class="caption-text">stops</span><a class="headerlink" href="#id17" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id21">
+<caption><span class="caption-text">stops</span><a class="headerlink" href="#id21" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -979,8 +1197,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id18">
-<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id18" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id22">
+<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id22" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1015,8 +1233,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id19">
-<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id19" title="Enlace permanente a esta tabla"></a></caption>
+<table class="docutils align-default" id="id23">
+<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id23" title="Enlace permanente a esta tabla"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1067,7 +1285,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
         <a href="lineas_ramales.html" class="btn btn-neutral float-left" title="Sobre el concepto de lineas y ramales en UrbanTrips" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
-        <a href="servicios.html" class="btn btn-neutral float-right" title="Clasificación de servicios" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="kpi.html" class="btn btn-neutral float-right" title="KPI" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

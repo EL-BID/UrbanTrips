@@ -21,7 +21,7 @@
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
     <link rel="next" title="Resultados finales" href="resultados.html" />
-    <link rel="prev" title="Input de datos" href="inputs.html" /> 
+    <link rel="prev" title="Factores de expansión" href="factores_expansion.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -48,8 +48,11 @@
 <li class="toctree-l1"><a class="reference internal" href="primeros_pasos.html">Primeros pasos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configuracion.html">Seteo del archivo de configuración</a></li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Sobre el concepto de lineas y ramales en UrbanTrips</a></li>
 <li class="toctree-l1"><a class="reference internal" href="resultados.html">Resultados finales</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="servicios.html">Clasificación de servicios</a></li>
 </ul>
 
         </div>
@@ -78,18 +81,17 @@
              
   <section id="sobre-el-concepto-de-lineas-y-ramales-en-urbantrips">
 <h1>Sobre el concepto de lineas y ramales en UrbanTrips<a class="headerlink" href="#sobre-el-concepto-de-lineas-y-ramales-en-urbantrips" title="Enlace permanente a este encabezado"></a></h1>
-<p>Una linea de transporte público puede tener un recorrido principal en torno al cual hay pequeñas variantes. Estas son consideradas ramales dentro de una misma linea. En muchas ciudades no existen estas diferencias y cada recorrido tiene un nombre y id únicos. Pero en otras no es así. A su vez, puede darse una situación donde, por ejemplo, una persona utiliza el metro, subiendo a la estación del recorrido A y bajarse en el recorrido B, sin que ese transbordo sea identificado como transacción en la tarjeta. Por lo tanto, para imputar el destino consideramos como puntos de descenso posible todas las estaciones del metro. En este caso, el metro funcionará como una única línea y cada recorrido un ramal dentro del mismo. La diferencia fundamental es que el proceso de imputación de destinos considerará como posible punto de destino todas las estaciones de la linea y no del ramal.</p>
-<p>También puede suceder que una linea de autobuses tenga varios ramales, pero no siempre se identifica en los datos el ramal que realmente dicho vehículo o interno recorrió. Con lo cual podría ser cualquier recorrido de cualquiera de los ramales y al imputar el destino deberiamos considerar todas las estaciones potenciales de toda esa linea de autobus. Esta forma de tratar a las líneas y ramales permite que UrbanTrips se acomode a estas situaciones particulares que cada ciudad presenta.</p>
-<p>UrbanTrips no modifica los datos originales de la linea o el ramal, con lo cual si la información del ramal es correcta, esta forma de imputar destinos no afectará el ramal de la etapa según fue declarado en el interno o vehículo por el conductor. A su vez si en una ciudad no existen ramales, simplemente se utiliza la linea para identificar cada recorrido. La existencia de ramales se informa a UrbanTrips en el archivo de configuración en el parámetro <code class="docutils literal notranslate"><span class="pre">lineas_contienen_ramales</span></code> ( ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>).</p>
-<p>Si el sistema de transporte de la ciudad tiene lineas y ramales la tabla de transacciones a utilizar necesita identificar cada etapa con ambos, siguiendo el criterio aquí desarrollado. Esto puede implicar, por ejemplo, que si al metro no se lo considera como una línea única debe escogerse un id único de linea para el metro y clasificar como ramales con un id propio a todas las variantes dentro del metro.</p>
-<p>.</p>
+<p>Una linea de transporte público puede tener un recorrido principal en torno al cual hay pequeñas variantes. Estas son consideradas ramales dentro de una misma linea. En muchas ciudades no existen estas diferencias y cada recorrido tiene un nombre y id únicos. Pero en otras no es así. A su vez, puede darse una situación donde, por ejemplo, una persona utiliza el metro, subiendo a la estación del recorrido A y descendiendo en una estación del recorrido B, sin que ese transbordo sea identificado como transacción en la tarjeta. Por lo tanto, para imputar el destino UrbanTrips considera como puntos de descenso posible todas las estaciones del metro. En este caso, el metro funcionará como una única línea y cada recorrido un ramal dentro del mismo. La diferencia fundamental es que el proceso de imputación de destinos considerará como posible punto de destino todas las estaciones de la linea y no del ramal.</p>
+<p>También puede suceder que una linea de autobuses tenga varios ramales, pero no siempre se identifica en los datos el ramal que realmente dicho vehículo o interno recorrió. Con lo cual podría ser cualquier recorrido de cualquiera de los ramales y al imputar el destino debería considerarse todas las estaciones potenciales de toda esa linea de autobus. Esta forma de tratar a las líneas y ramales permite que UrbanTrips se acomode a estas situaciones particulares que cada ciudad presenta.</p>
+<p>Si la ciudad en la que se va a correr UrbanTrips presente un caso de estás características con líneas y ramales debe indicarse en el archivo de configuración en el parámetro <code class="docutils literal notranslate"><span class="pre">lineas_contienen_ramales</span></code> ( ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>). A su vez debe indicarse en la tabla de <strong>Información de lineas y ramales</strong> (ver <a class="reference internal" href="#"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>) un id de linea que unifique diferentes ramales y los trate como una línea única utilizando el campo <code class="docutils literal notranslate"><span class="pre">id_linea_agg</span></code> de dicha tabla.</p>
+<p>UrbanTrips no modifica los datos originales de la linea o el ramal, con lo cual si la información del ramal es correcta, esta forma de imputar destinos no afectará el ramal de la etapa según fue declarado en el interno o vehículo por el conductor. A su vez si en una ciudad no existen ramales, simplemente se utiliza la linea para identificar cada recorrido.</p>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Pie de página">
-        <a href="inputs.html" class="btn btn-neutral float-left" title="Input de datos" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
+        <a href="factores_expansion.html" class="btn btn-neutral float-left" title="Factores de expansión" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Anterior</a>
         <a href="resultados.html" class="btn btn-neutral float-right" title="Resultados finales" accesskey="n" rel="next">Siguiente <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

@@ -62,7 +62,7 @@ Tabla con las transacciones.
 Información de lineas y ramales
 -------------------------------
 
-Tabla con metadata descriptiva de las lineas y ramales. 
+Tabla con metadata descriptiva de las lineas y ramales. La forma de tratar a las líneas y ramales en UrbanTrips es muy específica, por lo tanto se aconseja leer el apartado  :doc:`lineas_ramales`.
 
 .. list-table:: 
    :widths: 25 25 50
@@ -92,7 +92,15 @@ Tabla con metadata descriptiva de las lineas y ramales.
    * - *descripcion*
      - str
      - Opcional. Descripción adicional de la linea o ramal.
+   * - *id_linea_agg*
+     - int
+     - Opcional. id único de una línea que contenga más de un ramal y deba tratarse de modo unificado para imputar destinos.
+   * - *nombre_linea_agg*
+     - str
+     - Opcional. descripción de la línea que contenga más de un ramal y deba tratarse de modo unificado para imputar destinos
      
+               	
+
      
 
 Recorridos lineas
