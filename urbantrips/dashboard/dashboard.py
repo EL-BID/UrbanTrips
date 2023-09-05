@@ -10,7 +10,7 @@ import geopandas as gpd
 import os
 import requests
 from PIL import Image
-
+from shapely import wkt
 import yaml
 import sqlite3
 
