@@ -255,7 +255,11 @@ with st.expander ('Distancias de viajes'):
     
     desc_dia_d = col1.selectbox('Periodo', options=hist_values.desc_dia.unique(), key='desc_dia_d')
     tipo_dia_d = col1.selectbox('Tipo de dia', options=hist_values.tipo_dia.unique(), key='tipo_dia_d')
-    modo_d = col1.selectbox('Modo', options=hist_values.Modo.unique())
+
+    dist = hist_values.Modo.unique().tolist()
+    dist.remove('Todos')
+    dist = ['Todos'] + dist
+    modo_d = col1.selectbox('Modo', options=dist)
     
     hist_values = hist_values[(hist_values.desc_dia==desc_dia_d)&(hist_values.tipo_dia==tipo_dia_d)&(hist_values.Modo==modo_d)]
         
