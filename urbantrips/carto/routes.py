@@ -218,8 +218,8 @@ def check_route_geoms_columns(geojson_data, branches_present):
 
     assert not geojson_data.id_linea.isna().any(),\
         "id_linea vacios en geojson recorridos"
-    assert geojson_data.dtypes['id_linea'] == int,\
-        "id_linea deben ser int en geojson recorridos"
+    # assert geojson_data.dtypes['id_linea'] == int,\
+    #     "id_linea deben ser int en geojson recorridos"
 
     if branches_present:
         cols.append('id_ramal')

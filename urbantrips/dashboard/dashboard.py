@@ -10,10 +10,28 @@ import geopandas as gpd
 import os
 import requests
 from PIL import Image
-
+from shapely import wkt
 import yaml
 import sqlite3
+from shapely import wkt
+from folium import Figure
+from shapely.geometry import LineString
 
+def create_linestring(df, 
+                      lat_o='lat_o', 
+                      lon_o='lon_o', 
+                      lat_d='lat_d', 
+                      lon_d='lon_d'):
+
+    # Create LineString objects from the coordinates
+    geometry = [LineString([(row['lon_o'], row['lat_o']),
+                           (row['lon_d'], row['lat_d'])])
+                for _, row in df.iterrows()]
+
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+
+    return gdf
 
 def leer_configs_generales():
     """
@@ -77,7 +95,9 @@ def iniciar_conexion_db(tipo='data'):
     return conn
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql):
+def levanto_tabla_sql(tabla_sql, 
+                      has_linestring=False,
+                      has_wkt=False):
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -91,6 +111,27 @@ def levanto_tabla_sql(tabla_sql):
 
     conn_dash.close()
     
+    if has_linestring:
+        tabla = create_linestring(tabla)
+        
+    if has_wkt:
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, 
+                                   crs=4326)
+        tabla = tabla.drop(['wkt'], axis=1)
+
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
+
     return tabla
 
 

@@ -325,6 +325,7 @@ def create_dash_tables():
         CREATE TABLE IF NOT EXISTS particion_modal
         (
         desc_dia str,
+        tipo_dia str,
         tipo str,
         modo str,
         modal float

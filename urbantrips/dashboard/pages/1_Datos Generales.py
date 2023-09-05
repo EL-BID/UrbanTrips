@@ -121,7 +121,22 @@ def levanto_tabla_sql(tabla_sql,
         tabla = gpd.GeoDataFrame(tabla, 
                                    crs=4326)
         tabla = tabla.drop(['wkt'], axis=1)
-    
+
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
+    if 'modo' in tabla.columns:
+        tabla['modo'] = tabla['modo'].str.capitalize()
+
+
     return tabla
 
 @st.cache_data
@@ -193,16 +208,17 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
+   
 
 with st.expander ('Partición modal'):
     
     col1, col2, col3 = st.columns([1, 3, 3])
     particion_modal = levanto_tabla_sql('particion_modal') 
     desc_dia_m = col1.selectbox('Periodo', options=particion_modal.desc_dia.unique(), key='desc_dia_m')
-
+    tipo_dia_m = col1.selectbox('Tipo de día', options=particion_modal.tipo_dia.unique(), key='tipo_dia_m')
     
     # Etapas
-    particion_modal_etapas = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo=='etapas')]    
+    particion_modal_etapas = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo_dia==tipo_dia_m)&(particion_modal.tipo=='etapas')]    
     if col2.checkbox('Ver datos: etapas'):
         col2.write(particion_modal_etapas)
     fig2 = px.bar(particion_modal_etapas, x='modo', y='modal')
@@ -213,7 +229,7 @@ with st.expander ('Partición modal'):
     col2.plotly_chart(fig2)
     
     # Viajes
-    particion_modal_viajes = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo=='viajes')]        
+    particion_modal_viajes = particion_modal[(particion_modal.desc_dia==desc_dia_m)&(particion_modal.tipo_dia==tipo_dia_m)&(particion_modal.tipo=='viajes')]        
     if col3.checkbox('Ver datos: viajes'):
         col3.write(particion_modal_viajes)   
     fig = px.bar(particion_modal_viajes, x='modo', y='modal')
@@ -239,7 +255,7 @@ with st.expander ('Distancias de viajes'):
     
     desc_dia_d = col1.selectbox('Periodo', options=hist_values.desc_dia.unique(), key='desc_dia_d')
     tipo_dia_d = col1.selectbox('Tipo de dia', options=hist_values.tipo_dia.unique(), key='tipo_dia_d')
-    modo_d = col1.selectbox('Modo', options=['Todos', 'autobus', 'metro', 'tren', 'Multietapa', 'Multimodal'])
+    modo_d = col1.selectbox('Modo', options=hist_values.Modo.unique())
     
     hist_values = hist_values[(hist_values.desc_dia==desc_dia_d)&(hist_values.tipo_dia==tipo_dia_d)&(hist_values.Modo==modo_d)]
         
@@ -266,8 +282,6 @@ with st.expander ('Viajes por hora'):
     col1, col2 = st.columns([1, 4])
     
     viajes_hora = levanto_tabla_sql('viajes_hora') 
-    if col2.checkbox('Ver datos: viajes por hora'):
-        col2.write(viajes_hora)
         
     desc_dia_h = col1.selectbox('Periodo', options=viajes_hora.desc_dia.unique(), key='desc_dia_h')
     tipo_dia_h = col1.selectbox('Tipo de dia', options=viajes_hora.tipo_dia.unique(), key='tipo_dia_h')
@@ -277,6 +291,11 @@ with st.expander ('Viajes por hora'):
         viajes_hora = viajes_hora[(viajes_hora.desc_dia==desc_dia_h)&(viajes_hora.tipo_dia==tipo_dia_h)&(viajes_hora.Modo=='Todos')]
     else:
         viajes_hora = viajes_hora[(viajes_hora.desc_dia==desc_dia_h)&(viajes_hora.tipo_dia==tipo_dia_h)&(viajes_hora.Modo!='Todos')]
+
+    viajes_hora = viajes_hora.sort_values('Hora')
+    if col2.checkbox('Ver datos: viajes por hora'):
+        col2.write(viajes_hora)
+
         
     fig_horas = px.line(viajes_hora, x="Hora", y="Viajes", color='Modo', symbol="Modo")
     
