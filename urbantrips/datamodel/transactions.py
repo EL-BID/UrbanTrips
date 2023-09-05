@@ -520,7 +520,9 @@ def geolocalizar_trx(
     # Parsear fechas. Crear hora, si tiene gps tiene hora completa
     trx_eco = convertir_fechas(trx_eco, formato_fecha, crear_hora=True)
 
-    trx_eco = trx_eco.drop(columns=["latitud", "longitud"])
+    for col in ["latitud", "longitud"]:
+        if col in trx_eco.columns:
+            trx_eco = trx_eco.drop(columns=[col])
 
     # Crear un id interno
     trx_eco["id_original"] = trx_eco["id"].copy()
