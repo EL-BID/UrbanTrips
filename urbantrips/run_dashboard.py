@@ -19,7 +19,7 @@ download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTr
                     file_name = 'urbantrips/dashboard/dashboard.py')
 download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/1_Datos Generales.py', 
                     file_name = 'urbantrips/dashboard/pages/1_Datos Generales.py')
-download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Colectivos.py.py', 
+download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Indicadores de oferta.py', 
                     file_name = 'urbantrips/dashboard/pages/2_Colectivos.py.py')
 
 print('')
