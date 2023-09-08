@@ -13,16 +13,20 @@ def download_githubfile(url_file, file_name):
             f.write(response.content)
         print('copiado: ', file_name)
 
+def main():
+    
+    os.makedirs('urbantrips/dashboard/pages', exist_ok=True)
+    download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/dashboard.py', 
+                        file_name = 'urbantrips/dashboard/dashboard.py')
+    download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/1_Datos Generales.py', 
+                        file_name = 'urbantrips/dashboard/pages/1_Datos Generales.py')
+    download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Indicadores de oferta.py', 
+                        file_name = 'urbantrips/dashboard/pages/2_Colectivos.py.py')
+    
+    print('')
+    print('Debe correr desde la terminal streamlit run urbantrips/dashboard/dashboard.py')
+    print('')
+    # !streamlit run urbantrips/dashboard/dashboard.py
 
-os.makedirs('urbantrips/dashboard/pages', exist_ok=True)
-download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/dashboard.py', 
-                    file_name = 'urbantrips/dashboard/dashboard.py')
-download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/1_Datos Generales.py', 
-                    file_name = 'urbantrips/dashboard/pages/1_Datos Generales.py')
-download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Indicadores de oferta.py', 
-                    file_name = 'urbantrips/dashboard/pages/2_Colectivos.py.py')
-
-print('')
-print('Debe correr desde la terminal streamlit run urbantrips/dashboard/dashboard.py')
-print('')
-# !streamlit run urbantrips/dashboard/dashboard.py
+if __name__ == "__main__":
+    main()
