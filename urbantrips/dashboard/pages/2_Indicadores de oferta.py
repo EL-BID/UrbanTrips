@@ -141,7 +141,7 @@ def get_logo():
         "docs", "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
         # URL of the image file on Github
-        url = 'https://github.com/EL-BID/UrbanTrips/blob/18be313301c979dae5fd27ac5b83f89c76e2dd5f/docs/urbantrips_logo.jpg'
+        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/urbantrips_logo.jpg'
 
         # Send a request to get the content of the image file
         response = requests.get(url)
