@@ -3,6 +3,10 @@ from urbantrips import process_transactions
 from urbantrips import run_postprocessing
 from urbantrips import create_viz
 
+import warnings
+
+# Filter and suppress specific warnings
+warnings.filterwarnings("ignore")
 
 def main():
 

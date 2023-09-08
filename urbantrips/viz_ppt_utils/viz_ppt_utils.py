@@ -164,6 +164,9 @@ def pptx_addpic(prs, slide, img_path,  left=0, top=0, width=0, altura_max=0, anc
         return slide_return
 def get_new_slide(prs, desc_dia_titulo):
     ## Logo Urbantrips
+    db_path = os.path.join("docs")
+    os.makedirs(db_path, exist_ok=True)
+
     file_logo = os.path.join(
         "docs", "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
