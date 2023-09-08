@@ -1,120 +1,10 @@
 import pandas as pd
 import os
 from pandas.io.sql import DatabaseError
-from urbantrips.utils.utils import (leer_configs_generales,
-                                    duracion,
-                                    iniciar_conexion_db,
-                                    leer_alias, agrego_indicador)
-
+from urbantrips.utils.utils import (iniciar_conexion_db,
+                                    leer_alias, agrego_indicador, duracion)
 
 @duracion
-def create_line_and_branches_metadata():
-    """
-    Esta funcion lee la ubicacion del archivo de informacion de las lineas
-    de la ciudad y crea una tabla en la db
-    """
-
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    configs = leer_configs_generales()
-    try:
-        tabla_lineas = configs["nombre_archivo_informacion_lineas"]
-        con_ramales = configs["informacion_lineas_contiene_ramales"]
-
-        if tabla_lineas is not None:
-            crear_tabla_metadata_lineas(conn_insumos)
-
-            print('Leyendo tabla con informacion de lineas')
-            ruta = os.path.join("data", "data_ciudad", tabla_lineas)
-            info = pd.read_csv(ruta)
-
-            # chequear que tengan todas las columnas de id nombre y modo
-            if con_ramales:
-                crear_tabla_metadata_ramales(conn_insumos)
-
-                var_obligatorias = ['id_linea', 'nombre_linea',
-                                    'id_ramal', 'nombre_ramal', 'modo']
-            else:
-                var_obligatorias = ['id_linea', 'nombre_linea', 'modo']
-
-            assert pd.Series(var_obligatorias).isin(info.columns).all()
-
-            # chequear que modo coincida con el config de modos homologados
-            try:
-                modos_homologados = configs["modos"]
-                zipped = zip(modos_homologados.values(),
-                             modos_homologados.keys())
-                modos_homologados = {k: v for k, v in zipped}
-
-                assert pd.Series(info.modo.unique()).isin(
-                    modos_homologados.keys()).all()
-            except KeyError:
-                pass
-
-            # que no haya missing en id_linea y id_ramal
-            assert not info.id_linea.isna().any()
-            assert info.dtypes['id_linea'] == int
-
-            lineas_cols = ['id_linea', 'nombre_linea',
-                           'modo', 'empresa', 'descripcion']
-
-            info_lineas = info.reindex(columns=lineas_cols)
-
-            if con_ramales:
-                info_lineas = info_lineas.drop_duplicates(subset='id_linea')
-
-                ramales_cols = ['id_ramal', 'id_linea',
-                                'nombre_ramal', 'modo', 'empresa',
-                                'descripcion']
-
-                info_ramales = info.reindex(columns=ramales_cols)
-                assert not info_ramales.id_ramal.isna().any()
-                assert not info_ramales.id_ramal.duplicated().any()
-                assert info_ramales.dtypes['id_ramal'] == int
-                info_ramales.to_sql(
-                    "metadata_ramales", conn_insumos, if_exists="replace",
-                    index=False)
-
-            info_lineas.to_sql(
-                "metadata_lineas", conn_insumos, if_exists="replace", index=False)
-
-    except KeyError:
-        print("No hay tabla con informacion configs")
-    conn_insumos.close()
-
-
-def crear_tabla_metadata_lineas(conn_insumos):
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata_lineas
-            (id_linea INT PRIMARY KEY     NOT NULL,
-            nombre_linea text not null,
-            modo text not null,
-            empresa text,
-            descripcion text
-            )
-        ;
-        """
-    )
-
-
-def crear_tabla_metadata_ramales(conn_insumos):
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata_ramales
-            (id_ramal INT PRIMARY KEY     NOT NULL,
-            id_linea int not null,
-            nombre_ramal text not null,
-            modo text not null,
-            empresa text,
-            descripcion text
-            )
-        ;
-        """
-    )
-
-
 def persist_datamodel_tables():
     """
     Esta funcion lee los datos de etapas, viajes y usuarios
@@ -122,8 +12,7 @@ def persist_datamodel_tables():
     y las guarda en csv
     """
 
-    print('Guarda tablas de etapas, viajes y usuarios en formato .csv')
-
+    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
@@ -137,7 +26,10 @@ def persist_datamodel_tables():
     """
     distancias = pd.read_sql_query(q, conn_insumos)
 
-    zonas = pd.read_sql_query("select * from zonas", conn_insumos)
+    zonas = pd.read_sql_query("""
+                            select * from zonas
+                              """,
+                              conn_insumos)
     zonas = zonas.drop(['fex', 'latitud', 'longitud'], axis=1)
     zonas_o = zonas.copy()
     zonas_d = zonas.copy()
@@ -148,37 +40,25 @@ def persist_datamodel_tables():
 
     q = """
         SELECT *
-        from etapas
-        LEFT JOIN destinos
-        ON etapas.id = destinos.id
+        from etapas e
+        where e.od_validado==1
     """
     etapas = pd.read_sql_query(q, conn_data)
     etapas = etapas.merge(zonas_o, how='left').merge(zonas_d, how='left')
     etapas = etapas.merge(distancias, how='left')
 
-    viajes = pd.read_sql_query("select * from viajes", conn_data)
+    viajes = pd.read_sql_query("""
+                                select *
+                                from viajes
+                               """, conn_data)
     viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
     viajes = viajes.merge(distancias, how='left')
 
     print("Leyendo informacion de usuarios...")
-    usuarios = pd.read_sql_query("select * from usuarios", conn_data)
-
-    factores_expansion = pd.read_sql_query(
-        """
-        SELECT *
-        FROM factores_expansion
-        """,
-        conn_data,
-    )
-    factores = factores_expansion.reindex(
-        columns=['dia', 'id_tarjeta', 'factor_expansion'])
-
-    etapas = etapas\
-        .merge(factores, on=['dia', 'id_tarjeta'])
-    viajes = viajes\
-        .merge(factores, on=['dia', 'id_tarjeta'])
-    usuarios = usuarios\
-        .merge(factores, on=['dia', 'id_tarjeta'])
+    usuarios = pd.read_sql_query("""
+                                SELECT *
+                                from usuarios
+                                """, conn_data)
 
     # Grabo resultados en tablas .csv
     print("Guardando informacion de etapas...")
@@ -288,7 +168,8 @@ def persist_datamodel_tables():
                      aggfunc='mean')
 
     agrego_indicador(etapas.groupby(['dia', 'id_tarjeta'],
-                                    as_index=False).factor_expansion.sum(),
+                                    as_index=False).
+                     factor_expansion_linea.sum(),
                      'Cantidad de tarjetas finales',
                      'usuarios',
                      0,
@@ -296,7 +177,7 @@ def persist_datamodel_tables():
 
     agrego_indicador(etapas[etapas.od_validado == 1].groupby(
         ['dia', 'id_tarjeta'],
-        as_index=False).factor_expansion.min(),
+        as_index=False).factor_expansion_linea.min(),
         'Cantidad total de usuarios',
         'usuarios expandidos',
         0)

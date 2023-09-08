@@ -1,10 +1,13 @@
-
+# REPO ORIGINAL
 geolocalizar_trx: False
 
 # Resolucion H3: resolucion del hexagono. La resolucion 8 tiene lados de 460 metros.  Resolucion 9 tiene 174 metros y la  10 tiene  65 metros
 resolucion_h3: 8
 #tolerancia parada destino en metros
 tolerancia_parada_destino: 2200
+
+# Proyeccion de coordenadas en metros a utilizar  
+epsg_m: 9265
 
 #especificar el archivo con las transacciones a consumir
 nombre_archivo_trx: transacciones_amba_test.csv
@@ -13,8 +16,8 @@ alias_db_data: amba_test
 
 alias_db_insumos: amba_test
 
+lineas_contienen_ramales: True
 nombre_archivo_informacion_lineas: lineas_amba_test.csv
-informacion_lineas_contiene_ramales: True
 
 imputar_destinos_min_distancia: False
 

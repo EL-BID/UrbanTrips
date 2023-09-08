@@ -1,16 +1,16 @@
+from shapely import line_interpolate_point
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from urbantrips.utils.utils import duracion
+from urbantrips.utils.utils import leer_configs_generales
 from itertools import repeat
 import h3
-from h3 import H3CellError
 from math import ceil
 from shapely.geometry import Polygon, Point, LineString,  LinearRing
-from libpysal.cg.voronoi import voronoi, voronoi_frames
+import libpysal
+import statsmodels.api as sm
 
 
-@ duracion
 def referenciar_h3(df, res, nombre_h3, lat='latitud', lon='longitud'):
     """
     Esta funcion toma un DF con latitud y longitud y georeferencia
@@ -34,7 +34,7 @@ def h3_from_row(row, res, lat, lng):
 def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     """
     Esta funcion toma una resolucion h3 y una tolerancia en metros
-    y calcula la cantidad de h3 tolerancia en para alcanzar esa tolerancia 
+    y calcula la cantidad de h3 tolerancia en para alcanzar esa tolerancia
     """
     lado = round(h3.edge_length(resolution=resolucion_h3, unit="m"))
 
@@ -62,7 +62,7 @@ def get_stop_hex_ring(h, ring_size):
     """
     This functions takes a h3 index referencing a public transit stop
     a h3 ring size, and returns a DataFrame with that stops and all the
-    hexs within that ring 
+    hexs within that ring
     """
     rings = list(h3.k_ring(h, ring_size))
     df = pd.DataFrame({"parada": [h] * (len(rings)), "area_influencia": rings})
@@ -70,7 +70,11 @@ def get_stop_hex_ring(h, ring_size):
 
 
 def h3togeo(x):
-    return str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
+    try:
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])            
+    except (TypeError, ValueError):
+        result = ''
+    return result
 
 
 def h3dist(x, distancia_entre_hex=1, h3_o='', h3_d=''):
@@ -126,7 +130,7 @@ def create_voronoi(centroids, var_zona='Zona'):
     y_coords = centroids.geometry.y
     coords = np.dstack((x_coords, y_coords))
 
-    regions_df, _ = voronoi_frames(coords[0], clip=poly)
+    regions_df, _ = libpysal.cg.voronoi.voronoi_frames(coords[0], clip=poly)
 
     regions_df = regions_df.reset_index()
     regions_df.columns = [var_zona, 'geometry']
@@ -137,35 +141,35 @@ def create_voronoi(centroids, var_zona='Zona'):
     return regions_df
 
 
+def bring_latlon(x, latlon='lat'):
+    if latlon == 'lat':
+        posi = 0
+    if latlon == 'lon':
+        posi = 1
+    try:
+        result = float(x.split(',')[posi])
+    except (AttributeError, IndexError): 
+        result = 0
+    return result
+
 def normalizo_lat_lon(df,
                       h3_o='h3_o',
                       h3_d='h3_d',
                       origen='',
                       destino=''):
+    
     if len(origen) == 0:
         origen = h3_o
     if len(destino) == 0:
         destino = h3_d
 
     df["origin"] = df[h3_o].apply(h3togeo)
-    df['lon_o_tmp'] = (
-        df["origin"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    df['lat_o_tmp'] = (
-        df["origin"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
-
-    df["destination"] = df[h3_d].apply(h3togeo)
-    df['lon_d_tmp'] = (
-        df["destination"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    df['lat_d_tmp'] = (
-        df["destination"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
+    df['lon_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lon')
+    df['lat_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lat')
+       
+    df["destination"] = df[h3_d].apply(h3togeo)        
+    df['lon_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lon')
+    df['lat_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lat')
 
     if 'h3_' not in origen:
         cols = {destino: origen, 'lat_d_tmp': 'lat_o_tmp',
@@ -241,6 +245,10 @@ def normalizo_lat_lon(df,
     return df
 
 
+def create_point_from_h3(h):
+    return Point(h3.h3_to_geo(h)[::-1])
+
+
 def crear_linestring(df,
                      lon_o,
                      lat_o,
@@ -262,5 +270,92 @@ def crear_linea(row, lon_o, lat_o, lon_d, lat_d):
     return (LineString([[row[lon_o], row[lat_o]], [row[lon_d], row[lat_d]]]))
 
 
-def geolocalizar_trx():
-    print('a')
+def check_all_geoms_linestring(gdf):
+    if not all(gdf.geometry.type == 'LineString'):
+        raise ValueError(
+            'Invalid geometry type. Only LineStrings are supported.')
+
+
+def get_points_over_route(route_geom, distance):
+    """
+    Interpolates points over a projected route geom in meters
+    every x meters set by distance
+    """
+    ranges = range(0, int(route_geom.length), distance)
+    points = line_interpolate_point(route_geom, ranges).tolist()
+    return points
+
+
+def lowess_linea(df):
+    """
+    Takes a DataFrame with legs and lat long for a given line,
+    and produces a LineString for that line route geom
+    using lowes regression for that
+
+
+    Parameters
+    ----------
+    df : opandas.DataFrame
+        geoDataFrame legs with latlong
+
+    Returns
+    -------
+    geopandas.geoDataFrame
+        GeoDataFrame containing a single LineString for each line
+    """
+
+    id_linea = df.id_linea.unique()[0]
+    epsg_m = get_epsg_m()
+
+    print("Obteniendo lowess linea:", id_linea)
+    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
+        df['longitud'], df['latitud']), crs=4326).to_crs(epsg_m)
+    y = gdf.geometry.y
+    x = gdf.geometry.x
+    lowess = sm.nonparametric.lowess
+    lowess_points = lowess(x, y, frac=0.4, delta=500)
+    lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=['y', 'x'])
+    lowess_points_df = lowess_points_df.drop_duplicates()
+
+    if len(lowess_points_df) > 1:
+        geom = LineString([(x, y) for x, y in zip(
+            lowess_points_df.x, lowess_points_df.y)])
+        out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
+                               crs=f'EPSG:{epsg_m}', index=[0]).to_crs(4326)
+        return out
+
+    else:
+        print("Imposible de generar una linea lowess para id_linea = ",
+              id_linea)
+
+
+def get_epsg_m():
+    '''
+    Gets the epsg id for a coordinate reference system in meters from config
+    '''
+    configs = leer_configs_generales()
+    epsg_m = configs['epsg_m']
+
+    return epsg_m
+
+
+def distancia_h3(row, *args, **kwargs):
+    """
+    Computes for a distance between a h3 point and its lag
+
+    Parameters
+    ----------
+    row : dict
+        row with a h3 coord and its lag
+
+    Returns
+    ----------
+    int
+        distance in h3
+
+    """
+    try:
+        out = h3.h3_distance(row["h3"], row["h3_lag"])
+    except ValueError as e:
+        out = None
+    return out

@@ -17,6 +17,7 @@ def infer_destinations():
     Esta funcion lee las etapas de la db, imputa destinos potenciales
     y los valida
     """
+
     configs = leer_configs_generales()
     mensaje = "Utilizando como destino el origen de la siguiente etapa"
     try:
@@ -35,46 +36,91 @@ def infer_destinations():
     print(mensaje)
 
     conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    dias_ultima_corrida = pd.read_sql_query(
+        """
+                                SELECT *
+                                FROM dias_ultima_corrida
+                                """,
+        conn_data,
+    )
 
     q = """
     select e.*
     from etapas e
-    left join  (select *, 1 as en_destinos from destinos) d
-    on e.id = d.id
-    where d.id is null
-    order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
+    join dias_ultima_corrida d
+    on e.dia = d.dia
+    order by e.dia,e.id_tarjeta,e.id_viaje,e.id_etapa,e.hora,e.tiempo
     """
+
     etapas = pd.read_sql_query(q, conn_data)
 
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    etapas = etapas.merge(metadata_lineas[['id_linea',
+                                           'id_linea_agg']],
+                          how='left',
+                          on='id_linea')
+
+    if 'od_validado' in etapas.columns:
+        etapas = etapas.drop(['od_validado'], axis=1)
+    if 'h3_d' in etapas.columns:
+        etapas = etapas.drop(['h3_d'], axis=1)
+
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
+
     if destinos_min_dist:
         print("Imputando destinos por minimizacion de distancias...")
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial)
+        # no usar h3_d que en este caso es el potencial, las coords siguientes
+        etapas = etapas.drop('h3_d', axis=1)
+        etapas = etapas.merge(destinos, on='id', how='left')
 
     else:
         print("Imputando destinos por siguiente etapa...")
         destinos = validar_destinos(etapas_destinos_potencial)
 
-    print(f"Subiendo {len(destinos)} registros a la tabla destinos en la db")
+        etapas = etapas.merge(
+            destinos, on=['id', 'h3_d'], how='left')
 
-    destinos.to_sql("destinos", conn_data, if_exists="append", index=False)
+    etapas = etapas\
+        .sort_values(
+            ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'hora', 'tiempo'])\
+        .reset_index(drop=True)
 
-    destinos = destinos.merge(etapas.reindex(columns=['id', 'dia']),
-                              on=['id'], how='left')
+    etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
+    etapas['h3_d'] = etapas['h3_d'].fillna('')
 
     # calcular indicador de imputacion de destinos
-    calcular_indicadores_destinos_etapas(destinos)
+    calcular_indicadores_destinos_etapas(etapas)
 
-    # eliminar registros con destinos mal imputados
-    dias = destinos.dia.unique()
-    dias = ','.join(dias)
-    eliminar_etapas_sin_destino(dias)
-    print("Fin subir destinos")
+    # borro si ya existen etapas de una corrida anterior
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM etapas WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+
+    etapas = etapas.drop(['id_linea_agg'],
+                         axis=1)
+
+    etapas.to_sql("etapas",
+                  conn_data,
+                  if_exists="append",
+                  index=False)
+
+    conn_data.close()
+    conn_insumos.close()
 
     return None
 
 
-@duracion
 def imputar_destino_potencial(etapas):
     """
     Esta funcion toma un DF de etapas, ordena por
@@ -116,14 +162,14 @@ def imputar_destino_min_distancia(etapas):
 
     # crear un df con el id de cada etapa, la linea que uso y la etapa
     # siguiente
-    lag_etapas = etapas.copy().reindex(columns=['id', 'id_linea', 'h3_d'])\
+    lag_etapas = etapas.copy().reindex(columns=['id', 'id_linea_agg', 'h3_d'])\
         .rename(columns={'h3_d': 'lag_etapa'})
     del etapas
 
     # Obtener las paradas candidatas que compartan la misma linea
     # y esten dentro del area de influencia
     lag_etapas_no_dups = lag_etapas.reindex(
-        columns=['id_linea', 'lag_etapa']).drop_duplicates()
+        columns=['id_linea_agg', 'lag_etapa']).drop_duplicates()
     lag_etapas_no_dups['id'] = range(len(lag_etapas_no_dups))
 
     paradas_candidatas = pd.DataFrame()
@@ -151,7 +197,8 @@ def imputar_destino_min_distancia(etapas):
                                             paradas_candidatas_sample])
             paradas_candidatas = paradas_candidatas.drop(['id'], axis=1)
             paradas_candidatas = lag_etapas.merge(
-                paradas_candidatas, on=['id_linea', 'lag_etapa'], how='left')
+                paradas_candidatas, on=['id_linea_agg', 'lag_etapa'],
+                how='left')
 
     # Imprimir estadisticos de las distancias
     print("Promedios de distancia entre la etapa siguiente  y ")
@@ -169,9 +216,10 @@ def imputar_destino_min_distancia(etapas):
 
 def parallelize_dataframe(df, func, matriz_validacion, n_cores=4):
     """
-    This function takes a dataframe of legs with the next origen as possible destination,
-    a function that minimices distance to a set of possible stops
-    and a validation matrix  of stops' catchment area and returns that function in parallel 
+    This function takes a dataframe of legs with the next origen as possible
+    destination, a function that minimices distance to a set of possible stops
+    and a validation matrix  of stops' catchment area and returns that
+    function in parallel
     """
     df_split = np.array_split(df, n_cores)
     pool = multiprocessing.Pool(n_cores)
@@ -182,15 +230,16 @@ def parallelize_dataframe(df, func, matriz_validacion, n_cores=4):
     return df
 
 
-def minimizar_distancia_parada_candidata(paradas_candidatas, matriz_validacion):
+def minimizar_distancia_parada_candidata(
+        paradas_candidatas, matriz_validacion):
     """
-    This function takes a dataframe with a set of legs' origins and possible destinations
-    and a stops' catchment area validation matrix
-    and returns the stops that minimices the distances to all possible stops from that line 
+    This function takes a dataframe with a set of legs' origins and possible
+    destinations and a stops' catchment area validation matrix and returns
+    the stops that minimices the distances to all possible stops from that line
     """
     paradas_candidatas_sample = paradas_candidatas\
-        .merge(matriz_validacion, left_on=['id_linea', 'lag_etapa'],
-               right_on=['id_linea', 'area_influencia'])\
+        .merge(matriz_validacion, left_on=['id_linea_agg', 'lag_etapa'],
+               right_on=['id_linea_agg', 'area_influencia'])\
         .rename(columns={'parada': 'h3_d'})\
         .drop(['area_influencia',
                ], axis=1)
@@ -211,7 +260,6 @@ def h3_distance_stops(row):
     return h3.h3_distance(row['lag_etapa'], row['h3_d'])
 
 
-@duracion
 def validar_destinos(destinos):
     """
     Esta funcion toma una DF con destinos potenciales imputados
@@ -219,32 +267,34 @@ def validar_destinos(destinos):
     de la linea con los adyacentes
     """
     conn_insumos = iniciar_conexion_db(tipo='insumos')
-
+    q = """
+    SELECT distinct id_linea_agg, area_influencia from matriz_validacion
+    """
     matriz_validacion = pd.read_sql_query(
-        """SELECT distinct id_linea, area_influencia from matriz_validacion""",
+        q,
         conn_insumos,
     )
     # Crear pares od unicos por linea
     pares_od_linea = destinos.reindex(
-        columns=["h3_o", "h3_d", "id_linea"]
+        columns=["h3_o", "h3_d", "id_linea_agg"]
     ).drop_duplicates()
 
     # validar esos pares od con los hrings
     pares_od_linea = pares_od_linea.merge(
         matriz_validacion,
         how="left",
-        left_on=["id_linea", "h3_d"],
-        right_on=["id_linea", "area_influencia"],
+        left_on=["id_linea_agg", "h3_d"],
+        right_on=["id_linea_agg", "area_influencia"],
     )
     pares_od_linea["od_validado"] = pares_od_linea['area_influencia'].notna(
     ).fillna(0)
 
     # Pasar de pares od a cada etapa
     pares_od_linea = pares_od_linea.reindex(
-        columns=["h3_o", "h3_d", "id_linea", "od_validado"]
+        columns=["h3_o", "h3_d", "id_linea_agg", "od_validado"]
     )
     destinos = destinos.merge(
-        pares_od_linea, how="left", on=["h3_o", "h3_d", "id_linea"]
+        pares_od_linea, how="left", on=["h3_o", "h3_d", "id_linea_agg"]
     )
     # Seleccionar columnas y convertir en int
     destinos = destinos.reindex(columns=["id", "h3_d", "od_validado"])
@@ -253,76 +303,15 @@ def validar_destinos(destinos):
     return destinos
 
 
-def calcular_indicadores_destinos_etapas(destinos):
+def calcular_indicadores_destinos_etapas(etapas):
     """
     Esta funcion calcula el % de etapas con destinos imputados
     y lo sube a la db
     """
     print("Calculando indicadores de etapas con destinos")
 
-    agrego_indicador(destinos[destinos.od_validado == 1],
+    agrego_indicador(etapas[etapas.od_validado == 1],
                      'Cantidad de etapas con destinos validados',
-                     'etapas',
-                     1,
-                     var_fex='')
-
-
-@duracion
-def eliminar_etapas_sin_destino(dias):
-    """
-    Esta funcion elimina de la tabla etapas y destinos todas
-    las transacciones de tarjetas con al menos un destino sin
-    imputar
-    """
-
-    print("Eliminando dias, tarjetas con etapas sin destinos")
-
-    conn_data = iniciar_conexion_db(tipo='data')
-
-    q = """
-    delete from etapas
-    where exists
-        (
-            select 1
-            from (
-                SELECT distinct dia, id_tarjeta
-                FROM etapas e
-                LEFT JOIN destinos d
-                ON e.id = d.id
-                where od_validado = 0
-                ) d_mal
-            where etapas.dia = d_mal.dia
-            and etapas.id_tarjeta = d_mal.id_tarjeta
-    )
-    """
-
-    cur = conn_data.cursor()
-    cur.execute(q)
-    conn_data.commit()
-
-    q = """
-    delete from destinos
-    where not exists
-        (
-        select 1
-        from etapas
-        where etapas.id = destinos.id
-    )
-    """
-    cur = conn_data.cursor()
-    cur.execute(q)
-    conn_data.commit()
-
-    q = f"""
-        select * 
-        from etapas
-        where dia in ('{dias}')
-        """
-    etapas = pd.read_sql(q, conn_data)
-
-    agrego_indicador(etapas,
-                     'Cantidad de etapas con tarjetas' +
-                     ' con destinos totalmente validados',
                      'etapas',
                      1,
                      var_fex='')

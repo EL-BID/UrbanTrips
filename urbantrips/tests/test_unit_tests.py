@@ -1,20 +1,16 @@
-from urbantrips.kpi import kpi
-from urbantrips.datamodel import legs, misc, legs, trips
-from urbantrips.datamodel import transactions
-from numpy import dtype
 import pandas as pd
 import os
-import sys
 import pytest
-import itertools
 import os
 
+from urbantrips.kpi import kpi
+from urbantrips.datamodel import legs, misc, trips, transactions
 from urbantrips.destinations import destinations as dest
-from urbantrips.datamodel import legs
 from urbantrips.geo import geo
 from urbantrips.utils import utils
-from urbantrips.carto import carto
+from urbantrips.carto import carto, routes
 from urbantrips.viz import viz
+from urbantrips.carto.routes import process_routes_metadata
 
 
 @pytest.fixture
@@ -259,10 +255,10 @@ def create_test_trx(geolocalizar_trx_config,
             os.remove(filePath)
 
     # crear_directorios:
-    utils.crear_directorios()
+    utils.create_directories()
 
     # crear base de datos:
-    utils.crear_base()
+    utils.create_db()
 
     transactions.create_transactions(geolocalizar_trx_config,
                                      nombre_archivo_trx,
@@ -276,6 +272,8 @@ def create_test_trx(geolocalizar_trx_config,
 
 def test_amba_integration(matriz_validacion_test_amba):
     configs = utils.leer_configs_generales()
+    utils.create_db()
+    routes.process_routes_metadata()
     geolocalizar_trx_config = configs["geolocalizar_trx"]
     nombres_variables_trx = configs["nombres_variables_trx"]
     formato_fecha = configs["formato_fecha"]
@@ -294,7 +292,7 @@ def test_amba_integration(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -303,7 +301,7 @@ def test_amba_integration(matriz_validacion_test_amba):
     conn_data = utils.iniciar_conexion_db(tipo='data')
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
 
-    misc.create_line_and_branches_metadata()
+    routes.process_routes_metadata()
 
     trx = pd.read_sql("select * from transacciones", conn_data)
 
@@ -323,21 +321,20 @@ def test_amba_integration(matriz_validacion_test_amba):
     # longitud del string igual para todas las tarjetas
     assert trx.id_tarjeta.str.len().std() == 0
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
         "matriz_validacion", conn_insumos, if_exists="replace", index=False)
 
-    carto.upload_routes_geoms()
+    routes.process_routes_geoms()
 
     # imputar destinos
     dest.infer_destinations()
 
     q = """
-    select e.*,d.h3_d,d.od_validado
-    from etapas e, destinos d
-    where e.id = d.id
+    select *
+    from etapas e
     """
     etapas = pd.read_sql(q, conn_data)
 
@@ -380,7 +377,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -407,7 +404,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     # longitud del string igual para todas las tarjetas
     assert trx.id_tarjeta.str.len().std() == 0
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -417,26 +414,45 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     q = """
     select e.*
     from etapas e
-    left join  (select *, 1 as en_destinos from destinos) d
-    on e.id = d.id
-    where d.id is null
     order by dia,id_tarjeta,id_viaje,id_etapa,hora,tiempo
     """
     etapas_sin_d = pd.read_sql_query(q, conn_data)
+    etapas_sin_d = etapas_sin_d.drop(['h3_d', 'od_validado'], axis=1)
+
+    # add id_linea_agg
+    routes.process_routes_metadata()
+
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    etapas_sin_d = etapas_sin_d.merge(metadata_lineas[['id_linea',
+                                                       'id_linea_agg']],
+                                      how='left',
+                                      on='id_linea')
 
     etapas_destinos_potencial = dest.imputar_destino_potencial(etapas_sin_d)
     destinos = dest.imputar_destino_min_distancia(etapas_destinos_potencial)
-    destinos.to_sql("destinos", conn_data, if_exists="append", index=False)
 
-    q = """
-    select e.*,d.h3_d,d.od_validado
-    from etapas e, destinos d
-    where e.id = d.id
-    """
-    etapas = pd.read_sql(q, conn_data)
+    etapas_sin_d = etapas_sin_d.drop('h3_d', axis=1)
+    etapas = etapas_sin_d.merge(destinos, on=['id'], how='left')
+
+    etapas = etapas\
+        .sort_values(
+            ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'hora', 'tiempo'])\
+        .reset_index(drop=True)
+
+    etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
+    etapas['h3_d'] = etapas['h3_d'].fillna('')
 
     etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
 
+    etapa = etapa.reindex(columns=['id_viaje', 'id_etapa',
+                                   'h3_o', 'h3_d', 'od_validado'])
     # casos para armar tests con nuevos destinos
     # tarjeta 3839538659. la vuelta en tren que termine en la estacion de tren
     assert (etapa.loc[(etapa.id_viaje == 2) & (etapa.id_etapa == 2), 'h3_d']
@@ -453,7 +469,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     # en villa fiorito
     etapa = etapas.loc[etapas.id_tarjeta == '1939538599', :]
     assert (etapa.loc[(etapa.id_viaje == 3) & (
-        etapa.id_etapa == 2), 'h3_d'].isna().iloc[0])
+        etapa.id_etapa == 2), 'h3_d'].iloc[0] == '')
 
 
 def test_viz_lowes():
@@ -477,25 +493,26 @@ def test_viz_lowes():
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     conn_data = utils.iniciar_conexion_db(tipo='data')
     q = "select * from etapas"
     etapas = pd.read_sql(q, conn_data)
 
     recorridos_lowess = etapas.groupby(
-        'id_linea').apply(carto.lowess_linea).reset_index()
+        'id_linea').apply(geo.lowess_linea).reset_index()
 
     assert recorridos_lowess.geometry.type.unique()[0] == 'LineString'
     alias = ''
     id_linea = 16
     viz.plotear_recorrido_lowess(
-        id_linea=id_linea, etapas=etapas, recorridos_lowess=recorridos_lowess, alias=alias)
+        id_linea=id_linea, etapas=etapas, recorridos_lowess=recorridos_lowess,
+        alias=alias,)
     file_path = os.path.join(
         "resultados", "png", f"{alias}linea_{id_linea}.png")
     assert os.path.isfile(file_path)
@@ -522,7 +539,7 @@ def test_section_load_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -534,8 +551,10 @@ def test_section_load_viz(matriz_validacion_test_amba):
     )
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    routes.process_routes_metadata()
+    routes.process_routes_geoms()
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -551,8 +570,12 @@ def test_section_load_viz(matriz_validacion_test_amba):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    carto.infer_routes_geoms(plotear_lineas=False)
     carto.create_zones_table()
+    # Infer route geometries based on legs data
+    routes.infer_routes_geoms(plotear_lineas=False)
+
+    # Build final routes from official an inferred sources
+    routes.build_routes_from_official_inferred()
 
     kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
     viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
@@ -579,7 +602,9 @@ def test_viz(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    criterio_orden_transacciones = {
+    routes.process_routes_metadata()
+
+    trx_order_params = {
         "criterio": configs["ordenamiento_transacciones"],
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
@@ -593,7 +618,7 @@ def test_viz(matriz_validacion_test_amba):
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
     conn_data = utils.iniciar_conexion_db(tipo='data')
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    legs.create_legs_from_transactions(trx_order_params)
 
     # actualizar matriz de validacion
     matriz_validacion_test_amba.to_sql(
@@ -689,7 +714,7 @@ def test_gps(matriz_validacion_test_amba):
         'latitud_gps': 'latitud_gps',
         'longitud_gps': 'longitud_gps',
     }
-    criterio_orden_transacciones = {
+    trx_order_params = {
         "criterio": "fecha_completa",
         "ventana_viajes": 120,
         "ventana_duplicado": 5,
@@ -709,7 +734,9 @@ def test_gps(matriz_validacion_test_amba):
                     nombre_archivo_gps,
                     nombres_variables_gps)
 
-    legs.create_legs_from_transactions(criterio_orden_transacciones)
+    routes.process_routes_metadata()
+
+    legs.create_legs_from_transactions(trx_order_params)
 
     # confirm latlong for card_id 37030208
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
@@ -757,22 +784,19 @@ def test_gps(matriz_validacion_test_amba):
     kpi.compute_kpi()
 
     q = """
-        SELECT e.dia,e.id_tarjeta,f.factor_expansion
+        SELECT e.dia,e.id_tarjeta,e.factor_expansion_linea as factor_expansion
         from etapas e
-        LEFT JOIN factores_expansion f
-        ON e.id_tarjeta = f.id_tarjeta
-        AND e.dia = f.dia
     """
     fe = pd.read_sql(q, conn_data)
     tot_pax = fe.factor_expansion.sum()
 
     kpi_df = pd.read_sql(
-        "select * from indicadores_operativos_linea;", conn_data)
+        "select * from kpi_by_day_line;", conn_data)
 
-    assert round(kpi_df.tot_km.item()) == 16
-    assert kpi_df.tot_veh.item() == 2
-    assert kpi_df.dmt_mean.item() == mean_distances
-    assert kpi_df.tot_pax.item() == tot_pax
+    assert round(kpi_df.tot_km.iloc[0]) == 16
+    assert kpi_df.tot_veh.iloc[0] == 2
+    assert kpi_df.dmt_mean.iloc[0] == mean_distances
+    assert kpi_df.tot_pax.iloc[0] == tot_pax
 
     carto.create_zones_table()
 

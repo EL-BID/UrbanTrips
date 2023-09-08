@@ -3,7 +3,7 @@ import numpy as np
 import os
 import geopandas as gpd
 from shapely import wkt
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 import h3
 import mapclassify
 import folium
@@ -23,13 +23,17 @@ from matplotlib.text import Text
 from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
 
+from urbantrips.kpi import kpi
+from urbantrips.carto import carto
+from urbantrips.geo import geo
 from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
 from urbantrips.utils.utils import (
     leer_configs_generales,
     traigo_db_path,
     iniciar_conexion_db,
-    leer_alias)
+    leer_alias,
+    duracion)
 
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
@@ -62,207 +66,300 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
         print(f"No se pudo producir un grafico para el id_linea {id_linea}")
 
 
+@duracion
 def visualize_route_section_load(id_linea=False, rango_hrs=False,
-                                 indicador='cantidad_etapas', factor=500,
-                                 factor_minimo=50):
+                                 day_type='weekday',
+                                 n_sections=10, section_meters=None,
+                                 indicador='cantidad_etapas', factor=1,
+                                 factor_min=50,
+                                 save_gdf=False):
     """
-    Esta funcion toma un id linea y un rango horario
-    le de la tabla de ocupacion por linea tramo
-    y visualiza la carga por tramo para las lineas
+    Visualize the load per route section data per route
+
+    Parameters
+    ----------
+    id_linea : int, list of ints or bool
+        route id present in the ocupacion_por_linea_tramo table.
+    rango_hrs : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+    indicator: str
+        Tipe of section load to display. 'cantidad_etapas' (amount of legs)
+        or `prop_etapas` (proportion of legs)
+    factor: int
+        scaling factor to use for line width to plot section load
+    factor_min: int
+        minimum width of linea for low section loads to be displayed
+
+    """
+    sns.set_style("whitegrid")
+
+    if id_linea:
+
+        if type(id_linea) == int:
+            id_linea = [id_linea]
+
+    table = get_route_section_load(
+        id_linea=id_linea,
+        rango_hrs=rango_hrs,
+        day_type=day_type,
+        n_sections=n_sections,
+        section_meters=section_meters)
+
+    # Create a viz for each route
+    table.groupby('id_linea').apply(
+        viz_etapas_x_tramo_recorrido,
+        indicator=indicador,
+        factor=factor,
+        factor_min=factor_min,
+        return_gdfs=False,
+        save_gdf=save_gdf,
+    )
+
+
+def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
+                           n_sections=10, section_meters=None,):
+    """
+    Get the load per route section data
+
+    Parameters
+    ----------
+    id_linea : int, list of ints or bool
+        route id present in the ocupacion_por_linea_tramo table.
+    rango_hrs : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+
+    Returns
+    -------
+    table : pandas.Data.Frame
+        dataframe with load per section per route
+
+    recorridos : geopandas.GeoDataFrame
+        geodataframe with route geoms
+
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
 
-    if type(id_linea) == int:
-        id_linea = [id_linea]
-
-    # si se especifica la linea
+    # route id filter
     if id_linea:
-        lineas_str = ','.join(map(str, id_linea))
 
-    q_rec = f"select * from recorridos"
+        if type(id_linea) == int:
+            id_linea = [id_linea]
 
-    q_tabla = """
-        select *
-        from ocupacion_por_linea_tramo
+        lineas_str = ",".join(map(str, id_linea))
+    else:
+        lineas_str = ''
+
+    # create query to get data from db
+    q = load_route_section_load_data_q(
+        lineas_str, rango_hrs, n_sections, section_meters, day_type
+    )
+
+    # Read data from section load table
+    table = pd.read_sql(q, conn_data)
+
+    if len(table) == 0:
+        print("No hay datos de carga por tramo para estos parametros.")
+        print(" id_linea:", id_linea,
+              " rango_hrs:", rango_hrs,
+              " n_sections:", n_sections,
+              " section_meters:", section_meters,
+              " day_type:", day_type)
+
+    return table
+
+
+def load_route_section_load_data_q(
+    lineas_str, rango_hrs, n_sections, section_meters, day_type
+):
+    """
+    Creates a query that gets route section load data from the db
+    for a specific set of lineas, hours, section meters and day type
+
+    Parameters
+    ----------
+    lineas_str : str
+        list of lines to query in a string format separated by comma
+    rango_hrs : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+
+    Returns
+    -------
+    str
+        query that gets data
+
+    """
+
+    # hour range filter
+    if rango_hrs:
+        hora_min_filter = f"= {rango_hrs[0]}"
+        hora_max_filter = f"= {rango_hrs[1]}"
+    else:
+        hora_min_filter = "is NULL"
+        hora_max_filter = "is NULL"
+
+    q = f"""
+        select * from ocupacion_por_linea_tramo
+        where hora_min {hora_min_filter}
+        and hora_max {hora_max_filter}
+        and day_type = '{day_type}'
         """
 
-    if id_linea:
-        q_rec = q_rec + f" where id_linea in ({lineas_str})"
-        q_tabla = q_tabla + f" where id_linea in ({lineas_str})"
-        if rango_hrs:
-            q_tabla = q_tabla + \
-                f" and hora_min = {rango_hrs[0]} and hora_max = {rango_hrs[1]}"
-        else:
-            q_tabla = q_tabla + " and hora_min is NULL and hora_max is NULL"
+    if lineas_str != '':
+        q = q + f" and id_linea in ({lineas_str})"
+
+    if section_meters:
+        q = q + f" and  section_meters = {section_meters}"
 
     else:
-        q_tabla = q_tabla + " where hora_min is NULL and hora_max is NULL"
-
-    # Leer datos de carga por tramo por linea
-    tabla = pd.read_sql(q_tabla, conn_data)
-    # Leer recorridos
-    recorridos = pd.read_sql(q_rec, conn_insumos)
-    recorridos['wkt'] = recorridos.wkt.apply(wkt.loads)
-
-    # Visualizar para cada linea y rango horario
-    tabla.groupby('id_linea').apply(
-        viz_etapas_x_tramo_recorrido, recorridos, rango_hrs,
-        indicador, factor, factor_minimo)
+        q = (
+            q +
+            f" and n_sections = {n_sections} and section_meters is NULL"
+        )
+    q = q + ";"
+    return q
 
 
-def viz_etapas_x_tramo_recorrido(tabla, recorridos, rango_hrs,
-                                 indicador='cantidad_etapas', factor=500,
-                                 factor_minimo=50):
+def viz_etapas_x_tramo_recorrido(df,
+                                 indicator='cantidad_etapas', factor=1,
+                                 factor_min=50, return_gdfs=False,
+                                 save_gdf=False):
     """
-    Esta funcion toma un id linea y produce una visualizacion
-    con la cantidad de etapas por tramo de recorrido para ambos
-    sentidos
+    Plots and saves a section load viz for a given route
+
+    Parameters
+    ----------
+    df: pandas.DataFrame
+        table for a given route in section load db table
+    route geom: geopandas.GeoSeries
+        route geoms with id_route as index
+    indicator: str
+        Tipe of section load to display. 'cantidad_etapas' (amount of legs)
+        or `prop_etapas` (proportion of legs)
+    factor: int
+        scaling factor to use for line width to plot section load
+    factor_min: int
+        minimum width of linea for low section loads to be displayed
+    return_gdfs: bool
+        if functions will return section load geodataframes per direction
+
+    Returns
+    -------
+    gdf_d0 : geopandas.GeoDataFrame
+        geodataframe with section load data and sections geoms.
+
+    gdf_d1 : geopandas.GeoDataFrame
+        geodataframe with section load data and sections geoms.
     """
-    id_linea = tabla.id_linea.unique()[0]
-    rec = recorridos.loc[recorridos.id_linea == id_linea, 'wkt'].item()
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    id_linea = df.id_linea.unique()[0]
+    s = f"select nombre_linea from metadata_lineas" +\
+        f" where id_linea = {id_linea};"
+    id_linea_str = pd.read_sql(s, conn_insumos)
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+    else:
+        id_linea_str = ''
+
+    day = df['day_type'].unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
+    section_ids = df.section_id.unique()
 
     print('Produciendo grafico de ocupacion por tramos', id_linea)
 
-    tabla_ida = tabla.loc[tabla.sentido == 'ida', [
-        'tramos', 'cantidad_etapas', 'prop_etapas']]
-    tabla_vuelta = tabla.loc[tabla.sentido == 'vuelta', [
-        'tramos', 'cantidad_etapas', 'prop_etapas']]
+    # set a expansion factor for viz purposes
+    df['buff_factor'] = df[indicator]*factor
 
-    rosa = '#E71E79'
-    celeste = '#19C2C2'
+    # Set a minimum for each section to be displated in map
+    df['buff_factor'] = np.where(
+        df['buff_factor'] <= factor_min, factor_min, df['buff_factor'])
 
-    reemplazo_vuelta = {
-        0.0: 1.0,
-        0.1: 0.9,
-        0.2: 0.8,
-        0.3: 0.7,
-        0.4: 0.6,
-        0.5: 0.5,
-        0.6: 0.4,
-        0.7: 0.3,
-        0.8: 0.2,
-        0.9: 0.1,
-        1.0: 0.0,
-    }
-    print("Produciendo geometrias de recorrido con datos...")
-    # geoms lineas
-    tramos_ida_geom = []
-    tramos_vuelta_geom = []
+    cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
+            'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
+            'prop_etapas', 'buff_factor']
 
-    tramos = pd.Series(np.linspace(0, 1, 11)).round(1)
+    df_d0 = df.loc[df.sentido == 'ida', cols]
+    df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
-    for i in range(10):
-        l_ida = LineString([rec.interpolate(tramos[i], normalized=True),
-                            rec.interpolate(tramos[i+1], normalized=True)
-                            ])
-        tramos_ida_geom.append(l_ida)
+    # Create geoms for route in both directions
+    df_geom = df.query("sentido == 'ida'")\
+        .sort_values('section_id')\
+        .reset_index(drop=True)
 
-        l_vuelta = LineString([rec.interpolate(reemplazo_vuelta[tramos[i]],
-                                               normalized=True),
-                               rec.interpolate(
-                                   reemplazo_vuelta[tramos[i+1]],
-            normalized=True)
-        ])
-        tramos_vuelta_geom.append(l_vuelta)
+    geom = [LineString(
+        [[df_geom.loc[i, 'x'], df_geom.loc[i, 'y']],
+         [df_geom.loc[i+1, 'x'], df_geom.loc[i+1, 'y']]]
+    ) for i in df_geom.index[:-1]]
+    gdf = gpd.GeoDataFrame(pd.DataFrame(
+        {'section_id': df_geom.section_id.iloc[:-1]}),
+        geometry=geom, crs='epsg:4326')
 
-    # produciendo los geodataframe de ambos sentidos
-    gdf_ida = gpd.GeoDataFrame(pd.DataFrame(
-        {'tramos': tramos[:-1]}), geometry=tramos_ida_geom, crs='epsg:4326')
+    # Arrows
+    flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
+    flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
+    flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
 
-    # proyectar en posgar 2007
-    epsg = 9265
-    gdf_ida = gdf_ida.to_crs(epsg=epsg)
-    gdf_ida = gdf_ida.merge(tabla_ida, on='tramos', how='left')
+    flecha_vuelta_wgs84 = gdf.loc[gdf.section_id ==
+                                  max(gdf.section_id), 'geometry']
+    flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
+    flecha_vuelta_inicio_wgs84 = flecha_vuelta_wgs84[0]
+    flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
 
-    gdf_ida = gdf_ida.fillna(0)
-    gdf_ida['factor'] = gdf_ida['prop_etapas']*factor
+    # Use a projected crs in meters
+    epsg = geo.get_epsg_m()
+    gdf = gdf.to_crs(epsg=epsg)
 
-    # fijando un valor minimo para que haya una linea
-    gdf_ida['factor'] = np.where(
-        gdf_ida['factor'] <= factor_minimo, factor_minimo, gdf_ida['factor'])
+    gdf_d0 = gdf\
+        .merge(df_d0, on='section_id', how='left')\
+        .fillna(0)
 
-    gdf_vuelta = gpd.GeoDataFrame(pd.DataFrame(
-        {'tramos': tramos[:-1]}), geometry=tramos_vuelta_geom, crs='epsg:4326')
+    gdf_d1 = gdf\
+        .merge(df_d1, on='section_id', how='left')\
+        .fillna(0)
 
-    # proyectar en posgar 2007
-    gdf_vuelta = gdf_vuelta.to_crs(epsg=epsg)
-
-    gdf_vuelta = gdf_vuelta.merge(tabla_vuelta, on='tramos', how='left')
-    gdf_vuelta = gdf_vuelta.fillna(0)
-    gdf_vuelta['factor'] = gdf_vuelta['prop_etapas']*factor
-
-    # fijando un valor minimo para que haya una linea
-    gdf_vuelta['factor'] = np.where(
-        gdf_vuelta['factor'] <= factor_minimo, factor_minimo,
-        gdf_vuelta['factor'],)
-
-    # creando las flechas
-    flecha_ida = gdf_ida.loc[gdf_ida.tramos == 0.0, 'geometry']
-    flecha_ida = list(flecha_ida.item().coords)
-    flecha_ida_inicio = flecha_ida[0]
-    flecha_ida_fin = flecha_ida[1]
-
-    flecha_vuelta = gdf_vuelta.loc[gdf_vuelta.tramos == 0.0, 'geometry']
-    flecha_vuelta = list(flecha_vuelta.item().coords)
-    flecha_vuelta_inicio = flecha_vuelta[0]
-    flecha_vuelta_fin = flecha_vuelta[1]
-
-    # ordenando las columnas para que coincidan con al recorrido
-    flecha_oe_xy = (0.4, 1.1)
-    flecha_oe_text_xy = (0.05, 1.1)
-    flecha_eo_xy = (0.6, 1.1)
-    flecha_eo_text_xy = (0.95, 1.1)
-    labels_eo = ['Fin', '', '', '', '', 'Medio', '', '', '', 'Inicio']
-    labels_oe = ['Inicio', '', '', '', '', 'Medio', '', '', '', 'Fin']
+    # save data for dashboard
+    gdf_d0_dash = gdf_d0.to_crs(epsg=4326).copy()
+    gdf_d1_dash = gdf_d1.to_crs(epsg=4326).copy()
 
     # creando buffers en base a
-    gdf_ida['geometry'] = gdf_ida.geometry.buffer(gdf_ida.factor)
-    gdf_vuelta['geometry'] = gdf_vuelta.geometry.buffer(gdf_vuelta.factor)
+    gdf_d0['geometry'] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
+    gdf_d1['geometry'] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
 
-    # si sentido este a oeste:
-    if flecha_ida_inicio[0] > flecha_ida_fin[0]:
-        gdf_ida = gdf_ida.sort_values('tramos', ascending=False)
-        flecha_ida_xy = flecha_eo_xy
-        flecha_ida_text_xy = flecha_eo_text_xy
-        labels_ida = labels_eo
-    else:
-        flecha_ida_xy = flecha_oe_xy
-        flecha_ida_text_xy = flecha_oe_text_xy
-        labels_ida = labels_oe
-
-    if flecha_vuelta_inicio[0] > flecha_vuelta_fin[0]:
-        gdf_vuelta = gdf_vuelta.sort_values('tramos', ascending=False)
-
-        flecha_vuelta_xy = flecha_eo_xy
-        flecha_vuelta_text_xy = flecha_eo_text_xy
-        labels_vuelta = labels_eo
-
-    else:
-        flecha_vuelta_xy = flecha_oe_xy
-        flecha_vuelta_text_xy = flecha_oe_text_xy
-        labels_vuelta = labels_oe
-
-    # Setear titulo y eje de acuerdo a indicador
-
-    if indicador == 'cantidad_etapas':
-        titulo = 'Segmentos del recorrido - Cantidad de etapas'
-        eje_y = 'Cantidad de etapas por sentido'
-    elif indicador == 'prop_etapas':
-        titulo = 'Segmentos del recorrido - Porcentaje de etapas totales'
-        eje_y = 'Porcentaje del total de etapas'
-    else:
-        raise Exception(
-            "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
-    if rango_hrs:
-        rango_str = f' {rango_hrs[0]}-{rango_hrs[1]} hrs'
-    else:
-        rango_str = ''
-
-    titulo = titulo + rango_str + ' - ' + str(id_linea)
-
-    print("Creando gráfico")
+    # creating plot
     f = plt.figure(tight_layout=True, figsize=(20, 15))
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
@@ -273,89 +370,262 @@ def viz_etapas_x_tramo_recorrido(tabla, recorridos, rango_hrs,
     font_dicc = {'fontsize': 18,
                  'fontweight': 'bold'}
 
-    prov = cx.providers.Stamen.TonerLite
+    # create a squared box
+    minx, miny, maxx, maxy = gdf_d0.total_bounds
+    box = create_squared_polygon(minx, miny, maxx, maxy, epsg)
+    box.plot(ax=ax1, color='#ffffff00')
+    box.plot(ax=ax2, color='#ffffff00')
 
-    gdf_ida.plot(ax=ax1, color=celeste, alpha=.8)
+    # get branches' geoms
+    branch_geoms = get_branch_geoms_from_line(id_linea=id_linea)
 
-    gdf_vuelta.plot(ax=ax2, color=rosa, alpha=.8)
+    if branch_geoms is not None:
+        branch_geoms = branch_geoms.to_crs(epsg=epsg)
+        branch_geoms.plot(ax=ax1, color='Purple',
+                          alpha=0.4, linestyle='dashed')
+        branch_geoms.plot(ax=ax2, color='Orange',
+                          alpha=0.4, linestyle='dashed')
+
+    gdf.plot(ax=ax1, color='black')
+    gdf.plot(ax=ax2, color='black')
+
+    try:
+        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
+                    scheme='fisherjenks', k=5, alpha=.6)
+        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges',
+                    scheme='fisherjenks', k=5, alpha=.6)
+    except ValueError:
+        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu', alpha=.6)
+        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges', alpha=.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
+
     ax1.set_title('IDA', fontdict=font_dicc)
     ax2.set_title('VUELTA', fontdict=font_dicc)
 
-    sns.barplot(data=gdf_ida, x="tramos",
-                y=indicador, ax=ax3, color=celeste,
-                order=gdf_ida.tramos.values)
+    # Set title and plot axis
+    if indicator == 'cantidad_etapas':
+        title = 'Segmentos del recorrido - Cantidad de etapas'
+        y_axis_lable = 'Cantidad de etapas por sentido'
+    elif indicator == 'prop_etapas':
+        title = 'Segmentos del recorrido - Porcentaje de etapas totales'
+        y_axis_lable = 'Porcentaje del total de etapas'
+    else:
+        raise Exception(
+            "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
 
-    sns.barplot(data=gdf_vuelta, x="tramos",
-                y=indicador, ax=ax4, color=rosa,
-                order=gdf_vuelta.tramos.values)
+    if not df.hora_min.isna().all():
+        from_hr = df.hora_min.unique()[0]
+        to_hr = df.hora_max.unique()[0]
+        hr_str = f' {from_hr}-{to_hr} hrs'
+    else:
+        hr_str = ''
 
+    title = title + hr_str + ' - ' + day_str + \
+        f" {id_linea_str} (id_linea: {id_linea})"
+    f.suptitle(title, fontsize=18)
+
+    # Matching bar plot with route direction
+    flecha_eo_xy = (0.4, 1.1)
+    flecha_eo_text_xy = (0.05, 1.1)
+    flecha_oe_xy = (0.6, 1.1)
+    flecha_oe_text_xy = (0.95, 1.1)
+
+    labels_eo = [''] * len(section_ids)
+    labels_eo[0] = 'INICIO'
+    labels_eo[-1] = 'FIN'
+    labels_oe = [''] * len(section_ids)
+    labels_oe[-1] = 'INICIO'
+    labels_oe[0] = 'FIN'
+
+    # check if route geom is drawn from west to east
+    geom_dir_east = flecha_ida_inicio_wgs84[0] < flecha_vuelta_fin_wgs84[0]
+
+    # Set arrows in barplots based on reout geom direction
+    if geom_dir_east:
+
+        flecha_ida_xy = flecha_eo_xy
+        flecha_ida_text_xy = flecha_eo_text_xy
+        labels_ida = labels_eo
+
+        flecha_vuelta_xy = flecha_oe_xy
+        flecha_vuelta_text_xy = flecha_oe_text_xy
+        labels_vuelta = labels_oe
+
+        # direction 0 east to west
+        df_d0 = df_d0.sort_values('section_id', ascending=True)
+        df_d1 = df_d1.sort_values('section_id', ascending=True)
+
+    else:
+        flecha_ida_xy = flecha_oe_xy
+        flecha_ida_text_xy = flecha_oe_text_xy
+        labels_ida = labels_oe
+
+        flecha_vuelta_xy = flecha_eo_xy
+        flecha_vuelta_text_xy = flecha_eo_text_xy
+        labels_vuelta = labels_eo
+
+        df_d0 = df_d0.sort_values('section_id', ascending=False)
+        df_d1 = df_d1.sort_values('section_id', ascending=False)
+
+    sns.barplot(data=df_d0, x="section_id",
+                y=indicator, ax=ax3, color='Purple',
+                order=df_d0.section_id.values)
+
+    sns.barplot(data=df_d1, x="section_id",
+                y=indicator, ax=ax4, color='Orange',
+                order=df_d1.section_id.values)
+
+    # Axis
     ax3.set_xticklabels(labels_ida)
     ax4.set_xticklabels(labels_vuelta)
 
-    ax3.set_ylabel(eje_y)
+    ax3.set_ylabel(y_axis_lable)
     ax3.set_xlabel('')
-
-    ax3.spines.right.set_visible(False)
-    ax3.spines.top.set_visible(False)
-
-    ax4.spines.left.set_visible(False)
-    ax4.spines.right.set_visible(False)
-    ax4.spines.top.set_visible(False)
 
     ax4.get_yaxis().set_visible(False)
 
     ax4.set_ylabel('')
     ax4.set_xlabel('')
+    max_y_barplot = max(df_d0[indicator].max(), df_d1[indicator].max())
+    ax3.set_ylim(0, max_y_barplot)
+    ax4.set_ylim(0, max_y_barplot)
 
-    margen_flecha = factor * 2
+    ax3.spines.right.set_visible(False)
+    ax3.spines.top.set_visible(False)
+    ax4.spines.left.set_visible(False)
+    ax4.spines.right.set_visible(False)
+    ax4.spines.top.set_visible(False)
 
-    ax1.annotate('', xy=(flecha_ida_fin[0] + margen_flecha,
-                         flecha_ida_fin[1] + margen_flecha),
-                 xytext=(flecha_ida_inicio[0] + margen_flecha,
-                         flecha_ida_inicio[1] + margen_flecha),
-                 va="center", ha="center",
-                 arrowprops=dict(facecolor=celeste,
-                                 shrink=0.05, edgecolor=celeste),
+    # For direction 0, get the last section of the route geom
+    flecha_ida = gdf.loc[gdf.section_id == max(gdf.section_id), 'geometry']
+    flecha_ida = list(flecha_ida.item().coords)
+    flecha_ida_inicio = flecha_ida[1]
+    flecha_ida_fin = flecha_ida[0]
+
+    # For direction 1, get the first section of the route geom
+    flecha_vuelta = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_vuelta = list(flecha_vuelta.item().coords)
+    # invert the direction of the arrow
+    flecha_vuelta_inicio = flecha_vuelta[0]
+    flecha_vuelta_fin = flecha_vuelta[1]
+
+    ax1.annotate('', xy=(flecha_ida_inicio[0],
+                         flecha_ida_inicio[1]),
+                 xytext=(flecha_ida_fin[0],
+                         flecha_ida_fin[1]),
+                 arrowprops=dict(facecolor='black',
+                                 edgecolor='black'),
                  )
 
-    ax2.annotate('', xy=(flecha_vuelta_fin[0] + margen_flecha,
-                         flecha_vuelta_fin[1] + margen_flecha),
-                 xytext=(flecha_vuelta_inicio[0] + margen_flecha,
-                         flecha_vuelta_inicio[1] + margen_flecha),
-                 va="center", ha="center",
-                 arrowprops=dict(facecolor=rosa, shrink=0.05, edgecolor=rosa),
+    ax2.annotate('', xy=(flecha_vuelta_inicio[0],
+                         flecha_vuelta_inicio[1]),
+                 xytext=(flecha_vuelta_fin[0],
+                         flecha_vuelta_fin[1]),
+                 arrowprops=dict(facecolor='black',
+                                 edgecolor='black'),
                  )
 
     ax3.annotate('Sentido', xy=flecha_ida_xy, xytext=flecha_ida_text_xy,
                  size=16, va="center", ha="center",
                  xycoords='axes fraction',
-                 arrowprops=dict(facecolor=celeste,
-                                 shrink=0.05, edgecolor=celeste),
+                 arrowprops=dict(facecolor='Purple',
+                                 shrink=0.05, edgecolor='Purple'),
                  )
     ax4.annotate('Sentido', xy=flecha_vuelta_xy, xytext=flecha_vuelta_text_xy,
                  size=16, va="center", ha="center",
                  xycoords='axes fraction',
-                 arrowprops=dict(facecolor=rosa, shrink=0.05, edgecolor=rosa),
+                 arrowprops=dict(facecolor='Orange',
+                                 shrink=0.05, edgecolor='Orange'),
                  )
 
-    f.suptitle(titulo, fontsize=20)
+    prov = cx.providers.Stamen.TonerLite
     try:
-        cx.add_basemap(ax1, crs=gdf_ida.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_vuelta.crs.to_string(), source=prov)
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError):
         prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_ida.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_vuelta.crs.to_string(), source=prov)
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (r_ConnectionError):
         pass
+
+    alias = leer_alias()
+
     for frm in ['png', 'pdf']:
-        archivo = f'segmentos_id_linea_{id_linea}_{indicador}{rango_str}.{frm}'
+        archivo = f"{alias}_{day}_segmentos_id_linea_"
+        archivo = archivo+f"{id_linea}_{indicator}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
+
+    if save_gdf:
+        gdf_d0 = gdf_d0.to_crs(epsg=4326)
+        gdf_d1 = gdf_d1.to_crs(epsg=4326)
+
+        f_0 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_0.geojson'
+        f_1 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_1.geojson'
+
+        db_path_0 = os.path.join("resultados", "geojson", f_0)
+        db_path_1 = os.path.join("resultados", "geojson", f_1)
+
+        gdf_d0.to_file(db_path_0, driver='GeoJSON')
+        gdf_d1.to_file(db_path_1, driver='GeoJSON')
+
+        conn_dash = iniciar_conexion_db(tipo='dash')
+
+        gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
+        gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
+
+        gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
+
+        gdf_d_dash['nombre_linea'] = id_linea_str
+
+        cols = ['id_linea',
+                'nombre_linea',
+                'day_type',
+                'n_sections',
+                'sentido',
+                'section_id',
+                'hora_min',
+                'hora_max',
+                'cantidad_etapas',
+                'prop_etapas',
+                'buff_factor',
+                'wkt']
+
+        gdf_d_dash = gdf_d_dash[cols]
+
+        gdf_d_dash_ant = pd.read_sql_query(
+            """
+            SELECT *
+            FROM ocupacion_por_linea_tramo
+            """,
+            conn_dash,
+        )
+
+        gdf_d_dash_ant = gdf_d_dash_ant[~(
+            (gdf_d_dash_ant.id_linea.isin(
+                gdf_d_dash.id_linea.unique().tolist())) &
+            (gdf_d_dash_ant.day_type.isin(
+                gdf_d_dash.day_type.unique().tolist())) &
+            (gdf_d_dash_ant.n_sections.isin(
+                gdf_d_dash.n_sections.unique().tolist())) &
+            ((gdf_d_dash_ant.hora_min == from_hr)
+             & (gdf_d_dash_ant.hora_max == to_hr))
+        )]
+
+        gdf_d_dash = pd.concat(
+            [gdf_d_dash_ant, gdf_d_dash], ignore_index=True)
+
+        gdf_d_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
+                          if_exists="replace", index=False)
+
+        conn_dash.close()
+
+    if return_gdfs:
+        return gdf_d0, gdf_d1
 
 
 def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
@@ -407,127 +677,12 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
     voi[['Zona_voi', 'geometry']].to_file(file_path)
 
 
-def create_visualizations():
-    """
-    Esta funcion corre las diferentes funciones de visualizaciones
-    """
-    pd.options.mode.chained_assignment = None
-
-    # Leer informacion de viajes y distancias
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-
-    viajes = pd.read_sql_query(
-        """
-        SELECT *
-        FROM viajes
-        """,
-        conn_data,
-    )
-
-    factores_expansion = pd.read_sql_query(
-        """
-        SELECT *
-        FROM factores_expansion
-        """,
-        conn_data,
-    )
-
-    distancias = pd.read_sql_query(
-        """
-        SELECT *
-        FROM distancias
-        """,
-        conn_insumos,
-    )
-
-    conn_insumos.close()
-    conn_data.close()
-
-    # Agrego factor de expansión a viajes
-    viajes = viajes.merge(factores_expansion[['dia',
-                                              'id_tarjeta',
-                                              'factor_expansion']],
-                          on=['dia',
-                              'id_tarjeta'])
-
-    # Agrego campo de distancias de los viajes
-    viajes = viajes.merge(distancias,
-                          how='left',
-                          on=['h3_o', 'h3_d'])
-
-    # Imputar anio, mes y tipo de dia
-    viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
-    viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
-    viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
-    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
-    v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
-                            as_index=False).factor_expansion.sum().iterrows()
-    for _, i in v_iter:
-
-        desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
-        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
-
-        viajes_dia = viajes[(viajes.yr == i.yr) & (
-            viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
-
-        print('Imprimiendo tabla de matrices OD')
-        # Impirmir tablas con matrices OD
-        imprimir_matrices_od(viajes=viajes_dia,
-                             var_fex='factor_expansion',
-                             title=f'Matriz OD {desc_dia}',
-                             savefile=f'{desc_dia_file}'
-                             )
-
-        print('Imprimiendo mapas de líneas de deseo')
-        # Imprimir lineas de deseo
-        imprime_lineas_deseo(df=viajes_dia,
-                             h3_o='',
-                             h3_d='',
-                             var_fex='factor_expansion',
-                             title=f'Líneas de deseo {desc_dia}',
-                             savefile=f'{desc_dia_file}')
-
-        print('Imprimiendo gráficos')
-        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
-        imprime_graficos_hora(viajes_dia,
-                              title=titulo,
-                              savefile=f'{desc_dia_file}_viajes',
-                              var_fex='factor_expansion')
-
-        print('Imprimiendo mapas de burbujas')
-        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-        imprime_burbujas(viajes_n,
-                         res=7,
-                         h3_o='h3_o',
-                         alpha=.4,
-                         cmap='rocket_r',
-                         var_fex='factor_expansion',
-                         porc_viajes=100,
-                         title=f'Destinos de los viajes {desc_dia}',
-                         savefile=f'{desc_dia_file}_burb_destinos',
-                         show_fig=False,
-                         k_jenks=5)
-
-        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-        imprime_burbujas(viajes_n,
-                         res=7,
-                         h3_o='h3_o',
-                         alpha=.4,
-                         cmap='flare',
-                         var_fex='factor_expansion',
-                         porc_viajes=100,
-                         title=f'Hogares {desc_dia}',
-                         savefile=f'{desc_dia_file}_burb_hogares',
-                         show_fig=False,
-                         k_jenks=5)
-
-
 def imprimir_matrices_od(viajes,
                          savefile='viajes',
                          title='Matriz OD',
-                         var_fex=""):
+                         var_fex="",
+                         desc_dia='',
+                         tipo_dia=''):
 
     alias = leer_alias()
 
@@ -567,7 +722,11 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}",
-
+            alias=alias,
+            desc_dia=desc_dia,
+            tipo_dia=tipo_dia,
+            var_zona=var_zona,
+            filtro1='Todos los viajes'
         )
 
         imprime_od(
@@ -582,6 +741,11 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}_transferencias",
+            alias=alias,
+            desc_dia=desc_dia,
+            tipo_dia=tipo_dia,
+            var_zona=var_zona,
+            filtro1='Con transferencias'
         )
 
         imprime_od(
@@ -596,6 +760,11 @@ def imprimir_matrices_od(viajes,
             figsize_tuple='',
             matriz_order=matriz_order,
             savefile=f"{alias}{savefile}_{var_zona}_corta_distancia",
+            alias=alias,
+            desc_dia=desc_dia,
+            tipo_dia=tipo_dia,
+            var_zona=var_zona,
+            filtro1='Corta distancia (<5kms)'
         )
 
         # Imprime hora punta manana, mediodia, tarde
@@ -608,20 +777,20 @@ def imprimir_matrices_od(viajes,
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)][var_fex].idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)][var_fex].idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)][var_fex].idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             imprime_od(
                 df[(df.hora.astype(int) >= manana-1) &
                     (df.hora.astype(int) <= manana+1)],
@@ -635,9 +804,14 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                var_zona=var_zona,
+                filtro1='Punta mañana'
             )
 
-        if mediodia != np.nan:
+        if mediodia != None:
             imprime_od(
                 df[(df.hora.astype(int) >= mediodia-1) &
                     (df.hora.astype(int) <= mediodia+1)],
@@ -651,9 +825,15 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_mediodia",
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                var_zona=var_zona,
+                filtro1='Punta mediodía'
+
             )
 
-        if tarde != np.nan:
+        if tarde != None:
             imprime_od(
                 df[(df.hora.astype(int) >= tarde-1) &
                     (df.hora.astype(int) <= tarde+1)],
@@ -667,6 +847,11 @@ def imprimir_matrices_od(viajes,
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_tarde",
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                var_zona=var_zona,
+                filtro1='Punta tarde'
             )
 
 
@@ -676,7 +861,10 @@ def imprime_lineas_deseo(df,
                          var_fex='',
                          title='Líneas de deseo',
                          savefile='lineas_deseo',
-                         k_jenks=5
+                         k_jenks=5,
+                         filtro1='',
+                         desc_dia='',
+                         tipo_dia=''
                          ):
     """
     Esta funcion toma un df de viajes con destino validado
@@ -741,7 +929,12 @@ def imprime_lineas_deseo(df,
                      title=title,
                      savefile=f"{alias}{savefile}_{var_zona}",
                      show_fig=False,
-                     k_jenks=k_jenks
+                     k_jenks=k_jenks,
+                     alias=alias,
+                     desc_dia=desc_dia,
+                     tipo_dia=tipo_dia,
+                     zona=var_zona,
+                     filtro1='Todos los viajes'
                      )
 
         lineas_deseo(df[(df.cant_etapas > 1)],
@@ -756,7 +949,12 @@ def imprime_lineas_deseo(df,
                      title=f'{title}\nViajes con transferencias',
                      savefile=f"{alias}{savefile}_{var_zona}_transferencias",
                      show_fig=False,
-                     k_jenks=k_jenks
+                     k_jenks=k_jenks,
+                     alias=alias,
+                     desc_dia=desc_dia,
+                     tipo_dia=tipo_dia,
+                     zona=var_zona,
+                     filtro1='Con transferencias'
                      )
 
         lineas_deseo(df[(df.distance_osm_drive <= 5)],
@@ -771,36 +969,41 @@ def imprime_lineas_deseo(df,
                      title=f'{title}\nViajes de corta distancia (<5kms)',
                      savefile=f"{alias}{savefile}_{var_zona}_corta_distancia",
                      show_fig=False,
-                     k_jenks=k_jenks
+                     k_jenks=k_jenks,
+                     alias=alias,
+                     desc_dia=desc_dia,
+                     tipo_dia=tipo_dia,
+                     zona=var_zona,
+                     filtro1='Corta distancia (<5kms)'
                      )
 
         # Imprime hora punta manana, mediodia, tarde
 
         df_tmp = df\
             .groupby(['dia', 'hora'], as_index=False)\
-            .factor_expansion.sum()\
-            .rename(columns={'factor_expansion': 'cant'})\
+            .factor_expansion_linea.sum()\
+            .rename(columns={'factor_expansion_linea': 'cant'})\
             .reset_index()
         df_tmp = df_tmp.groupby(['hora']).cant.mean().reset_index()
         try:
             manana = df_tmp[(df_tmp.hora.astype(int) >= 6) & (
                 df_tmp.hora.astype(int) < 12)].cant.idxmax()
         except ValueError:
-            manana = np.nan
+            manana = None
 
         try:
             mediodia = df_tmp[(df_tmp.hora.astype(int) >= 12) & (
                 df_tmp.hora.astype(int) < 16)].cant.idxmax()
         except ValueError:
-            mediodia = np.nan
+            mediodia = None
 
         try:
             tarde = df_tmp[(df_tmp.hora.astype(int) >= 16) & (
                 df_tmp.hora.astype(int) < 22)].cant.idxmax()
         except ValueError:
-            tarde = np.nan
+            tarde = None
 
-        if manana != np.nan:
+        if manana != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= manana-1) &
                 (df.hora.astype(int) <= manana+1)],
@@ -816,9 +1019,14 @@ def imprime_lineas_deseo(df,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
                 show_fig=False,
                 normalizo_latlon=False,
-                k_jenks=k_jenks)
+                k_jenks=k_jenks,
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                zona=var_zona,
+                filtro1='Punta Mañana')
 
-        if mediodia != np.nan:
+        if mediodia != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= mediodia-1) &
                 (df.hora.astype(int) <= mediodia+1)],
@@ -834,9 +1042,14 @@ def imprime_lineas_deseo(df,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_mediodia",
                 show_fig=False,
                 normalizo_latlon=False,
-                k_jenks=k_jenks)
+                k_jenks=k_jenks,
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                zona=var_zona,
+                filtro1='Punta Mediodía')
 
-        if tarde != np.nan:
+        if tarde != None:
             lineas_deseo(df[
                 (df.hora.astype(int) >= tarde-1) &
                 (df.hora.astype(int) <= tarde+1)],
@@ -852,13 +1065,20 @@ def imprime_lineas_deseo(df,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_tarde",
                 show_fig=False,
                 normalizo_latlon=False,
-                k_jenks=k_jenks)
+                k_jenks=k_jenks,
+                alias=alias,
+                desc_dia=desc_dia,
+                tipo_dia=tipo_dia,
+                zona=var_zona,
+                filtro1='Punta Tarde')
 
 
 def imprime_graficos_hora(viajes,
                           title='Cantidad de viajes en transporte público',
                           savefile='viajes',
-                          var_fex=''):
+                          var_fex='',
+                          desc_dia='',
+                          tipo_dia=''):
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
@@ -886,6 +1106,9 @@ def imprime_graficos_hora(viajes,
     viajesxhora['cant'] = viajesxhora['cant'].round().astype(int)
 
     savefile_ = f'{savefile}_x_hora'
+
+    viajesxhora_dash = viajesxhora.copy()
+    viajesxhora_dash['modo'] = 'Todos'
 
     # Viajes por hora
     with sns.axes_style(
@@ -924,6 +1147,49 @@ def imprime_graficos_hora(viajes,
 
     viajesxhora['cant'] = viajesxhora['cant'].round().astype(int)
 
+    # guarda distribución de viajes para dashboard
+    viajesxhora_dash = pd.concat(
+        [viajesxhora_dash, viajesxhora], ignore_index=True)
+
+    viajesxhora_dash['tipo_dia'] = tipo_dia
+    viajesxhora_dash['desc_dia'] = desc_dia
+
+    viajesxhora_dash = viajesxhora_dash[[
+        'tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
+    viajesxhora_dash.columns = ['tipo_dia', 'desc_dia', 'Hora', 'Viajes', 'Modo']
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    query = f"""
+        DELETE FROM viajes_hora
+        WHERE desc_dia = "{desc_dia}"
+        and tipo_dia = "{tipo_dia}"
+    """
+
+    conn_dash.execute(query)
+    conn_dash.commit()
+    
+    modos = viajesxhora_dash.Modo.unique().tolist()
+    hrs = [str(i).zfill(2) for i in range(0,24)]    
+    for modo in modos:
+        for hr in hrs:
+            if len(viajesxhora_dash.loc[(viajesxhora_dash.Modo==modo)&(viajesxhora_dash.Hora==hr)])==0:
+                
+                viajesxhora_dash = pd.concat([
+                                viajesxhora_dash,
+                                pd.DataFrame([[tipo_dia, 
+                               desc_dia, 
+                               hr, 
+                               0, 
+                               modo]], 
+                             columns = viajesxhora_dash.columns)
+                            ])
+
+    viajesxhora_dash.to_sql("viajes_hora", conn_dash,
+                            if_exists="append", index=False)
+
+    conn_dash.close()
+
     # Viajes por hora
     savefile_ = f'{savefile}_modo'
     with sns.axes_style(
@@ -958,18 +1224,57 @@ def imprime_graficos_hora(viajes,
                 & (viajes.h3_o != viajes.h3_d)]
     vi['distance_osm_drive'] = vi['distance_osm_drive'].astype(int)
 
+    vi_modo = vi\
+        .groupby(['distance_osm_drive', 'modo'], as_index=False)\
+        .factor_expansion_linea.sum()\
+        .rename(columns={'factor_expansion_linea': 'cant'})
+
     vi = vi\
         .groupby('distance_osm_drive', as_index=False)\
-        .factor_expansion.sum()\
-        .rename(columns={'factor_expansion': 'cant'})
+        .factor_expansion_linea.sum()\
+        .rename(columns={'factor_expansion_linea': 'cant'})
+
+    vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
+                ].sort_values('distance_osm_drive')
+
+    vi['pc'] = round(vi.cant / vi.cant.sum() * 100, 5)
+    vi['csum'] = vi.pc.cumsum()
+    vi = vi[vi.csum <= 99.5]
+    vi['Viajes (en miles)'] = round(vi.cant/1000)
+
+    vi_modo['pc'] = round(vi_modo.cant / vi_modo.cant.sum() * 100, 5)
+    vi_modo['csum'] = vi_modo.pc.cumsum()
+    vi_modo = vi_modo[vi_modo.csum <= 99.5]
+
+    # guarda distribución de viajes para dashboard
+
+    vi_dash = vi.copy()
+    vi_dash['modo'] = 'Todos'
+    vi_dash = pd.concat([vi_dash, vi_modo], ignore_index=True)
+
+    vi_dash['tipo_dia'] = tipo_dia
+    vi_dash['desc_dia'] = desc_dia
+
+    vi_dash = vi_dash[['desc_dia', 'tipo_dia',
+                       'distance_osm_drive', 'cant', 'modo']]
+    vi_dash.columns = ['desc_dia', 'tipo_dia', 'Distancia', 'Viajes', 'Modo']
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    query = f"""
+        DELETE FROM distribucion
+        WHERE desc_dia = "{desc_dia}"
+        and tipo_dia = "{tipo_dia}"
+        """
+    conn_dash.execute(query)
+    conn_dash.commit()
+
+    vi_dash.to_sql("distribucion", conn_dash, if_exists="append", index=False)
+    conn_dash.close()
 
     ytitle = "Viajes"
     if vi.cant.mean() > 1000:
         vi['cant'] = round(vi['cant']/1000)
         ytitle = "Viajes (en miles)"
-
-    vi = vi.loc[vi.cant > 0, ['distance_osm_drive', 'cant']
-                ].sort_values('distance_osm_drive')
 
     sns.set_style("darkgrid", {"axes.facecolor": "#cadce0",
                   'figure.facecolor': '#cadce0', "grid.linestyle": ":"})
@@ -979,7 +1284,7 @@ def imprime_graficos_hora(viajes,
     ax = fig.add_subplot(111)
 
     sns.histplot(x='distance_osm_drive', weights='cant',
-                 data=vi, bins=len(vi), element='poly', ax=ax)
+                 data=vi, bins=len(vi), ax=ax)  # element='poly',
     ax.set_title(title, fontsize=12)
     ax.set_xlabel("Distancia (kms)", fontsize=10)
     ax.set_ylabel(ytitle, fontsize=10)
@@ -1151,6 +1456,9 @@ def traigo_zonificacion(viajes,
                 except KeyError:
                     matriz_order = ""
 
+                if matriz_order is None:
+                    matriz_order = ""
+
                 if var_zona in zonas.columns:
                     matriz_zonas += [[file_zona, var_zona, matriz_order]]
                     vars_zona += [var_zona]
@@ -1199,6 +1507,11 @@ def imprime_od(
     total_color="navy",
     total_background_color="white",
     show_fig=False,
+    alias='',
+    desc_dia='',
+    tipo_dia='',
+    var_zona='',
+    filtro1='',
 ):
 
     if len(fmt) == 0:
@@ -1283,7 +1596,7 @@ def imprime_od(
             )
 
         for _ in od_heatmap.columns:
-            od_heatmap.loc[od_heatmap[_] == 0, _] = np.nan
+            od_heatmap.loc[od_heatmap[_] == 0, _] = None
 
         if margins:
             od_heatmap_sintot = od_heatmap.copy()
@@ -1436,7 +1749,7 @@ def imprime_od(
                 "resultados", "matrices", f"{savefile}.xlsx")
 
             if normalize:
-
+                dash_tot = df.copy()
                 od1 = pd.crosstab(
                     index=df[zona_origen],
                     columns=df[zona_destino],
@@ -1449,11 +1762,66 @@ def imprime_od(
                 pd.concat(
                     [od1, pd.DataFrame([[], []]), od_heatmap],
                 ).to_excel(db_path)
+
             else:
                 od_heatmap.to_excel(path_resultados / (db_path))
 
         if show_fig:
             display(fig)
+
+        # Guardo datos para el dashboard
+        if 'h3_r' not in var_zona:
+
+            conn_dash = iniciar_conexion_db(tipo='dash')
+
+            df = df[[zona_origen, zona_destino, var_fex]].copy()
+            df.columns = ['Origen', 'Destino', 'Viajes']
+
+            df['desc_dia'] = desc_dia
+            df['tipo_dia'] = tipo_dia
+            df['var_zona'] = var_zona.replace('h3_r', 'H3 Resolucion ')
+            df['filtro1'] = filtro1
+
+            df_ant = pd.read_sql_query(
+                """
+                SELECT *
+                FROM matrices
+                """,
+                conn_dash,
+            )
+
+            df_ant = df_ant[~(
+                (df_ant.desc_dia == desc_dia) &
+                (df_ant.tipo_dia == tipo_dia) &
+                (df_ant.var_zona == var_zona
+                 .replace('h3_r', 'H3 Resolucion ')) &
+                (df_ant.filtro1 == filtro1)
+            )]
+
+            df = pd.concat([df_ant, df], ignore_index=True)
+
+            if len(matriz_order_row) == 0:
+                matriz_order_row = od_heatmap.reset_index()[
+                    zona_origen].unique()
+            if len(matriz_order_col) == 0:
+                matriz_order_col = od_heatmap.columns
+
+            n = 1
+            cols = []
+            for i in matriz_order_row:
+                cols += [str(n).zfill(3)+'_'+str(i)]
+                n += 1
+            df['Origen'] = df.Origen.replace(matriz_order_row, cols)
+
+            n = 1
+            cols = []
+            for i in matriz_order_col:
+                cols += [str(n).zfill(3)+'_'+str(i)]
+                n += 1
+            df['Destino'] = df.Destino.replace(matriz_order_row, cols)
+
+            df.to_sql("matrices", conn_dash, if_exists="replace", index=False)
+            conn_dash.close()
 
 
 def lineas_deseo(df,
@@ -1469,24 +1837,31 @@ def lineas_deseo(df,
                  savefile='lineas_deseo',
                  show_fig=True,
                  normalizo_latlon=True,
-                 k_jenks=5):
+                 k_jenks=5,
+                 alias='',
+                 desc_dia='',
+                 tipo_dia='',
+                 zona='',
+                 filtro1='',
+                 ):
 
-    hexs = zonas.groupby(
-        var_zona, as_index=False).size().drop(['size'], axis=1)
+    hexs = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]\
+        .groupby(var_zona, as_index=False)\
+        .size().drop(['size'], axis=1)
+
     hexs = hexs.merge(
-        zonas.groupby(var_zona
-                      ).apply(lambda x: np.average(x['longitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'longitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby(var_zona)
+        .apply(lambda x: np.average(x['longitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'longitud'}), how='left')
+
     hexs = hexs.merge(
-        zonas.groupby(var_zona
-                      ).apply(lambda x: np.average(x['latitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'latitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby(var_zona)
+        .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'latitud'}), how='left')
 
     tmp_o = f'{var_zona}_o'
     tmp_d = f'{var_zona}_d'
@@ -1498,7 +1873,8 @@ def lineas_deseo(df,
         tmp_h3_o = h3_o
         tmp_h3_d = h3_d
 
-    # Normalizo con nueva zonificación
+    # Normalizo con nueva zonificación (ESTO HACE QUE TODOS LOS ORIGENES
+    # Y DESTINOS TENGAN UN MISMO SENTIDO)
     if (tmp_o != tmp_h3_o) & (tmp_d != tmp_h3_d):
         df_agg = df.groupby(['dia', tmp_h3_o, tmp_h3_d, tmp_o,
                             tmp_d], as_index=False).agg({var_fex: 'sum'})
@@ -1612,6 +1988,42 @@ def lineas_deseo(df,
                         "resultados", "pdf", f"{savefile}.pdf")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
+                    # Guarda geojson para el dashboard
+                    # if not 'h3_r' in var_zona:
+                    df_folium = df_agg.copy()
+                    df_folium.columns = ['Origen', 'Destino', 'Viajes',
+                                         'lon_o', 'lat_o', 'lon_d', 'lat_d',
+                                         'cumsum', 'geometry']
+
+                    df_folium = df_folium[[
+                        'Origen', 'Destino', 'Viajes', 'lon_o', 'lat_o',
+                        'lon_d', 'lat_d']]
+
+                    df_folium['desc_dia'] = desc_dia
+                    df_folium['tipo_dia'] = tipo_dia
+                    df_folium['var_zona'] = var_zona.replace(
+                        'h3_r', 'H3 Resolucion ')
+                    df_folium['filtro1'] = filtro1
+
+                    conn_dash = iniciar_conexion_db(tipo='dash')
+                    var_zona_q = var_zona.replace('h3_r', 'H3 Resolucion ')
+
+                    query = f"""
+                    DELETE FROM lineas_deseo
+                        WHERE
+                        desc_dia = '{desc_dia}' and
+                        tipo_dia = '{tipo_dia}' and
+                        var_zona = '{var_zona_q}' and
+                        filtro1 = '{filtro1}'
+                    """
+
+                    conn_dash.execute(query)
+                    conn_dash.commit()
+
+                    df_folium.to_sql("lineas_deseo", conn_dash,
+                                     if_exists="append", index=False)
+                    conn_dash.close()
+
                     crear_mapa_folium(df_agg,
                                       cmap,
                                       var_fex,
@@ -1636,22 +2048,21 @@ def crea_df_burbujas(df,
 
     zonas['h3_o_tmp'] = zonas['h3'].apply(h3.h3_to_parent, res=res)
 
-    hexs = zonas.groupby(
+    hexs = zonas[(zonas.fex.notna()) & (zonas.fex != 0)].groupby(
         'h3_o_tmp', as_index=False).size().drop(['size'], axis=1)
+
     hexs = hexs.merge(
-        zonas.groupby('h3_o_tmp'
-                      ).apply(lambda x: np.average(x['longitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'longitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby('h3_o_tmp')
+        .apply(lambda x: np.average(x['longitud'], weights=x['fex']))
+        .reset_index().rename(columns={0: 'longitud'}), how='left')
+
     hexs = hexs.merge(
-        zonas.groupby('h3_o_tmp'
-                      ).apply(lambda x: np.average(x['latitud'],
-                                                   weights=x['fex'])
-                              ).reset_index(
-        ).rename(columns={0: 'latitud'}),
-        how='left')
+        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+        .groupby('h3_o_tmp')
+        .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
+        .reset_index()
+        .rename(columns={0: 'latitud'}), how='left')
 
     df['h3_o_tmp'] = df[h3_o].apply(h3.h3_to_parent, res=res)
 
@@ -1726,3 +2137,654 @@ def crear_mapa_folium(df_agg,
 
     db_path = os.path.join("resultados", "html", savefile)
     m.save(db_path)
+
+
+def save_zones():
+    """
+    Esta función guarda las geografías de las zonas para el dashboard
+    """
+    print('Creando zonificación para dashboard')
+
+    configs = leer_configs_generales()
+
+    try:
+        zonificaciones = configs['zonificaciones']
+    except KeyError:
+        zonificaciones = []
+
+    geo_files = [['zona_voi.geojson', 'Zona_voi']]
+
+    if zonificaciones:
+        for n in range(0, 5):
+
+            try:
+                file_zona = zonificaciones[f"geo{n+1}"]
+                var_zona = zonificaciones[f"var{n+1}"]
+                geo_files += [[file_zona, var_zona]]
+
+            except KeyError:
+                pass
+
+    zonas = pd.DataFrame([])
+    for i in geo_files:
+        file = os.path.join("data", "data_ciudad", f'{i[0]}')
+        if os.path.isfile(file):
+            df = gpd.read_file(file)
+            df = df[[i[1], 'geometry']]
+            df.columns = ['Zona', 'geometry']
+            df['tipo_zona'] = i[1]
+            zonas = pd.concat([zonas, df])
+
+    zonas = zonas.dissolve(by=['tipo_zona', 'Zona'], as_index=False)
+    zonas['wkt'] = zonas.geometry.to_wkt()
+    zonas = zonas.drop(['geometry'], axis=1)
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
+    conn_dash.close()
+
+
+def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
+
+    particion_viajes = viajes_dia.groupby(
+        'modo', as_index=False).factor_expansion_linea.sum().round()
+    particion_viajes['modal'] = (particion_viajes['factor_expansion_linea'] /
+                                 viajes_dia.factor_expansion_linea.sum() * 100
+                                 ).round()
+    particion_viajes = particion_viajes.sort_values(
+        'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+    particion_viajes['tipo'] = 'viajes'
+    particion_viajes['tipo_dia'] = tipo_dia
+    particion_viajes['desc_dia'] = desc_dia
+    particion_etapas = etapas_dia.groupby(
+        'modo', as_index=False).factor_expansion_linea.sum().round()
+
+    particion_etapas['modal'] = (particion_etapas['factor_expansion_linea'] /
+                                 etapas_dia.factor_expansion_linea.sum() * 100
+                                 ).round()
+    particion_etapas = particion_etapas.sort_values(
+        'modal', ascending=False).drop(['factor_expansion_linea'], axis=1)
+    particion_etapas['tipo'] = 'etapas'
+    particion_etapas['desc_dia'] = desc_dia
+    particion_etapas['tipo_dia'] = tipo_dia
+    particion = pd.concat(
+        [particion_viajes, particion_etapas], ignore_index=True)
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
+    conn_dash.execute(query)
+    conn_dash.commit()
+    particion['modo'] = particion.modo.str.capitalize()
+    particion.to_sql("particion_modal", conn_dash,
+                     if_exists="append", index=False)
+    conn_dash.close()
+
+
+def plot_dispatched_services_wrapper():
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    q = """
+    select *
+    from services_by_line_hour
+    where dia = 'weekday';
+    """
+    service_data = pd.read_sql(q, conn_data)
+
+    if len(service_data) > 0:
+        service_data.groupby(['id_linea']).apply(
+            plot_dispatched_services_by_line_day)
+
+    conn_data.close()
+
+
+def plot_dispatched_services_by_line_day(df):
+    """
+    Reads services' data and plots how many services
+    by line, type of day (weekday weekend), and hour.
+    Saves it in results dir
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        dataframe with dispatched services by hour from
+        services_by_line_hour table with
+
+    Returns
+    -------
+    None
+
+    """
+    line_id = df.id_linea.unique().item()
+    day = df.dia.unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    s = f"select nombre_linea from metadata_lineas" +\
+        f" where id_linea = {line_id};"
+    id_linea_str = pd.read_sql(s, conn_insumos)
+    conn_insumos.close()
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+        id_linea_str = id_linea_str + ' -'
+    else:
+        id_linea_str = ''
+
+    print("Creando plot de servicios despachados por linea", "id linea:", line_id)
+
+    f, ax = plt.subplots(figsize=(8, 6))
+    sns.barplot(
+        data=df,
+        x="hora",
+        y="servicios",
+        hue="id_linea",
+        ax=ax)
+
+    ax.get_legend().remove()
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Cantidad de servicios despachados")
+
+    f.suptitle(f"Cantidad de servicios despachados por hora y día",
+               fontdict={'size': 18,
+                         'weight': 'bold'})
+    ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+                 fontdict={"fontsize": 11})
+
+    ax.spines.right.set_visible(False)
+    ax.spines.top.set_visible(False)
+    ax.spines.bottom.set_visible(False)
+    ax.spines.left.set_visible(False)
+    ax.spines.left.set_position(('outward', 10))
+    ax.spines.bottom.set_position(('outward', 10))
+
+    ax.grid(axis='y')
+
+    for frm in ['png', 'pdf']:
+        archivo = f'servicios_despachados_id_linea_{line_id}_{day}.{frm}'
+        db_path = os.path.join("resultados", frm, archivo)
+        f.savefig(db_path, dpi=300)
+        plt.close()
+
+
+def plot_basic_kpi_wrapper():
+    sns.set_style("whitegrid")
+
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    q = """
+    select *
+    from basic_kpi_by_line_hr
+    where dia = 'weekday';
+    """
+    kpi_data = pd.read_sql(q, conn_data)
+
+    if len(kpi_data) > 0:
+        kpi_data.groupby(['id_linea']).apply(
+            plot_basic_kpi, standarize_supply_demand=False)
+
+    conn_data.close()
+
+
+def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
+                   *args, **kwargs):
+    line_id = kpi_by_line_hr.id_linea.unique().item()
+    day = kpi_by_line_hr.dia.unique().item()
+    alias = leer_alias()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana tipo'
+    elif day == 'weekday':
+        day_str = 'Dia de semana tipo'
+    else:
+        day_str = day
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    s = f"select nombre_linea from metadata_lineas" +\
+        f" where id_linea = {line_id};"
+
+    id_linea_str = pd.read_sql(s, conn_insumos)
+    conn_insumos.close()
+
+    if len(id_linea_str) > 0:
+        id_linea_str = id_linea_str.nombre_linea.item()
+        id_linea_str = id_linea_str + ' -'
+    else:
+        id_linea_str = ''
+
+    # Create empty df with 0 - 23 hrs
+    kpi_stats_line_plot = pd.DataFrame(
+        {'id_linea': [line_id] * 24, 'hora': range(0, 24)})
+
+    kpi_stats_line_plot = kpi_stats_line_plot\
+        .merge(kpi_by_line_hr.query(f"id_linea == {line_id}"),
+               on=['id_linea', 'hora'],
+               how='left')
+
+    if standarize_supply_demand:
+        supply_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.veh.max()
+        demand_factor = kpi_stats_line_plot.of.max()\
+            / kpi_stats_line_plot.pax.max()
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh * supply_factor
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax * demand_factor
+        note = """
+            Los indicadores de Oferta y Demanda se estandarizaron para que
+            coincidan con máximo del eje de Factor de Ocupación
+        """
+        ylabel_str = "Factor de Ocupación (%)"
+    else:
+        kpi_stats_line_plot.veh = kpi_stats_line_plot.veh / \
+            kpi_stats_line_plot.veh.sum() * 100
+        kpi_stats_line_plot.pax = kpi_stats_line_plot.pax / \
+            kpi_stats_line_plot.pax.sum() * 100
+        note = """
+        Oferta y Demanda expresan la distribución porcentual por
+        hora de la sumatoria de veh-hr y de los pax-hr 
+        respectivamente 
+        """
+        ylabel_str = "%"
+    missing_data = (kpi_stats_line_plot.pax.isna().all()) |\
+        (kpi_stats_line_plot.dmt.isna().all()) |\
+        (kpi_stats_line_plot.of.isna().all())
+
+    if missing_data:
+        print("No es posible crear plot de KPI basicos por linea", "id linea:", line_id)
+
+    else:
+        print("Creando plot de KPI basicos por linea", "id linea:", line_id)
+
+        f, ax = plt.subplots(figsize=(8, 6))
+
+        sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                    color='silver', ax=ax, label='Factor de ocupación')
+
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                     color='Purple', label='Oferta')
+        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                     color='Orange', label='Demanda')
+
+        ax.set_xlabel("Hora")
+        ax.set_ylabel(ylabel_str)
+
+        f.suptitle(f"Indicadores de oferta y demanda estadarizados",
+                   fontdict={'size': 18,
+                             'weight': 'bold'})
+
+        ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+                     fontdict={"fontsize": 11})
+        # Add a footnote below and to the right side of the chart
+
+        ax_note = ax.annotate(note,
+                              xy=(0, -.18),
+                              xycoords='axes fraction',
+                              ha='left',
+                              va="center",
+                              fontsize=10)
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.spines.bottom.set_visible(False)
+        ax.spines.left.set_visible(False)
+        ax.spines.left.set_position(('outward', 10))
+        ax.spines.bottom.set_position(('outward', 10))
+
+        for frm in ['png', 'pdf']:
+            archivo = f'{alias}_kpi_basicos_id_linea_{line_id}_{day}.{frm}'
+            db_path = os.path.join("resultados", frm, archivo)
+            f.savefig(db_path, dpi=300, bbox_extra_artists=(
+                ax_note,), bbox_inches='tight')
+            plt.close()
+
+        # add to dash
+        kpi_stats_line_plot['nombre_linea'] = id_linea_str
+        kpi_stats_line_plot['dia'] = day
+        kpi_stats_line_plot = kpi_stats_line_plot\
+            .reindex(columns=[
+                'dia',
+                'id_linea',
+                'nombre_linea',
+                'hora',
+                'veh',
+                'pax',
+                'dmt',
+                'of',
+                'speed_kmh']
+            )
+
+        conn_dash = iniciar_conexion_db(tipo='dash')
+
+        query = f"""
+            DELETE FROM basic_kpi_by_line_hr
+            WHERE dia = "{day}"
+            and id_linea = "{line_id}"
+            """
+        conn_dash.execute(query)
+        conn_dash.commit()
+        
+        kpi_stats_line_plot.to_sql(
+            "basic_kpi_by_line_hr",
+            conn_dash,
+            if_exists="append",
+            index=False,
+        )
+        conn_dash.close()
+
+
+def get_branch_geoms_from_line(id_linea):
+    """
+    Takes a line id and returns a geoSeries with
+    all branches' geoms
+    """
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    branch_geoms_query = f"""
+        select * from branches_geoms bg 
+        where id_ramal in (
+            select id_ramal from metadata_ramales mr 
+            where id_linea = {id_linea}
+        )
+        ;
+    """
+    branch_geoms = pd.read_sql(branch_geoms_query, conn_insumos)
+    branch_geoms = gpd.GeoSeries.from_wkt(
+        branch_geoms.wkt.values,
+        index=branch_geoms.id_ramal.values,
+        crs='EPSG:4326')
+
+    conn_insumos.close()
+
+    if len(branch_geoms) == 0:
+        branch_geoms = None
+
+    return branch_geoms
+
+
+def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
+
+    width = max(max_x - min_x, max_y - min_y)
+    center_x = (max_x + min_x) / 2
+    center_y = (max_y + min_y) / 2
+
+    square_bbox_min_x = center_x - width / 2
+    square_bbox_min_y = center_y - width / 2
+    square_bbox_max_x = center_x + width / 2
+    square_bbox_max_y = center_y + width / 2
+
+    square_bbox_coords = [
+        (square_bbox_min_x, square_bbox_min_y),
+        (square_bbox_max_x, square_bbox_min_y),
+        (square_bbox_max_x, square_bbox_max_y),
+        (square_bbox_min_x, square_bbox_max_y)
+    ]
+
+    p = Polygon(square_bbox_coords)
+    s = gpd.GeoSeries([p], crs=f'EPSG:{epsg}')
+    return s
+
+
+def format_num(num, lpad=10):
+    fnum = '{:,}'.format(num).replace(
+        ".", "*").replace(",", ".").replace("*", ",")
+    if lpad > 0:
+        fnum = fnum.rjust(lpad, ' ')
+    return fnum
+
+
+def indicadores_dash():
+    alias = leer_alias()
+
+    configs = leer_configs_generales()
+
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    indicadores = pd.read_sql_query(
+        """
+        SELECT *
+        FROM indicadores
+        """,
+        conn_data,
+    )
+
+    indicadores['dia'] = pd.to_datetime(indicadores.dia)
+    indicadores['dow'] = indicadores.dia.dt.dayofweek
+    indicadores['mo'] = indicadores.dia.dt.month
+    indicadores['yr'] = indicadores.dia.dt.year
+
+    indicadores['desc_dia'] = indicadores['yr'].astype(str).str.zfill(
+        4) + '/' + indicadores['mo'].astype(str).str.zfill(2)
+    indicadores['tipo_dia'] = 'Hábil'
+    indicadores.loc[indicadores.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+
+    indicadores = indicadores.groupby(['desc_dia', 'tipo_dia', 'detalle'], as_index=False).agg({
+        'indicador': 'mean', 'porcentaje': 'mean'})
+    indicadores.loc[indicadores.detalle == 'Cantidad de etapas con destinos validados',
+                    'detalle'] = 'Transacciones válidas \n(Etapas con destinos validados)'
+    indicadores.loc[indicadores.detalle ==
+                    'Cantidad total de viajes expandidos', 'detalle'] = 'Viajes'
+    indicadores.loc[indicadores.detalle ==
+                    'Cantidad total de etapas', 'detalle'] = 'Etapas'
+    indicadores.loc[indicadores.detalle ==
+                    'Cantidad total de usuarios', 'detalle'] = 'Usuarios'
+    indicadores.loc[indicadores.detalle ==
+                    'Cantidad de viajes cortos (<5kms)', 'detalle'] = 'Viajes cortos (<5kms)'
+    indicadores.loc[indicadores.detalle == 'Cantidad de viajes con transferencia',
+                    'detalle'] = 'Viajes con transferencia'
+
+    conn_data.close()
+
+    indicadores.loc[indicadores.detalle.isin(['Cantidad de transacciones totales',
+                                              'Cantidad de tarjetas únicas',
+                                              'Cantidad de transacciones limpias',
+                                              ]), 'orden'] = 1
+
+    indicadores.loc[indicadores.detalle.str.contains(
+        'Transacciones válidas'), 'orden'] = 1
+
+    indicadores.loc[indicadores.detalle.isin(['Viajes',
+                                              'Etapas',
+                                              'Usuarios',
+                                              'Viajes cortos (<5kms)',
+                                              'Viajes con transferencia',
+                                              'Distancia de los viajes (promedio en kms)',
+                                              'Distancia de los viajes (mediana en kms)'
+                                              ]), 'orden'] = 2
+
+    indicadores.loc[indicadores.detalle.isin(['Viajes autobus',
+                                              'Viajes Multietapa',
+                                              'Viajes Multimodal',
+                                              'Viajes metro',
+                                              'Viajes tren'
+                                              ]), 'orden'] = 3
+
+    indicadores['Valor'] = indicadores.indicador.apply(format_num)
+    indicadores['porcentaje'] = indicadores.porcentaje.apply(format_num)
+
+    indicadores = indicadores[indicadores.orden.notna()]
+
+    indicadores.loc[~(indicadores.detalle.str.contains('Distancia')), 'Valor'] = indicadores.loc[~(
+        indicadores.detalle.str.contains('Distancia')), 'Valor'].str.split(',').str[0]
+
+    indicadores = indicadores.drop(['indicador'], axis=1)
+    indicadores = indicadores.rename(columns={'detalle': 'Indicador'})
+
+    indicadores.loc[indicadores.Indicador.str.contains('Transacciones válidas'),
+                    'Valor'] += ' ('+indicadores.loc[
+        indicadores.Indicador.str.contains('Transacciones válidas'),
+        'porcentaje'].str.replace(' ', '')+'%)'
+
+    indicadores.loc[indicadores.orden == 3,
+                    'Valor'] += ' ('+indicadores.loc[indicadores.orden == 3,
+                                                     'porcentaje'].str.replace(' ', '')+'%)'
+
+    indicadores.loc[indicadores.Indicador == 'Viajes cortos (<5kms)',
+                    'Valor'] += ' ('+indicadores.loc[
+        indicadores.Indicador == 'Viajes cortos (<5kms)', 'porcentaje'].str.replace(' ', '')+'%)'
+    indicadores.loc[indicadores.Indicador == 'Viajes con transferencia',
+                    'Valor'] += ' ('+indicadores.loc[
+        indicadores.Indicador == 'Viajes con transferencia', 'porcentaje'].str.replace(' ', '')+'%)'
+
+    indicadores.loc[indicadores.orden == 1,
+                    'Titulo'] = 'Información del dataset original'
+    indicadores.loc[indicadores.orden == 2, 'Titulo'] = 'Información procesada'
+    indicadores.loc[indicadores.orden == 3, 'Titulo'] = 'Partición modal'
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    indicadores.to_sql("indicadores", conn_dash,
+                       if_exists="replace", index=False)
+    conn_dash.close()
+    
+@duracion
+def create_visualizations():
+    """
+    Esta funcion corre las diferentes funciones de visualizaciones
+    """
+
+    pd.options.mode.chained_assignment = None
+
+    # Leer informacion de viajes y distancias
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    viajes = pd.read_sql_query(
+        """
+        SELECT *
+        FROM viajes
+        where od_validado==1
+        """,
+        conn_data,
+    )
+
+    etapas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM etapas
+        where od_validado==1
+        """,
+        conn_data,
+    )
+
+    distancias = pd.read_sql_query(
+        """
+        SELECT *
+        FROM distancias
+        """,
+        conn_insumos,
+    )
+
+    conn_insumos.close()
+    conn_data.close()
+
+    # Agrego campo de distancias de los viajes
+    viajes = viajes.merge(distancias,
+                          how='left',
+                          on=['h3_o', 'h3_d'])
+
+    # Imputar anio, mes y tipo de dia
+    viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
+    viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
+    viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
+    viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
+
+    # Imputar anio, mes y tipo de dia
+    etapas['yr'] = pd.to_datetime(etapas.dia).dt.year
+    etapas['mo'] = pd.to_datetime(etapas.dia).dt.month
+    etapas['dow'] = pd.to_datetime(etapas.dia).dt.day_of_week
+    etapas.loc[etapas.dow >= 5, 'tipo_dia'] = 'Fin de semana'
+    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Día hábil'
+
+    v_iter = viajes\
+        .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
+        .factor_expansion_linea.sum()\
+        .iterrows()
+
+    for _, i in v_iter:
+
+        desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
+        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
+
+        viajes_dia = viajes[(viajes.yr == i.yr) & (
+            viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
+
+        etapas_dia = etapas[(etapas.yr == i.yr) & (
+            etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
+
+        # partición modal
+        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}')
+
+        print('Imprimiendo tabla de matrices OD')
+        # Impirmir tablas con matrices OD
+        imprimir_matrices_od(viajes=viajes_dia,
+                             var_fex='factor_expansion_linea',
+                             title=f'Matriz OD {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia,
+                             )
+
+        print('Imprimiendo mapas de líneas de deseo')
+        # Imprimir lineas de deseo
+        imprime_lineas_deseo(df=viajes_dia,
+                             h3_o='',
+                             h3_d='',
+                             var_fex='factor_expansion_linea',
+                             title=f'Líneas de deseo {desc_dia}',
+                             savefile=f'{desc_dia_file}',
+                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             tipo_dia=i.tipo_dia)
+
+        print('Imprimiendo gráficos')
+        titulo = f'Cantidad de viajes en transporte público {desc_dia}'
+        imprime_graficos_hora(viajes_dia,
+                              title=titulo,
+                              savefile=f'{desc_dia_file}_viajes',
+                              var_fex='factor_expansion_linea',
+                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                              tipo_dia=i.tipo_dia)
+
+        print('Imprimiendo mapas de burbujas')
+        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='rocket_r',
+                         var_fex='factor_expansion_linea',
+                         porc_viajes=100,
+                         title=f'Destinos de los viajes {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_destinos',
+                         show_fig=False,
+                         k_jenks=5)
+
+        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
+        imprime_burbujas(viajes_n,
+                         res=7,
+                         h3_o='h3_o',
+                         alpha=.4,
+                         cmap='flare',
+                         var_fex='factor_expansion_linea',
+                         porc_viajes=100,
+                         title=f'Hogares {desc_dia}',
+                         savefile=f'{desc_dia_file}_burb_hogares',
+                         show_fig=False,
+                         k_jenks=5)
+
+    save_zones()
+
+    print('Indicadores para dash')
+    indicadores_dash()
+
+    # plor dispatched services
+    plot_dispatched_services_wrapper()
+
+    # plot basic kpi if exists
+    plot_basic_kpi_wrapper()
+

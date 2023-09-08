@@ -8,24 +8,43 @@ import h3
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
+import datetime
+os.environ['USE_PYGEOS'] = '0'
 
 
 def duracion(f):
     @ wraps(f)
     def wrap(*args, **kw):
-        # print(f"{f.__name__} [{args}, {kw}] ", end="", flush=True)
-        print(f"{f.__name__} ", end="", flush=True)
+        print('')
+        print(
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="",
+            flush=True)
+        print('-' * (len(f.__name__)+22))
+
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
-        print(f" Finalizado. Tardo {te - ts:.2f} segundos")
+        print(f"Finalizado {f.__name__}. Tardo {te - ts:.2f} segundos")
+        print('')
         return result
 
     return wrap
 
 
-def crear_directorios():
+@ duracion
+def create_directories():
+    """
+    This function creates the basic directory structure
+    for Urbantrips to work
+    """
+
     db_path = os.path.join("data", "db")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("data", "data_ciudad")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("configs")
     os.makedirs(db_path, exist_ok=True)
 
     db_path = os.path.join("resultados", "tablas")
@@ -46,6 +65,12 @@ def crear_directorios():
     db_path = os.path.join("resultados", "html")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("resultados", "ppts")
+    os.makedirs(db_path, exist_ok=True)
+
+    db_path = os.path.join("resultados", "geojson")
+    os.makedirs(db_path, exist_ok=True)
+
 
 def leer_alias(tipo='data'):
     """
@@ -58,6 +83,8 @@ def leer_alias(tipo='data'):
         key = 'alias_db_data'
     elif tipo == 'insumos':
         key = 'alias_db_insumos'
+    elif tipo == 'dash':
+        key = 'alias_db_data'
     else:
         raise ValueError('tipo invalido: %s' % tipo)
     # Leer el alias
@@ -73,11 +100,12 @@ def traigo_db_path(tipo='data'):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ('data', 'insumos'):
+    if tipo not in ('data', 'insumos', 'dash'):
         raise ValueError('tipo invalido: %s' % tipo)
 
     alias = leer_alias(tipo)
     db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
+
     return db_path
 
 
@@ -92,20 +120,311 @@ def iniciar_conexion_db(tipo='data'):
 
 
 @ duracion
-def crear_base():
-    # Crear conexion con bases de data e insumos
-    conn_data = iniciar_conexion_db(tipo='data')
+def create_db():
+    print("Creando bases de datos")
+
+    # create basic tables
+    create_basic_data_model_tables()
+
+    # other inpus tables
+    create_other_inputs_tables()
+
+    # stops and routes
+    create_stops_and_routes_carto_tables()
+
+    # create services and gps tables
+    create_gps_table()
+
+    # create KPI tables
+    create_kpi_tables()
+
+    # dashborad tables
+    create_dash_tables()
+
+    print("Fin crear base")
+    print("Todas las tablas creadas")
+
+
+def create_other_inputs_tables():
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distancias
+        (h3_o text NOT NULL,
+        h3_d text NOT NULL,
+        h3_o_norm text NOT NULL,
+        h3_d_norm text NOT NULL,
+        distance_osm_drive float,
+        distance_osm_walk float,
+        distance_h3 float
+        )
 
-    print("Bases abiertas con exito")
+        """
+    )
 
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matriz_validacion
+        (
+        id_linea_agg int,
+        parada text,
+        area_influencia text
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nuevos_ids_etapas_viajes
+        (id INT PRIMARY KEY     NOT NULL,
+        nuevo_id_viaje int,
+        nuevo_id_etapa int,
+        factor_expansion float
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_lineas
+            (id_linea INT PRIMARY KEY NOT NULL,
+            nombre_linea text not null,
+            id_linea_agg INT,
+            nombre_linea_agg ING
+            modo text,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_ramales
+            (id_ramal INT PRIMARY KEY     NOT NULL,
+            id_linea int not null,
+            nombre_ramal text not null,
+            modo text not null,
+            empresa text,
+            descripcion text
+            )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+    conn_insumos.close()
+
+
+def create_dash_tables():
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matrices
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes int not null
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lineas_deseo
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        var_zona text not null,
+        filtro1 text not null,
+        Origen text not null,
+        Destino text not null,
+        Viajes int not null,
+        lon_o float,
+        lat_o float,
+        lon_d float,
+        lat_d float
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viajes_hora
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Hora int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribucion
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Distancia int,
+        Viajes int,
+        Modo text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS indicadores
+        (
+        desc_dia text not null,
+        tipo_dia text not null,
+        Titulo text,
+        orden int,
+        Indicador text,
+        Valor text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonas
+        (
+        zona text not null,
+        tipo_zona text not null,
+        wkt text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS particion_modal
+        (
+        desc_dia str,
+        tipo_dia str,
+        tipo str,
+        modo str,
+        modal float
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
+        (id_linea int not null,
+        nombre_linea str,
+        day_type text nor null,
+        n_sections int,
+        sentido text not null,
+        section_id float not null,
+        hora_min int,
+        hora_max int,
+        cantidad_etapas int not null,
+        prop_etapas float not null,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
+    conn_dash.close()
+
+
+def create_stops_and_routes_carto_tables():
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inferred_lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lines_geoms
+        (id_linea INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branches_geoms
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        wkt text not null
+        )
+        ;
+        """
+    )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stops
+        (id_linea INT NOT NULL,
+        id_ramal INT NOT NULL,
+        node_id INT NOT NULL,
+        branch_stop_order INT NOT NULL,
+        stop_x float NOT NULL,
+        stop_y float NOT NULL,
+        node_x float NOT NULL,
+        node_y float NOT NULL
+        )
+        ;
+        """
+    )
+    conn_insumos.close()
+
+
+def create_basic_data_model_tables():
+    conn_data = iniciar_conexion_db(tipo='data')
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT NOT NULL,
+            fecha datetime NOT NULL,
             id_original text,
             id_tarjeta text,
-            fecha datetime,
             dia text,
             tiempo text,
             hora int,
@@ -124,8 +443,16 @@ def crear_base():
 
     conn_data.execute(
         """
+        CREATE TABLE IF NOT EXISTS dias_ultima_corrida
+            (dia INT NOT NULL)
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
         CREATE TABLE IF NOT EXISTS etapas
-            (id INT PRIMARY KEY     NOT NULL,
+            (id INT PRIMARY KEY NOT NULL,
             id_tarjeta text,
             dia text,
             id_viaje int,
@@ -138,7 +465,12 @@ def crear_base():
             interno int,
             latitud float,
             longitud float,
-            h3_o text
+            h3_o text,
+            h3_d text,
+            od_validado int,
+            factor_expansion_original float,
+            factor_expansion_linea float,
+            factor_expansion_tarjeta float
             )
         ;
         """
@@ -163,7 +495,9 @@ def crear_base():
             otros int,
             h3_o text,
             h3_d text,
-            od_validado int
+            od_validado int,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -176,7 +510,9 @@ def crear_base():
             id_tarjeta text NOT NULL,
             dia text NOT NULL,
             od_validado int,
-            cant_viajes float
+            cant_viajes float,
+            factor_expansion_linea,
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -184,28 +520,13 @@ def crear_base():
 
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS factores_expansion
+        CREATE TABLE IF NOT EXISTS transacciones_linea
             (
             dia text NOT NULL,
-            id_tarjeta text NOT NULL,
-            factor_expansion float,
-            factor_expansion_original float,
-            factor_calibracion float,
-            cant_trx int,
-            id_tarjeta_valido int
+            id_linea int NOT NULL,
+            transacciones float
             )
         ;
-        """
-    )
-
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS destinos
-        (id INT PRIMARY KEY     NOT NULL,
-        h3_d text,
-        od_validado int
-        )
-
         """
     )
 
@@ -224,8 +545,13 @@ def crear_base():
         """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
+        day_type text nor null,
+        n_sections int,
+        section_meters int,
         sentido text not null,
-        tramos float not null,
+        section_id float not null,
+        x float,
+        y float,
         hora_min int,
         hora_max int,
         cantidad_etapas int not null,
@@ -235,60 +561,7 @@ def crear_base():
         """
     )
 
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS distancias
-        (h3_o text NOT NULL,
-        h3_d text NOT NULL,
-        h3_o_norm text NOT NULL,
-        h3_d_norm text NOT NULL,
-        distance_osm_drive float,
-        distance_osm_walk float,
-        distance_h3 float
-        )
-
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS matriz_validacion
-        (
-        id_linea int,
-        parada text,
-        area_influencia text
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS nuevos_ids_etapas_viajes
-        (id INT PRIMARY KEY     NOT NULL,
-        nuevo_id_viaje int,
-        nuevo_id_etapa int,
-        factor_expansion float
-        )
-        ;
-        """
-    )
-
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recorridos_reales
-        (id_linea INT PRIMARY KEY     NOT NULL,
-        wkt text not null
-        )
-        ;
-        """
-    )
-
-    print("Tablas originales creadas")
-
     conn_data.close()
-    conn_insumos.close()
-    print("Fin crear base")
 
 
 def leer_configs_generales():
@@ -302,6 +575,7 @@ def leer_configs_generales():
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
         print(f'Error al leer el archivo de configuracion: {error}')
+        config = {}
 
     return config
 
@@ -334,8 +608,6 @@ def crear_tablas_geolocalizacion():
             """
     )
 
-    crear_tabla_gps(conn_data)
-
     conn_data.execute(
         """
             CREATE INDEX IF NOT EXISTS trx_idx ON trx_eco (
@@ -354,7 +626,9 @@ def crear_tablas_geolocalizacion():
     conn_data.close()
 
 
-def crear_tabla_gps(conn_data):
+def create_gps_table():
+
+    conn_data = iniciar_conexion_db(tipo='data')
 
     conn_data.execute(
         """
@@ -368,11 +642,74 @@ def crear_tabla_gps(conn_data):
                 interno int,
                 fecha datetime,
                 latitud FLOAT,
-                longitud FLOAT
+                longitud FLOAT,
+                velocity float,
+                service_type text,
+                distance_km float,
+                h3 text
                 )
             ;
             """
     )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_gps_points
+                (
+                id INT PRIMARY KEY NOT NULL,
+                original_service_id int not null,
+                new_service_id int not null,
+                service_id int not null,
+                id_ramal_gps_point int,
+                node_id int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services
+                (
+                id_linea int,
+                dia text,
+                interno int,
+                original_service_id int,
+                service_id int,
+                total_points int,
+                distance_km float,
+                min_ts int,
+                max_ts int,
+                min_datetime text,
+                max_datetime text,
+                prop_idling float,
+                valid int
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_stats
+                (
+                id_linea int,
+                dia text,
+                cant_servicios_originales int,
+                cant_servicios_nuevos int,
+                cant_servicios_nuevos_validos int,
+                n_servicios_nuevos_cortos int ,
+                prop_servicos_cortos_nuevos_idling float,
+                distancia_recorrida_original float,
+                prop_distancia_recuperada float,
+                servicios_originales_sin_dividir float
+                )
+            ;
+            """
+    )
+
+    conn_data.commit()
+    conn_data.close()
 
 
 def agrego_indicador(df_indicador,
@@ -380,7 +717,7 @@ def agrego_indicador(df_indicador,
                      tabla,
                      nivel=0,
                      var='indicador',
-                     var_fex='factor_expansion',
+                     var_fex='factor_expansion_linea',
                      aggfunc='sum'):
     '''
     Agrego indicadores de tablas utilizadas
@@ -500,15 +837,17 @@ def eliminar_tarjetas_trx_unica(trx):
     return trx
 
 
-def crear_tablas_indicadores_operativos():
-    """Esta funcion crea la tablas en la db para albergar los datos de
-    los indicadores operativos"""
+def create_kpi_tables():
+    """
+    Creates KPI tables in the data db
+    """
 
     conn_data = iniciar_conexion_db(tipo='data')
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_linea
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line
                 (
                 id_linea int not null,
                 dia text not null,
@@ -520,7 +859,8 @@ def crear_tablas_indicadores_operativos():
                 pvd float,
                 kvd float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
                 )
             ;
             """
@@ -528,193 +868,152 @@ def crear_tablas_indicadores_operativos():
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS indicadores_operativos_interno
+            CREATE TABLE IF NOT EXISTS kpi_by_day_line_service
                 (
                 id_linea int not null,
                 dia text not null,
                 interno text not null,
-                kvd float,
-                pvd float,
+                service_id int not null,
+                hora_inicio float,
+                hora_fin float,
+                tot_km float,
+                tot_pax float,
                 dmt_mean float,
                 dmt_median float,
                 ipk float,
-                fo float
+                fo_mean float,
+                fo_median float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_vehicle_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                interno int not null,
+                hora int  not null,
+                tot_pax float,
+                eq_pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
+                (
+                dia text not null,
+                id_linea int not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                id_linea int not null,
+                nombre_linea text,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
                 )
             ;
             """
     )
 
     conn_data.close()
+    conn_dash.close()
 
 
-def check_config():
+def check_table_in_db(table_name, tipo_db):
     """
-    Esta funcion toma un archivo de configuracion en formato yaml y lee su contenido.
-    Luego, chequea si hay alguna inconsistencia en el archivo, imprimiendo un mensaje de error
-    si alguna es encontrada.
+    Checks if a tbale exists in a db
 
-    Args:
-    None
+    Parameters
+    ----------
+    table_name : str
+        Name of table to check for
+    tipo_db : str
+        db where to check. Must be data or insumos
 
-    Returns:
-    None
-
+    Returns
+    -------
+    bool
+        if that table exists in that db
     """
-    print("Chequeando archivo de configuracion")
-    configs = leer_configs_generales()
-    nombre_archivo_trx = configs["nombre_archivo_trx"]
+    conn = iniciar_conexion_db(tipo=tipo_db)
+    cur = conn.cursor()
 
-    ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-    trx = pd.read_csv(ruta, nrows=1000)
-
-    # chequear que esten los atributos obligatorios
-    configs_obligatorios = ['geolocalizar_trx', 'resolucion_h3', 'tolerancia_parada_destino',
-                            'nombre_archivo_trx', 'nombres_variables_trx', 'imputar_destinos_min_distancia',
-                            'formato_fecha', 'columna_hora', 'ordenamiento_transacciones']
-
-    for param in configs_obligatorios:
-        if param not in configs:
-            raise KeyError(
-                f'Error: El archivo de configuracion no especifica el parámetro {param}')
-
-    # Chequear que los parametros tengan valor correcto
-    assert isinstance(configs['geolocalizar_trx'],
-                      bool), "El parámetro geolocalizar_trx debe ser True o False"
-
-    assert isinstance(configs['columna_hora'],
-                      bool), "El parámetro columna_hora debe ser True o False"
-
-    assert isinstance(configs['resolucion_h3'], int) and configs['resolucion_h3'] >= 0 and configs[
-        'resolucion_h3'] <= 15, "El parámetro resolucion_h3 debe ser un entero entre 0 y 16"
-
-    assert isinstance(configs['tolerancia_parada_destino'], int) and configs['tolerancia_parada_destino'] >= 0 and configs[
-        'tolerancia_parada_destino'] <= 10000, "El parámetro tolerancia_parada_destino debe ser un entero entre 0 y 10000"
-
-    assert not isinstance(configs['nombre_archivo_trx'], type(
-        None)), "El parámetro nombre_archivo_trx no puede estar vacío"
-
-    # chequear nombres de variables en archivo trx
-    nombres_variables_trx = configs['nombres_variables_trx']
-    assert isinstance(nombres_variables_trx,
-                      dict), "El parámetro nombres_variables_trx debe especificarse como un diccionario"
-
-    nombres_variables_trx = pd.DataFrame(
-        {'trx_name': nombres_variables_trx.keys(), 'csv_name': nombres_variables_trx.values()})
-
-    nombres_variables_trx_s = nombres_variables_trx.csv_name.dropna()
-    nombres_var_config_en_trx = nombres_variables_trx_s.isin(trx.columns)
-
-    if not nombres_var_config_en_trx.all():
-        raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo csv de transacciones: ' +
-                       ','.join(nombres_variables_trx_s[~nombres_var_config_en_trx]))
-
-    # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
-    atributos_trx_obligatorios = pd.Series(
-        ['fecha_trx', 'id_tarjeta_trx', 'id_linea_trx', 'interno_trx'])
-
-    if not configs['geolocalizar_trx']:
-        trx_coords = pd.Series(['latitud_trx', 'longitud_trx'])
-        atributos_trx_obligatorios = atributos_trx_obligatorios.append(
-            trx_coords)
-
-    attr_obligatorios_en_csv = atributos_trx_obligatorios.isin(
-        nombres_variables_trx.dropna().trx_name)
-
-    assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes: " + \
-        ','.join(atributos_trx_obligatorios[~attr_obligatorios_en_csv])
-
-    # chequear validez de fecha
-    columns_with_date = configs['nombres_variables_trx']['fecha_trx']
-    date_format = configs['formato_fecha']
-    check_config_fecha(
-        df=trx, columns_with_date=columns_with_date, date_format=date_format)
-
-    # chequear consistencias entre parametros
-
-    if 'nombre_archivo_informacion_lineas' in configs:
-        if configs['nombre_archivo_informacion_lineas'] is not None:
-            mensaje = "Si se especifica el paŕametro `nombre_archivo_informacion_lineas`" + \
-                "debe especificarse también `informacion_lineas_contiene_ramales`"
-            assert 'informacion_lineas_contiene_ramales' in configs, mensaje
-            assert configs['informacion_lineas_contiene_ramales'] is not None, mensaje
-            assert isinstance(configs['informacion_lineas_contiene_ramales'],
-                              bool), '`informacion_lineas_contiene_ramales` debe ser True o False'
-
-    if configs['ordenamiento_transacciones'] == 'fecha_completa':
-
-        assert isinstance(configs['ventana_viajes'], int) and configs['ventana_viajes'] >= 1 and configs[
-            'ventana_viajes'] <= 1000, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_viajes' debe ser un entero mayor a 0"
-
-        assert isinstance(configs['ventana_duplicado'],
-                          int) and configs['ventana_duplicado'] >= 1, "Cuando el parametro ordenamiento_transacciones es 'fecha_completa', el parámetro 'ventana_duplicado' debe ser un entero mayor a 0"
-
-    # chequeo consistencia de geolocalizacion
-    if configs['geolocalizar_trx']:
-        mensaje = "Si geolocalizar_trx = True entonces se debe especificar un archivo con informacion gps" + \
-            " con los parámetros `nombre_archivo_gps` y `nombres_variables_gps`"
-        assert 'nombre_archivo_gps' in configs, mensaje
-        assert configs['nombre_archivo_gps'] is not None, mensaje
-
-        assert 'nombres_variables_gps' in configs, mensaje
-        nombres_variables_gps = configs['nombres_variables_gps']
-
-        assert isinstance(nombres_variables_gps,
-                          dict), "El parámetro nombres_variables_gps debe especificarse como un diccionario"
-
-        ruta = os.path.join("data", "data_ciudad",
-                            configs['nombre_archivo_gps'])
-        gps = pd.read_csv(ruta, nrows=1000)
-
-        nombres_variables_gps = pd.DataFrame(
-            {'trx_name': nombres_variables_gps.keys(), 'csv_name': nombres_variables_gps.values()})
-
-        nombres_variables_gps_s = nombres_variables_gps.csv_name.dropna()
-        nombres_var_config_en_gps = nombres_variables_gps_s.isin(gps.columns)
-
-        if not nombres_var_config_en_gps.all():
-            raise KeyError('Algunos nombres de atributos especificados en el archivo de configuración no están en el archivo de transacciones',
-                           nombres_variables_gps_s[~nombres_var_config_en_gps])
-
-        # chequear que todos los atributos obligatorios de transacciones tengan un atributo en el csv
-        atributos_gps_obligatorios = pd.Series(
-            ['id_linea_gps',
-             'id_ramal_gps',
-             'interno_gps',
-             'fecha_gps',
-             'latitud_gps',
-             'longitud_gps'])
-        attr_obligatorios_en_csv = atributos_gps_obligatorios.isin(
-            nombres_variables_gps.trx_name)
-
-        assert attr_obligatorios_en_csv.all(), "Algunos atributos obligatorios no tienen un atributo correspondiente en el csv de transacionnes" + \
-            ','.join(atributos_gps_obligatorios[~attr_obligatorios_en_csv])
-
-        # chequear validez de fecha
-        columns_with_date = configs['nombres_variables_gps']['fecha_gps']
-        check_config_fecha(
-            df=gps, columns_with_date=columns_with_date, date_format=date_format)
-
-    # Checkear que existan los archivos de zonficación especificados en el archivo de configuración
-    if configs['zonificaciones']:
-        for i in configs['zonificaciones']:
-            if 'geo' in i:
-                geo_file = os.path.join("data", "data_ciudad", configs['zonificaciones'][i])        
-                assert os.path.exists(geo_file), f"File {geo_file} does not exist"
-
-    print("Proceso de chequeo de archivo de configuración concluido con éxito")
-    return None
-
-
-def check_config_fecha(df, columns_with_date, date_format):
+    q = f"""
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='{table_name}';
     """
-    Esta funcion toma un dataframe, una columna donde se guardan fechas,
-    un formato de fecha, intenta parsear las fechas y arroja un error
-    si mas del 80% de las fechas no pueden parsearse
-    """
-    fechas = pd.to_datetime(
-        df[columns_with_date], format=date_format, errors="coerce"
-    )
+    listOfTables = cur.execute(q).fetchall()
 
-    # Chequear si el formato funciona
-    checkeo = fechas.isna().sum() / len(df)
-    assert checkeo < 0.8, f"Corrija el formato de fecha en config. Actualmente se pierden {round((checkeo * 100),2)} por ciento de registros"
+    if listOfTables == []:
+        print(f"No existe la tabla {table_name} en la base")
+        return False
+    else:
+        return True

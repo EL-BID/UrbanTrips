@@ -7,24 +7,16 @@ import numpy as np
 import itertools
 import os
 import geopandas as gpd
-from shapely.geometry import LineString
-from shapely import wkt
-import statsmodels.api as sm
 import h3
 from networkx import NetworkXNoPath
 import multiprocessing
-from itertools import repeat
-from math import ceil
-from multiprocessing import Pool, Manager
 from functools import partial
 from math import sqrt
 from urbantrips.geo.geo import (
     get_stop_hex_ring, h3togeo, add_geometry,
-    create_voronoi, normalizo_lat_lon, h3dist
+    create_voronoi, normalizo_lat_lon, h3dist, bring_latlon
 )
-from urbantrips.viz.viz import (
-    plotear_recorrido_lowess,
-    plot_voronoi_zones)
+from urbantrips.viz import viz
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -46,24 +38,42 @@ def update_stations_catchment_area(ring_size):
     # Leer las paradas en base a las etapas
     q = """
     select id_linea,h3_o as parada from etapas
-    group by id_linea,h3_o having count(*) >1 and parada <> 0
     """
     paradas_etapas = pd.read_sql(q, conn_data)
 
+    metadata_lineas = pd.read_sql_query(
+        """
+        SELECT *
+        FROM metadata_lineas
+        """,
+        conn_insumos,
+    )
+
+    paradas_etapas = paradas_etapas.merge(metadata_lineas[['id_linea',
+                                                           'id_linea_agg']],
+                                          how='left',
+                                          on='id_linea').drop(['id_linea'],
+                                                              axis=1)
+
+    paradas_etapas = paradas_etapas.groupby(
+        ['id_linea_agg', 'parada'], as_index=False).size()
+    paradas_etapas = paradas_etapas[(paradas_etapas['size'] > 1)].drop([
+        'size'], axis=1)
+
     # Leer las paradas ya existentes en la matriz
     q = """
-    select distinct id_linea, parada, 1 as m from matriz_validacion
+    select distinct id_linea_agg, parada, 1 as m from matriz_validacion
     """
     paradas_en_matriz = pd.read_sql(q, conn_insumos)
 
     # Detectar que paradas son nuevas para cada linea
     paradas_nuevas = paradas_etapas\
         .merge(paradas_en_matriz,
-               on=['id_linea', 'parada'],
+               on=['id_linea_agg', 'parada'],
                how='left')
 
     paradas_nuevas = paradas_nuevas.loc[paradas_nuevas.m.isna(), [
-        'id_linea', 'parada']]
+        'id_linea_agg', 'parada']]
 
     if len(paradas_nuevas) > 0:
         areas_influencia_nuevas = pd.concat(
@@ -84,151 +94,6 @@ def update_stations_catchment_area(ring_size):
 
 
 @duracion
-def upload_routes_geoms():
-    """
-    Esta funcion lee la ubicacion del archivo de recorridos de
-    la ciudad y crea una tabla con los mismos con la geometria en WKT
-    """
-
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    configs = leer_configs_generales()
-    try:
-        nombre_recorridos = configs["recorridos_geojson"]
-        if nombre_recorridos is not None:
-            print('Leyendo tabla de recorridos')
-            q = f"""
-            select distinct id_linea
-            from recorridos_reales
-            """
-            lineas_existentes = pd.read_sql(q, conn_insumos)
-            lineas_existentes = lineas_existentes.id_linea
-
-            ruta = os.path.join("data", "data_ciudad", nombre_recorridos)
-            recorridos = gpd.read_file(ruta)
-            print('Elminando lineas que ya estan en tabla de recorridos')
-            recorridos = recorridos.loc[~recorridos.id_linea.isin(
-                lineas_existentes), ]
-            if len(recorridos) == 0:
-                print('Todas las lineas en el geojson se encuentran en la db')
-                return None
-
-            # exigir que sean todos LineString
-            tipo_no_linestring = pd.Series(
-                [not isinstance(g, type(LineString()))
-                 for g in recorridos['geometry']])
-
-            if tipo_no_linestring.any():
-                lin_str = recorridos.loc[tipo_no_linestring, 'id_linea'].map(
-                    str)
-
-                print("La geometria de las lineas debe ser LineString en 2D")
-                print(
-                    "Hay lineas que no son de este tipo. Editarlas y " +
-                    "volver a cargar el dataset")
-                print(
-                    ','.join(lin_str))
-                recorridos = recorridos.loc[~tipo_no_linestring, :]
-
-                if len(recorridos) == 0:
-                    print('Se eliminaron las geometrias no LineString')
-                    print('y las que ya estaban en la db')
-                    print('Y el dataset quedo vacio')
-                    return None
-
-            recorridos['wkt'] = recorridos.geometry.to_wkt()
-
-            recorridos = recorridos.reindex(columns=['id_linea', 'wkt'])
-            print('Subiendo tabla de recorridos')
-            recorridos.to_sql(
-                "recorridos_reales", conn_insumos, if_exists="append",
-                index=False,)
-    except KeyError:
-        print("No hay nombre de archivo de recorridos en configs")
-    conn_insumos.close()
-
-
-def infer_routes_geoms(plotear_lineas):
-    """
-    Esta funcion crea a partir de las etapas un recorrido simplificado
-    de las lineas y lo guarda en la db
-    """
-    print('Creo líneas de transporte')
-
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    # traer la coordenadas de las etapas con suficientes datos
-    q = """
-    select e.id_linea,e.longitud,e.latitud
-    from etapas e
-    """
-    etapas = pd.read_sql(q, conn_data)
-
-    recorridos_lowess = etapas.groupby(
-        'id_linea').apply(lowess_linea).reset_index()
-
-    if plotear_lineas:
-        print('Imprimiento bosquejos de lineas')
-        alias = leer_alias()
-        [plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-         for id_linea in recorridos_lowess.id_linea]
-
-    print("Subiendo recorridos a la db...")
-    recorridos_lowess['wkt'] = recorridos_lowess.geometry.to_wkt()
-    recorridos_lowess = recorridos_lowess.reindex(columns=['id_linea', 'wkt'])
-    # Elminar geometrias invalidas
-    geoms = recorridos_lowess.wkt.apply(wkt.loads)
-    validas = geoms.map(lambda g: g.is_valid)
-    recorridos_lowess = recorridos_lowess.loc[validas, :]
-
-    recorridos_lowess.to_sql("recorridos_estimados",
-                             conn_insumos, if_exists="replace", index=False,)
-
-    # Crear una tabla de recorridos unica
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recorridos AS
-            select e.id_linea,coalesce(r.wkt,e.wkt) as wkt
-            from recorridos_estimados e
-            left join recorridos_reales r
-            on e.id_linea = r.id_linea
-        ;
-        """
-    )
-
-    conn_insumos.close()
-    conn_data.close()
-
-
-def lowess_linea(df):
-    """
-    Esta funcion toma un df de etapas para una linea
-    y produce el geom de la linea simplificada en un
-    gdf con el id linea
-    """
-    id_linea = df.id_linea.unique()[0]
-    print("Obteniendo lowess linea:", id_linea)
-    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(
-        df['longitud'], df['latitud']), crs=4326).to_crs(9265)
-    y = gdf.geometry.y
-    x = gdf.geometry.x
-    lowess = sm.nonparametric.lowess
-    lowess_points = lowess(x, y, frac=0.4, delta=500)
-    lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=['y', 'x'])
-    lowess_points_df = lowess_points_df.drop_duplicates()
-
-    if len(lowess_points_df) > 1:
-        geom = LineString([(x, y) for x, y in zip(
-            lowess_points_df.x, lowess_points_df.y)])
-        out = gpd.GeoDataFrame({'geometry': geom}, geometry='geometry',
-                               crs='EPSG:9265', index=[0]).to_crs(4326)
-        return out
-
-    else:
-        print("Imposible de generar una linea lowess para id_linea = ",
-              id_linea)
-
-
-@duracion
 def create_zones_table():
     """
     This function takes orign geo data from etapas and geoms from zones
@@ -236,15 +101,15 @@ def create_zones_table():
     for each h3 with data in etapas
     """
 
-    print("Creo zonificación para matrices OD")
-
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
 
     # leer origenes de la tabla etapas
     etapas = pd.read_sql_query(
         """
-        SELECT id, h3_o as h3, latitud, longitud from etapas
+        SELECT id, h3_o as h3, latitud, longitud, factor_expansion_linea
+        from etapas
+        where od_validado == 1
         """,
         conn_data,
     )
@@ -267,9 +132,10 @@ def create_zones_table():
         etapas.groupby(
             "h3",
             as_index=False,
-        ).agg({'id': 'count',
+        ).agg({'factor_expansion_linea': 'sum',
                'latitud': 'mean',
-               'longitud': 'mean'}).rename(columns={'id': 'fex'})
+               'longitud': 'mean'})
+        .rename(columns={'factor_expansion_linea': 'fex'})
     )
     # TODO: redo how geoms are created here
     zonas = pd.concat([zonas, zonas_ant], ignore_index=True)
@@ -284,14 +150,8 @@ def create_zones_table():
 
     # Crea la latitud y la longitud en base al h3
     zonas["origin"] = zonas["h3"].apply(h3togeo)
-    zonas["lon"] = (
-        zonas["origin"].str.split(",").apply(
-            lambda x: x[1]).str.strip().astype(float)
-    )
-    zonas["lat"] = (
-        zonas["origin"].str.split(",").apply(
-            lambda x: x[0]).str.strip().astype(float)
-    )
+    zonas["lon"] = zonas["origin"].apply(bring_latlon, latlon='lon')
+    zonas["lat"] = zonas["origin"].apply(bring_latlon, latlon='lat')
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -315,7 +175,7 @@ def create_zones_table():
                 zonas = gpd.sjoin(zonas, zn, how="left")
                 zonas = zonas.drop(["index_right"], axis=1)
 
-            except KeyError:
+            except (KeyError, TypeError):
                 pass
 
     zonas = zonas.drop(["geometry"], axis=1)
@@ -329,7 +189,6 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     """
     This function creates transport zones based on the points in the dataset
     """
-    print('Crea zonas de transporte')
 
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
@@ -354,15 +213,20 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
                                       res=res)
 
     # Computa para ese hexagono el promedio ponderado de latlong
-    hexs = zonas.groupby('h3_r',
-                         as_index=False).fex.sum()
-    hexs = hexs.merge(zonas
+    zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
+
+    hexs = zonas_for_hexs.groupby('h3_r',
+                                  as_index=False).fex.sum()
+
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
-                          lambda x: np.average(x['longitud'], weights=x['fex']))
+                          lambda x: np.average(
+                              x['longitud'], weights=x['fex']))
                       .reset_index().rename(columns={0: 'longitud'}),
                       how='left')
-    hexs = hexs.merge(zonas
+
+    hexs = hexs.merge(zonas_for_hexs
                       .groupby('h3_r')
                       .apply(
                           lambda x: np.average(x['latitud'], weights=x['fex'])
@@ -401,14 +265,14 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
 
         hexs_tmp = hexs.groupby('h3_r', as_index=False).fex.sum()
         hexs_tmp = hexs_tmp.merge(
-            hexs
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(
                 lambda x: np.average(x['longitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'longitud'}),
             how='left')
         hexs_tmp = hexs_tmp.merge(
-            hexs
+            hexs[hexs.fex != 0]
             .groupby('h3_r')
             .apply(lambda x: np.average(x['latitud'], weights=x['fex']))
             .reset_index().rename(columns={0: 'latitud'}),
@@ -440,6 +304,9 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     voi['Zona_voi'] = voi['Zona_voi']+1
     voi['Zona_voi'] = voi['Zona_voi'].astype(str)
 
+    file = os.path.join("data", "data_ciudad", 'zona_voi.geojson')
+    voi[['Zona_voi', 'geometry']].to_file(file)
+
     zonas = zonas.drop(['h3_r'], axis=1)
     zonas['geometry'] = zonas['h3'].apply(add_geometry)
 
@@ -459,7 +326,7 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     print("Graba zonas en sql lite")
 
     # Plotea geoms de voronoi
-    plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
+    viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
 
 
 @duracion
@@ -468,6 +335,7 @@ def create_distances_table(use_parallel=False):
     Esta tabla toma los h3 de la tablas de etapas y viajes
     y calcula diferentes distancias para cada par que no tenga
     """
+
     configs = leer_configs_generales()
     resolucion_h3 = configs["resolucion_h3"]
     distancia_entre_hex = h3.edge_length(resolution=resolucion_h3, unit="km")
@@ -479,21 +347,21 @@ def create_distances_table(use_parallel=False):
     q = """
     select distinct h3_o,h3_d
     from viajes
+    WHERE h3_d != ''
     union
     select distinct h3_o,h3_d
     from (
             SELECT h3_o,h3_d
             from etapas
-            INNER JOIN destinos
-            ON etapas.id = destinos.id
+            WHERE h3_d != ''
     )
     """
-    pares_h3_data = pd.read_sql_query(q, conn_data).dropna()
+    pares_h3_data = pd.read_sql_query(q, conn_data)
 
     q = """
     select h3_o,h3_d, 1 as d from distancias
     """
-    pares_h3_distancias = pd.read_sql_query(q, conn_insumos).dropna()
+    pares_h3_distancias = pd.read_sql_query(q, conn_insumos)
 
     # Unir pares od h desde data y desde distancias y quedarse con
     # los que estan en data pero no en distancias
@@ -512,29 +380,57 @@ def create_distances_table(use_parallel=False):
         print('No se pudo usar la librería pandana. ')
         print('Se va a utilizar osmnx para el cálculo de distancias')
         print('')
-        agg2 = pares_h3_norm.groupby(
+        agg2_total = pares_h3_norm.groupby(
             ['h3_o_norm', 'h3_d_norm'],
             as_index=False).size().drop(['size'], axis=1)
 
-        agg2 = calculo_distancias_osm(
-            agg2,
-            h3_o="h3_o_norm",
-            h3_d="h3_d_norm",
-            distancia_entre_hex=distancia_entre_hex,
-            processing="osmnx",
-            modes=["drive"],
-            use_parallel=use_parallel
-        )
+        # Determine the size of each chunk (500 rows in this case)
+        chunk_size = 2000
 
-        distancias_new = pares_h3_norm.merge(agg2, how='left', on=[
-            "h3_o_norm", 'h3_d_norm'])
+        # Get the total number of rows in the DataFrame
+        total_rows = len(agg2_total)
 
-        cols = ['h3_o', 'h3_d', 'h3_o_norm', 'h3_d_norm',
-                'distance_osm_drive', 'distance_osm_walk', 'distance_h3']
+        # Loop through the DataFrame in chunks of 500 rows
+        for start in range(0, total_rows, chunk_size):
+            end = start + chunk_size
+            # Select the chunk of 500 rows from the DataFrame
+            agg2 = agg2_total.iloc[start:end].copy()
+            # Call the process_chunk function with the selected chunk
+            print(f'Bajando distancias entre {start} a {end}')
 
-        distancias_new = distancias_new.reindex(columns=cols)
-        distancias_new.to_sql("distancias", conn_insumos,
-                              if_exists="append", index=False)
+            agg2 = calculo_distancias_osm(
+                agg2,
+                h3_o="h3_o_norm",
+                h3_d="h3_d_norm",
+                distancia_entre_hex=distancia_entre_hex,
+                processing="osmnx",
+                modes=["drive"],
+                use_parallel=use_parallel
+            )
+
+            dist1 = agg2.copy()
+            dist1['h3_o'] = dist1['h3_o_norm']
+            dist1['h3_d'] = dist1['h3_d_norm']
+            dist2 = agg2.copy()
+            dist2['h3_d'] = dist2['h3_o_norm']
+            dist2['h3_o'] = dist2['h3_d_norm']
+            distancias_new = pd.concat([dist1, dist2], ignore_index=True)
+            distancias_new = distancias_new\
+                .groupby(['h3_o',
+                          'h3_d',
+                          'h3_o_norm',
+                          'h3_d_norm'],
+                         as_index=False)[['distance_osm_drive',
+                                          'distance_h3']].first()
+
+            distancias_new.to_sql("distancias", conn_insumos,
+                                  if_exists="append", index=False)
+
+            conn_insumos.close()
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+        conn_insumos.close()
+        conn_data.close()
 
 
 def calculo_distancias_osm(
@@ -568,33 +464,15 @@ def calculo_distancias_osm(
         if (origin not in df.columns) & (len(h3_o) > 0):
             origin = "origin"
             df[origin] = df[h3_o].apply(h3togeo)
-        df["lon_o_tmp"] = (
-            df[origin].str.split(",").apply(
-                lambda x: x[1]).str.strip().astype(float)
-        )
-        df["lat_o_tmp"] = (
-            df[origin].str.split(",").apply(
-                lambda x: x[0]).str.strip().astype(float)
-        )
+        df["lon_o_tmp"] = df[origin].apply(bring_latlon, latlon='lon')
+        df["lat_o_tmp"] = df[origin].apply(bring_latlon, latlon='lat')
 
     if (lon_d_tmp not in df.columns) | (lat_d_tmp not in df.columns):
         if (destination not in df.columns) & (len(h3_d) > 0):
             destination = "destination"
             df[destination] = df[h3_d].apply(h3togeo)
-        df["lon_d_tmp"] = (
-            df[destination]
-            .str.split(",")
-            .apply(lambda x: x[1])
-            .str.strip()
-            .astype(float)
-        )
-        df["lat_d_tmp"] = (
-            df[destination]
-            .str.split(",")
-            .apply(lambda x: x[0])
-            .str.strip()
-            .astype(float)
-        )
+        df["lon_d_tmp"] = df[destination].apply(bring_latlon, latlon='lon')
+        df["lat_d_tmp"] = df[destination].apply(bring_latlon, latlon='lat')
 
     ymin, xmin, ymax, xmax = (
         min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
@@ -611,13 +489,13 @@ def calculo_distancias_osm(
 
     for mode in modes:
         print("")
-        print(f"Coords OSM {mode} - Download map")
-        print("ymin, xmin, ymax, xmax", ymin, xmin, ymax, xmax)
-        print('Comienzo descarga de red', datetime.now())
+        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax,")
+        print(f"{round(ymin,3)}, {round(xmin,3)}, ")
+        print(f"{round(ymax,3)}, {round(xmax,3)}")
+        print(f" - {str(datetime.now())[:19]}")
 
-        print("")
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
-        print('Fin descarga de red', datetime.now())
+        print('Fin descarga de red', str(datetime.now())[:19])
 
         G = ox.add_edge_speeds(G)
         G = ox.add_edge_travel_times(G)
@@ -659,7 +537,7 @@ def calculo_distancias_osm(
     if 'distance_osm_walk' in df.columns:
         df.loc[df.distance_osm_walk > 2000, "distance_osm_walk"] = np.nan
 
-    df = df[cols + var_distances]
+    df = df[cols + var_distances].copy()
 
     if (len(h3_o) > 0) & (len(h3_d) > 0):
         df["distance_h3"] = df[[h3_o, h3_d]].apply(
@@ -702,11 +580,11 @@ def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
 
     if idmatrix % 2000 == 0:
         date_str = datetime.now().strftime("%H:%M:%S")
-        print(f"{date_str} processing {int(idmatrix)} / {lenx}")
+        print(f"{date_str} processing {int(idmatrix)} / ")
 
     try:
         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
-    except:
+    except NetworkXNoPath:
         ret = np.nan
     return ret
 
@@ -721,8 +599,9 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
 
     print(f'Comenzando a correr distancias para {n} pares OD',
           datetime.now().strftime("%H:%M:%S"))
-    print("Este proceso puede demorar algunas horas dependiendo del tamaño de la ciudad" +
-          " y si se corre por primera vez por lo que en la base de insumos no estan estos pares")
+    print("Este proceso puede demorar algunas horas dependiendo del tamaño " +
+          " de la ciudad y si se corre por primera vez por lo que en la base" +
+          " de insumos no estan estos pares")
 
     with multiprocessing.Pool(processes=n_cores) as pool:
         results = pool.map(partial(get_network_distance_osmnx, G=G), zip(
