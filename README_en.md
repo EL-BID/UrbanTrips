@@ -225,6 +225,7 @@ This is the data schema that `csv` files supplied as inputs to `urbantrips` must
 | `descripcion` | str | Optional. Additional description of the line or branch. |
 
 
+
 ### Lines geoms
 | Field | Type | Description |
 | -- | -- | -- |
@@ -315,7 +316,7 @@ Finally, once all the transactions that are of interest have been processed and 
 
 ```
 python urbantrips/run_postprocessing.py
-```
+
 
 
 ### Configurations for the Buenos Aires SUBE transactions dataset 
@@ -333,8 +334,6 @@ alias_db_insumos: amba
 
 lineas_contienen_ramales: True
 nombre_archivo_informacion_lineas: lineas_amba.csv
-
-
 imputar_destinos_min_distancia: True
 
 #ingresar el nombre de las variables
