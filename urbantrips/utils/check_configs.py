@@ -495,26 +495,6 @@ def check_config_errors(config_default):
     assert error_txt == '\n', error_txt
     print('Se concluyó el chequeo del archivo de configuración')
 
-def check_configs_file():
-
-    # Define the directory and file name
-    directory = 'configs'
-    file_name = 'configuraciones_generales.yaml'
-    file_path = os.path.join(directory, file_name)
-    
-    # Check if the directory exists, and if not, create it
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    
-    # Check if the YAML file exists, and if not, create it
-    if not os.path.exists(file_path):
-        # Create an empty YAML file
-        with open(file_path, 'w') as file:
-            yaml.dump({}, file)
-    
-            print(f"Se creo el archivo '{file_name}' en '{directory}'")
-
-
 @ duracion
 def check_config():
     """
@@ -528,7 +508,7 @@ def check_config():
     Returns:
     None
     """
-    check_configs_file()
+    
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     configs = leer_configs_generales()
     config_default = revise_configs(configs)
