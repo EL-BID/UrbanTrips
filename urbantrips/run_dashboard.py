@@ -21,7 +21,7 @@ def main():
     download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/1_Datos Generales.py', 
                         file_name = 'urbantrips/dashboard/pages/1_Datos Generales.py')
     download_githubfile(url_file = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/urbantrips/dashboard/pages/2_Indicadores de oferta.py', 
-                        file_name = 'urbantrips/dashboard/pages/2_Indicadores de oferta.py')
+                        file_name = 'urbantrips/dashboard/pages/2_Colectivos.py.py')
     
     print('')
     print('Debe correr desde la terminal streamlit run urbantrips/dashboard/dashboard.py')
