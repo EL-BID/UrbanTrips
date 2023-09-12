@@ -16,7 +16,6 @@ Para una discusión metodológica de cómo se imputan destinos y se construye la
 
 
 ## Agradecimientos
-
 Queremos agradecer la colaboración de los gobiernos de Ciudad de Buenos Aires, Córdoba, Mendoza y Bariloche que proveyeron datos y participaron de valiosas conversaciones para mejorar esta librería.
 
 ## Licencia
@@ -28,3 +27,4 @@ Copyright© 2023. Banco Interamericano de Desarrollo ("BID"). Uso autorizado. [A
 
 Felipe González ([@alephcero](https://github.com/alephcero/)) 
 Sebastián Anapolsky([@sanapolsky](https://github.com/sanapolsky/))
+

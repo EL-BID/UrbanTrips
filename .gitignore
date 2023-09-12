@@ -1,13 +1,11 @@
-# Data files
+# Archivos de datos
 data/*
-
-# Results files
-/resultados
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-
+/resultados
+/prueba_sa.ipynb
 *$py.class
 
 # C extensions
@@ -143,6 +141,7 @@ zonas_tmp.geojson
 od_matrix/utils/visuals_bk.py
 setup-Copy1.py
 run_urbantrips.ipynb
+run_urbantrips.ipynb
 configs/configuraciones_generales.yaml
 configs/configuraciones_generales.yaml
 configs/configuraciones_generales.yaml
@@ -171,6 +170,14 @@ configs/configuraciones_generales_test.yaml
 configs/configuraciones_generales.yaml
 *.yaml
 *.ipynb
-.github/desktop.ini
-*.ini
 run_services.ipynb
+.github/desktop.ini
+run_services.ipynb
+*.ipynb
+*.ini
+*.ipynb
+*.ipynb
+run_services.ipynb
+run_services.ipynb
+*.yaml
+*.ipynb
