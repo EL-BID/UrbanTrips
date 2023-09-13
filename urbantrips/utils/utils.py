@@ -53,6 +53,9 @@ def create_directories():
     db_path = os.path.join("resultados", "png")
     os.makedirs(db_path, exist_ok=True)
 
+    db_path = os.path.join("docs")
+    os.makedirs(db_path, exist_ok=True)
+
     db_path = os.path.join("resultados", "pdf")
     os.makedirs(db_path, exist_ok=True)
 

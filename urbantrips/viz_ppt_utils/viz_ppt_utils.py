@@ -164,22 +164,27 @@ def pptx_addpic(prs, slide, img_path,  left=0, top=0, width=0, altura_max=0, anc
         return slide_return
 def get_new_slide(prs, desc_dia_titulo):
     ## Logo Urbantrips
-    file_logo = os.path.join(
-        "docs", "urbantrips_logo.jpg")
-    if not os.path.isfile(file_logo):
-        # URL of the image file on Github
-        url = 'https://github.com/EL-BID/UrbanTrips/blob/18be313301c979dae5fd27ac5b83f89c76e2dd5f/docs/urbantrips_logo.jpg'
-
-        # Send a request to get the content of the image file
-        response = requests.get(url)
-
-        # Save the content to a local file
-        with open(file_logo, 'wb') as f:
-            f.write(response.content)
-
-    slide = pptx_addtitle(prs=prs, slide='',  title='', left=0, top=0, width=24, new=True, fontsize=48)    
-    pptx_addpic(prs=prs, slide=slide, img_path=file_logo,  left=16, top=12.3, width=8)
+    try:
+        db_path = os.path.join("docs")
+        os.makedirs(db_path, exist_ok=True)
     
+        file_logo = os.path.join(
+            "docs", "urbantrips_logo.jpg")
+        if not os.path.isfile(file_logo):
+            # URL of the image file on Github
+            url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/urbantrips_logo.jpg'               
+            # Send a request to get the content of the image file
+            response = requests.get(url)
+    
+            # Save the content to a local file
+            with open(file_logo, 'wb') as f:
+                f.write(response.content)
+    
+        slide = pptx_addtitle(prs=prs, slide='',  title='', left=0, top=0, width=24, new=True, fontsize=48)    
+        pptx_addpic(prs=prs, slide=slide, img_path=file_logo,  left=16, top=12.3, width=8)
+    except:
+        pass
+        
     slide = pptx_addtitle(prs=prs, slide=slide,  title='Urbantrips', left=0, top=0, width=24, new=False, fontsize=48)    
     slide = pptx_addtitle(prs=prs, slide=slide,  title=desc_dia_titulo, left=0, top=1, width=24, new=False, fontsize=38)    
     

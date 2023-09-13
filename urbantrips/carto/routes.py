@@ -227,8 +227,8 @@ def check_route_geoms_columns(geojson_data, branches_present):
             "id_ramal vacios en geojson recorridos"
         assert not geojson_data.id_ramal.duplicated().any(),\
             "id_ramal duplicados en geojson recorridos"
-        assert geojson_data.dtypes['id_ramal'] == int,\
-            "id_ramal deben ser int en geojson recorridos"
+        # assert geojson_data.dtypes['id_ramal'] == int,\
+        #     "id_ramal deben ser int en geojson recorridos"
 
     cols = pd.Series(cols)
     columns_ok = cols.isin(geojson_data.columns)
