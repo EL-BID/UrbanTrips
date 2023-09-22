@@ -2,7 +2,7 @@ import h3
 import os
 import pandas as pd
 import warnings
-
+import time
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (leer_configs_generales,
                                     duracion,
@@ -653,9 +653,10 @@ def geolocalizar_trx(
 
     trx = pd.read_sql_query(
         query,
-        conn,
-        parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
+        conn
     )
+    hour_diff = time.timezone
+    trx['fecha'] = pd.to_datetime(trx.fecha - hour_diff, unit='s')
 
     print(
         "Gelocalización terminada "
