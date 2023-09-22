@@ -1,5 +1,6 @@
 import pandas as pd
 import itertools
+import time
 from urbantrips.geo.geo import referenciar_h3
 from urbantrips.utils.utils import (
     duracion,
@@ -41,11 +42,13 @@ def create_legs_from_transactions(trx_order_params):
                             SELECT t.*
                             FROM transacciones t
                             JOIN dias_ultima_corrida d
-                            ON t.dia = d.dia
+                            ON t.dia = d.dia 
                             """,
-        conn,
-        parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"}
+        conn
     )
+    # parse dates using local timezone
+    hour_diff = time.timezone
+    legs['fecha'] = pd.to_datetime(legs.fecha - hour_diff, unit='s')
 
     # asignar id h3
     configs = leer_configs_generales()
