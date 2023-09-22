@@ -219,10 +219,6 @@ def create_transactions(geolocalizar_trx_config,
         1,
         var_fex='factor_expansion')
 
-    trx["fecha"] = pd.to_datetime(
-        trx["fecha"], format=formato_fecha, errors="coerce"
-    )
-
     trx = trx.sort_values('id')
 
     trx.to_sql("transacciones", conn, if_exists="append", index=False)
