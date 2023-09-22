@@ -9,7 +9,7 @@
 project = 'urbantrips'
 copyright = '2023, Felipe Gonzalez & Sebastian Anapolsky'
 author = 'Felipe Gonzalez & Sebastian Anapolsky'
-release = '0.2.0'
+release = '0.2.2'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
