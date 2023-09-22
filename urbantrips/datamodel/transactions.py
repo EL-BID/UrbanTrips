@@ -81,7 +81,6 @@ def create_transactions(geolocalizar_trx_config,
             formato_fecha=formato_fecha,
             crear_hora=crear_hora,
         )
-        print(trx.shape)
 
         trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
 
@@ -101,7 +100,6 @@ def create_transactions(geolocalizar_trx_config,
 
         # Eliminar trx fuera del bbox
         trx = eliminar_trx_fuera_bbox(trx)
-        print(trx.shape)
         agrego_indicador(
             trx,
             'Cantidad de transacciones latlon válidos',
@@ -171,6 +169,9 @@ def create_transactions(geolocalizar_trx_config,
     trx['id_tarjeta'] = trx['id_tarjeta'].str.zfill(zfill)
     tmp_trx_inicial['id_tarjeta'] = tmp_trx_inicial['id_tarjeta'].str.zfill(
         zfill)
+
+    # parse date into timestamp
+    trx["fecha"] = trx["fecha"].map(lambda s: s.timestamp())
 
     print(f"Subiendo {len(trx)} registros a la db")
 
@@ -655,8 +656,7 @@ def geolocalizar_trx(
         query,
         conn
     )
-    hour_diff = time.timezone
-    trx['fecha'] = pd.to_datetime(trx.fecha - hour_diff, unit='s')
+    trx['fecha'] = pd.to_datetime(trx.fecha, unit='s')
 
     print(
         "Gelocalización terminada "

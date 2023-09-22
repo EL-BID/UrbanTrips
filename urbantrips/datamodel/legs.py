@@ -47,8 +47,7 @@ def create_legs_from_transactions(trx_order_params):
         conn
     )
     # parse dates using local timezone
-    hour_diff = time.timezone
-    legs['fecha'] = pd.to_datetime(legs.fecha - hour_diff, unit='s')
+    legs['fecha'] = pd.to_datetime(legs.fecha, unit='s')
 
     # asignar id h3
     configs = leer_configs_generales()
