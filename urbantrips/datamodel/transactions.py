@@ -652,7 +652,8 @@ def geolocalizar_trx(
         query,
         conn
     )
-    trx['fecha'] = pd.to_datetime(trx.fecha, unit='s')
+    trx['fecha'] = pd.to_datetime(trx.fecha, unit='s',
+                                  errors='coerce')
 
     print(
         "Gelocalización terminada "

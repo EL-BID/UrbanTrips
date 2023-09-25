@@ -19,15 +19,6 @@ def create_legs_from_transactions(trx_order_params):
     """
 
     conn = iniciar_conexion_db(tipo='data')
-    # q = """
-    # SELECT * from transacciones t
-    # where t.id > (select coalesce(max(id),-1) from etapas)
-    # """
-    # legs = pd.read_sql_query(
-    #     q,
-    #     conn,
-    #     parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
-    # )
 
     dias_ultima_corrida = pd.read_sql_query(
         """
@@ -47,7 +38,8 @@ def create_legs_from_transactions(trx_order_params):
         conn
     )
     # parse dates using local timezone
-    legs['fecha'] = pd.to_datetime(legs.fecha, unit='s')
+    legs['fecha'] = pd.to_datetime(legs.fecha, unit='s',
+                                   errors='coerce')
 
     # asignar id h3
     configs = leer_configs_generales()
