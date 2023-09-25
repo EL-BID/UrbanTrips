@@ -425,7 +425,7 @@ def create_basic_data_model_tables():
         """
         CREATE TABLE IF NOT EXISTS transacciones
             (id INT NOT NULL,
-            fecha datetime NOT NULL,
+            fecha int NOT NULL,
             id_original text,
             id_tarjeta text,
             dia text,
@@ -596,7 +596,7 @@ def crear_tablas_geolocalizacion():
                 id INT PRIMARY KEY NOT NULL,
                 id_original int,
                 id_tarjeta text,
-                fecha datetime,
+                fecha int,
                 dia text,
                 tiempo text,
                 hora int,
@@ -613,7 +613,7 @@ def crear_tablas_geolocalizacion():
 
     conn_data.execute(
         """
-            CREATE INDEX IF NOT EXISTS trx_idx ON trx_eco (
+            CREATE INDEX IF NOT EXISTS trx_idx_r ON trx_eco (
                 "id_linea","id_ramal","interno","fecha"
                 );
             """
@@ -621,8 +621,24 @@ def crear_tablas_geolocalizacion():
 
     conn_data.execute(
         """
-            CREATE INDEX  IF NOT EXISTS gps_idx ON gps (
+            CREATE INDEX  IF NOT EXISTS gps_idx_r ON gps (
                 "id_linea","id_ramal","interno","fecha"
+                );
+        """
+    )
+
+    conn_data.execute(
+        """
+            CREATE INDEX IF NOT EXISTS trx_idx_l ON trx_eco (
+                "id_linea","interno","fecha"
+                );
+            """
+    )
+
+    conn_data.execute(
+        """
+            CREATE INDEX  IF NOT EXISTS gps_idx_l ON gps (
+                "id_linea","interno","fecha"
                 );
         """
     )
