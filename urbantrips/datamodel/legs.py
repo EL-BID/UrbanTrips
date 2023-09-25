@@ -145,7 +145,7 @@ def change_card_id_for_concurrent_trx(trx,
                                       trx_order_params, dias_ultima_corrida):
     """
     Changes card id for those cards with concurrent transactions as defined by
-     the parameters in  .
+    the parameters in  trx_order_params.
     Adds a _0 to the card id for the first concurrent transaction, _1 for the
     next and so on. It creates a duplicated cards table in the db.
 
@@ -156,6 +156,9 @@ def change_card_id_for_concurrent_trx(trx,
 
     trx_order_params : dict
         parameters that define order of transactions and concurrent criteria
+
+    dias_ultima_corrida: pd.Series
+        last processsed days for urbantrips
 
     Returns
     ----------
@@ -322,7 +325,7 @@ def asignar_id_viaje_etapa(trx, trx_order_params):
     trx : pandas DataFrame
         transactions data
 
-    ventana_duplicado : dict
+    trx_order_params : dict
         dict with parameters for ordering criteria, trips window in minutes
         and duplicated time window in minutes
 
@@ -363,7 +366,7 @@ def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
         transactions data
 
     ventana_viajes : int
-        time windowd in minutes to consider transactions as part of the
+        time window in minutes to consider transactions as part of the
         same trip
 
     Returns
