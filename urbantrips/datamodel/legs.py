@@ -116,10 +116,22 @@ def create_legs_from_transactions(trx_order_params):
 
 def crear_delta_trx(trx):
     """
-    Esta funcion toma una tabla trx con un campo de fecha completo
-    con horas y minutos y calcula un delta en segundos para cada trx
-    con respecto a la trx anterior
+    Takes a transactions df with a date in datetime format with hour minutes
+    and seconds and computes a time delta in seconds with the previous
+    transaction
+    Parameters
+    ----------
+    trx : pandas DataFrame
+        transactions data with complete datetime
+
+    Returns
+    ----------
+
+    X: pandas DataFrame
+        transactions data with time delta in seconds
+
     """
+
     print("Creando delta de trx")
     trx = trx.sort_values(["dia", "id_tarjeta", "fecha"])
 
@@ -197,10 +209,26 @@ def change_card_id_for_concurrent_trx(trx,
 
 def cambiar_id_tarjeta_trx_simul_fecha(trx, ventana_duplicado):
     """
-    Esta funcion toma un DF de trx y una ventana de tiempo en minutos
-    para detectar duplicados y asigna un nuevo id_tarjeta a estos en
-    base al delta de tiempo con respecto a la trx anterior
+    Takes a transaction dataframe with a time delta and
+    a time window for duplciates in minutes,
+    detects duplicated transactions and assigns a new card id
+
+    Parameters
+    ----------
+    trx : pandas DataFrame
+        transactions data
+
+    ventana_duplicado : int
+        minutes to consider two transactions as duplicated
+
+    Returns
+    ----------
+
+    X: pandas DataFrame
+        legs with new card ids
+
     """
+
     # convertir ventana en segundos
     ventana_duplicado = ventana_duplicado * 60
     # seleccinar atributos para considerar duplicados
@@ -293,11 +321,27 @@ def cambiar_id_tarjeta_trx_simul_orden_trx(trx):
 
 def asignar_id_viaje_etapa(trx, trx_order_params):
     """
-    Esta funcion toma un DF de trx
-    un dict con el criterio de asignar ids viajes-etapa y ventana de tiempo
-    y asigna id_viaje y id_etapa
-    en base a ventana de tiempo o a hora y orden_trx
+    Takes a transaction dataframe with a time delta and
+    a ordering parameters dict and assigns trips and leg id
+    based on the transactions ordering parameters
+
+    Parameters
+    ----------
+    trx : pandas DataFrame
+        transactions data
+
+    ventana_duplicado : dict
+        dict with parameters for ordering criteria, trips window in minutes
+        and duplicated time window in minutes
+
+    Returns
+    ----------
+
+    X: pandas DataFrame
+        legs with new trips and legs ids
+
     """
+
     print("Crear un id para viajes y etapas")
 
     if trx_order_params["criterio"] == "orden_trx":
@@ -318,9 +362,26 @@ def asignar_id_viaje_etapa(trx, trx_order_params):
 
 def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
     """
-    Esta funcion toma un DF de trx y asigna id_viaje y id_etapa
-    en base al dia, delta de trx y a una ventana de tiempo
+    Takes a transaction dataframe with a time delta in seconds and
+    a time window in minutes
+
+    Parameters
+    ----------
+    trx : pandas DataFrame
+        transactions data
+
+    ventana_viajes : int
+        time windowd in minutes to consider transactions as part of the
+        same trip
+
+    Returns
+    ----------
+
+    X: pandas DataFrame
+        legs with new trips and legs ids
+
     """
+
     # turn into seconds
     ventana_viajes = ventana_viajes * 60
 
