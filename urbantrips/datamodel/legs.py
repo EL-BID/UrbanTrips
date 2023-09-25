@@ -321,6 +321,8 @@ def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
     Esta funcion toma un DF de trx y asigna id_viaje y id_etapa
     en base al dia, delta de trx y a una ventana de tiempo
     """
+    # turn into seconds
+    ventana_viajes = ventana_viajes * 60
 
     trx = trx.sort_values(["dia", "id_tarjeta", "fecha"])
 
