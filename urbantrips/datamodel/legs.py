@@ -33,7 +33,7 @@ def create_legs_from_transactions(trx_order_params):
                             SELECT t.*
                             FROM transacciones t
                             JOIN dias_ultima_corrida d
-                            ON t.dia = d.dia 
+                            ON t.dia = d.dia
                             """,
         conn
     )
