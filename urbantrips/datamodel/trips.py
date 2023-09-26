@@ -1,4 +1,6 @@
 
+import numpy as np
+import multiprocessing
 import pandas as pd
 from urbantrips.utils.utils import (
     duracion,
@@ -41,10 +43,19 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
     df = df.merge(viajes_temp, how='left', on=[
                   'dia', 'id_tarjeta', 'id_viaje', 'id_etapa'])
 
-    cumsum_mismo_od = df\
-        .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
-        .groupby(['id_tarjeta', 'dia'])['mismo_od']\
-        .apply(crear_cumsum_mismo_od)
+    # cumsum_mismo_od = df\
+    #    .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
+    #    .groupby(['id_tarjeta', 'dia'])['mismo_od']\
+    #    .apply(crear_cumsum_mismo_od)
+
+    df_paralel = df.reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])
+    n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
+    df_split = np.array_split(df_paralel, n_cores)
+    pool = multiprocessing.Pool(n_cores)
+
+    cumsum_mismo_od = pd.concat(pool.starmap(cumsum_paralel, zip(df_split)))
+    pool.close()
+    pool.join()
 
     df.loc[:, ['cumsum']] = cumsum_mismo_od.values
 
@@ -89,6 +100,11 @@ def crear_viaje_temp(df):
     df = df.loc[mask, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']]
     df['mismo_od'] = 1
     return df
+
+
+def cumsum_paralel(df):
+    df_grouped = df.groupby(['id_tarjeta', 'dia'])['mismo_od']
+    return df_grouped.transform(crear_cumsum_mismo_od)
 
 
 def crear_cumsum_mismo_od(s):
