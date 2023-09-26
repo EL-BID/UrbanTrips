@@ -7,12 +7,22 @@ from urbantrips.utils.utils import (
 
 def cambia_id_viajes_etapas_tarjeta_dia(df):
     """
-    Esta funcion toma un df de etapas con destinos
-    evalua si a nivel de viaje coincide el par od
-    y para esos casos cambia los ids de viaje y etapa
-    tomando la ultima etapa de cada viaje y convirtiendolo
-    en un viaje en si mismo
+    Takes a legs dataframe with legs and trips id and splits
+    trips with same id into 2 trips with different ids
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        legs dataframe
+
+    Returns
+    ----------
+
+    pandas DataFrame
+        legs with new trips ids
+
     """
+
     # produce una tabla temporal de viajes
     # para detectar los que tienen mismo par od
     viajes_temp = crear_viaje_temp(df)
@@ -20,8 +30,12 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
     # dejar solamente con las tarjeta dia que tienen problemas
     tarjeta_dia_problemas = viajes_temp.reindex(
         columns=['dia', 'id_tarjeta']).drop_duplicates()
+
     df = df.merge(tarjeta_dia_problemas,
                   on=['dia', 'id_tarjeta'], how='inner')
+
+    print(f"Modificando id_viajes en {len(df)} etapas")
+    print(f"de {len(viajes_temp)} viajes")
 
     # sumar la informacion de la ultima etapa
     df = df.merge(viajes_temp, how='left', on=[
@@ -29,13 +43,14 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
 
     cumsum_mismo_od = df\
         .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
-        .groupby(['id_tarjeta', 'dia'])\
-        .apply(crear_cumsum_mismo_od)['mismo_od']
-    df['cumsum'] = cumsum_mismo_od.values
+        .groupby(['id_tarjeta', 'dia'])['mismo_od']\
+        .apply(crear_cumsum_mismo_od)
+
+    df.loc[:, ['cumsum']] = cumsum_mismo_od.values
 
     # crear nuevos id viaje y etapa
-    df['nuevo_id_viaje'] = (df.id_viaje + df['cumsum']).map(int)
-    df['nuevo_id_etapa'] = df.id_etapa.copy()
+    df.loc[:, ['nuevo_id_viaje']] = (df.id_viaje + df['cumsum']).map(int)
+    df.loc[:, ['nuevo_id_etapa']] = df.id_etapa.copy()
     df.loc[df.mismo_od == 1, 'nuevo_id_etapa'] = 1
 
     df = df\
@@ -77,34 +92,18 @@ def crear_viaje_temp(df):
 
 
 def crear_cumsum_mismo_od(s):
-    return s.cumsum().fillna(method='ffill').fillna(0)
+    return s.cumsum().ffill().fillna(0)
+
 
 @duracion
 def create_trips_from_legs():
     """
-    Esta función corrige los factores de expansión y toma la tabla de etapas
-    produce la de viajes y usuarios
+    Loads the legs table form the db and produces and uploads to the db the
+    trips and users table, updating expansion factor in the process
     """
 
-    
     # Leer etapas que no esten en ya viajes por id_tarjeta, id_viaje, dia
     conn = iniciar_conexion_db(tipo='data')
-
-    # etapas = pd.read_sql_query(
-    #     """
-    #     with etapas_not_viajes as (
-    #     select e.*
-    #     from etapas e
-    #     LEFT JOIN viajes v
-    #     USING (id_tarjeta,id_viaje,dia)
-    #     where v.id_tarjeta is null and e.od_validado==1
-    #     )
-    #     SELECT e.*
-    #     FROM etapas_not_viajes e
-    #     ORDER BY dia,id_tarjeta,id_viaje,id_etapa,hora
-    #     """,
-    #     conn,
-    # )
 
     dias_ultima_corrida = pd.read_sql_query(
         """
@@ -346,29 +345,25 @@ def create_trips_from_legs():
 @duracion
 def rearrange_trip_id_same_od():
     """
-    Esta funcion toma la tabla de etapas y altera los ids de etapas que
-    al eslabonarse en viajes, resultan con un mismo par od
-    """
+    Takes a legs dataframe with legs and trips id and splits
+    trips with same id into 2 trips with different ids and uploads
+    new legs to the db
 
+    Parameters
+    ----------
+    df : pandas DataFrame
+        legs dataframe
+
+    Returns
+    ----------
+
+    pandas DataFrame
+        legs with new trips ids
+
+    """
     conn_data = iniciar_conexion_db(tipo='data')
 
     print("Leer etapas")
-    # Traer etapas que no esten ya procesadas en viajes
-    # etapas = pd.read_sql_query(
-    #     """
-    #     with etapas_not_viajes as (
-    #     select e.*
-    #     from etapas e
-    #     LEFT JOIN viajes v
-    #     USING (id_tarjeta,id_viaje,dia)
-    #     where v.id_tarjeta is null
-    #     )
-    #     SELECT e.*
-    #     FROM etapas_not_viajes e
-    #     ORDER BY dia,id_tarjeta,id_viaje,id_etapa,hora
-    #     """,
-    #     conn_data,
-    # )
 
     dias_ultima_corrida = pd.read_sql_query(
         """
