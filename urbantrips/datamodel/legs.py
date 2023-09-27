@@ -1,6 +1,7 @@
 import pandas as pd
 import itertools
 import time
+import numpy as np
 from urbantrips.geo.geo import referenciar_h3
 from urbantrips.utils.utils import (
     duracion,
