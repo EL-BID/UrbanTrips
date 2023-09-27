@@ -53,6 +53,7 @@ def create_legs_from_transactions(trx_order_params):
         legs = crear_delta_trx(legs)
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
+
     # asignar nuevo id tarjeta trx simultaneas
     legs = change_card_id_for_concurrent_trx(
         legs, trx_order_params, dias_ultima_corrida)
@@ -171,18 +172,8 @@ def change_card_id_for_concurrent_trx(trx,
 
     print("Creando nuevos id tajetas para trx simultaneas")
     trx_c = trx.copy()
-    if trx_order_params["criterio"] == "orden_trx":
-        print("Utilizando orden_trx")
-        trx_c, tarjetas_duplicadas = cambiar_id_tarjeta_trx_simul_orden_trx(
-            trx_c)
-    elif trx_order_params["criterio"] == "fecha_completa":
-        print("Utilizando fecha completa")
-        ventana_duplicado = trx_order_params["ventana_duplicado"]
-        trx_c, tarjetas_duplicadas = cambiar_id_tarjeta_trx_simul_fecha(
-            trx_c, ventana_duplicado
-        )
-    else:
-        raise ValueError("ordenamiento_transacciones mal especificado")
+
+    trx_c, tarjetas_duplicadas = pago_doble_tarjeta(trx_c, trx_order_params)
 
     print(f"Subiendo {len(tarjetas_duplicadas)} tarjetas duplicadas a la db")
     if len(tarjetas_duplicadas) > 0:
@@ -200,6 +191,87 @@ def change_card_id_for_concurrent_trx(trx,
     print("Fin creacion nuevos id tajetas para trx simultaneas")
 
     return trx_c
+
+
+def pago_doble_tarjeta(trx, trx_order_params):
+    """
+    Takes a transaction dataframe with a time delta and
+    a time window for duplciates in minutes,
+    detects duplicated transactions and assigns a new card id
+
+    Parameters
+    ----------
+    trx : pandas DataFrame
+        transactions data
+
+    trx_order_params : dict
+        parameters that define order of transactions and concurrent criteria
+
+    Returns
+    ----------
+
+    trx: pandas DataFrame
+        transactions with new card ids
+
+    tarjetas_duplicadas: pandas DataFrame
+        dataframe with old and new card ids  
+
+    """
+
+    ventana_duplicado = trx_order_params["ventana_duplicado"]
+
+    cols = trx.columns
+
+    if trx_order_params["criterio"] == "fecha_completa":
+        diff_segundos = ventana_duplicado*60
+
+        trx['fecha_aux'] = trx['fecha'].astype(str).str[-8:]
+
+        trx['fecha_aux'] = trx['fecha_aux'].apply(lambda x: sum(
+            int(i) * 60 ** j for j, i in enumerate(x.split(":")[::-1])))
+
+    elif trx_order_params["criterio"] == "orden_trx":
+        trx.loc[:, ['fecha_aux']] = trx['hora']
+        diff_segundos = 1
+
+    else:
+        raise ValueError("ordenamiento_transacciones mal especificado")
+
+    trx = trx.sort_values(['dia', 'id_tarjeta', 'id_linea',
+                          'interno', 'fecha_aux', 'orden_trx']).reset_index(drop=True)
+
+    trx["datetime_proximo"] = trx["fecha_aux"].shift(-1)
+
+    trx['diff_datetime'] = (trx.fecha_aux - trx.datetime_proximo).abs()
+
+    trx['diff_datetime2'] = trx.groupby(
+        ['dia', 'id_tarjeta', 'id_linea', 'interno']).diff_datetime.shift(+1)
+
+    trx['nro'] = np.nan
+    trx.loc[(trx.diff_datetime2.isna()) | (
+        trx.diff_datetime2 > diff_segundos), 'nro'] = 0
+
+    while len(trx[trx.nro.isna()]) > 0:
+        trx['nro2'] = trx.groupby(
+            ['dia', 'id_tarjeta', 'id_linea', 'interno']).nro.shift(+1)+1
+        trx.loc[trx.nro.isna() & (trx.nro2.notna()),
+                'nro'] = trx.loc[trx.nro.isna() & (trx.nro2.notna()), 'nro2']
+
+    trx['id_tarjeta_nuevo'] = trx['id_tarjeta'] + \
+        '_' + trx['nro'].astype(int).astype(str)
+
+    tarjetas_duplicadas = trx\
+        .reindex(columns=['dia', 'id_tarjeta', 'id_tarjeta_nuevo'])\
+        .rename(columns={'id_tarjeta': 'id_tarjeta_original'})\
+        .drop_duplicates()
+
+    trx = trx\
+        .drop('id_tarjeta', axis=1)\
+        .rename(columns={'id_tarjeta_nuevo': 'id_tarjeta'})
+
+    trx = trx.reindex(columns=cols)
+
+    return trx, tarjetas_duplicadas
 
 
 def cambiar_id_tarjeta_trx_simul_fecha(trx, ventana_duplicado):
