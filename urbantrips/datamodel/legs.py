@@ -261,7 +261,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
     trx['id_tarjeta_nuevo'] = trx['id_tarjeta'] + \
         '_' + trx['nro'].astype(int).astype(str)
 
-    tarjetas_duplicadas = trx\
+    tarjetas_duplicadas = trx.loc[trx['nro'] > 0]\
         .reindex(columns=['dia', 'id_tarjeta', 'id_tarjeta_nuevo'])\
         .rename(columns={'id_tarjeta': 'id_tarjeta_original'})\
         .drop_duplicates()
