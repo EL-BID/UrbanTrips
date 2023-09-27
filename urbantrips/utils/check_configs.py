@@ -9,7 +9,8 @@ import re
 import ast
 from urbantrips.utils.utils import (leer_configs_generales,
                                     iniciar_conexion_db,
-                                    duracion
+                                    duracion,
+                                    leer_alias
                                     )
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -282,7 +283,47 @@ def write_config(config_default):
 
             file.write('\n')
 
-            
+def check_lineas(config_default):
+    alias_ciudad = leer_alias(tipo='insumos')
+    if not config_default.loc[config_default.variable=='nombre_archivo_informacion_lineas', 'default'].values[0]:
+        config_default.loc[config_default.variable=='nombre_archivo_informacion_lineas', 'default'] = f'{alias_ciudad}lineas.csv'
+    
+    nombre_archivo_informacion_lineas = config_default.loc[config_default.variable=='nombre_archivo_informacion_lineas', 'default'].values[0]
+    
+    if len(config_default.loc[(config_default.variable=='modos')&(config_default.default!='')]) == 0:
+        config_default.loc[(config_default.variable=='modos')&(config_default.subvar=='autobus'), 'default'] = 'autobus'
+    
+    path_archivo_lineas = os.path.join("data", "data_ciudad", nombre_archivo_informacion_lineas)    
+    if not os.path.isfile(path_archivo_lineas):
+        print("Creo archivo con información de líneas")
+        nombre_archivo_trx = config_default.loc[config_default.variable=='nombre_archivo_trx', 'default'].values[0]
+        modo_trx = config_default.loc[config_default.subvar=='modo_trx', 'default'].values[0]
+        id_linea_trx = config_default.loc[config_default.subvar=='id_linea_trx', 'default'].values[0]
+        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)    
+        trx = pd.read_csv(ruta)
+        
+        cols = [id_linea_trx]
+        if modo_trx:
+            cols+= [modo_trx]
+        lineas = trx.groupby(cols, as_index=False).size().drop(['size'], axis=1)
+        
+        if not modo_trx:
+            modo_trx = 'modo_trx'    
+            autobus = config_default.loc[(config_default.variable=='modos')&(config_default.subvar=='autobus'), 'default'].values[0]
+            lineas[modo_trx] = autobus
+            lineas = lineas.rename(columns={id_linea_trx:'id_linea', modo_trx:'modo'})
+    else:
+        lineas = pd.read_csv(path_archivo_lineas)
+    
+    if not 'modo' in lineas: lineas['modo'] = config_default.loc[(config_default.variable=='modos')&(config_default.subvar=='autobus'), 'default'].values[0]
+    if not 'nombre_linea' in lineas: lineas['nombre_linea'] = ''
+    if not 'id_linea_agg' in lineas: lineas['id_linea_agg'] = ''
+    if not 'nombre_linea_agg' in lineas: lineas['nombre_linea_agg'] = ''
+    lineas = lineas.fillna('')
+    lineas.to_csv(path_archivo_lineas, index=False)
+    
+    return config_default
+    
 def check_config_errors(config_default):
 
     conf_path = os.path.join("docs", 'configuraciones.xlsx')
@@ -532,5 +573,6 @@ def check_config():
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     configs = leer_configs_generales()
     config_default = revise_configs(configs)
+    config_default = check_lineas(config_default)
     write_config(config_default)
     check_config_errors(config_default)
