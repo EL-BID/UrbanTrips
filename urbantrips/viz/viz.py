@@ -34,7 +34,9 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     leer_alias,
     duracion)
+import warnings
 
+warnings.filterwarnings("ignore")
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     """
@@ -800,7 +802,7 @@ def imprimir_matrices_od(viajes,
                 x_rotation=90,
                 normalize=True,
                 cmap="Reds",
-                title='Matriz OD viajes punta mañana',
+                title='Matriz OD viajes punta maí±ana',
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
@@ -808,7 +810,7 @@ def imprimir_matrices_od(viajes,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
-                filtro1='Punta mañana'
+                filtro1='Punta maí±ana'
             )
 
         if mediodia != None:
@@ -821,7 +823,7 @@ def imprimir_matrices_od(viajes,
                 x_rotation=90,
                 normalize=True,
                 cmap="Reds",
-                title='Matriz OD viajes punta mediodía',
+                title='Matriz OD viajes punta mediodí­a',
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_mediodia",
@@ -829,7 +831,7 @@ def imprimir_matrices_od(viajes,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
-                filtro1='Punta mediodía'
+                filtro1='Punta mediodí­a'
 
             )
 
@@ -859,7 +861,7 @@ def imprime_lineas_deseo(df,
                          h3_o='',
                          h3_d='',
                          var_fex='',
-                         title='Líneas de deseo',
+                         title='Lí­neas de deseo',
                          savefile='lineas_deseo',
                          k_jenks=5,
                          filtro1='',
@@ -1015,7 +1017,7 @@ def imprime_lineas_deseo(df,
                 alpha=.4,
                 cmap='magma_r',
                 porc_viajes=90,
-                title=f'{title}\nViajes en hora punta mañana',
+                title=f'{title}\nViajes en hora punta maí±ana',
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
                 show_fig=False,
                 normalizo_latlon=False,
@@ -1024,7 +1026,7 @@ def imprime_lineas_deseo(df,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
-                filtro1='Punta Mañana')
+                filtro1='Punta Maí±ana')
 
         if mediodia != None:
             lineas_deseo(df[
@@ -1047,7 +1049,7 @@ def imprime_lineas_deseo(df,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
-                filtro1='Punta Mediodía')
+                filtro1='Punta Mediodí­a')
 
         if tarde != None:
             lineas_deseo(df[
@@ -1072,7 +1074,71 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Tarde')
 
-
+def indicadores_hora_punta(viajesxhora_dash, desc_dia):
+    
+    conn_data = iniciar_conexion_db(tipo='data')
+    
+    try:
+        indicadores = pd.read_sql_query(
+            """
+            SELECT *
+            FROM indicadores
+            """,
+            conn_data,
+        )
+    except DatabaseError as e:
+        print("No existe la tabla indicadores, construyendola...")
+        indicadores = pd.DataFrame([])
+    
+    ind_horas = pd.DataFrame([])
+    
+    for modo in viajesxhora_dash.Modo.unique():
+        
+        vi = viajesxhora_dash[viajesxhora_dash.Modo==modo].reset_index(drop=True)
+        descrip = ''
+        if modo != 'Todos':
+            descrip = f' ({modo.capitalize()})'
+        
+        ind_horas = pd.concat([
+            ind_horas,
+            pd.DataFrame([
+                [desc_dia, 
+                f'Hora punta maí±ana{descrip}', 
+                vi.iloc[vi[(vi.Hora>='05')&(vi.Hora<'12')].Viajes.idxmax()].Hora,
+                'viajesxhora',
+                0,
+                0]
+                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+        ind_horas = pd.concat([
+            ind_horas,
+            pd.DataFrame([
+                [desc_dia, 
+                f'Hora punta mediodí­a{descrip}', 
+                vi.iloc[vi[(vi.Hora>='12')&(vi.Hora<'15')].Viajes.idxmax()].Hora,
+                'viajesxhora',
+                0,
+                0]
+                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+        ind_horas = pd.concat([
+            ind_horas,
+            pd.DataFrame([
+                [desc_dia, 
+                f'Hora punta tarde{descrip}', 
+                vi.iloc[vi[(vi.Hora>='15')&(vi.Hora<'22')].Viajes.idxmax()].Hora,
+                'viajesxhora',
+                0,
+                0]
+                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+    
+    ind_horas['indicador'] = ind_horas['indicador'].astype(float)
+    
+    indicadores = indicadores[~((indicadores.dia==desc_dia)&(indicadores.tabla=='viajesxhora'))]
+    indicadores = pd.concat([indicadores, ind_horas])
+    indicadores.to_sql("indicadores", conn_data,
+                       if_exists="replace", index=False)
+    
+    
+    conn_data.close()
 def imprime_graficos_hora(viajes,
                           title='Cantidad de viajes en transporte público',
                           savefile='viajes',
@@ -1189,6 +1255,8 @@ def imprime_graficos_hora(viajes,
                             if_exists="append", index=False)
 
     conn_dash.close()
+    
+    indicadores_hora_punta(viajesxhora_dash, desc_dia)
 
     # Viajes por hora
     savefile_ = f'{savefile}_modo'
@@ -1833,7 +1901,7 @@ def lineas_deseo(df,
                  alpha=.4,
                  cmap='viridis_r',
                  porc_viajes=100,
-                 title='Líneas de deseo',
+                 title='Lí­neas de deseo',
                  savefile='lineas_deseo',
                  show_fig=True,
                  normalizo_latlon=True,
@@ -2141,7 +2209,7 @@ def crear_mapa_folium(df_agg,
 
 def save_zones():
     """
-    Esta función guarda las geografías de las zonas para el dashboard
+    Esta función guarda las geografí­as de las zonas para el dashboard
     """
     print('Creando zonificación para dashboard')
 
@@ -2292,7 +2360,7 @@ def plot_dispatched_services_by_line_day(df):
     ax.set_xlabel("Hora")
     ax.set_ylabel("Cantidad de servicios despachados")
 
-    f.suptitle(f"Cantidad de servicios despachados por hora y día",
+    f.suptitle(f"Cantidad de servicios despachados por hora y dí­a",
                fontdict={'size': 18,
                          'weight': 'bold'})
     ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
@@ -2349,7 +2417,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     s = f"select nombre_linea from metadata_lineas" +\
-        f" where id_linea = {line_id};"
+        f" where id_linea = {line_id} AND nombre_linea IS NOT NULL;"
 
     id_linea_str = pd.read_sql(s, conn_insumos)
     conn_insumos.close()
@@ -2552,7 +2620,9 @@ def indicadores_dash():
         """,
         conn_data,
     )
-
+    
+    indicadores = indicadores[~indicadores.detalle.str.contains('Hora punta')] # REVISAR ESTO
+    
     indicadores['dia'] = pd.to_datetime(indicadores.dia)
     indicadores['dow'] = indicadores.dia.dt.dayofweek
     indicadores['mo'] = indicadores.dia.dt.month
@@ -2692,14 +2762,14 @@ def create_visualizations():
     viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
     viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
     viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Día hábil'
+    viajes.loc[viajes.dow < 5, 'tipo_dia'] = 'Dia habil'
 
     # Imputar anio, mes y tipo de dia
     etapas['yr'] = pd.to_datetime(etapas.dia).dt.year
     etapas['mo'] = pd.to_datetime(etapas.dia).dt.month
     etapas['dow'] = pd.to_datetime(etapas.dia).dt.day_of_week
     etapas.loc[etapas.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Día hábil'
+    etapas.loc[etapas.dow < 5, 'tipo_dia'] = 'Dia habil'
 
     v_iter = viajes\
         .groupby(['yr', 'mo', 'tipo_dia'], as_index=False)\
@@ -2708,8 +2778,8 @@ def create_visualizations():
 
     for _, i in v_iter:
 
-        desc_dia = f'{str(i.mo).zfill(2)}/{i.yr} ({i.tipo_dia})'
-        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
+        desc_dia = f'{i.yr}-{str(i.mo).zfill(2)} ({i.tipo_dia})'
+        desc_dia_file = f'{str(i.mo).zfill(2)}-{i.yr}({i.tipo_dia})'
 
         viajes_dia = viajes[(viajes.yr == i.yr) & (
             viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
@@ -2718,7 +2788,7 @@ def create_visualizations():
             etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
 
         # partición modal
-        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}')
+        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
 
         print('Imprimiendo tabla de matrices OD')
         # Impirmir tablas con matrices OD
@@ -2730,13 +2800,13 @@ def create_visualizations():
                              tipo_dia=i.tipo_dia,
                              )
 
-        print('Imprimiendo mapas de líneas de deseo')
+        print('Imprimiendo mapas de lí­neas de deseo')
         # Imprimir lineas de deseo
         imprime_lineas_deseo(df=viajes_dia,
                              h3_o='',
                              h3_d='',
                              var_fex='factor_expansion_linea',
-                             title=f'Líneas de deseo {desc_dia}',
+                             title=f'Lí­neas de deseo {desc_dia}',
                              savefile=f'{desc_dia_file}',
                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
                              tipo_dia=i.tipo_dia)
