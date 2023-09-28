@@ -352,7 +352,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
 @st.cache_data
 def traigo_nombre_lineas(df):
-    return df[df.nombre_linea.notna()].sort_values('nombre_linea').nombre_linea.unique()
+    return df[(df.nombre_linea.notna())&(df.nombre_linea!='')].sort_values('nombre_linea').nombre_linea.unique()
     
 
 st.set_page_config(layout="wide")
