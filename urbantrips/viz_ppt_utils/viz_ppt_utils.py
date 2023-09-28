@@ -322,25 +322,25 @@ def slide_1(prs,
     df_indicadores['tipo_dia'] = tipo_dia
     
     
-    conn_dash = iniciar_conexion_db(tipo='dash')
+    # conn_dash = iniciar_conexion_db(tipo='dash')
 
-    df_indicadores_ant = pd.read_sql_query(
-    """
-    SELECT *
-    FROM indicadores
-    """,
-    conn_dash,
-    )
+    # df_indicadores_ant = pd.read_sql_query(
+    # """
+    # SELECT *
+    # FROM indicadores
+    # """,
+    # conn_dash,
+    # )
 
-    df_indicadores_ant = df_indicadores_ant[~(
-               (df_indicadores_ant.desc_dia==desc_dia)&
-               (df_indicadores_ant.tipo_dia==tipo_dia)
-              )]
+    # df_indicadores_ant = df_indicadores_ant[~(
+    #            (df_indicadores_ant.desc_dia==desc_dia)&
+    #            (df_indicadores_ant.tipo_dia==tipo_dia)
+    #           )]
 
-    df_indicadores=pd.concat([df_indicadores_ant, df_indicadores], ignore_index=True)
+    # df_indicadores=pd.concat([df_indicadores_ant, df_indicadores], ignore_index=True)
 
-    df_indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
-    conn_dash.close()
+    # df_indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
+    # conn_dash.close()
 
     return prs
 
