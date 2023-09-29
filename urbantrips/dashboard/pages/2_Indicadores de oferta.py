@@ -20,10 +20,11 @@ from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
 
-def create_linestring(df, 
-                      lat_o='lat_o', 
-                      lon_o='lon_o', 
-                      lat_d='lat_d', 
+
+def create_linestring(df,
+                      lat_o='lat_o',
+                      lon_o='lon_o',
+                      lat_d='lat_d',
                       lon_d='lon_d'):
 
     # Create LineString objects from the coordinates
@@ -35,6 +36,7 @@ def create_linestring(df,
     gdf = gpd.GeoDataFrame(df, geometry=geometry)
 
     return gdf
+
 
 def leer_configs_generales():
     """
@@ -49,6 +51,7 @@ def leer_configs_generales():
         print(f'Error al leer el archivo de configuracion: {error}')
 
     return config
+
 
 def leer_alias(tipo='data'):
     """
@@ -72,6 +75,7 @@ def leer_alias(tipo='data'):
         alias = ''
     return alias
 
+
 def traigo_db_path(tipo='data'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
@@ -85,18 +89,21 @@ def traigo_db_path(tipo='data'):
 
     return db_path
 
+
 def iniciar_conexion_db(tipo='data'):
     """"
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
     db_path = traigo_db_path(tipo)
-    assert os.path.isfile(db_path), f'No existe la base de datos para el dashboard en {db_path}'
+    assert os.path.isfile(
+        db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
+
 @st.cache_data
-def levanto_tabla_sql(tabla_sql, 
+def levanto_tabla_sql(tabla_sql,
                       has_linestring=False,
                       has_wkt=False):
 
@@ -111,22 +118,22 @@ def levanto_tabla_sql(tabla_sql,
     )
 
     conn_dash.close()
-    
+
     if has_linestring:
         tabla = create_linestring(tabla)
-        
+
     if has_wkt:
         tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, 
-                                   crs=4326)
+        tabla = gpd.GeoDataFrame(tabla,
+                                 crs=4326)
         tabla = tabla.drop(['wkt'], axis=1)
 
     if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
-        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
     if 'day_type' in tabla.columns:
-        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
-        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
 
     if 'nombre_linea' in tabla.columns:
         tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
@@ -135,13 +142,14 @@ def levanto_tabla_sql(tabla_sql,
 
     return tabla
 
+
 @st.cache_data
 def get_logo():
     file_logo = os.path.join(
         "docs", "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
         # URL of the image file on Github
-        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/urbantrips_logo.jpg'
+        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg'
 
         # Send a request to get the content of the image file
         response = requests.get(url)
@@ -152,28 +160,30 @@ def get_logo():
     image = Image.open(file_logo)
     return image
 
+
 def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
-    gdf = lineas[(lineas.id_linea == id_linea)&
-                    (lineas.day_type == day_type)&
-                    (lineas.n_sections == n_sections)].copy()
+    gdf = lineas[(lineas.id_linea == id_linea) &
+                 (lineas.day_type == day_type) &
+                 (lineas.n_sections == n_sections)].copy()
 
-    gdf_d0 = lineas[(lineas.id_linea == id_linea)&
-                    (lineas.day_type == day_type)&
-                    (lineas.n_sections == n_sections)&
-                    (lineas.sentido=='ida')].copy()
+    gdf_d0 = lineas[(lineas.id_linea == id_linea) &
+                    (lineas.day_type == day_type) &
+                    (lineas.n_sections == n_sections) &
+                    (lineas.sentido == 'ida')].copy()
 
-    gdf_d1 = lineas[(lineas.id_linea == id_linea)&
-                    (lineas.day_type == day_type)&
-                    (lineas.n_sections == n_sections)&
-                    (lineas.sentido=='vuelta')].copy()
-    
+    gdf_d1 = lineas[(lineas.id_linea == id_linea) &
+                    (lineas.day_type == day_type) &
+                    (lineas.n_sections == n_sections) &
+                    (lineas.sentido == 'vuelta')].copy()
+
     indicator = 'prop_etapas'
-    
-    gdf_d0[indicator] = (gdf_d0['cantidad_etapas'] / gdf_d0['cantidad_etapas'].sum() * 100).round(2)
-    gdf_d1[indicator] = (gdf_d1['cantidad_etapas'] / gdf_d1['cantidad_etapas'].sum() * 100).round(2)
 
-    
+    gdf_d0[indicator] = (gdf_d0['cantidad_etapas'] /
+                         gdf_d0['cantidad_etapas'].sum() * 100).round(2)
+    gdf_d1[indicator] = (gdf_d1['cantidad_etapas'] /
+                         gdf_d1['cantidad_etapas'].sum() * 100).round(2)
+
     # creating plot
 
     f = plt.figure(tight_layout=True, figsize=(18, 10), dpi=8)
@@ -211,7 +221,6 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     else:
         title = f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
 
-    
     f.suptitle(title, fontsize=20)
 
     # Matching bar plot with route direction
@@ -226,8 +235,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     labels_oe = [''] * len(gdf_d0)
     labels_oe[-1] = 'INICIO'
     labels_oe[0] = 'FIN'
-    
-    
+
     # Arrows
     flecha_ida_wgs84 = gdf_d0.loc[gdf_d0.section_id == 0.0, 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
@@ -235,15 +243,14 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
 
     flecha_vuelta_wgs84 = gdf_d1.loc[gdf_d1.section_id ==
-                                  max(gdf_d1.section_id), 'geometry']
+                                     max(gdf_d1.section_id), 'geometry']
     flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
     flecha_vuelta_inicio_wgs84 = flecha_vuelta_wgs84[0]
     flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
-    
 
     # check if route geom is drawn from west to east
     geom_dir_east = flecha_ida_inicio_wgs84[0] < flecha_vuelta_fin_wgs84[0]
-    
+
     # Set arrows in barplots based on reout geom direction
     if geom_dir_east:
 
@@ -301,7 +308,8 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     ax4.spines.top.set_visible(False)
 
     # For direction 0, get the last section of the route geom
-    flecha_ida = gdf_d0.loc[gdf_d0.section_id == max(gdf_d0.section_id), 'geometry']
+    flecha_ida = gdf_d0.loc[gdf_d0.section_id ==
+                            max(gdf_d0.section_id), 'geometry']
     flecha_ida = list(flecha_ida.item().coords)
     flecha_ida_inicio = flecha_ida[1]
     flecha_ida_fin = flecha_ida[0]
@@ -344,16 +352,19 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
     prov = cx.providers.Stamen.TonerLite
 
-    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
+                   source=prov, attribution_size=7)
+    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
+                   source=prov, attribution_size=7)
 
     plt.close(f)
     return f
 
+
 @st.cache_data
 def traigo_nombre_lineas(df):
-    return df[(df.nombre_linea.notna())&(df.nombre_linea!='')].sort_values('nombre_linea').nombre_linea.unique()
-    
+    return df[(df.nombre_linea.notna()) & (df.nombre_linea != '')].sort_values('nombre_linea').nombre_linea.unique()
+
 
 st.set_page_config(layout="wide")
 
@@ -361,23 +372,27 @@ logo = get_logo()
 st.image(logo)
 
 
-with st.expander ('Cargas por horas'):
+with st.expander('Cargas por horas'):
     col1, col2 = st.columns([1, 4])
-    
+
     kpi_lineas = levanto_tabla_sql('basic_kpi_by_line_hr')
     nl1 = traigo_nombre_lineas(kpi_lineas)
-    
+
     if len(kpi_lineas) > 0:
         if len(nl1) > 0:
             nombre_linea_kpi = col1.selectbox('Línea  ', options=nl1)
-            id_linea_kpi = kpi_lineas[kpi_lineas.nombre_linea==nombre_linea_kpi].id_linea.values[0]
+            id_linea_kpi = kpi_lineas[kpi_lineas.nombre_linea ==
+                                      nombre_linea_kpi].id_linea.values[0]
         else:
             nombre_linea_kpi = ''
-            id_linea_kpi = col1.selectbox('Línea ', options=kpi_lineas.id_linea.unique())
+            id_linea_kpi = col1.selectbox(
+                'Línea ', options=kpi_lineas.id_linea.unique())
 
-    day_type_kpi = col1.selectbox('Tipo de dia  ', options=kpi_lineas.dia.unique())
+    day_type_kpi = col1.selectbox(
+        'Tipo de dia  ', options=kpi_lineas.dia.unique())
 
-    kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi)&(kpi_lineas.dia == day_type_kpi)]
+    kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi) & (
+        kpi_lineas.dia == day_type_kpi)]
 
     # if col2.checkbox('Ver datos: cargas por hora'):
     #     col2.write(kpi_stats_line_plot)
@@ -388,18 +403,18 @@ with st.expander ('Cargas por horas'):
         f, ax = plt.subplots(figsize=(10, 4))
         sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
                     color='silver', ax=ax, label='Factor de ocupación')
-        
+
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
                      color='Purple', label='Oferta - veh/hr')
         sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
                      color='Orange', label='Demanda - pax/hr')
-        
+
         ax.set_xlabel("Hora")
         ax.set_ylabel("Factor de Ocupación (%)")
-        
-        ax.set_title(f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}", 
+
+        ax.set_title(f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
                      fontdict={'size': 12})
-        
+
         # Add a footnote below and to the right side of the chart
         note = """
             *Los indicadores de Oferta y Demanda se estandarizaron para que
@@ -417,7 +432,7 @@ with st.expander ('Cargas por horas'):
         ax.spines.left.set_visible(False)
         ax.spines.left.set_position(('outward', 10))
         ax.spines.bottom.set_position(('outward', 10))
-        
+
         box = ax.get_position()
         ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
         # Put a legend to the right of the current axis
@@ -426,35 +441,42 @@ with st.expander ('Cargas por horas'):
         col2.pyplot(f)
     else:
         st.write('No hay datos para mostrar')
-    
-with st.expander ('Cargas por tramos'):
+
+with st.expander('Cargas por tramos'):
 
     col1, col2 = st.columns([1, 4])
-    
+
     lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
     nl2 = traigo_nombre_lineas(lineas[['id_linea', 'nombre_linea']])
-    
-    lineas['rango'] = 'de '+lineas['hora_min'].astype(str)+' a '+ lineas['hora_max'].astype(str) + ' hs'
+
+    lineas['rango'] = 'de ' + \
+        lineas['hora_min'].astype(str)+' a ' + \
+        lineas['hora_max'].astype(str) + ' hs'
     if len(lineas) > 0:
         if len(nl2) > 0:
             nombre_linea = col1.selectbox('Línea  ', options=nl2)
-            id_linea = lineas[lineas.nombre_linea==nombre_linea].id_linea.values[0]
+            id_linea = lineas[lineas.nombre_linea ==
+                              nombre_linea].id_linea.values[0]
         else:
             nombre_linea = ''
-            id_linea = col1.selectbox('Línea ', options=lineas.id_linea.unique())
-            
-        day_type = col1.selectbox('Tipo de dia ', options=lineas.day_type.unique())
-        n_sections = col1.selectbox('Secciones ', options=lineas.n_sections.unique())    
-        rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())    
-        
-        lineas = lineas[(lineas.id_linea==id_linea)&(lineas.day_type==day_type)&(lineas.n_sections==n_sections)&(lineas.rango==rango)]
+            id_linea = col1.selectbox(
+                'Línea ', options=lineas.id_linea.unique())
+
+        day_type = col1.selectbox(
+            'Tipo de dia ', options=lineas.day_type.unique())
+        n_sections = col1.selectbox(
+            'Secciones ', options=lineas.n_sections.unique())
+        rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())
+
+        lineas = lineas[(lineas.id_linea == id_linea) & (lineas.day_type == day_type) & (
+            lineas.n_sections == n_sections) & (lineas.rango == rango)]
 
         # if col2.checkbox('Ver datos: cargas por tramos'):
         #     col2.write(lineas)
 
-        if len(lineas) > 0:        
-            f_lineas = plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango)
+        if len(lineas) > 0:
+            f_lineas = plot_lineas(
+                lineas, id_linea, nombre_linea, day_type, n_sections, rango)
             col2.pyplot(f_lineas)
         else:
             st.write('No hay datos para mostrar')
-    
