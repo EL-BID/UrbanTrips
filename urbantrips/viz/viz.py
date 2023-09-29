@@ -22,6 +22,7 @@ from matplotlib import colors as mcolors
 from matplotlib.text import Text
 from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
+from pandas.io.sql import DatabaseError
 
 from urbantrips.kpi import kpi
 from urbantrips.carto import carto
@@ -37,6 +38,7 @@ from urbantrips.utils.utils import (
 import warnings
 
 warnings.filterwarnings("ignore")
+
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
     """
@@ -1074,10 +1076,11 @@ def imprime_lineas_deseo(df,
                 zona=var_zona,
                 filtro1='Punta Tarde')
 
+
 def indicadores_hora_punta(viajesxhora_dash, desc_dia):
-    
+
     conn_data = iniciar_conexion_db(tipo='data')
-    
+
     try:
         indicadores = pd.read_sql_query(
             """
@@ -1089,56 +1092,62 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia):
     except DatabaseError as e:
         print("No existe la tabla indicadores, construyendola...")
         indicadores = pd.DataFrame([])
-    
+
     ind_horas = pd.DataFrame([])
-    
+
     for modo in viajesxhora_dash.Modo.unique():
-        
-        vi = viajesxhora_dash[viajesxhora_dash.Modo==modo].reset_index(drop=True)
+
+        vi = viajesxhora_dash[viajesxhora_dash.Modo ==
+                              modo].reset_index(drop=True)
         descrip = ''
         if modo != 'Todos':
             descrip = f' ({modo.capitalize()})'
-        
+
         ind_horas = pd.concat([
             ind_horas,
             pd.DataFrame([
-                [desc_dia, 
-                f'Hora punta maí±ana{descrip}', 
-                vi.iloc[vi[(vi.Hora>='05')&(vi.Hora<'12')].Viajes.idxmax()].Hora,
-                'viajesxhora',
-                0,
-                0]
-                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+                [desc_dia,
+                 f'Hora punta maí±ana{descrip}',
+                 vi.iloc[vi[(vi.Hora >= '05') & (
+                     vi.Hora < '12')].Viajes.idxmax()].Hora,
+                 'viajesxhora',
+                 0,
+                 0]
+            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
         ind_horas = pd.concat([
             ind_horas,
             pd.DataFrame([
-                [desc_dia, 
-                f'Hora punta mediodí­a{descrip}', 
-                vi.iloc[vi[(vi.Hora>='12')&(vi.Hora<'15')].Viajes.idxmax()].Hora,
-                'viajesxhora',
-                0,
-                0]
-                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+                [desc_dia,
+                 f'Hora punta mediodí­a{descrip}',
+                 vi.iloc[vi[(vi.Hora >= '12') & (
+                     vi.Hora < '15')].Viajes.idxmax()].Hora,
+                 'viajesxhora',
+                 0,
+                 0]
+            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
         ind_horas = pd.concat([
             ind_horas,
             pd.DataFrame([
-                [desc_dia, 
-                f'Hora punta tarde{descrip}', 
-                vi.iloc[vi[(vi.Hora>='15')&(vi.Hora<'22')].Viajes.idxmax()].Hora,
-                'viajesxhora',
-                0,
-                0]
-                ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
-    
+                [desc_dia,
+                 f'Hora punta tarde{descrip}',
+                 vi.iloc[vi[(vi.Hora >= '15') & (
+                     vi.Hora < '22')].Viajes.idxmax()].Hora,
+                 'viajesxhora',
+                 0,
+                 0]
+            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+
     ind_horas['indicador'] = ind_horas['indicador'].astype(float)
-    
-    indicadores = indicadores[~((indicadores.dia==desc_dia)&(indicadores.tabla=='viajesxhora'))]
+
+    indicadores = indicadores[~((indicadores.dia == desc_dia) & (
+        indicadores.tabla == 'viajesxhora'))]
     indicadores = pd.concat([indicadores, ind_horas])
     indicadores.to_sql("indicadores", conn_data,
                        if_exists="replace", index=False)
-    
-    
+
     conn_data.close()
+
+
 def imprime_graficos_hora(viajes,
                           title='Cantidad de viajes en transporte público',
                           savefile='viajes',
@@ -1222,7 +1231,8 @@ def imprime_graficos_hora(viajes,
 
     viajesxhora_dash = viajesxhora_dash[[
         'tipo_dia', 'desc_dia', 'hora', 'cant', 'modo']]
-    viajesxhora_dash.columns = ['tipo_dia', 'desc_dia', 'Hora', 'Viajes', 'Modo']
+    viajesxhora_dash.columns = ['tipo_dia',
+                                'desc_dia', 'Hora', 'Viajes', 'Modo']
 
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -1234,28 +1244,28 @@ def imprime_graficos_hora(viajes,
 
     conn_dash.execute(query)
     conn_dash.commit()
-    
+
     modos = viajesxhora_dash.Modo.unique().tolist()
-    hrs = [str(i).zfill(2) for i in range(0,24)]    
+    hrs = [str(i).zfill(2) for i in range(0, 24)]
     for modo in modos:
         for hr in hrs:
-            if len(viajesxhora_dash.loc[(viajesxhora_dash.Modo==modo)&(viajesxhora_dash.Hora==hr)])==0:
-                
+            if len(viajesxhora_dash.loc[(viajesxhora_dash.Modo == modo) & (viajesxhora_dash.Hora == hr)]) == 0:
+
                 viajesxhora_dash = pd.concat([
-                                viajesxhora_dash,
-                                pd.DataFrame([[tipo_dia, 
-                               desc_dia, 
-                               hr, 
-                               0, 
-                               modo]], 
-                             columns = viajesxhora_dash.columns)
-                            ])
+                    viajesxhora_dash,
+                    pd.DataFrame([[tipo_dia,
+                                   desc_dia,
+                                   hr,
+                                   0,
+                                   modo]],
+                                 columns=viajesxhora_dash.columns)
+                ])
 
     viajesxhora_dash.to_sql("viajes_hora", conn_dash,
                             if_exists="append", index=False)
 
     conn_dash.close()
-    
+
     indicadores_hora_punta(viajesxhora_dash, desc_dia)
 
     # Viajes por hora
@@ -2465,7 +2475,8 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         (kpi_stats_line_plot.of.isna().all())
 
     if missing_data:
-        print("No es posible crear plot de KPI basicos por linea", "id linea:", line_id)
+        print("No es posible crear plot de KPI basicos por linea",
+              "id linea:", line_id)
 
     else:
         print("Creando plot de KPI basicos por linea", "id linea:", line_id)
@@ -2536,7 +2547,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
             """
         conn_dash.execute(query)
         conn_dash.commit()
-        
+
         kpi_stats_line_plot.to_sql(
             "basic_kpi_by_line_hr",
             conn_dash,
@@ -2620,9 +2631,10 @@ def indicadores_dash():
         """,
         conn_data,
     )
-    
-    indicadores = indicadores[~indicadores.detalle.str.contains('Hora punta')] # REVISAR ESTO
-    
+
+    indicadores = indicadores[~indicadores.detalle.str.contains(
+        'Hora punta')]  # REVISAR ESTO
+
     indicadores['dia'] = pd.to_datetime(indicadores.dia)
     indicadores['dow'] = indicadores.dia.dt.dayofweek
     indicadores['mo'] = indicadores.dia.dt.month
@@ -2710,7 +2722,8 @@ def indicadores_dash():
     indicadores.to_sql("indicadores", conn_dash,
                        if_exists="replace", index=False)
     conn_dash.close()
-    
+
+
 @duracion
 def create_visualizations():
     """
@@ -2788,7 +2801,8 @@ def create_visualizations():
             etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)]
 
         # partición modal
-        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
+        particion_modal(viajes_dia, etapas_dia,
+                        tipo_dia=i.tipo_dia, desc_dia=desc_dia)
 
         print('Imprimiendo tabla de matrices OD')
         # Impirmir tablas con matrices OD
@@ -2857,4 +2871,3 @@ def create_visualizations():
 
     # plot basic kpi if exists
     plot_basic_kpi_wrapper()
-
