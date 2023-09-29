@@ -367,10 +367,9 @@ def create_distances_table(use_parallel=False):
     # los que estan en data pero no en distancias
     pares_h3 = pares_h3_data\
         .merge(pares_h3_distancias, how='left')
-    pares_h3 = pares_h3.loc[pares_h3.d.isna(), ['h3_o', 'h3_d']]
-
-    print(f"Hay {len(pares_h3)} nuevos pares od para sumar a tabla distancias")
-    print(f"de los {len(pares_h3_data)} originales en la data.")
+    pares_h3 = pares_h3.loc[(pares_h3.d.isna()) & (
+                            pares_h3.h3_o != pares_h3.h3_d),
+                            ['h3_o', 'h3_d']]
 
     if len(pares_h3) > 0:
         pares_h3_norm = normalizo_lat_lon(pares_h3)
@@ -380,12 +379,21 @@ def create_distances_table(use_parallel=False):
         print('No se pudo usar la librería pandana. ')
         print('Se va a utilizar osmnx para el cálculo de distancias')
         print('')
+        print("Este proceso puede demorar algunas horas dependiendo del tamaño " +
+              " de la ciudad y si se corre por primera vez por lo que en la base" +
+              " de insumos no estan estos pares")
+
         agg2_total = pares_h3_norm.groupby(
             ['h3_o_norm', 'h3_d_norm'],
             as_index=False).size().drop(['size'], axis=1)
 
+        print(
+            f"Hay {len(agg2_total)} nuevos pares od para sumar a tabla distancias")
+        print(f"de los {len(pares_h3_data)} originales en la data.")
+        print('')
+
         # Determine the size of each chunk (500 rows in this case)
-        chunk_size = 2000
+        chunk_size = 25000
 
         # Get the total number of rows in the DataFrame
         total_rows = len(agg2_total)
@@ -396,7 +404,8 @@ def create_distances_table(use_parallel=False):
             # Select the chunk of 500 rows from the DataFrame
             agg2 = agg2_total.iloc[start:end].copy()
             # Call the process_chunk function with the selected chunk
-            print(f'Bajando distancias entre {start} a {end}')
+            print(
+                f'Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}')
 
             agg2 = calculo_distancias_osm(
                 agg2,
@@ -488,15 +497,10 @@ def calculo_distancias_osm(
     var_distances = []
 
     for mode in modes:
-        print("")
-        print(f"Coords OSM {mode} - ymin, xmin, ymax, xmax,")
-        print(f"{round(ymin,3)}, {round(xmin,3)}, ")
-        print(f"{round(ymax,3)}, {round(xmax,3)}")
-        print(f" - {str(datetime.now())[:19]}")
+
+        # print(f"Descarga de red - Coords OSM {mode} - ymin, xmin, ymax, xmax, - {str(datetime.now())[:19]}")
 
         G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
-        print('Fin descarga de red', str(datetime.now())[:19])
-
         G = ox.add_edge_speeds(G)
         G = ox.add_edge_travel_times(G)
 
@@ -523,7 +527,7 @@ def calculo_distancias_osm(
         df[f"distance_osm_{mode}"] = (
             df[f"distance_osm_{mode}"] / 1000).round(2)
 
-        print("")
+        # print("")
 
     condition = ('distance_osm_drive' in df.columns) & (
         'distance_osm_walk' in df.columns)
@@ -597,17 +601,14 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     n = len(nodes_from)
     chunksize = int(sqrt(n) * 10)
 
-    print(f'Comenzando a correr distancias para {n} pares OD',
-          datetime.now().strftime("%H:%M:%S"))
-    print("Este proceso puede demorar algunas horas dependiendo del tamaño " +
-          " de la ciudad y si se corre por primera vez por lo que en la base" +
-          " de insumos no estan estos pares")
+    # print(f'Comenzando a correr distancias para {n} pares OD',
+    #       datetime.now().strftime("%H:%M:%S"))
 
     with multiprocessing.Pool(processes=n_cores) as pool:
         results = pool.map(partial(get_network_distance_osmnx, G=G), zip(
             nodes_from, nodes_to), chunksize=chunksize)
 
-    print('Distancias calculadas:', datetime.now().strftime("%H:%M:%S"))
+    # print('Distancias calculadas:', datetime.now().strftime("%H:%M:%S"))
 
     return results
 
