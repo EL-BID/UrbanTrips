@@ -17,10 +17,11 @@ from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
 
-def create_linestring(df, 
-                      lat_o='lat_o', 
-                      lon_o='lon_o', 
-                      lat_d='lat_d', 
+
+def create_linestring(df,
+                      lat_o='lat_o',
+                      lon_o='lon_o',
+                      lat_d='lat_d',
                       lon_d='lon_d'):
 
     # Create LineString objects from the coordinates
@@ -32,6 +33,7 @@ def create_linestring(df,
     gdf = gpd.GeoDataFrame(df, geometry=geometry)
 
     return gdf
+
 
 def leer_configs_generales():
     """
@@ -46,6 +48,7 @@ def leer_configs_generales():
         print(f'Error al leer el archivo de configuracion: {error}')
 
     return config
+
 
 def leer_alias(tipo='data'):
     """
@@ -69,6 +72,7 @@ def leer_alias(tipo='data'):
         alias = ''
     return alias
 
+
 def traigo_db_path(tipo='data'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
@@ -82,20 +86,23 @@ def traigo_db_path(tipo='data'):
 
     return db_path
 
+
 def iniciar_conexion_db(tipo='data'):
     """"
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
-    
-    db_path = traigo_db_path(tipo)    
-    assert os.path.isfile(db_path), f'No existe la base de datos para el dashboard en {db_path}'    
+
+    db_path = traigo_db_path(tipo)
+    assert os.path.isfile(
+        db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
-    
+
     return conn
 
+
 @st.cache_data
-def levanto_tabla_sql(tabla_sql, 
+def levanto_tabla_sql(tabla_sql,
                       has_linestring=False,
                       has_wkt=False):
 
@@ -110,22 +117,22 @@ def levanto_tabla_sql(tabla_sql,
     )
 
     conn_dash.close()
-    
+
     if has_linestring:
         tabla = create_linestring(tabla)
-        
+
     if has_wkt:
         tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, 
-                                   crs=4326)
+        tabla = gpd.GeoDataFrame(tabla,
+                                 crs=4326)
         tabla = tabla.drop(['wkt'], axis=1)
 
     if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia=='weekday', 'dia'] = 'Día hábil'
-        tabla.loc[tabla.dia=='weekend', 'dia'] = 'Fin de semana'
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
     if 'day_type' in tabla.columns:
-        tabla.loc[tabla.day_type=='weekday', 'day_type'] = 'Día hábil'
-        tabla.loc[tabla.day_type=='weekend', 'day_type'] = 'Fin de semana'
+        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
 
     if 'nombre_linea' in tabla.columns:
         tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
@@ -133,7 +140,6 @@ def levanto_tabla_sql(tabla_sql,
         tabla['Modo'] = tabla['Modo'].str.capitalize()
 
     return tabla
-
 
 
 @st.cache_data
@@ -145,7 +151,7 @@ def get_logo():
         "docs", "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
         # URL of the image file on Github
-        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/dev/docs/urbantrips_logo.jpg'
+        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg'
 
         # Send a request to get the content of the image file
         response = requests.get(url)
@@ -155,11 +161,10 @@ def get_logo():
             f.write(response.content)
     image = Image.open(file_logo)
     return image
-    
 
-    
+
 st.set_page_config(layout="wide")
-    
+
 st.sidebar.success('Seleccione página')
 
 logo = get_logo()
@@ -175,14 +180,17 @@ col1, col2, col3 = st.columns([1, 3, 3])
 indicadores = levanto_tabla_sql('indicadores')
 
 
-desc_dia_i = col1.selectbox('Periodo', options=indicadores.desc_dia.unique(), key='desc_dia_i')
-tipo_dia_i = col1.selectbox('Tipo de dia', options=indicadores.tipo_dia.unique(), key='tipo_dia_i')
+desc_dia_i = col1.selectbox(
+    'Periodo', options=indicadores.desc_dia.unique(), key='desc_dia_i')
+tipo_dia_i = col1.selectbox(
+    'Tipo de dia', options=indicadores.tipo_dia.unique(), key='tipo_dia_i')
 
-    
-indicadores = indicadores[(indicadores.desc_dia==desc_dia_i)&(indicadores.tipo_dia==tipo_dia_i)]
 
-df = indicadores.loc[indicadores.orden==1, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden==1].Titulo.unique()[0]
+indicadores = indicadores[(indicadores.desc_dia == desc_dia_i) & (
+    indicadores.tipo_dia == tipo_dia_i)]
+
+df = indicadores.loc[indicadores.orden == 1, ['Indicador', 'Valor']].copy()
+titulo = indicadores.loc[indicadores.orden == 1].Titulo.unique()[0]
 
 # CSS to inject contained in a string
 hide_table_row_index = """
@@ -199,8 +207,8 @@ col2.text(titulo)
 col2.table(df)
 
 
-df = indicadores.loc[indicadores.orden==2, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden==2].Titulo.unique()[0]
+df = indicadores.loc[indicadores.orden == 2, ['Indicador', 'Valor']].copy()
+titulo = indicadores.loc[indicadores.orden == 2].Titulo.unique()[0]
 
 col3.text(titulo)
 
@@ -218,8 +226,8 @@ col3.markdown(hide_table_row_index, unsafe_allow_html=True)
 
 col3.table(df)
 
-df = indicadores.loc[indicadores.orden==3, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden==3].Titulo.unique()[0]
+df = indicadores.loc[indicadores.orden == 3, ['Indicador', 'Valor']].copy()
+titulo = indicadores.loc[indicadores.orden == 3].Titulo.unique()[0]
 
 col2.text(titulo)
 # CSS to inject contained in a string
@@ -234,4 +242,3 @@ hide_table_row_index = """
 col2.markdown(hide_table_row_index, unsafe_allow_html=True)
 
 col2.table(df)
-

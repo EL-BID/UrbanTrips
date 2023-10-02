@@ -117,6 +117,8 @@ def test_destinos_potenciales(df_etapas):
 
 
 def test_asignar_id_viaje_etapa(df_trx):
+
+    df_trx['tiempo'] = None
     df = legs.asignar_id_viaje_etapa_orden_trx(df_trx)
 
     # Caso simple 4 colectivos 4 viajes de 1 etapa
@@ -190,7 +192,7 @@ def test_crear_viaje_id_acumulada(df_test_id_viaje):
     trx = trx.rename(columns={"fecha_dt": "fecha"})
     trx = legs.asignar_id_viaje_etapa_fecha_completa(
         trx,
-        ventana_viajes=120 * 60,
+        ventana_viajes=120,
     )
 
     assert (trx.id_viaje == [1, 1, 2, 3, 3, 1, 1, 1, 1, 2, 3, 3, 1, 1]).all()
@@ -339,7 +341,7 @@ def test_amba_integration(matriz_validacion_test_amba):
     etapas = pd.read_sql(q, conn_data)
 
     # chequear id viajes
-    etapa = etapas.loc[etapas.id_tarjeta == '0037030208', :]
+    etapa = etapas.loc[etapas.id_tarjeta == '0037030208_0', :]
     assert (etapa.id_viaje == range(1, 5)).all()
     # chequear id etapas
     assert (etapa.id_etapa == 1).all()
@@ -449,7 +451,7 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
     etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
     etapas['h3_d'] = etapas['h3_d'].fillna('')
 
-    etapa = etapas.loc[etapas.id_tarjeta == '3839538659', :]
+    etapa = etapas.loc[etapas.id_tarjeta == '3839538659_0', :]
 
     etapa = etapa.reindex(columns=['id_viaje', 'id_etapa',
                                    'h3_o', 'h3_d', 'od_validado'])
@@ -460,14 +462,14 @@ def test_amba_destinos_min_distancia(matriz_validacion_test_amba):
 
     # tarjeta 0037035823. vuelve a la casa en otra linea y el destinio no es
     #  en la primera trx del dia. sino en la de la parada de la linea
-    etapa = etapas.loc[etapas.id_tarjeta == '0037035823', :]
+    etapa = etapas.loc[etapas.id_tarjeta == '0037035823_0', :]
 
     assert (etapa.loc[(etapa.id_viaje == 3) & (etapa.id_etapa == 1), 'h3_d']
             == '88c2e3a1a7fffff').iloc[0]
 
     # tarjeta 1939538599 se toma el subte fin del dia y su primer viaje fue
     # en villa fiorito
-    etapa = etapas.loc[etapas.id_tarjeta == '1939538599', :]
+    etapa = etapas.loc[etapas.id_tarjeta == '1939538599_0', :]
     assert (etapa.loc[(etapa.id_viaje == 3) & (
         etapa.id_etapa == 2), 'h3_d'].iloc[0] == '')
 

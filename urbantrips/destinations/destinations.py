@@ -150,6 +150,9 @@ def imputar_destino_potencial(etapas):
     )
     etapas.h3_d = etapas.h3_d.combine_first(primera_trx)
 
+    # when od is the same for that leg, set it to nan
+    etapas.loc[(etapas.h3_o == etapas.h3_d), 'h3_d'] = np.nan
+
     return etapas
 
 

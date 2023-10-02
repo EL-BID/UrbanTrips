@@ -2,7 +2,7 @@ import h3
 import os
 import pandas as pd
 import warnings
-
+import time
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (leer_configs_generales,
                                     duracion,
@@ -81,7 +81,6 @@ def create_transactions(geolocalizar_trx_config,
             formato_fecha=formato_fecha,
             crear_hora=crear_hora,
         )
-        print(trx.shape)
 
         trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
 
@@ -101,7 +100,6 @@ def create_transactions(geolocalizar_trx_config,
 
         # Eliminar trx fuera del bbox
         trx = eliminar_trx_fuera_bbox(trx)
-        print(trx.shape)
         agrego_indicador(
             trx,
             'Cantidad de transacciones latlon válidos',
@@ -172,6 +170,9 @@ def create_transactions(geolocalizar_trx_config,
     tmp_trx_inicial['id_tarjeta'] = tmp_trx_inicial['id_tarjeta'].str.zfill(
         zfill)
 
+    # parse date into timestamp
+    trx["fecha"] = trx["fecha"].map(lambda s: s.timestamp())
+
     print(f"Subiendo {len(trx)} registros a la db")
 
     lista_cols_db = [
@@ -217,10 +218,6 @@ def create_transactions(geolocalizar_trx_config,
         'transacciones',
         1,
         var_fex='factor_expansion')
-
-    trx["fecha"] = pd.to_datetime(
-        trx["fecha"], format=formato_fecha, errors="coerce"
-    )
 
     trx = trx.sort_values('id')
 
@@ -656,6 +653,8 @@ def geolocalizar_trx(
         conn,
         parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
     )
+
+    # trx['fecha'] = pd.to_datetime(trx.fecha, unit='s',errors='coerce')
 
     print(
         "Gelocalización terminada "
