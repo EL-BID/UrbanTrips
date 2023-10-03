@@ -174,3 +174,7 @@ configs/configuraciones_generales.yaml
 .github/desktop.ini
 *.ini
 run_services.ipynb
+amba_2019_distancias.csv
+amba_20221109_distancias.csv
+lineas_deseo_result.geojson
+configs/configuraciones_generales.yaml
