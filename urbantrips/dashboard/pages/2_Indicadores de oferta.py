@@ -13,6 +13,8 @@ import seaborn as sns
 import contextily as cx
 from mycolorpy import colorlist as mcp
 import os
+from PIL import UnidentifiedImageError
+from requests.exceptions import ConnectionError as r_ConnectionError
 
 import yaml
 import sqlite3
@@ -350,12 +352,20 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
                                  shrink=0.05, edgecolor='Orange'),
                  )
 
-    prov = cx.providers.Stamen.TonerLite
-
-    cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
-                   source=prov, attribution_size=7)
-    cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
-                   source=prov, attribution_size=7)
+    try:
+        prov = cx.providers.Stamen.TonerLite
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
+                       source=prov, attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
+                       source=prov, attribution_size=7)
+    except (UnidentifiedImageError, ValueError):
+        prov = cx.providers.CartoDB.Positron
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
+                       source=prov, attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
+                       source=prov, attribution_size=7)
+    except (r_ConnectionError):
+        pass
 
     plt.close(f)
     return f
