@@ -640,8 +640,16 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
                         'figure.facecolor': '#d4dadc'})
     voi = voi.to_crs(3857)
     voi.geometry.boundary.plot(edgecolor='grey', linewidth=.5, ax=ax)
-    ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
+    # ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
+    #                 attribution=None, attribution_size=10)
+
+    try:
+        cx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
                     attribution=None, attribution_size=10)
+    except (r_ConnectionError, ValueError):
+        pass
+
+    
     voi['coords'] = voi['geometry'].apply(
         lambda x: x.representative_point().coords[:])
     voi['coords'] = [coords[0] for coords in voi['coords']]
@@ -664,8 +672,11 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
         ax = fig.add_subplot(111)
         hexs.to_crs(3857).plot(markersize=hexs['fex']/500, ax=ax)
         hexs2.to_crs(3857).boundary.plot(ax=ax, lw=.3)
-        ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-                        attribution=None, attribution_size=10)
+        try:
+            ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
+                            attribution=None, attribution_size=10)
+        except (r_ConnectionError, ValueError):
+            pass
         ax.axis('off')
 
     # graba resultados
@@ -804,7 +815,7 @@ def imprimir_matrices_od(viajes,
                 x_rotation=90,
                 normalize=True,
                 cmap="Reds",
-                title='Matriz OD viajes punta maí±ana',
+                title='Matriz OD viajes punta mañana',
                 figsize_tuple='',
                 matriz_order=matriz_order,
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
@@ -812,7 +823,7 @@ def imprimir_matrices_od(viajes,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 var_zona=var_zona,
-                filtro1='Punta maí±ana'
+                filtro1='Punta mañana'
             )
 
         if mediodia != None:
@@ -1019,7 +1030,7 @@ def imprime_lineas_deseo(df,
                 alpha=.4,
                 cmap='magma_r',
                 porc_viajes=90,
-                title=f'{title}\nViajes en hora punta maí±ana',
+                title=f'{title}\nViajes en hora punta mañana',
                 savefile=f"{alias}{savefile}_{var_zona}_punta_manana",
                 show_fig=False,
                 normalizo_latlon=False,
@@ -1028,7 +1039,7 @@ def imprime_lineas_deseo(df,
                 desc_dia=desc_dia,
                 tipo_dia=tipo_dia,
                 zona=var_zona,
-                filtro1='Punta Maí±ana')
+                filtro1='Punta Mañana')
 
         if mediodia != None:
             lineas_deseo(df[
@@ -1077,7 +1088,7 @@ def imprime_lineas_deseo(df,
                 filtro1='Punta Tarde')
 
 
-def indicadores_hora_punta(viajesxhora_dash, desc_dia):
+def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
 
     conn_data = iniciar_conexion_db(tipo='data')
 
@@ -1085,7 +1096,7 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia):
         indicadores = pd.read_sql_query(
             """
             SELECT *
-            FROM indicadores
+            FROM hora_punta
             """,
             conn_data,
         )
@@ -1107,42 +1118,47 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia):
             ind_horas,
             pd.DataFrame([
                 [desc_dia,
-                 f'Hora punta maí±ana{descrip}',
+                 tipo_dia,
+                 f'Hora punta mañana{descrip}',
                  vi.iloc[vi[(vi.Hora >= '05') & (
                      vi.Hora < '12')].Viajes.idxmax()].Hora,
                  'viajesxhora',
                  0,
                  0]
-            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+            ], columns=['dia', 'tipo_dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
         ind_horas = pd.concat([
             ind_horas,
             pd.DataFrame([
                 [desc_dia,
+                 tipo_dia,
                  f'Hora punta mediodí­a{descrip}',
                  vi.iloc[vi[(vi.Hora >= '12') & (
                      vi.Hora < '15')].Viajes.idxmax()].Hora,
                  'viajesxhora',
                  0,
                  0]
-            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+            ], columns=['dia', 'tipo_dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
         ind_horas = pd.concat([
             ind_horas,
             pd.DataFrame([
                 [desc_dia,
+                 tipo_dia,
                  f'Hora punta tarde{descrip}',
                  vi.iloc[vi[(vi.Hora >= '15') & (
                      vi.Hora < '22')].Viajes.idxmax()].Hora,
                  'viajesxhora',
                  0,
                  0]
-            ], columns=['dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
+            ], columns=['dia', 'tipo_dia', 'detalle', 'indicador', 'tabla', 'nivel', 'porcentaje'])])
 
     ind_horas['indicador'] = ind_horas['indicador'].astype(float)
-
-    indicadores = indicadores[~((indicadores.dia == desc_dia) & (
-        indicadores.tabla == 'viajesxhora'))]
+    if len(indicadores) > 0:
+        indicadores = indicadores[~((indicadores.dia == desc_dia) & (
+                                    indicadores.tipo_dia==tipo_dia) & (
+                                        indicadores.tabla == 'viajesxhora')
+                                   )]
     indicadores = pd.concat([indicadores, ind_horas])
-    indicadores.to_sql("indicadores", conn_data,
+    indicadores.to_sql("hora_punta", conn_data,
                        if_exists="replace", index=False)
 
     conn_data.close()
@@ -1266,7 +1282,7 @@ def imprime_graficos_hora(viajes,
 
     conn_dash.close()
 
-    indicadores_hora_punta(viajesxhora_dash, desc_dia)
+    indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia)
 
     # Viajes por hora
     savefile_ = f'{savefile}_modo'
@@ -1453,8 +1469,11 @@ def imprime_burbujas(df,
                                             'title_fontsize': 10,
                                      }
                                      )
-            ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-                            attribution=None, attribution_size=10)
+            try:
+                ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
+                                attribution=None, attribution_size=10)
+            except (r_ConnectionError, ValueError):
+                pass
 
             ax.set_title(title, fontsize=12)
 
@@ -2031,8 +2050,11 @@ def lineas_deseo(df,
                                                 'title_fontsize': 10,
                                          }
                                          )
-                ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-                                attribution=None, attribution_size=10)
+                try:
+                    ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
+                                    attribution=None, attribution_size=10)
+                except (r_ConnectionError, ValueError):
+                    pass
 
                 leg = ax.get_legend()
                 # leg._loc = 3
@@ -2632,8 +2654,8 @@ def indicadores_dash():
         conn_data,
     )
 
-    indicadores = indicadores[~indicadores.detalle.str.contains(
-        'Hora punta')]  # REVISAR ESTO
+    hora_punta = indicadores[indicadores.detalle.str.contains('Hora punta')]
+    indicadores = indicadores[~indicadores.detalle.str.contains('Hora punta')]  
 
     indicadores['dia'] = pd.to_datetime(indicadores.dia)
     indicadores['dow'] = indicadores.dia.dt.dayofweek
@@ -2717,7 +2739,7 @@ def indicadores_dash():
                     'Titulo'] = 'Información del dataset original'
     indicadores.loc[indicadores.orden == 2, 'Titulo'] = 'Información procesada'
     indicadores.loc[indicadores.orden == 3, 'Titulo'] = 'Partición modal'
-
+    
     conn_dash = iniciar_conexion_db(tipo='dash')
     indicadores.to_sql("indicadores", conn_dash,
                        if_exists="replace", index=False)
@@ -2792,7 +2814,7 @@ def create_visualizations():
     for _, i in v_iter:
 
         desc_dia = f'{i.yr}-{str(i.mo).zfill(2)} ({i.tipo_dia})'
-        desc_dia_file = f'{str(i.mo).zfill(2)}-{i.yr}({i.tipo_dia})'
+        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
 
         viajes_dia = viajes[(viajes.yr == i.yr) & (
             viajes.mo == i.mo) & (viajes.tipo_dia == i.tipo_dia)]
@@ -2810,7 +2832,7 @@ def create_visualizations():
                              var_fex='factor_expansion_linea',
                              title=f'Matriz OD {desc_dia}',
                              savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             desc_dia=f'{i.yr}-{str(i.mo).zfill(2)}',
                              tipo_dia=i.tipo_dia,
                              )
 
@@ -2822,7 +2844,7 @@ def create_visualizations():
                              var_fex='factor_expansion_linea',
                              title=f'Lí­neas de deseo {desc_dia}',
                              savefile=f'{desc_dia_file}',
-                             desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                             desc_dia=f'{i.yr}-{str(i.mo).zfill(2)}',
                              tipo_dia=i.tipo_dia)
 
         print('Imprimiendo gráficos')
@@ -2831,7 +2853,7 @@ def create_visualizations():
                               title=titulo,
                               savefile=f'{desc_dia_file}_viajes',
                               var_fex='factor_expansion_linea',
-                              desc_dia=f'{str(i.mo).zfill(2)}/{i.yr}',
+                              desc_dia=f'{i.yr}-{str(i.mo).zfill(2)}',
                               tipo_dia=i.tipo_dia)
 
         print('Imprimiendo mapas de burbujas')
