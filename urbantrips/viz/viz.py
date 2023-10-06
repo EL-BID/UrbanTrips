@@ -645,11 +645,10 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
 
     try:
         cx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-                    attribution=None, attribution_size=10)
+                       attribution=None, attribution_size=10)
     except (r_ConnectionError, ValueError):
         pass
 
-    
     voi['coords'] = voi['geometry'].apply(
         lambda x: x.representative_point().coords[:])
     voi['coords'] = [coords[0] for coords in voi['coords']]
@@ -1154,9 +1153,9 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
     ind_horas['indicador'] = ind_horas['indicador'].astype(float)
     if len(indicadores) > 0:
         indicadores = indicadores[~((indicadores.dia == desc_dia) & (
-                                    indicadores.tipo_dia==tipo_dia) & (
+                                    indicadores.tipo_dia == tipo_dia) & (
                                         indicadores.tabla == 'viajesxhora')
-                                   )]
+                                    )]
     indicadores = pd.concat([indicadores, ind_horas])
     indicadores.to_sql("hora_punta", conn_data,
                        if_exists="replace", index=False)
@@ -1316,6 +1315,10 @@ def imprime_graficos_hora(viajes,
     vi = viajes[(viajes.distance_osm_drive.notna())
                 & (viajes.distance_osm_drive > 0)
                 & (viajes.h3_o != viajes.h3_d)]
+
+    if len(vi) == 0:
+        return None
+
     vi['distance_osm_drive'] = vi['distance_osm_drive'].astype(int)
 
     vi_modo = vi\
@@ -2655,7 +2658,7 @@ def indicadores_dash():
     )
 
     hora_punta = indicadores[indicadores.detalle.str.contains('Hora punta')]
-    indicadores = indicadores[~indicadores.detalle.str.contains('Hora punta')]  
+    indicadores = indicadores[~indicadores.detalle.str.contains('Hora punta')]
 
     indicadores['dia'] = pd.to_datetime(indicadores.dia)
     indicadores['dow'] = indicadores.dia.dt.dayofweek
@@ -2739,7 +2742,7 @@ def indicadores_dash():
                     'Titulo'] = 'Información del dataset original'
     indicadores.loc[indicadores.orden == 2, 'Titulo'] = 'Información procesada'
     indicadores.loc[indicadores.orden == 3, 'Titulo'] = 'Partición modal'
-    
+
     conn_dash = iniciar_conexion_db(tipo='dash')
     indicadores.to_sql("indicadores", conn_dash,
                        if_exists="replace", index=False)
