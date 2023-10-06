@@ -238,15 +238,18 @@ def pago_doble_tarjeta(trx, trx_order_params):
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
 
+    trx['interno2'] = trx['interno']
+    trx['interno2'] = trx['interno2'].fillna(0)
+    
     trx = trx.sort_values(['dia', 'id_tarjeta', 'id_linea',
-                          'interno', 'fecha_aux', 'orden_trx']).reset_index(drop=True)
+                          'interno2', 'fecha_aux', 'orden_trx']).reset_index(drop=True)
 
     trx["datetime_proximo"] = trx["fecha_aux"].shift(-1)
 
     trx['diff_datetime'] = (trx.fecha_aux - trx.datetime_proximo).abs()
 
     trx['diff_datetime2'] = trx.groupby(
-        ['dia', 'id_tarjeta', 'id_linea', 'interno']).diff_datetime.shift(+1)
+        ['dia', 'id_tarjeta', 'id_linea', 'interno2']).diff_datetime.shift(+1)
 
     trx['nro'] = np.nan
     trx.loc[(trx.diff_datetime2.isna()) | (
@@ -254,7 +257,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
 
     while len(trx[trx.nro.isna()]) > 0:
         trx['nro2'] = trx.groupby(
-            ['dia', 'id_tarjeta', 'id_linea', 'interno']).nro.shift(+1)+1
+            ['dia', 'id_tarjeta', 'id_linea', 'interno2']).nro.shift(+1)+1
         trx.loc[trx.nro.isna() & (trx.nro2.notna()),
                 'nro'] = trx.loc[trx.nro.isna() & (trx.nro2.notna()), 'nro2']
 
