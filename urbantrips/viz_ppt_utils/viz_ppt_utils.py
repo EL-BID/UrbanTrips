@@ -415,7 +415,8 @@ def create_ppt():
     print('----------')
 
     meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre',
+             'Diciembre']
 
     pd.options.mode.chained_assignment = None
 
@@ -445,7 +446,6 @@ def create_ppt():
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     viajes = pd.read_sql_query(
         """
@@ -621,20 +621,115 @@ def create_ppt():
                     width=7)
 
         # SLIDE 6 -
+        conn_data = iniciar_conexion_db(tipo='data')
+
+        q = """
+            select id_linea
+            from etapas e
+            where modo = 'autobus'
+            group by id_linea
+            order by sum(factor_expansion_linea) DESC
+            limit 1;
+        """
+        id_linea = pd.read_sql(q, conn_data)
+        id_linea = id_linea.id_linea.item()
+
+        if i.tipo_dia == 'Dia habil':
+            tdia = 'weekday'
+        else:
+            tdia = 'weekend'
+
+        # basic kpi plot
         slide = get_new_slide(prs, desc_dia_titulo)
 
         file_graph = os.path.join(
             "resultados",
             "png",
-            "amba_2019_muestra1__kpi_basicos_id_linea_1_weekday.png")
-        # f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
+            f"{alias}_kpi_basicos_id_linea_{id_linea}_{tdia}.png")
 
-        pptx_addpic(prs=prs,
-                    slide=slide,
-                    img_path=file_graph,
-                    left=1,
-                    top=2.5,
-                    width=9)
+        if os.path.isfile(file_graph):
+
+            pptx_addpic(prs=prs,
+                        slide=slide,
+                        img_path=file_graph,
+                        left=1,
+                        top=2.5,
+                        width=10)
+            # query demand data
+            q = f"""
+                select *
+                from basic_kpi_by_line_day
+                where id_linea = {id_linea}
+                and dia = '{tdia}';
+            """
+            demand_data = pd.read_sql(q, conn_data)
+            pax = int(demand_data.pax.item())
+            veh = int(demand_data.veh.item())
+            dmt = int(demand_data.dmt.item())
+            speed = int(demand_data.speed_kmh.item())
+
+            s = f"La linea id {id_linea} tiene en {i.tipo_dia} "
+            s = s + f"una demanda de {pax} pasajeros, con "
+            s = s + \
+                f"{veh} vehiculos dia, una distancia media de {dmt} metros "
+            s = s + \
+                f"y una velocidad comercial promedio de {speed} kmh"
+
+            # create plot and text
+            slide = pptx_text(
+                prs=prs, slide=slide,
+                title=s,
+                left=1, top=11, width=10, fontsize=20, bold=True)
+
+        else:
+            print("No existe el archivo", file_graph)
+
+        # section load plot
+        file_graph = os.path.join(
+            "resultados",
+            "png",
+            f"{alias}_{tdia}_segmentos_id_linea_{id_linea}_prop_etapas_ 7-10 hrs.png")
+
+        if os.path.isfile(file_graph):
+
+            pptx_addpic(prs=prs,
+                        slide=slide,
+                        img_path=file_graph,
+                        left=13,
+                        top=2.5,
+                        width=10)
+
+            q = f"""
+                select round(section_id * 100,1) as section_id,
+                       sentido, cantidad_etapas
+                from ocupacion_por_linea_tramo
+                where id_linea = {id_linea}
+                and day_type = '{tdia}'
+                and n_sections = 10
+                and hora_min = 7
+                and hora_max = 10
+                order by cantidad_etapas desc
+                limit 1;
+            """
+            load_data = pd.read_sql(q, conn_data)
+            section_id = load_data.section_id.item()
+            sentido = load_data.sentido.item()
+            cantidad_etapas = int(load_data.cantidad_etapas.item())
+
+            s = f"Y su tramo mas cargado es en el sentido {sentido} "
+            s = s + \
+                f" en el tramo equivalente al {section_id} % de su recorrido "
+            s = s + \
+                f" con {cantidad_etapas} etapas."
+
+            # create plot and text
+            slide = pptx_text(
+                prs=prs, slide=slide,
+                title=s,
+                left=13, top=11, width=10, fontsize=20, bold=True)
+
+        else:
+            print("No existe el archivo", file_graph)
 
         try:
             file_pptx = os.path.join(
