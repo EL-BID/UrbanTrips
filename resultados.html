@@ -4,19 +4,19 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Resultados finales &mdash; documentación de urbantrips - 0.2.0</title>
+  <title>Resultados finales &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script src="_static/jquery.js"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-        <script src="_static/doctools.js"></script>
-        <script src="_static/sphinx_highlight.js"></script>
-        <script src="_static/translations.js"></script>
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+        <script src="_static/doctools.js?v=888ff710"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="_static/translations.js?v=efdbd0b9"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -84,14 +84,14 @@
            <div itemprop="articleBody">
              
   <section id="resultados-finales">
-<h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h1>
+<h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Link to this heading"></a></h1>
 <p>Los resultados se guardarán en bases de <code class="docutils literal notranslate"><span class="pre">SQLite</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen dos tipos de bases fundamentales <code class="docutils literal notranslate"><span class="pre">data</span></code> e <code class="docutils literal notranslate"><span class="pre">insumos</span></code>. <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a transacciónes, etapas, viajes, usuarios y toda información que se actualiza con cada corrida de Urbantrips que procesa una nueva tanda de datos. Utilizando los alias del archivo de configuracion, pueden crearse diferentes bases de tipo data, una para cada periodo agregado de tiempo. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
 <section id="modelo-de-datos-de-base-data">
-<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code><a class="headerlink" href="#modelo-de-datos-de-base-data" title="Enlace permanente a este encabezado"></a></h2>
+<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code><a class="headerlink" href="#modelo-de-datos-de-base-data" title="Link to this heading"></a></h2>
 <p>Un grupo de tablas guardan los microdatos de las transacciónes, etapas, viajes, usuarios, servicios, gps, etc. Mientras que otro grupo de tablas guardarán los estadísticos que los analistas utilizando UrbanTrips vayan calculando para diferentes lineas.</p>
 <p><strong>Tablas de microdatos</strong></p>
 <table class="docutils align-default" id="id1">
-<caption><span class="caption-text">transacciónes</span><a class="headerlink" href="#id1" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">transacciónes</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -167,7 +167,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id2">
-<caption><span class="caption-text">etapas</span><a class="headerlink" href="#id2" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">etapas</span><a class="headerlink" href="#id2" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -255,7 +255,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id3">
-<caption><span class="caption-text">viajes</span><a class="headerlink" href="#id3" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">viajes</span><a class="headerlink" href="#id3" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -339,7 +339,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id4">
-<caption><span class="caption-text">usuarios</span><a class="headerlink" href="#id4" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">usuarios</span><a class="headerlink" href="#id4" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -379,7 +379,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id5">
-<caption><span class="caption-text">gps</span><a class="headerlink" href="#id5" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">gps</span><a class="headerlink" href="#id5" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -448,7 +448,7 @@
 </table>
 <p>La tabla <code class="docutils literal notranslate"><span class="pre">services</span></code> agrupa los servicios ofertados por las diferentes lineas, sin clasificarlos por ramal. Cada servicio tiene un id tal cual fue identificado por el conductor del vehículo y otro tal como fue identificado por UrbanTrips. Para cada servicio se agregan algunos datos como la hora de inicio y de fin, la cantidad de puntos gps, el porcentaje de puntos donde el vehículo estuvo detenido, etc. Existe otra tabla relacionada a esta (<code class="docutils literal notranslate"><span class="pre">services_gps_points</span></code>) donde cada punto gps  de la tabla <code class="docutils literal notranslate"><span class="pre">gps</span></code> queda registrado en un nuevo servicio indicando el <code class="docutils literal notranslate"><span class="pre">node_id</span></code> más cercano y el ramal al que pertenece.</p>
 <table class="docutils align-default" id="id6">
-<caption><span class="caption-text">services</span><a class="headerlink" href="#id6" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">services</span><a class="headerlink" href="#id6" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -516,7 +516,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id7">
-<caption><span class="caption-text">services_gps_points</span><a class="headerlink" href="#id7" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">services_gps_points</span><a class="headerlink" href="#id7" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -558,7 +558,7 @@
 <p><strong>Tablas de estadisticos</strong></p>
 <p>Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.</p>
 <table class="docutils align-default" id="id8">
-<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id8" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id8" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -598,7 +598,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id9">
-<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id9" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id9" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -654,7 +654,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id10">
-<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id10" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id10" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -718,7 +718,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id11">
-<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id11" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id11" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -782,7 +782,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id12">
-<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id12" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id12" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -850,7 +850,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id13">
-<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id13" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id13" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -902,7 +902,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id14">
-<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id14" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id14" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -950,7 +950,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id15">
-<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id15" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id15" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -995,10 +995,10 @@
 </table>
 </section>
 <section id="modelo-de-datos-de-base-insumos">
-<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Enlace permanente a este encabezado"></a></h2>
+<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Link to this heading"></a></h2>
 <p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
 <table class="docutils align-default" id="id16">
-<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id16" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id16" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1034,7 +1034,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id17">
-<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id17" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id17" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1074,7 +1074,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id18">
-<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id18" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id18" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1102,7 +1102,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id19">
-<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id19" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id19" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1126,7 +1126,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id20">
-<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id20" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id20" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1150,7 +1150,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id21">
-<caption><span class="caption-text">stops</span><a class="headerlink" href="#id21" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">stops</span><a class="headerlink" href="#id21" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1198,7 +1198,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id22">
-<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id22" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id22" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />
@@ -1234,7 +1234,7 @@
 </tbody>
 </table>
 <table class="docutils align-default" id="id23">
-<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id23" title="Enlace permanente a esta tabla"></a></caption>
+<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id23" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25%" />
 <col style="width: 25%" />

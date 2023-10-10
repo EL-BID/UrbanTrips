@@ -17,13 +17,7 @@ Tabla con las transacciones.
      - Descripción
    * - *id_trx*
      - int
-     - Opcional. Id único que identifique cada registro y permita luego vincular la transacción en Urbantrips con el dataset original.
-   * - *fecha_trx*
-     - strftime
-     - **Obligatorio**. Timestamp de la transaccion. Puede ser solo el día o el dia, hora y minuto.
-   * - *id_trx*
-     - int
-     - Opcional. Id único que identifique cada registro.
+     - **Obligatorio**. Id único que identifique cada registro y permita luego vincular la transacción en Urbantrips con el dataset original.
    * - *fecha_trx*
      - strftime
      - **Obligatorio**. Timestamp de la transaccion. Puede ser solo el día o el dia, hora y minuto.

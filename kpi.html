@@ -4,19 +4,19 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KPI &mdash; documentación de urbantrips - 0.2.0</title>
+  <title>KPI &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script src="_static/jquery.js"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-        <script src="_static/doctools.js"></script>
-        <script src="_static/sphinx_highlight.js"></script>
-        <script src="_static/translations.js"></script>
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+        <script src="_static/doctools.js?v=888ff710"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="_static/translations.js?v=efdbd0b9"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -85,10 +85,10 @@
            <div itemprop="articleBody">
              
   <section id="kpi">
-<h1>KPI<a class="headerlink" href="#kpi" title="Enlace permanente a este encabezado"></a></h1>
+<h1>KPI<a class="headerlink" href="#kpi" title="Link to this heading"></a></h1>
 <p>En este apartado se describen los diferentes tipos de KPI que UrbanTrips puede producir en función de los inputs con los que cada ciudad cuente. Se comienza por el caso donde solamente existen datos de demanda. En segundo lugar se abordan los KPI que puede producir cuando existen datos en de la oferta, como puede ser la tabla de GPS como así también información de servicios ofertados.</p>
 <section id="en-base-a-demanda">
-<h2>En base a demanda<a class="headerlink" href="#en-base-a-demanda" title="Enlace permanente a este encabezado"></a></h2>
+<h2>En base a demanda<a class="headerlink" href="#en-base-a-demanda" title="Link to this heading"></a></h2>
 <p>Cuando no existen datos de oferta, expresada fundamentalmente en la tabla GPS de posicionamiento de vehículos, UrbanTrips puede calcular algunos elementos de oferta y demanda en base a la tabla de transacciones en base al concepto de <em>pasajero equivalente</em>. Tomando la tabla de etapas se calcula por hora y dia para el interno de cada linea el total de pasajeros que iniciaron una etapa a esa hora en ese interno, la distancia media viajada (<em>DMT</em>) y la velocidad comercial promedio a la que circula ese interno en esa hora (siempre tomando solamente las coordenadas del interno cuando recoge pasajeros).</p>
 <p>Tomando estos datos se construye para cada pasajero un <em>pasajero equivalente</em> poniendo en relación cuántas posiciones disponibles en ese interno utilizó y por cuánto tiempo. Es decir, si un pasajero recorre 5 km en un interno que circula a 10 kmh, equivaldrá a 0.5 posiciones o pasajeros equivalentes. Para calcular un factor de ocupación se considera que cada interno oferta 60 ubicaciones y se compara el total de pasajeros equivalentes en esa hora en ese interno contra ese stock fijo. Luego se procede a agregar todos estos estadísticos para diferentes niveles de agregación (interno y linea) así como también para un día de la semana tipo o dia de fin de semana tipo (siempre que hayan días procesados que pertenezcan a uno de esos tipos).</p>
 <p>Los resultados quedan almacenados en las siguientes tablas  (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>).</p>
@@ -145,13 +145,13 @@
 </ul>
 </section>
 <section id="en-base-a-gps">
-<h2>En base a GPS<a class="headerlink" href="#en-base-a-gps" title="Enlace permanente a este encabezado"></a></h2>
+<h2>En base a GPS<a class="headerlink" href="#en-base-a-gps" title="Link to this heading"></a></h2>
 <p>Cuando existe una tabla de GPS se pueden elaborar estadísicos más elaborados y precisos. En primer lugar se procura obtener un factor de ocupación comparando los Espacio Kilómetro Demandados (EKD) como proporción de los Espacio Kilómetro Ofertados (EKO). Para los primeros (EKD)  se toma la cantidad de pasajeros transportados multiplicados por una DMT que puede ser utilizando la distancia media o la mediana, para evitar la influencia de medidas extremas que puedan incidir en el indicador. Para los segundos (EKO) se toma el total de kilómetros recorridos en base a la información disponible en la tabla GPS y se los multiplca por las 60 ubicaciones que se considera posee cada interno.</p>
 <p>En segundo lugar, se obtiene un Índice Pasajero Kilómetro (IPK) poniendo en relación el total de pasajeros transportados sobre el total de kilómetros recorridos por la línea. Para obtener estos indicadores principales se obtiene otros insumos que quedan en la base de datos, como el total de pasajeros, el total de kilómetros recorridos, la distancias medias y medianas viajadas, los vehículos totales, los pasajeros por vehículo por día, y los kilómetros por vehículo por día. Esto se calcula agregado para cada linea y día procesado, así como también para un día de la semana tipo o dia de fin de semana tipo.</p>
 <p>Los resultados quedan almacenados en la tabla <code class="docutils literal notranslate"><span class="pre">kpi_by_day_line</span></code> (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>).</p>
 </section>
 <section id="en-base-a-servicios">
-<h2>En base a servicios<a class="headerlink" href="#en-base-a-servicios" title="Enlace permanente a este encabezado"></a></h2>
+<h2>En base a servicios<a class="headerlink" href="#en-base-a-servicios" title="Link to this heading"></a></h2>
 <p>UrbanTrips permite obtener datos a nivel de servicios para cada vehículo de cada línea (para más información pueden leer el aparatdo de <a class="reference internal" href="servicios.html"><span class="doc">Clasificación de servicios</span></a>). Una vez que esta clafisicación de los datos de GPS en servicios ha tenido lugar, pueden obtenerse diferentes KPI al nivel de cada servicio identificado. Los resultados quedan almacenados en la tabla <code class="docutils literal notranslate"><span class="pre">kpi_by_day_line_service</span></code> (para más detalles vea el apartado <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>)</p>
 </section>
 </section>

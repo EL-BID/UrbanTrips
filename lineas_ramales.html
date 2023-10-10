@@ -4,19 +4,19 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sobre el concepto de lineas y ramales en UrbanTrips &mdash; documentación de urbantrips - 0.2.0</title>
+  <title>Sobre el concepto de lineas y ramales en UrbanTrips &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script src="_static/jquery.js"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-        <script src="_static/doctools.js"></script>
-        <script src="_static/sphinx_highlight.js"></script>
-        <script src="_static/translations.js"></script>
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+        <script src="_static/doctools.js?v=888ff710"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="_static/translations.js?v=efdbd0b9"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -80,7 +80,7 @@
            <div itemprop="articleBody">
              
   <section id="sobre-el-concepto-de-lineas-y-ramales-en-urbantrips">
-<h1>Sobre el concepto de lineas y ramales en UrbanTrips<a class="headerlink" href="#sobre-el-concepto-de-lineas-y-ramales-en-urbantrips" title="Enlace permanente a este encabezado"></a></h1>
+<h1>Sobre el concepto de lineas y ramales en UrbanTrips<a class="headerlink" href="#sobre-el-concepto-de-lineas-y-ramales-en-urbantrips" title="Link to this heading"></a></h1>
 <p>Una linea de transporte público puede tener un recorrido principal en torno al cual hay pequeñas variantes. Estas son consideradas ramales dentro de una misma linea. En muchas ciudades no existen estas diferencias y cada recorrido tiene un nombre y id únicos. Pero en otras no es así. A su vez, puede darse una situación donde, por ejemplo, una persona utiliza el metro, subiendo a la estación del recorrido A y descendiendo en una estación del recorrido B, sin que ese transbordo sea identificado como transacción en la tarjeta. Por lo tanto, para imputar el destino UrbanTrips considera como puntos de descenso posible todas las estaciones del metro. En este caso, el metro funcionará como una única línea y cada recorrido un ramal dentro del mismo. La diferencia fundamental es que el proceso de imputación de destinos considerará como posible punto de destino todas las estaciones de la linea y no del ramal.</p>
 <p>También puede suceder que una linea de autobuses tenga varios ramales, pero no siempre se identifica en los datos el ramal que realmente dicho vehículo o interno recorrió. Con lo cual podría ser cualquier recorrido de cualquiera de los ramales y al imputar el destino debería considerarse todas las estaciones potenciales de toda esa linea de autobus. Esta forma de tratar a las líneas y ramales permite que UrbanTrips se acomode a estas situaciones particulares que cada ciudad presenta.</p>
 <p>Si la ciudad en la que se va a correr UrbanTrips presente un caso de estás características con líneas y ramales debe indicarse en el archivo de configuración en el parámetro <code class="docutils literal notranslate"><span class="pre">lineas_contienen_ramales</span></code> ( ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>). A su vez debe indicarse en la tabla de <strong>Información de lineas y ramales</strong> (ver <a class="reference internal" href="#"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>) un id de linea que unifique diferentes ramales y los trate como una línea única utilizando el campo <code class="docutils literal notranslate"><span class="pre">id_linea_agg</span></code> de dicha tabla.</p>

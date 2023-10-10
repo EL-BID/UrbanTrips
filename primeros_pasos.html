@@ -4,19 +4,19 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Primeros pasos &mdash; documentación de urbantrips - 0.2.0</title>
+  <title>Primeros pasos &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script src="_static/jquery.js"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-        <script src="_static/doctools.js"></script>
-        <script src="_static/sphinx_highlight.js"></script>
-        <script src="_static/translations.js"></script>
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+        <script src="_static/doctools.js?v=888ff710"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="_static/translations.js?v=efdbd0b9"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -85,7 +85,7 @@
            <div itemprop="articleBody">
              
   <section id="primeros-pasos">
-<h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Enlace permanente a este encabezado"></a></h1>
+<h1>Primeros pasos<a class="headerlink" href="#primeros-pasos" title="Link to this heading"></a></h1>
 <p>Una vez creado el ambiente e instalada UrbanTrips es necesario organizar los datos que funcionarán como insumos del proceso y el archivo de configuración.</p>
 <p><strong>Insumos necesarios y opcionales</strong></p>
 <p>Urbantrips requiere sólo 3 insumos indispensables:</p>
@@ -171,7 +171,7 @@
 </pre></div>
 </div>
 <section id="estructura-de-directorios">
-<h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Enlace permanente a este encabezado"></a></h2>
+<h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Link to this heading"></a></h2>
 <p id="id1">Esta es la estructura de directorios de UrbanTrips. <code class="docutils literal notranslate"><span class="pre">configs/</span></code> guarda el archivo de configuraciones principal. <code class="docutils literal notranslate"><span class="pre">data/</span></code> tendrá por un lado los archivo de insumo para la ciudad (transacciones, gps, etc) y los resultados producto de la corrida de UrbanTrips que se guardarán en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>. Por último en el directorio <code class="docutils literal notranslate"><span class="pre">resultados/</span></code> se guardarán algunos resultados agregados en tablas, mapas, gráficos y en formatos más amigables como <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">png</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>urbantrips
 │   README.md
@@ -214,7 +214,7 @@
 </div>
 </section>
 <section id="correr-urbantrips">
-<h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Enlace permanente a este encabezado"></a></h2>
+<h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Link to this heading"></a></h2>
 <p>Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar UrbanTrips. En primer lugar es necesario inicializar los directorios y la base de datos necesarios. Este paso solo se corre una vez.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/initialize_environment.py
 </pre></div>
@@ -229,7 +229,7 @@
 </div>
 </section>
 <section id="resultados-finales">
-<h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Enlace permanente a este encabezado"></a></h2>
+<h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Link to this heading"></a></h2>
 <p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">SQLite</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>.</p>
 </section>
 </section>
