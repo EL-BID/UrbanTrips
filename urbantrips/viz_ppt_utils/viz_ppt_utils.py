@@ -620,6 +620,22 @@ def create_ppt():
                     top=2.5,
                     width=7)
 
+        # SLIDE 6 -
+        slide = get_new_slide(prs, desc_dia_titulo)
+
+        file_graph = os.path.join(
+            "resultados",
+            "png",
+            "amba_2019_muestra1__kpi_basicos_id_linea_1_weekday.png")
+        # f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
+
+        pptx_addpic(prs=prs,
+                    slide=slide,
+                    img_path=file_graph,
+                    left=1,
+                    top=2.5,
+                    width=9)
+
         try:
             file_pptx = os.path.join(
                 "resultados", "ppts", f"{alias}{desc_dia_file}.pptx")
