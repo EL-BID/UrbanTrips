@@ -410,7 +410,6 @@ def slide_1(prs,
 
 def create_ppt():
 
-
     print('')
     print('create_ppt')
     print('----------')
@@ -477,9 +476,9 @@ def create_ppt():
     viajes['mo'] = pd.to_datetime(viajes.dia).dt.month
     viajes['dow'] = pd.to_datetime(viajes.dia).dt.day_of_week
 
-    viajes['tipo_dia'] = 'Dia habil'    
+    viajes['tipo_dia'] = 'Dia habil'
     viajes.loc[viajes.dow >= 5, 'tipo_dia'] = 'Fin de semana'
-    
+
     v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
                             as_index=False).size().iterrows()
     for _, i in v_iter:
@@ -514,17 +513,17 @@ def create_ppt():
         slide = get_new_slide(prs, desc_dia_titulo)
 
         punta_manana = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                           (hora_punta.dia == f'{i.yr}-{i.mo}') &
-                           (hora_punta.detalle=='Hora punta mañana') ].indicador.astype(int).values[0]
+                                  (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                  (hora_punta.detalle == 'Hora punta mañana')].indicador.astype(int).values[0]
         punta_mediodia = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                   (hora_punta.dia == f'{i.yr}-{i.mo}') &
-                                   (hora_punta.detalle=='Hora punta mediodí­a') ].indicador.astype(int).values[0]
+                                    (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                    (hora_punta.detalle == 'Hora punta mediodí­a')].indicador.astype(int).values[0]
         punta_tarde = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                   (hora_punta.dia == f'{i.yr}-{i.mo}') &
-                                   (hora_punta.detalle=='Hora punta tarde') ].indicador.astype(int).values[0]
+                                 (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                 (hora_punta.detalle == 'Hora punta tarde')].indicador.astype(int).values[0]
 
         slide = pptx_text(prs=prs, slide=slide,  title=f'La hora punta mañana de viajes es a las {punta_manana} hs., la hora punta mediodía de viajes es a las {punta_mediodia} hs. y la hora punta tarde de viajes es a las {punta_tarde} hs.',
-                      left=4, top=2.8, width=18, fontsize=20, bold=True)              
+                          left=4, top=2.8, width=18, fontsize=20, bold=True)
 
         file_graph = os.path.join(
             "resultados",
@@ -538,37 +537,38 @@ def create_ppt():
                     top=4.5,
                     width=19)
 
-
         # SLIDE 3 -
         slide = get_new_slide(prs, desc_dia_titulo)
 
         hora_punta_modos = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                   (hora_punta.dia == f'{i.yr}-{i.mo}') &
-                                   (~hora_punta.detalle.isin(['Hora punta mañana', 'Hora punta mediodí­a', 'Hora punta tarde'])) ]
-        hora_punta_modos = hora_punta_modos.reset_index().rename(columns={'index':'orden'})
-        hora_punta_modos = hora_punta_modos.sort_values('orden', ascending=False).reset_index(drop=True)
+                                      (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                      (~hora_punta.detalle.isin(['Hora punta mañana', 'Hora punta mediodí­a', 'Hora punta tarde']))]
+        hora_punta_modos = hora_punta_modos.reset_index().rename(columns={
+            'index': 'orden'})
+        hora_punta_modos = hora_punta_modos.sort_values(
+            'orden', ascending=False).reset_index(drop=True)
         modos = []
         val = 0
         # for i in hora_punta_modos:
         for _ in range(0, len(hora_punta_modos), 3):
             det = hora_punta_modos.iloc[_].detalle
-            det = det.split('(')[1][:-1]    
+            det = det.split('(')[1][:-1]
             tarde = hora_punta_modos.iloc[_].indicador.astype(int)
             mediodia = hora_punta_modos.iloc[_+1].indicador.astype(int)
             manana = hora_punta_modos.iloc[_+2].indicador.astype(int)
             modos += [f'Viajes en {det}: hora punta mañana {manana} hs., hora punta mediodia {mediodia} hs., hora punta tarde {tarde} hs.']
 
         top_m = 2.5
-        for modo in modos:            
+        for modo in modos:
             slide = pptx_text(prs=prs, slide=slide,  title=modo,
-                  left=4, top=top_m, width=18, fontsize=20, bold=True) 
+                              left=4, top=top_m, width=18, fontsize=20, bold=True)
             top_m += .5
-            
+
         file_graph = os.path.join(
             "resultados",
             "png",
             f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_modo.png")
-        
+
         pptx_addpic(prs=prs,
                     slide=slide,
                     img_path=file_graph,
@@ -591,7 +591,6 @@ def create_ppt():
                     left=4,
                     top=3,
                     width=15)
-
 
         # SLIDE 5 -
 
