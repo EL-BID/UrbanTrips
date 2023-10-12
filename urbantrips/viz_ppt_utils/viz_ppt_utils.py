@@ -446,6 +446,8 @@ def create_ppt():
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_dash = iniciar_conexion_db(tipo='dash')
 
     viajes = pd.read_sql_query(
         """
@@ -463,6 +465,14 @@ def create_ppt():
         conn_data,
     )
 
+    indicadores_dash = pd.read_sql_query(
+        """
+        SELECT *
+        FROM indicadores
+        """,
+        conn_dash,
+    )
+
     hora_punta = pd.read_sql_query(
         """
         SELECT *
@@ -470,6 +480,10 @@ def create_ppt():
         """,
         conn_data,
     )
+
+    conn_data.close()
+    conn_dash.close()
+    conn_insumos.close()
 
     # Imputar anio, mes y tipo de dia
     viajes['yr'] = pd.to_datetime(viajes.dia).dt.year
@@ -482,10 +496,12 @@ def create_ppt():
     v_iter = viajes.groupby(['yr', 'mo', 'tipo_dia'],
                             as_index=False).size().iterrows()
     for _, i in v_iter:
+
         ym = f'{i.yr}-{str(i.mo).zfill(2)}'
-        desc_dia = f'{i.yr}-{str(i.mo).zfill(2)} ({i.tipo_dia})'
+        mo = str(i.mo).zfill(2)
+        desc_dia = f'{i.yr}-{mo} ({i.tipo_dia})'
         desc_dia_titulo = f"Corrida de {meses[i.mo-1]} {i.yr} ({i.tipo_dia})"
-        desc_dia_file = f'{i.yr}-{str(i.mo).zfill(2)}({i.tipo_dia})'
+        desc_dia_file = f'{i.yr}-{mo}({i.tipo_dia})'
 
         ind = indicadores[indicadores.dia.str[:7] == ym]
         ind = indicadores[indicadores.dia.str[:7] == ym]
@@ -513,13 +529,13 @@ def create_ppt():
         slide = get_new_slide(prs, desc_dia_titulo)
 
         punta_manana = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                  (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                  (hora_punta.dia == f'{i.yr}-{mo}') &
                                   (hora_punta.detalle == 'Hora punta mañana')].indicador.astype(int).values[0]
         punta_mediodia = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                    (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                    (hora_punta.dia == f'{i.yr}-{mo}') &
                                     (hora_punta.detalle == 'Hora punta mediodí­a')].indicador.astype(int).values[0]
         punta_tarde = hora_punta[(hora_punta.tipo_dia == i.tipo_dia) &
-                                 (hora_punta.dia == f'{i.yr}-{i.mo}') &
+                                 (hora_punta.dia == f'{i.yr}-{mo}') &
                                  (hora_punta.detalle == 'Hora punta tarde')].indicador.astype(int).values[0]
 
         slide = pptx_text(prs=prs, slide=slide,  title=f'La hora punta mañana de viajes es a las {punta_manana} hs., la hora punta mediodía de viajes es a las {punta_mediodia} hs. y la hora punta tarde de viajes es a las {punta_tarde} hs.',
@@ -528,7 +544,7 @@ def create_ppt():
         file_graph = os.path.join(
             "resultados",
             "png",
-            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_x_hora.png")
+            f"{alias}{i.yr}-{mo}({i.tipo_dia})_viajes_x_hora.png")
 
         pptx_addpic(prs=prs,
                     slide=slide,
@@ -577,19 +593,32 @@ def create_ppt():
                     width=19)
 
         # SLIDE 4 -
+        if i.tipo_dia == 'Dia habil':
+            tip_dia = 'Hábil'
+        else:
+            tipo_dia == 'Fin de semana'
+        avg_dist = indicadores_dash[(indicadores_dash.desc_dia == f'{i.yr}-{mo}') &
+                                    (indicadores_dash.tipo_dia == tip_dia) &
+                                    (indicadores_dash.Indicador == 'Distancia de los viajes (promedio en kms)')].Valor.values[0].replace('\xa0', '')
+        median_dist = indicadores_dash[(indicadores_dash.desc_dia == f'{i.yr}-{mo}') &
+                                       (indicadores_dash.tipo_dia == tip_dia) &
+                                       (indicadores_dash.Indicador == 'Distancia de los viajes (mediana en kms)')].Valor.values[0].replace('\xa0', '')
 
         slide = get_new_slide(prs, desc_dia_titulo)
+
+        slide = pptx_text(prs=prs, slide=slide,  title=f'La distancia promedio de los viajes es de {avg_dist} y la distancia mediana es de {median_dist}',
+                          left=4, top=2.8, width=18, fontsize=20, bold=True)
 
         file_graph = os.path.join(
             "resultados",
             "png",
-            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_viajes_dist.png")
+            f"{alias}{i.yr}-{mo}({i.tipo_dia})_viajes_dist.png")
 
         pptx_addpic(prs=prs,
                     slide=slide,
                     img_path=file_graph,
                     left=4,
-                    top=3,
+                    top=4,
                     width=15)
 
         # SLIDE 5 -
@@ -599,7 +628,7 @@ def create_ppt():
         file_graph = os.path.join(
             "resultados",
             "png",
-            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
+            f"{alias}{i.yr}-{mo}({i.tipo_dia})_{geo_files[0][1]}_lineas_deseo.png")
 
         pptx_addpic(prs=prs,
                     slide=slide,
@@ -611,7 +640,7 @@ def create_ppt():
         file_graph = os.path.join(
             "resultados",
             "png",
-            f"{alias}{i.yr}-{i.mo}({i.tipo_dia})_{geo_files[0][1]}_matrizod.png")
+            f"{alias}{i.yr}-{mo}({i.tipo_dia})_{geo_files[0][1]}_matrizod.png")
 
         pptx_addpic(prs=prs,
                     slide=slide,
