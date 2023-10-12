@@ -248,6 +248,10 @@ def create_trips_from_legs():
 
     etapas = etapas.drop(['od_validado_cadena'], axis=1)
 
+    # Si la cadena de viajes no está validada le fuera el od_validado a 0
+    etapas.loc[etapas.factor_expansion_linea == 0,
+               'od_validado'] = 0
+
     etapas = etapas.sort_values('id').reset_index(drop=True)
 
     print('Actualizando tabla de etapas en la db...')
