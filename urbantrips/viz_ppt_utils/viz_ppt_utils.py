@@ -596,7 +596,8 @@ def create_ppt():
         if i.tipo_dia == 'Dia habil':
             tip_dia = 'Hábil'
         else:
-            tipo_dia == 'Fin de semana'
+            tip_dia == 'Fin de semana'
+
         avg_dist = indicadores_dash[(indicadores_dash.desc_dia == f'{i.yr}-{mo}') &
                                     (indicadores_dash.tipo_dia == tip_dia) &
                                     (indicadores_dash.Indicador == 'Distancia de los viajes (promedio en kms)')].Valor.values[0].replace('\xa0', '')
