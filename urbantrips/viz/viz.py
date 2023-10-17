@@ -2666,7 +2666,7 @@ def indicadores_dash():
     indicadores['yr'] = indicadores.dia.dt.year
 
     indicadores['desc_dia'] = indicadores['yr'].astype(str).str.zfill(
-        4) + '/' + indicadores['mo'].astype(str).str.zfill(2)
+        4) + '-' + indicadores['mo'].astype(str).str.zfill(2)
     indicadores['tipo_dia'] = 'Hábil'
     indicadores.loc[indicadores.dow >= 5, 'tipo_dia'] = 'Fin de semana'
 
