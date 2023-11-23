@@ -566,13 +566,12 @@ def plot_cluster_legs_4d(
 
             route_gs.plot(ax=ax, color='black')
 
-        prov = cx.providers.Stamen.TonerLite
+        prov = cx.providers.CartoDB.Positron
         crs_string = gdf_max_groups.crs.to_string()
         try:
             cx.add_basemap(ax1, crs=crs_string, source=prov)
         except (UnidentifiedImageError):
-            prov = cx.providers.CartoDB.Positron
-            cx.add_basemap(ax1, crs=crs_string, source=prov)
+            cx.add_basemap(ax1, crs=crs_string)
         except (r_ConnectionError):
             pass
 

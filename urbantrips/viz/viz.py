@@ -544,14 +544,13 @@ def viz_etapas_x_tramo_recorrido(df,
                                  shrink=0.05, edgecolor='Orange'),
                  )
 
-    prov = cx.providers.Stamen.TonerLite
+    prov = cx.providers.CartoDB.Positron
     try:
         cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string())
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string())
     except (r_ConnectionError):
         pass
 
