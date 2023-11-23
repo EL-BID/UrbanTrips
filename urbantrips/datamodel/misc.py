@@ -4,6 +4,7 @@ from pandas.io.sql import DatabaseError
 from urbantrips.utils.utils import (iniciar_conexion_db,
                                     leer_alias, agrego_indicador, duracion)
 
+
 @duracion
 def persist_datamodel_tables():
     """
@@ -12,7 +13,6 @@ def persist_datamodel_tables():
     y las guarda en csv
     """
 
-    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
@@ -50,6 +50,7 @@ def persist_datamodel_tables():
     viajes = pd.read_sql_query("""
                                 select *
                                 from viajes
+                                where od_validado==1
                                """, conn_data)
     viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
     viajes = viajes.merge(distancias, how='left')
@@ -58,6 +59,7 @@ def persist_datamodel_tables():
     usuarios = pd.read_sql_query("""
                                 SELECT *
                                 from usuarios
+                                where od_validado==1
                                 """, conn_data)
 
     # Grabo resultados en tablas .csv
