@@ -659,7 +659,7 @@ def create_gps_table():
                 id_linea int,
                 id_ramal int,
                 interno int,
-                fecha datetime,
+                fecha int,
                 latitud FLOAT,
                 longitud FLOAT,
                 velocity float,
