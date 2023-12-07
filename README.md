@@ -12,7 +12,7 @@ UrbanTrips es una biblioteca de código abierto que toma información de un sist
 
 Para mayor información de la librería, instalación, configuración y uso puede leerse la [Documentación](https://el-bid.github.io/UrbanTrips/)
 
-Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este ![documento metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/Metodologia_UrbanTrips.pdf "Documento metodológico").
+Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este [documento metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/Metodologia_UrbanTrips.pdf "Documento metodológico").
 
 
 ## Agradecimientos
