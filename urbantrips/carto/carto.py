@@ -433,17 +433,115 @@ def create_distances_table(use_parallel=False):
         conn_data.close()
 
 
+def compute_distances_osmx(df, mode, use_parallel):
+    """
+    Takes a dataframe with pairs of h3 with origins and destinations
+    and computes distances between those pairs using OSMNX.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame representing a chunk with OD pairs 
+        with h3 indexes
+    modes: list
+        list of modes to compute distances for. Must be a valid
+        network_type parameter for either osmnx graph_from_bbox
+        or pandana pdna_network_from_bbox
+    use_parallel: bool
+        use parallel processing when computin omsnx distances
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing od pairs with distances
+    """
+    print("Computando distancias entre pares OD con OSMNX")
+    ymin, xmin, ymax, xmax = (
+        min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
+        min(df["lon_o_tmp"].min(), df["lon_d_tmp"].min()),
+        max(df["lat_o_tmp"].max(), df["lat_d_tmp"].max()),
+        max(df["lon_o_tmp"].max(), df["lon_d_tmp"].max()),
+    )
+    xmin -= 0.2
+    ymin -= 0.2
+    xmax += 0.2
+    ymax += 0.2
+
+    G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
+    G = ox.add_edge_speeds(G)
+    G = ox.add_edge_travel_times(G)
+
+    nodes_from = ox.distance.nearest_nodes(
+        G, df['lon_o_tmp'].values, df['lat_o_tmp'].values, return_dist=True
+    )
+
+    nodes_to = ox.distance.nearest_nodes(
+        G, df['lon_d_tmp'].values, df['lat_d_tmp'].values, return_dist=True
+    )
+    nodes_from = nodes_from[0]
+    nodes_to = nodes_to[0]
+
+    if use_parallel:
+        results = run_network_distance_parallel(
+            mode, G, nodes_from, nodes_to)
+        df[f"distance_osm_{mode}"] = results
+
+    else:
+        df = run_network_distance_not_parallel(
+            df, mode, G, nodes_from, nodes_to)
+    return df
+
+
+def compute_distances_pandana(df, mode):
+    """
+    Takes a dataframe with pairs of h3 with origins and destinations
+    and computes distances between those pairs using pandana.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame representing a chunk with OD pairs 
+        with h3 indexes
+    modes: list
+        list of modes to compute distances for. Must be a valid
+        network_type parameter for either osmnx graph_from_bbox
+        or pandana pdna_network_from_bbox
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing od pairs with distances
+    """
+
+    print("Computando distancias entre pares OD con Pandana")
+    ymin, xmin, ymax, xmax = (
+        min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
+        min(df["lon_o_tmp"].min(), df["lon_d_tmp"].min()),
+        max(df["lat_o_tmp"].max(), df["lat_d_tmp"].max()),
+        max(df["lon_o_tmp"].max(), df["lon_d_tmp"].max()),
+    )
+    xmin -= 0.2
+    ymin -= 0.2
+    xmax += 0.2
+    ymax += 0.2
+
+    network = osm_pandana.pdna_network_from_bbox(
+        ymin, xmin, ymax,  xmax, network_type=mode)
+
+    df['node_from'] = network.get_node_ids(
+        df['lon_o_tmp'], df['lat_o_tmp']).values
+    df['node_to'] = network.get_node_ids(
+        df['lon_d_tmp'], df['lat_d_tmp']).values
+    df[f'distance_osm_{mode}'] = network.shortest_path_lengths(
+        df['node_to'].values, df['node_from'].values)
+    return df
+
+
 def compute_distances_osm(
         df,
-        origin="",
-        destination="",
-        lat_o_tmp="",
-        lon_o_tmp="",
-        lat_d_tmp="",
-        lon_d_tmp="",
         h3_o="",
         h3_d="",
-        processing="osmnx",
+        processing="pandana",
         modes=["drive", "walk"],
         use_parallel=False):
     """
@@ -455,14 +553,6 @@ def compute_distances_osm(
     df : pandas.DataFrame
         DataFrame representing a chunk with OD pairs 
         with h3 indexes
-    lat_o_tmp: float
-        origin latitud 
-    lon_o_tmp: float
-        origin longitud 
-    lat_d_tmp: float
-        destination latitud 
-    lon_d_tmp: float
-        destination latitud 
     h3_o: str (h3Index)
         origin h3 index
     h3_d: str (h3Index)
@@ -484,79 +574,31 @@ def compute_distances_osm(
 
     cols = df.columns.tolist()
 
-    if len(lat_o_tmp) == 0:
-        lat_o_tmp = "lat_o_tmp"
-    if len(lon_o_tmp) == 0:
-        lon_o_tmp = "lon_o_tmp"
-    if len(lat_d_tmp) == 0:
-        lat_d_tmp = "lat_d_tmp"
-    if len(lon_d_tmp) == 0:
-        lon_d_tmp = "lon_d_tmp"
+    df["origin"] = df[h3_o].apply(h3togeo)
+    df["lon_o_tmp"] = df["origin"].apply(bring_latlon, latlon='lon')
+    df["lat_o_tmp"] = df["origin"].apply(bring_latlon, latlon='lat')
 
-    if (lon_o_tmp not in df.columns) | (lat_o_tmp not in df.columns):
-        if (origin not in df.columns) & (len(h3_o) > 0):
-            origin = "origin"
-            df[origin] = df[h3_o].apply(h3togeo)
-        df["lon_o_tmp"] = df[origin].apply(bring_latlon, latlon='lon')
-        df["lat_o_tmp"] = df[origin].apply(bring_latlon, latlon='lat')
-
-    if (lon_d_tmp not in df.columns) | (lat_d_tmp not in df.columns):
-        if (destination not in df.columns) & (len(h3_d) > 0):
-            destination = "destination"
-            df[destination] = df[h3_d].apply(h3togeo)
-        df["lon_d_tmp"] = df[destination].apply(bring_latlon, latlon='lon')
-        df["lat_d_tmp"] = df[destination].apply(bring_latlon, latlon='lat')
-
-    ymin, xmin, ymax, xmax = (
-        min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
-        min(df["lon_o_tmp"].min(), df["lon_d_tmp"].min()),
-        max(df["lat_o_tmp"].max(), df["lat_d_tmp"].max()),
-        max(df["lon_o_tmp"].max(), df["lon_d_tmp"].max()),
-    )
-    xmin -= 0.2
-    ymin -= 0.2
-    xmax += 0.2
-    ymax += 0.2
+    df["destination"] = df[h3_d].apply(h3togeo)
+    df["lon_d_tmp"] = df["destination"].apply(bring_latlon, latlon='lon')
+    df["lat_d_tmp"] = df["destination"].apply(bring_latlon, latlon='lat')
 
     var_distances = []
 
     for mode in modes:
 
         if processing == 'osmnx':
-
-            G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
-            G = ox.add_edge_speeds(G)
-            G = ox.add_edge_travel_times(G)
-
-            nodes_from = ox.distance.nearest_nodes(
-                G, df[lon_o_tmp].values, df[lat_o_tmp].values, return_dist=True
-            )
-
-            nodes_to = ox.distance.nearest_nodes(
-                G, df[lon_d_tmp].values, df[lat_d_tmp].values, return_dist=True
-            )
-            nodes_from = nodes_from[0]
-            nodes_to = nodes_to[0]
-
-            if use_parallel:
-                results = run_network_distance_parallel(
-                    mode, G, nodes_from, nodes_to)
-                df[f"distance_osm_{mode}"] = results
-
-            else:
-                df = run_network_distance_not_parallel(
-                    df, mode, G, nodes_from, nodes_to)
+            # computing distances with osmnx
+            df = compute_distances_osmx(df=df, mode=mode,
+                                        use_parallel=use_parallel)
 
         else:
-            network = osm_pandana.pdna_network_from_bbox(
-                ymin, xmin, ymax,  xmax, network_type=mode)
-
-            df['node_from'] = network.get_node_ids(
-                df[lon_o_tmp], df[lat_o_tmp]).values
-            df['node_to'] = network.get_node_ids(
-                df[lon_d_tmp], df[lat_d_tmp]).values
-            df[f'distance_osm_{mode}'] = network.shortest_path_lengths(
-                df['node_to'].values, df['node_from'].values)
+            try:
+                # computing distances with pandana
+                df = compute_distances_pandana(df=df, mode=mode)
+            except:
+                print("No es posible computar distancias con pandana")
+                df = compute_distances_osmx(df=df, mode=mode,
+                                            use_parallel=use_parallel)
 
     var_distances += [f"distance_osm_{mode}"]
     df[f"distance_osm_{mode}"] = (
