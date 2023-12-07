@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html class="writer-html5" lang="es" >
+<html class="writer-html5" lang="es" data-content_root="./">
 <head>
-  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Input de datos &mdash; documentación de urbantrips - 0.2.2</title>
-      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
   <!--[if lt IE 9]>
     <script src="_static/js/html5shiv.min.js"></script>
   <![endif]-->
@@ -94,9 +96,9 @@
 <p>Tabla con las transacciones.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Campo</p></th>
@@ -161,9 +163,9 @@
 <p>Tabla con metadata descriptiva de las lineas y ramales. La forma de tratar a las líneas y ramales en UrbanTrips es muy específica, por lo tanto se aconseja leer el apartado  <a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Campo</p></th>
@@ -216,9 +218,9 @@
 <p>Archivo <code class="docutils literal notranslate"><span class="pre">geojson</span></code> con la cartografía de los recorridos de la linea. Debe ser un LineString 2D, sin multilineas. Se necesita una única línea por cada linea o ramal (si existen ramales). Por ello no se considera el sentido del recorrido (ida o vuelta). Se debe tomar uno solo para construir las paradas. En caso de que existan diferencias en el recorrido, se puede desviar el mismo para que pase por un punto medio y seguir siendo un recorrido representativo del ramal.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Campo</p></th>
@@ -255,9 +257,9 @@
 <p>Tabla con el posicionamiento de cada interno con información de linea y ramal.  La existencia de la tabla GPS permitira calcular KPI adicionales como el Índice Pasajero- Kilómetro (IPK) o el factor de ocupación, entre otros.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Campo</p></th>
@@ -302,9 +304,9 @@
 <p>Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo <code class="docutils literal notranslate"><span class="pre">node_id</span></code> se utiliza para identificar en qué paradas puede haber transbordo entre dos ramales de la misma linea. Para esas paradas el <code class="docutils literal notranslate"><span class="pre">node_id</span></code> debe ser el mismo, para las demas paradas debe ser único dentro de la misma línea. De contar con recorridos puede utilizarse el notebook <code class="docutils literal notranslate"><span class="pre">stops_creation_with_node_id_helper.ipynb</span></code> para crearlas.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Campo</p></th>
