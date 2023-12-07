@@ -38,6 +38,7 @@ setuptools.setup(
         'openpyxl==3.1.2',
         'osmnx==1.6.0',
         'pandas==2.1.1',
+        'pandana==0.7',
         'patsy==0.5.3',
         'Pillow==9.5.0',
         'plotly==5.17.0',
