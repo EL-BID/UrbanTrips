@@ -692,13 +692,18 @@ def process_and_upload_gps_table(nombre_archivo_gps,
         nombres_variables_gps,
         postfijo="_gps",
     )
+    # Parsear fechas y crear atributo dia
+    # col_hora false para no crear tiempo y hora
+
+    gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
+
+    # compute expansion factors for gps
+    veh_exp = get_veh_expansion_from_gps(gps)
+    veh_exp.to_sql("vehicle_expansion_factors", conn,
+                   if_exists="append", index=False)
 
     # parsear fechas
     gps = eliminar_trx_fuera_bbox(gps)
-
-    # Parsear fechas y crear atributo dia
-    # col_hora false para no crear tiempo y hora
-    gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
 
     if configs['lineas_contienen_ramales']:
         subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
@@ -757,6 +762,43 @@ def process_and_upload_gps_table(nombre_archivo_gps,
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
     gps.to_sql("gps", conn, if_exists="append", index=False)
+
+
+def count_unique_vehicles(s):
+    return len(s.unique())
+
+
+def all_gps_broken(s):
+    if (s == 0).all() or s.isna().all():
+        return 1
+    else:
+        return 0
+
+
+def get_veh_expansion_from_gps(gps):
+    """
+    This function takes a gps table
+    and computes average speed in kmr by 
+    vehicle line and day
+    """
+    vehicles_with_gps_broken = gps\
+        .reindex(columns=['id_linea', 'dia', 'interno', 'latitud', 'longitud'])\
+        .groupby(['id_linea', 'dia', 'interno'], as_index=False)\
+        .agg(
+            vehicles_no_gps_lon=('longitud', all_gps_broken)
+
+        )
+    vehicles_with_gps_broken = vehicles_with_gps_broken\
+        .groupby(['id_linea', 'dia'], as_index=False)\
+        .agg(
+            unique_vehicles=('interno', 'count'),
+            broken_gps_veh=('vehicles_no_gps_lon', 'sum')
+        )
+
+    vehicles_with_gps_broken['veh_exp'] = vehicles_with_gps_broken.unique_vehicles / \
+        (vehicles_with_gps_broken.unique_vehicles -
+         vehicles_with_gps_broken.broken_gps_veh)
+    return vehicles_with_gps_broken
 
 
 @duracion

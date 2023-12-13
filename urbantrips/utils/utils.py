@@ -727,6 +727,20 @@ def create_gps_table():
             """
     )
 
+    conn_data.execute(
+        """
+            CREATE TABLE IF NOT EXISTS vehicle_expansion_factors
+                (
+             	id_linea int,
+                dia text,
+                unique_vehicles int,
+                broken_gps_veh int,
+                veh_exp float
+                )
+            ;
+            """
+    )
+
     conn_data.commit()
     conn_data.close()
 

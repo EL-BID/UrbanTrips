@@ -739,6 +739,12 @@ def compute_kpi_by_line_day(legs, gps):
     """
     conn_data = iniciar_conexion_db(tipo="data")
 
+    # get veh expansion factors for supply data
+    q = "select id_linea,dia,veh_exp from vehicle_expansion_factors"
+    vehicle_expansion_factor = pd.read_sql(q, conn_data)
+    gps = gps.merge(vehicle_expansion_factor, on=[
+                    'dia', 'id_linea'], how='left')
+
     # demand data
     day_demand_stats = legs\
         .groupby(['id_linea', 'dia'], as_index=False)\
@@ -1062,12 +1068,75 @@ def demand_stats(df):
 
 def supply_stats(df):
     d = {}
-    d["tot_veh"] = len(df.interno.unique())
-    d["tot_km"] = df.distance_km.sum()
+    d["tot_veh"] = len(df.interno.unique()) * df.veh_exp.unique()[0]
+    d["tot_km"] = df.distance_km.sum() * df.veh_exp.unique()[0]
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
 
 # GENERAL PURPOSE KPI WITH NO GPS
+
+
+def compute_speed_by_day_veh_hour():
+    """
+    This function read gps data and computes 
+    average speed by veh for each day and line
+    """
+    conn_data = iniciar_conexion_db(tipo="data")
+    processed_days = get_processed_days(table_name='basic_kpi_by_line_day')
+
+    # read data
+    q = """
+    select dia,id_linea,fecha,interno,velocity,distance_km 
+    from gps
+    where dia not in ({processed_days})
+    ;
+    """
+    gps_df = pd.read_sql(q, conn_data)
+    conn_data.close()
+
+    # create a lag in date
+    gps_df = gps_df.sort_values(['dia', 'id_linea', 'interno', 'fecha'])
+    gps_df["fecha_lag"] = (
+        gps_df.reindex(columns=["dia", "id_linea", "interno", "fecha"])
+        .groupby(["dia", "id_linea", "interno"])
+        .shift(-1)
+    )
+
+    # compute delta in time
+    gps_df = gps_df.dropna(subset=["fecha", "fecha_lag"])
+    gps_df.loc[:, ['delta_hr']] = (gps_df.fecha_lag - gps_df.fecha) / (60*60)
+    gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
+
+    # compute speed in kmr
+    gps_df.loc[:, ['speed_kmh_veh_h']] = gps_df.distance_km / gps_df.delta_hr
+    gps_df['hora'] = pd.to_datetime(gps_df['fecha'], unit='s').dt.hour
+
+    # get mean speed by day, linea, veh
+    speed_vehicle_hour_gps = gps_df\
+        .reindex(columns=['dia', 'id_linea', 'interno', 'hora', 'speed_kmh_veh_h'])\
+        .groupby(['dia', 'id_linea', 'interno', 'hora'], as_index=False).mean()
+
+    speed_vehicle_hour_gps = speed_vehicle_hour_gps.loc[speed_vehicle_hour_gps.speed_kmh_veh_h > 0, :]
+
+    return speed_vehicle_hour_gps
+
+
+def gps_table_exists():
+    conn_data = iniciar_conexion_db(tipo="data")
+    cur = conn_data.cursor()
+    q = """
+        SELECT tbl_name FROM sqlite_master
+        WHERE type='table'
+        AND tbl_name='gps';
+    """
+    listOfTables = cur.execute(q).fetchall()
+    conn_data.close()
+    if listOfTables == []:
+        print("No existe tabla GPS en la base")
+        print("Se calcularán KPI básicos en base a datos de demanda")
+        return False
+    else:
+        return True
 
 
 @duracion
@@ -1115,20 +1184,25 @@ def run_basic_kpi():
                    on=['id_linea'],
                    how='left')
 
-    # else compute commercial speed based on demand
+    # else compute commercial speed based on gps or demand
     else:
-        legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
+        if gps_table_exists():
+            print("Calculando velocidades comerciales usando tabla gps")
+            speed_vehicle_hour = compute_speed_by_day_veh_hour()
+        else:
+            # compute mean veh speed using demand data
+            legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
 
-        legs.loc[:, ['time']] = pd.to_datetime(
-            legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
+            legs.loc[:, ['time']] = pd.to_datetime(
+                legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
 
-        print("Calculando velocidades comerciales")
-        # compute vehicle speed per hour
-        speed_vehicle_hour = legs\
-            .groupby(['dia', 'id_linea', 'interno'])\
-            .apply(compute_speed_by_veh_hour)
+            print("Calculando velocidades comerciales")
+            # compute vehicle speed per hour
+            speed_vehicle_hour = legs\
+                .groupby(['dia', 'id_linea', 'interno'])\
+                .apply(compute_speed_by_veh_hour)
 
-        speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
+            speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
 
     # set a max speed te remove outliers
     speed_max = 60
