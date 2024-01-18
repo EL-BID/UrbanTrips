@@ -172,6 +172,7 @@ def compute_route_section_load(
 
     # get data for legs and route geoms
     etapas = pd.read_sql(q_etapas, conn_data)
+    etapas['yr_mo'] = etapas.dia.str[:7]
 
     if not dat_type_is_a_date:
         # create a weekday_filter
@@ -210,14 +211,15 @@ def compute_route_section_load(
 
     if (len(recorridos) > 0) and (len(etapas) > 0):
 
-        section_load_table = etapas.groupby("id_linea").apply(
+        section_load_table = etapas.groupby(["id_linea", "yr_mo"]).apply(
             compute_section_load_table,
             recorridos=recorridos,
             rango_hrs=rango_hrs,
             day_type=day_type
         )
 
-        section_load_table = section_load_table.reset_index(drop=True)
+        section_load_table = section_load_table.droplevel(
+            2, axis=0).reset_index()
 
         # Add section meters to table
         section_load_table["section_meters"] = section_meters
@@ -225,6 +227,7 @@ def compute_route_section_load(
         section_load_table = section_load_table.reindex(
             columns=[
                 "id_linea",
+                "yr_mo",
                 "day_type",
                 "n_sections",
                 "section_meters",
@@ -482,7 +485,6 @@ def compute_section_load_table(
         # Set db schema
         legs_by_sections_full = legs_by_sections_full.reindex(
             columns=[
-                "id_linea",
                 "day_type",
                 "n_sections",
                 "sentido",
@@ -1332,8 +1334,11 @@ def run_basic_kpi():
 
     print("Subiendo a la base de datos")
 
+    # create month
+    kpi_by_line_hr['yr_mo'] = kpi_by_line_hr.dia.str[:7]
+
     # set schema and upload to db
-    cols = ['dia', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of',
+    cols = ['dia', 'yr_mo', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of',
             'speed_kmh']
 
     kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
@@ -1381,9 +1386,11 @@ def run_basic_kpi():
     kpi_by_line_day = kpi_by_line_day.rename(
         columns={'speed_kmh_line_day': 'speed_kmh'})
 
+    kpi_by_line_day['yr_mo'] = kpi_by_line_day.dia.str[:7]
+
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ['dia', 'yr_mo', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
 
     kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
 
@@ -1424,16 +1431,15 @@ def compute_basic_kpi_line_typeday():
     weekend = pd.to_datetime(kpi_by_line_day['dia'].copy()).dt.dayofweek > 4
     kpi_by_line_day.loc[:, ['dia']] = 'weekday'
     kpi_by_line_day.loc[weekend, ['dia']] = 'weekend'
-    kpi_by_line_day
 
     # compute aggregated stats
     kpi_by_line_typeday = kpi_by_line_day\
-        .groupby(['dia', 'id_linea',], as_index=False)\
+        .groupby(['dia', 'yr_mo', 'id_linea',], as_index=False)\
         .mean()
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ['dia', 'yr_mo', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
@@ -1474,12 +1480,13 @@ def compute_basic_kpi_line_hr_typeday():
 
     # compute aggregated stats
     kpi_by_line_typeday = kpi_by_line_hr\
-        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
+        .groupby(['dia', 'yr_mo', 'id_linea', 'hora'], as_index=False)\
         .mean()
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ['dia', 'yr_mo', 'id_linea', 'hora',
+            'veh', 'pax', 'dmt', 'of', 'speed_kmh']
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
