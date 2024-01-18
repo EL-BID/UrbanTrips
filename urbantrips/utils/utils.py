@@ -341,6 +341,7 @@ def create_dash_tables():
         """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
+        yr_mo text,
         nombre_linea str,
         day_type text nor null,
         n_sections int,
@@ -548,6 +549,7 @@ def create_basic_data_model_tables():
         """
         CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo
         (id_linea int not null,
+        yr_mo text,
         day_type text nor null,
         n_sections int,
         section_meters int,
@@ -969,6 +971,7 @@ def create_kpi_tables():
             CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
                 (
                 dia text not null,
+                yr_mo text,
                 id_linea int not null,
                 hora int  not null,
                 veh float,
@@ -986,6 +989,7 @@ def create_kpi_tables():
             CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
                 (
                 dia text not null,
+                yr_mo text,
                 id_linea int not null,
                 veh float,
                 pax float,
@@ -1002,6 +1006,7 @@ def create_kpi_tables():
             CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
                 (
                 dia text not null,
+                yr_mo text,
                 id_linea int not null,
                 nombre_linea text,
                 hora int  not null,
