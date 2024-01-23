@@ -622,7 +622,9 @@ def viz_etapas_x_tramo_recorrido(df,
             (gdf_d_dash_ant.n_sections.isin(
                 gdf_d_dash.n_sections.unique().tolist())) &
             ((gdf_d_dash_ant.hora_min == from_hr)
-             & (gdf_d_dash_ant.hora_max == to_hr))
+             & (gdf_d_dash_ant.hora_max == to_hr)) & (
+                gdf_d_dash_ant.yr_mo == mes
+            )
         )]
 
         gdf_d_dash = pd.concat(
@@ -2576,6 +2578,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
             DELETE FROM basic_kpi_by_line_hr
             WHERE dia = "{day}"
             and id_linea = "{line_id}"
+            and yr_mo = "{mes}"
             """
         conn_dash.execute(query)
         conn_dash.commit()
