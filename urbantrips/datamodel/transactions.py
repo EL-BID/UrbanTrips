@@ -798,6 +798,11 @@ def get_veh_expansion_from_gps(gps):
     vehicles_with_gps_broken['veh_exp'] = vehicles_with_gps_broken.unique_vehicles / \
         (vehicles_with_gps_broken.unique_vehicles -
          vehicles_with_gps_broken.broken_gps_veh)
+
+    # cap  veh_exp
+    vehicles_with_gps_broken.loc[vehicles_with_gps_broken.veh_exp >
+                                 2, 'veh_exp'] = 2
+
     return vehicles_with_gps_broken
 
 
