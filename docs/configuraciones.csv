@@ -33,9 +33,8 @@ orden,item,variable,subvar,subvar_param,default,obligatorio,descripcion_campo,de
 2.84,vars_gps,nombres_variables_gps,fecha_gps,,,,,,
 2.85,vars_gps,nombres_variables_gps,latitud_gps,,,,,,
 2.86,vars_gps,nombres_variables_gps,longitud_gps,,,,,,
-2.87,vars_gps,nombres_variables_gps,service_type_gps,True,,,,,
 2.88,vars_gps,nombres_variables_gps,velocity_gps,,,,,,
-2.89,vars_gps,nombres_variables_gps,servicios_gps,,,,Indica cuando se abre y cierra un servicio,,
+2.89,vars_gps,nombres_variables_gps,servicios_gps,True,,,Indica cuando se abre y cierra un servicio,,
 2.9,lineas,nombre_archivo_informacion_lineas,,,,,,Información para procesamiento de líneas,
 2.91,lineas,informacion_lineas_contiene_ramales,,,,,,,
 2.92,lineas,lineas_contienen_ramales,,,True,True,Especificar si las líneas de colectivo contienen ramales,,"hace falta, no es redudante si ya existe el campo ramal??"

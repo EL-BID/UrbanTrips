@@ -400,8 +400,12 @@ with st.expander('Cargas por horas'):
     day_type_kpi = col1.selectbox(
         'Tipo de dia  ', options=kpi_lineas.dia.unique())
 
+    # add month and year
+    yr_mo_kpi = col1.selectbox(
+        'Periodo  ', options=kpi_lineas.yr_mo.unique(), key='year_month')
+
     kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi) & (
-        kpi_lineas.dia == day_type_kpi)]
+        kpi_lineas.dia == day_type_kpi) & (kpi_lineas.yr_mo == yr_mo_kpi)]
 
     # if col2.checkbox('Ver datos: cargas por hora'):
     #     col2.write(kpi_stats_line_plot)
@@ -477,8 +481,12 @@ with st.expander('Cargas por tramos'):
             'Secciones ', options=lineas.n_sections.unique())
         rango = col1.selectbox('Rango horario ', options=lineas.rango.unique())
 
+        # add month and year
+        yr_mo_kpi_sl = col1.selectbox(
+            'Periodo  ', options=lineas.yr_mo.unique(), key='year_month_section_load')
+
         lineas = lineas[(lineas.id_linea == id_linea) & (lineas.day_type == day_type) & (
-            lineas.n_sections == n_sections) & (lineas.rango == rango)]
+            lineas.n_sections == n_sections) & (lineas.rango == rango) & (lineas.yr_mo == yr_mo_kpi_sl)]
 
         # if col2.checkbox('Ver datos: cargas por tramos'):
         #     col2.write(lineas)

@@ -118,7 +118,7 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
         section_meters=section_meters)
 
     # Create a viz for each route
-    table.groupby('id_linea').apply(
+    table.groupby(['id_linea', 'yr_mo']).apply(
         viz_etapas_x_tramo_recorrido,
         indicator=indicador,
         factor=factor,
@@ -282,6 +282,8 @@ def viz_etapas_x_tramo_recorrido(df,
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
     id_linea = df.id_linea.unique()[0]
+    mes = df.yr_mo.unique()[0]
+
     s = f"select nombre_linea from metadata_lineas" +\
         f" where id_linea = {id_linea};"
     id_linea_str = pd.read_sql(s, conn_insumos)
@@ -294,9 +296,9 @@ def viz_etapas_x_tramo_recorrido(df,
     day = df['day_type'].unique().item()
 
     if day == 'weekend':
-        day_str = 'Fin de semana tipo'
+        day_str = 'Fin de semana'
     elif day == 'weekday':
-        day_str = 'Dia de semana tipo'
+        day_str = 'Dia habil'
     else:
         day_str = day
 
@@ -311,7 +313,7 @@ def viz_etapas_x_tramo_recorrido(df,
     df['buff_factor'] = np.where(
         df['buff_factor'] <= factor_min, factor_min, df['buff_factor'])
 
-    cols = ['id_linea', 'day_type', 'n_sections', 'sentido',
+    cols = ['id_linea', 'yr_mo', 'day_type', 'n_sections', 'sentido',
             'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
             'prop_etapas', 'buff_factor']
 
@@ -405,8 +407,8 @@ def viz_etapas_x_tramo_recorrido(df,
     ax1.set_axis_off()
     ax2.set_axis_off()
 
-    ax1.set_title('IDA', fontdict=font_dicc)
-    ax2.set_title('VUELTA', fontdict=font_dicc)
+    ax1.set_title('IDA', fontdict=font_dicc, y=1.0, pad=-20)
+    ax2.set_title('VUELTA', fontdict=font_dicc, y=1.0, pad=-20)
 
     # Set title and plot axis
     if indicator == 'cantidad_etapas':
@@ -426,8 +428,8 @@ def viz_etapas_x_tramo_recorrido(df,
     else:
         hr_str = ''
 
-    title = title + hr_str + ' - ' + day_str + \
-        f" {id_linea_str} (id_linea: {id_linea})"
+    title = title + hr_str + ' - ' + day_str + '-' + mes + \
+        '-' + f" {id_linea_str} (id_linea: {id_linea})"
     f.suptitle(title, fontsize=18)
 
     # Matching bar plot with route direction
@@ -502,6 +504,9 @@ def viz_etapas_x_tramo_recorrido(df,
     ax4.spines.right.set_visible(False)
     ax4.spines.top.set_visible(False)
 
+    ax3.grid(False)
+    ax4.grid(False)
+
     # For direction 0, get the last section of the route geom
     flecha_ida = gdf.loc[gdf.section_id == max(gdf.section_id), 'geometry']
     flecha_ida = list(flecha_ida.item().coords)
@@ -557,7 +562,7 @@ def viz_etapas_x_tramo_recorrido(df,
     alias = leer_alias()
 
     for frm in ['png', 'pdf']:
-        archivo = f"{alias}_{day}_segmentos_id_linea_"
+        archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
         archivo = archivo+f"{id_linea}_{indicator}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
@@ -567,8 +572,8 @@ def viz_etapas_x_tramo_recorrido(df,
         gdf_d0 = gdf_d0.to_crs(epsg=4326)
         gdf_d1 = gdf_d1.to_crs(epsg=4326)
 
-        f_0 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_0.geojson'
-        f_1 = f'segmentos_id_linea_{id_linea}_{indicator}{hr_str}_1.geojson'
+        f_0 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{id_linea}_{indicator}{hr_str}_0.geojson'
+        f_1 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{id_linea}_{indicator}{hr_str}_1.geojson'
 
         db_path_0 = os.path.join("resultados", "geojson", f_0)
         db_path_1 = os.path.join("resultados", "geojson", f_1)
@@ -586,6 +591,7 @@ def viz_etapas_x_tramo_recorrido(df,
         gdf_d_dash['nombre_linea'] = id_linea_str
 
         cols = ['id_linea',
+                'yr_mo',
                 'nombre_linea',
                 'day_type',
                 'n_sections',
@@ -616,7 +622,9 @@ def viz_etapas_x_tramo_recorrido(df,
             (gdf_d_dash_ant.n_sections.isin(
                 gdf_d_dash.n_sections.unique().tolist())) &
             ((gdf_d_dash_ant.hora_min == from_hr)
-             & (gdf_d_dash_ant.hora_max == to_hr))
+             & (gdf_d_dash_ant.hora_max == to_hr)) & (
+                gdf_d_dash_ant.yr_mo == mes
+            )
         )]
 
         gdf_d_dash = pd.concat(
@@ -2429,7 +2437,7 @@ def plot_basic_kpi_wrapper():
     kpi_data = pd.read_sql(q, conn_data)
 
     if len(kpi_data) > 0:
-        kpi_data.groupby(['id_linea']).apply(
+        kpi_data.groupby(['id_linea', 'yr_mo']).apply(
             plot_basic_kpi, standarize_supply_demand=False)
 
     conn_data.close()
@@ -2440,11 +2448,12 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
     alias = leer_alias()
+    mes = kpi_by_line_hr.yr_mo.unique()[0]
 
     if day == 'weekend':
-        day_str = 'Fin de semana tipo'
+        day_str = 'Fin de semana'
     elif day == 'weekday':
-        day_str = 'Dia de semana tipo'
+        day_str = 'Dia habil'
     else:
         day_str = day
 
@@ -2522,7 +2531,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
                    fontdict={'size': 18,
                              'weight': 'bold'})
 
-        ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+        ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str} - Mes: {mes}",
                      fontdict={"fontsize": 11})
         # Add a footnote below and to the right side of the chart
 
@@ -2540,7 +2549,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         ax.spines.bottom.set_position(('outward', 10))
 
         for frm in ['png', 'pdf']:
-            archivo = f'{alias}_kpi_basicos_id_linea_{line_id}_{day}.{frm}'
+            archivo = f'{alias}_{mes}({day_str})_kpi_basicos_id_linea_{line_id}.{frm}'
             db_path = os.path.join("resultados", frm, archivo)
             f.savefig(db_path, dpi=300, bbox_extra_artists=(
                 ax_note,), bbox_inches='tight')
@@ -2552,6 +2561,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         kpi_stats_line_plot = kpi_stats_line_plot\
             .reindex(columns=[
                 'dia',
+                'yr_mo',
                 'id_linea',
                 'nombre_linea',
                 'hora',
@@ -2568,6 +2578,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
             DELETE FROM basic_kpi_by_line_hr
             WHERE dia = "{day}"
             and id_linea = "{line_id}"
+            and yr_mo = "{mes}"
             """
         conn_dash.execute(query)
         conn_dash.commit()
