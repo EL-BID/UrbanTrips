@@ -1087,7 +1087,7 @@ def compute_speed_by_day_veh_hour():
     processed_days = get_processed_days(table_name='basic_kpi_by_line_day')
 
     # read data
-    q = """
+    q = f"""
     select dia,id_linea,fecha,interno,velocity,distance_km 
     from gps
     where dia not in ({processed_days})
