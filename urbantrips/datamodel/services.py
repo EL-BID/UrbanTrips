@@ -357,8 +357,8 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         if debug:
             debug_branch = gps_branch\
                 .reindex(columns=['id', 'branch_stop_order', 'id_ramal',
-                                  'temp_change', 'consistent_post',
-                                  'consistent_pre', 'change'])
+                                  'temp_change', 'consistent_post', 'distance_to_stop',
+                                  'change'])
 
             debug_df = pd.concat([debug_df, debug_branch])
 
@@ -393,8 +393,13 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     gps_points_changes['change'] = (
         gps_points_changes.total_changes >= gps_points_changes.branch_mayority
     )
+
+    cols = ['id', 'id_ramal', 'node_id',  'change']
+    if debug:
+        cols = cols + ['branch_mayority', 'total_changes']
+
     gps_points_changes = gps_points_changes.reindex(
-        columns=['id', 'id_ramal', 'node_id', 'change'])
+        columns=cols)
 
     gps_points_changes = gps_points_changes\
         .rename(columns={'id_ramal': 'id_ramal_gps_point'})
@@ -423,7 +428,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         debug_df = debug_df\
             .pivot(index="id", columns='id_ramal',
                    values=["branch_stop_order", "temp_change",
-                           'consistent_post', 'consistent_pre', 'change'])\
+                           'consistent_post', 'change', 'distance_to_stop'])\
             .reset_index()
 
         cols = [c[0]+'_'+str(c[1]) if c[0] != 'id'
@@ -435,7 +440,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     return line_gps_points
 
 
-def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
+def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, debug=False,
                                            *args, **kwargs):
     """
     Takes gps points and stops for a given line and classifies each point into
@@ -481,7 +486,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
     else:
         # classify services based on stops
         line_gps_points = infer_service_id_stops(
-            line_gps_points, line_stops_gdf)
+            line_gps_points, line_stops_gdf, debug=debug)
 
     # Classify idling points when there is no movement
     line_gps_points['idling'] = line_gps_points.distance_km < 0.1
