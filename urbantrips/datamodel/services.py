@@ -281,15 +281,11 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             .shift(-window).fillna(False)
             .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
-        # gps_branch[f'consistent_pre'] = (
-        #    gps_branch[f'temp_change']
-        #    .fillna(False).shift(1) == False)  # noqa
 
         # Accept there is a change in direction when consistent
         gps_branch[f'change'] = (
             gps_branch[f'temp_change'] &
             gps_branch[f'consistent_post']
-            # & gps_branch[f'consistent_pre']
         )
         if debug:
             debug_branch = gps_branch\
@@ -301,7 +297,6 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
 
         gps_branch = gps_branch.drop(
             ['index_right', 'temp_change', 'consistent_post',
-             # 'consistent_pre'
              ], axis=1)
         gps_all_branches = pd.concat([gps_all_branches, gps_branch])
 
@@ -345,12 +340,12 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         # Within each original service id, classify services within
         new_services_ids = line_gps_points\
             .groupby('original_service_id')\
-            .apply(lambda df: df['change'].cumsum().fillna(method='ffill'))\
+            .apply(lambda df: df['change'].cumsum().ffill())\
             .droplevel(0)
     else:
         new_services_ids = line_gps_points\
             .groupby('original_service_id')\
-            .apply(lambda df: df['change'].cumsum().fillna(method='ffill'))
+            .apply(lambda df: df['change'].cumsum().ffill())
 
         new_services_ids = pd.Series(
             new_services_ids.iloc[0].values, index=new_services_ids.columns)
