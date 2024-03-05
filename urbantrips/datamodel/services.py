@@ -1,19 +1,44 @@
-import numpy as np
 import pandas as pd
 import geopandas as gpd
-from math import ceil
-import h3
 from urbantrips.utils import utils
-from urbantrips.kpi import kpi
-from urbantrips.geo import geo
 
 
-def process_services():
+def process_services(line_ids=None):
     """
     Download unprocessed gps data and classify them into services
+    for all days and all lines or a set of specified set of line ids
+
+    Parameters
+    ----------
+    line_ids : int, list
+        line id or ids to process services for
+
+    Returns
+    -------    
+        None. Updates services_gps_points, services,
+        and services_stats tables in db
+
     """
+
+    # check line id type and turn it into list if is a single line id
+    if line_ids is not None:
+        if isinstance(line_ids, int):
+            line_ids = [line_ids]
+
+        line_ids_str = ','.join(map(str, line_ids))
+    else:
+        line_ids_str = None
+
+    print("Eliminando datos anteriores")
+    delete_old_services_data(line_ids_str)
+    print("Fin de borrado de datos anteriores")
+    if line_ids is not None:
+        print(f"para id lineas {line_ids_str}")
+    else:
+        print("para todas las lineas")
+
     print("Descargando paradas y puntos gps")
-    gps_points, stops = get_stops_and_gps_data()
+    gps_points, stops = get_stops_and_gps_data(line_ids_str)
 
     if gps_points is None:
         print("Todos los puntos gps ya fueron procesados en servicios ")
@@ -23,10 +48,35 @@ def process_services():
             process_line_services, stops=stops)
 
 
-def get_stops_and_gps_data():
+def delete_old_services_data(line_ids_str):
     """
-    Download unprocessed gps data
+    Deletes data from services tables for all lines or
+    a specified set of line ids
     """
+    conn_data = utils.iniciar_conexion_db(tipo='data')
+    tables = ['services_gps_points', 'services', 'services_stats']
+    for table in tables:
+        q = f"""
+        DELETE FROM {table}
+        """
+        if line_ids_str is not None:
+            q = q + f"where id_linea in ({line_ids_str});"
+        else:
+            q = q + ";"
+        conn_data.execute(q)
+        conn_data.commit()
+
+    conn_data.close()
+
+
+def get_stops_and_gps_data(line_ids_str):
+    """
+    Download unprocessed gps data and stops for all lines
+    or ofr a specified set of line ids and all days
+    """
+
+    # AGREGAR ACA EL CHECK DE QUE TENGA GPS Y STOPS
+
     configs = utils.leer_configs_generales()
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
@@ -58,6 +108,11 @@ def get_stops_and_gps_data():
         and g.dia = ss.dia
         where ss.id_linea is null
     """
+    if line_ids_str is not None:
+        gps_query = gps_query + f"and g.id_linea in ({line_ids_str});"
+    else:
+        gps_query = gps_query + ";"
+
     gps_points = pd.read_sql(gps_query, conn_data)
 
     gps_points = gpd.GeoDataFrame(
@@ -66,10 +121,10 @@ def get_stops_and_gps_data():
             x=gps_points.longitud, y=gps_points.latitud, crs='EPSG:4326'),
         crs='EPSG:4326'
     )
+    gps_lines = gps_points.id_linea.drop_duplicates()
+    gps_lines_str = ','.join(gps_lines.map(str))
 
-    gps_lines = ','.join(map(str, gps_points.id_linea.unique()))
-
-    if len(gps_lines) == 0:
+    if len(gps_lines_str) == 0:
         return None, None
 
     else:
@@ -89,10 +144,22 @@ def get_stops_and_gps_data():
         stops_query = f"""
             select *
             from stops
-            where id_linea in ({gps_lines})
+            where id_linea in ({gps_lines_str})
         """
 
         stops = pd.read_sql(stops_query, conn_insumos)
+        # check all gps points have stops for that line
+        line_no_stops_mask = ~gps_lines.isin(stops.id_linea.drop_duplicates())
+        if line_no_stops_mask.any():
+            line_no_stops = gps_lines[line_no_stops_mask]
+            line_no_stops_str = ','.join(line_no_stops.map(str))
+
+            print(f"""Hay lineas con GPS que no tienen paradas:
+                  {line_no_stops_str}
+                  No se procesaran""")
+
+            gps_points = gps_points.loc[~gps_points.id_linea.isin(
+                line_no_stops)]
 
         # use only nodes as stops
         stops = stops.drop_duplicates(
@@ -112,8 +179,8 @@ def get_stops_and_gps_data():
 
 def process_line_services(gps_points, stops):
     """
-    Takes gps points and stops for a given line
-    and classifies each point into a services
+    Takes gps points and stops for a given line,
+    classifies each point into a services
     and produces services tables and daily stats
     for that line
 
@@ -147,7 +214,7 @@ def process_line_services(gps_points, stops):
     print("Subiendo servicios a la db")
     # save result to services table
     services_gps_points = gps_points_with_new_service_id\
-        .reindex(columns=['id', 'original_service_id', 'new_service_id',
+        .reindex(columns=['id', 'id_linea', 'dia', 'original_service_id', 'new_service_id',
                           'service_id', 'id_ramal_gps_point', 'node_id'])
     services_gps_points.to_sql("services_gps_points",
                                conn_data, if_exists='append', index=False)
@@ -252,7 +319,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             stops_to_join,
             how='left',
             max_distance=1500,
-            distance_col=f'distance_to_stop')
+            distance_col='distance_to_stop')
         gps_branch['id_ramal'] = branch
 
         # Evaluate change on stops order for each branch
@@ -273,35 +340,30 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             temp_change = pd.Series(
                 temp_change.iloc[0].values, index=temp_change.columns)
 
-        gps_branch[f'temp_change'] = temp_change
+        gps_branch['temp_change'] = temp_change
 
         window = 5
         gps_branch['consistent_post'] = (
-            gps_branch[f'temp_change']
+            gps_branch['temp_change']
             .shift(-window).fillna(False)
             .rolling(window=window, center=False, min_periods=3).sum() == 0
         )
-        # gps_branch[f'consistent_pre'] = (
-        #    gps_branch[f'temp_change']
-        #    .fillna(False).shift(1) == False)  # noqa
 
         # Accept there is a change in direction when consistent
-        gps_branch[f'change'] = (
-            gps_branch[f'temp_change'] &
-            gps_branch[f'consistent_post']
-            # & gps_branch[f'consistent_pre']
+        gps_branch['change'] = (
+            gps_branch['temp_change'] &
+            gps_branch['consistent_post']
         )
         if debug:
             debug_branch = gps_branch\
                 .reindex(columns=['id', 'branch_stop_order', 'id_ramal',
-                                  'temp_change', 'consistent_post',
-                                  'consistent_pre', 'change'])
+                                  'temp_change', 'consistent_post', 'distance_to_stop',
+                                  'change'])
 
             debug_df = pd.concat([debug_df, debug_branch])
 
         gps_branch = gps_branch.drop(
             ['index_right', 'temp_change', 'consistent_post',
-             # 'consistent_pre'
              ], axis=1)
         gps_all_branches = pd.concat([gps_all_branches, gps_branch])
 
@@ -331,8 +393,13 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     gps_points_changes['change'] = (
         gps_points_changes.total_changes >= gps_points_changes.branch_mayority
     )
+
+    cols = ['id', 'id_ramal', 'node_id',  'change']
+    if debug:
+        cols = cols + ['branch_mayority', 'total_changes']
+
     gps_points_changes = gps_points_changes.reindex(
-        columns=['id', 'id_ramal', 'node_id', 'change'])
+        columns=cols)
 
     gps_points_changes = gps_points_changes\
         .rename(columns={'id_ramal': 'id_ramal_gps_point'})
@@ -345,12 +412,12 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         # Within each original service id, classify services within
         new_services_ids = line_gps_points\
             .groupby('original_service_id')\
-            .apply(lambda df: df['change'].cumsum().fillna(method='ffill'))\
+            .apply(lambda df: df['change'].cumsum().ffill())\
             .droplevel(0)
     else:
         new_services_ids = line_gps_points\
             .groupby('original_service_id')\
-            .apply(lambda df: df['change'].cumsum().fillna(method='ffill'))
+            .apply(lambda df: df['change'].cumsum().ffill())
 
         new_services_ids = pd.Series(
             new_services_ids.iloc[0].values, index=new_services_ids.columns)
@@ -361,7 +428,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
         debug_df = debug_df\
             .pivot(index="id", columns='id_ramal',
                    values=["branch_stop_order", "temp_change",
-                           'consistent_post', 'consistent_pre', 'change'])\
+                           'consistent_post', 'change', 'distance_to_stop'])\
             .reset_index()
 
         cols = [c[0]+'_'+str(c[1]) if c[0] != 'id'
@@ -373,7 +440,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     return line_gps_points
 
 
-def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
+def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, debug=False,
                                            *args, **kwargs):
     """
     Takes gps points and stops for a given line and classifies each point into
@@ -419,7 +486,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf,
     else:
         # classify services based on stops
         line_gps_points = infer_service_id_stops(
-            line_gps_points, line_stops_gdf)
+            line_gps_points, line_stops_gdf, debug=debug)
 
     # Classify idling points when there is no movement
     line_gps_points['idling'] = line_gps_points.distance_km < 0.1

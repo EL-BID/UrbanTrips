@@ -678,6 +678,8 @@ def create_gps_table():
             CREATE TABLE IF NOT EXISTS services_gps_points
                 (
                 id INT PRIMARY KEY NOT NULL,
+                id_linea int not null,
+                dia text,
                 original_service_id int not null,
                 new_service_id int not null,
                 service_id int not null,
