@@ -26,3 +26,4 @@ statsmodels==0.14.0
 streamlit==1.27.2
 streamlit-folium==0.15.0
 weightedstats==0.4.1
+OSMnet==0.1.7 

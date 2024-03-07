@@ -174,3 +174,4 @@ configs/configuraciones_generales.yaml
 .github/desktop.ini
 *.ini
 run_services.ipynb
+configs/configuraciones_generales.yaml

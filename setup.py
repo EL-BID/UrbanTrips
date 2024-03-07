@@ -36,7 +36,7 @@ setuptools.setup(
         'numba==0.58.0',
         'numpy==1.25.2',
         'openpyxl==3.1.2',
-        'osmnx==1.6.0',
+        'osmnx==1.8.0',
         'pandas==2.1.1',
         'pandana==0.7',
         'patsy==0.5.3',
@@ -49,5 +49,6 @@ setuptools.setup(
         'statsmodels==0.14.0',
         'streamlit==1.27.2',
         'streamlit-folium==0.15.0',
-        'weightedstats==0.4.1']
+        'weightedstats==0.4.1',
+        'OSMnet==0.1.7']
 )
