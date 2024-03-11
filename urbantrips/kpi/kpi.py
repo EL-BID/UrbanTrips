@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 import weightedstats as ws
 from math import floor
-import re
 import h3
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
-    leer_configs_generales
+    leer_configs_generales,
+    is_date_string
 )
 
 # KPI WRAPPER
@@ -251,14 +251,6 @@ def compute_route_section_load(
         print("Cantidad de lineas:", len(id_linea))
         print("Cantidad de recorridos", len(recorridos))
         print("Cantidad de etapas", len(etapas))
-
-
-def is_date_string(input_str):
-    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    if pattern.match(input_str):
-        return True
-    else:
-        return False
 
 
 def delete_old_route_section_load_data_q(
@@ -512,7 +504,7 @@ def create_route_section_ids(n_sections):
 
 def build_leg_route_sections_df(row, section_ids):
     """
-    Computes for a leg a table with all sections id trversed by
+    Computes for a leg a table with all sections id traversed by
     that leg based on the origin and destionation's section id 
 
     Parameters
