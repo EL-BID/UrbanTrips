@@ -5,6 +5,7 @@ import yaml
 import time
 from functools import wraps
 import h3
+import re
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
@@ -566,6 +567,23 @@ def create_basic_data_model_tables():
         """
     )
 
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
+        (id_linea int not null,
+        yr_mo text,
+        day_type text nor null,
+        n_sections int,
+        hour_min int,
+        hour_max int,
+        section_id_o float not null,
+        section_id_d float not null,
+        legs int not null,
+        prop float not null
+        )
+        ;
+        """
+    )
     conn_data.close()
 
 
@@ -1057,3 +1075,25 @@ def check_table_in_db(table_name, tipo_db):
         return False
     else:
         return True
+
+
+def is_date_string(input_str):
+    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    if pattern.match(input_str):
+        return True
+    else:
+        return False
+
+
+def check_date_type(day_type):
+    """Checks if a day_type param is formated in the right way"""
+    day_type_is_a_date = is_date_string(day_type)
+
+    # check day type format
+    day_type_format_ok = (
+        day_type in ["weekday", "weekend"]) or day_type_is_a_date
+
+    if not day_type_format_ok:
+        raise Exception(
+            "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
+        )
