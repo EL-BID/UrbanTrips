@@ -1755,3 +1755,93 @@ def compute_dispatched_services_by_line_hour_typeday():
         print("Correr la funcion kpi.compute_services_by_line_hour_day()")
 
     return type_of_day_stats
+
+
+def upload_route_section_points_table(route_geoms):
+    """
+    Uploads a table with route section points from a route geom row 
+    and returns a table with line_id, number of sections and the 
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoDataFrame
+        routes geom GeoDataFrame with geometry, n_sections and line id
+
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # delete old records
+    delete_old_routes_section_id_coords_data_q(route_geoms)
+
+    print("Creando tabla de secciones de recorrido")
+    route_section_points = pd.concat(
+        [create_route_section_points(row) for _, row in route_geoms.iterrows()])
+
+    route_section_points.to_sql(
+        "routes_section_id_coords", conn_insumos, if_exists="append",
+        index=False,)
+    print("Fin creacion de tabla de secciones de recorrido")
+    conn_insumos.close()
+
+
+def create_route_section_points(row):
+    """
+    Creates a table with route section points from a route geom row 
+    and returns a table with line_id, number of sections and the 
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoSeries
+        Row from route geom GeoDataFrame 
+        with geometry, n_sections and line id
+
+    Returns
+    ----------
+    pandas.DataFrame
+        dataFrame with line id, number of sections and the 
+        latlong for each section id
+    """
+
+    n_sections = row.n_sections
+    route_geom = row.geometry
+    line_id = row.id_linea
+    sections_id = create_route_section_ids(n_sections)
+    points = route_geom.interpolate(sections_id, normalized=True)
+    route_section_points = pd.DataFrame(
+        {
+            'id_linea': [line_id] * len(sections_id),
+            'n_sections': [n_sections] * len(sections_id),
+            'section_id': sections_id,
+            'x': points.map(lambda p: p.x),
+            'y': points.map(lambda p: p.y)
+
+        }
+    )
+    return route_section_points
+
+
+def delete_old_routes_section_id_coords_data_q(route_geoms):
+    """
+    Deletes old data in table routes_section_id_coords
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=['id_linea', 'n_sections'])
+    for _, row in delete_df.iterrows():
+        # Delete old data for those parameters
+
+        q_delete = f"""
+            delete from routes_section_id_coords
+            where id_linea = {row.id_linea} 
+            and n_sections = {row.n_sections}
+            """
+
+        cur = conn_insumos.cursor()
+        cur.execute(q_delete)
+        conn_insumos.commit()
+
+    conn_insumos.close()
+    print("Fin borrado datos previos")

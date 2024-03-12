@@ -360,35 +360,3 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
-
-
-def create_route_section_points_table(row):
-    """
-    Creates a table with route section points from a route geom row 
-    and returns a table with line_id, number of sections and the 
-    xy point for that section
-
-    Parameters
-    ----------
-    row : GeoPandas GeoSeries
-        Row from route geom GeoDataFrame 
-        with geometry, n_sections and line id
-
-    """
-
-    n_sections = row.n_sections
-    route_geom = row.geometry
-    line_id = row.id_linea
-    sections_id = create_route_section_ids(n_sections)
-    points = route_geom.interpolate(sections_id, normalized=True)
-    route_section_points = pd.DataFrame(
-        {
-            'id_linea': [line_id] * len(sections_id),
-            'n_sections': [n_sections] * len(sections_id),
-            'section_id': sections_id,
-            'x': points.map(lambda p: p.x),
-            'y': points.map(lambda p: p.y)
-
-        }
-    )
-    return route_section_points
