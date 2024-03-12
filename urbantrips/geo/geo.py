@@ -71,7 +71,7 @@ def get_stop_hex_ring(h, ring_size):
 
 def h3togeo(x):
     try:
-        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])            
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
     except (TypeError, ValueError):
         result = ''
     return result
@@ -148,16 +148,17 @@ def bring_latlon(x, latlon='lat'):
         posi = 1
     try:
         result = float(x.split(',')[posi])
-    except (AttributeError, IndexError): 
+    except (AttributeError, IndexError):
         result = 0
     return result
+
 
 def normalizo_lat_lon(df,
                       h3_o='h3_o',
                       h3_d='h3_d',
                       origen='',
                       destino=''):
-    
+
     if len(origen) == 0:
         origen = h3_o
     if len(destino) == 0:
@@ -166,8 +167,8 @@ def normalizo_lat_lon(df,
     df["origin"] = df[h3_o].apply(h3togeo)
     df['lon_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lon')
     df['lat_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lat')
-       
-    df["destination"] = df[h3_d].apply(h3togeo)        
+
+    df["destination"] = df[h3_d].apply(h3togeo)
     df['lon_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lon')
     df['lat_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lat')
 
@@ -359,3 +360,35 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
+
+
+def create_route_section_points_table(row):
+    """
+    Creates a table with route section points from a route geom row 
+    and returns a table with line_id, number of sections and the 
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoSeries
+        Row from route geom GeoDataFrame 
+        with geometry, n_sections and line id
+
+    """
+
+    n_sections = row.n_sections
+    route_geom = row.geometry
+    line_id = row.id_linea
+    sections_id = create_route_section_ids(n_sections)
+    points = route_geom.interpolate(sections_id, normalized=True)
+    route_section_points = pd.DataFrame(
+        {
+            'id_linea': [line_id] * len(sections_id),
+            'n_sections': [n_sections] * len(sections_id),
+            'section_id': sections_id,
+            'x': points.map(lambda p: p.x),
+            'y': points.map(lambda p: p.y)
+
+        }
+    )
+    return route_section_points
