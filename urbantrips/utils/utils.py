@@ -424,7 +424,8 @@ def create_stops_and_routes_carto_tables():
         CREATE TABLE IF NOT EXISTS routes_section_id_coords
         (id_linea INT NOT NULL,
         n_sections INT NOT NULL,
-        section_id float NOT NULL,
+        section_id INT NOT NULL,
+        section_lrs float NOT NULL,
         x float NOT NULL,
         y float NOT NULL
         )
@@ -590,8 +591,8 @@ def create_basic_data_model_tables():
         n_sections int,
         hour_min int,
         hour_max int,
-        section_id_o float not null,
-        section_id_d float not null,
+        section_id_o int not null,
+        section_id_d int not null,
         legs int not null,
         prop float not null
         )

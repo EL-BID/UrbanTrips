@@ -9,9 +9,9 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.kpi.kpi import (
     create_route_section_ids,
-    add_od_lrs_to_legs_from_route
+    add_od_lrs_to_legs_from_route,
+    upload_route_section_points_table
 )
-from urbantrips.kpi.kpi import upload_route_section_points_table
 
 from urbantrips.geo import geo
 
@@ -344,18 +344,25 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
 
         # round section ids
         section_ids = create_route_section_ids(n_sections)
+        labels = list(range(1, len(section_ids)))
 
-        df.o_proj = round_section_id_series(df.o_proj, section_ids)
-        df.d_proj = round_section_id_series(df.d_proj, section_ids)
+        df['o_proj'] = pd.cut(df.o_proj, bins=section_ids,
+                              labels=labels, right=True)
+        df['d_proj'] = pd.cut(df.d_proj, bins=section_ids,
+                              labels=labels, right=True)
+        # df.o_proj = round_section_id_series(df.o_proj, section_ids)
+        # df.d_proj = round_section_id_series(df.d_proj, section_ids)
 
         totals_by_day_section_id = df\
-            .groupby(["dia", "o_proj", "d_proj"], as_index=False)\
-            .agg(legs=("factor_expansion_linea", "sum"))
+            .groupby(["dia", "o_proj", "d_proj"])\
+            .agg(legs=("factor_expansion_linea", "sum"))\
+            .reset_index()
 
         # then average for type of day
         totals_by_typeday_section_id = totals_by_day_section_id\
-            .groupby(["o_proj", "d_proj"], as_index=False)\
-            .agg(legs=("legs", "mean"))
+            .groupby(["o_proj", "d_proj"])\
+            .agg(legs=("legs", "mean"))\
+            .reset_index()
 
         totals_by_typeday_section_id['prop'] = (
             totals_by_typeday_section_id.legs / totals_by_typeday * 100

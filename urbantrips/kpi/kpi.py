@@ -1807,13 +1807,15 @@ def create_route_section_points(row):
     n_sections = row.n_sections
     route_geom = row.geometry
     line_id = row.id_linea
-    sections_id = create_route_section_ids(n_sections)
-    points = route_geom.interpolate(sections_id, normalized=True)
+    sections_lrs = create_route_section_ids(n_sections)
+    sections_id = list(range(1, len(sections_lrs))) + [-1]
+    points = route_geom.interpolate(sections_lrs, normalized=True)
     route_section_points = pd.DataFrame(
         {
             'id_linea': [line_id] * len(sections_id),
             'n_sections': [n_sections] * len(sections_id),
             'section_id': sections_id,
+            'section_lrs': sections_lrs,
             'x': points.map(lambda p: p.x),
             'y': points.map(lambda p: p.y)
 
