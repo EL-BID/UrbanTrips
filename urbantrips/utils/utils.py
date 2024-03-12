@@ -418,6 +418,20 @@ def create_stops_and_routes_carto_tables():
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS routes_section_id_coords
+        (id_linea INT NOT NULL,
+        n_sections INT NOT NULL,
+        section_id float NOT NULL,
+        x float NOT NULL,
+        y float NOT NULL
+        )
+        ;
+        """
+    )
+
     conn_insumos.close()
 
 
