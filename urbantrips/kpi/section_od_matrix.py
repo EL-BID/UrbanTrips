@@ -278,19 +278,6 @@ def delete_old_lines_od_matrix_by_section_data_q(
     print("Fin borrado datos previos")
 
 
-def round_section_id_series(series, section_ids):
-    """
-    Takes an original 3 digits interpolation point on a route
-    and rounds to the nearest section id for that route
-    """
-    original_points = series.drop_duplicates()
-    rounded_points = original_points.map(
-        lambda p: section_ids[(p - section_ids).abs().idxmin()])
-    replace_dict = {k: v for (k, v) in zip(original_points, rounded_points)}
-    out = series.replace(replace_dict)
-    return out
-
-
 def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
     """
     Computes leg od matrix for a line or set of lines using route sections
@@ -350,8 +337,6 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
                               labels=labels, right=True)
         df['d_proj'] = pd.cut(df.d_proj, bins=section_ids,
                               labels=labels, right=True)
-        # df.o_proj = round_section_id_series(df.o_proj, section_ids)
-        # df.d_proj = round_section_id_series(df.d_proj, section_ids)
 
         totals_by_day_section_id = df\
             .groupby(["dia", "o_proj", "d_proj"])\
