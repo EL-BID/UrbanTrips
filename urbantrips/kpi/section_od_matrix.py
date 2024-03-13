@@ -13,7 +13,6 @@ from urbantrips.kpi.kpi import (
     add_od_lrs_to_legs_from_route,
     upload_route_section_points_table
 )
-from urbantrips.viz.viz import create_squared_polygon
 from urbantrips.geo import geo
 
 
@@ -72,6 +71,8 @@ def compute_lines_od_matrix(
 
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
     if line_ids:
+        if isinstance(line_ids, int):
+            line_ids = [line_ids]
         route_geoms = route_geoms.loc[route_geoms.id_linea.isin(line_ids)]
 
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
@@ -289,12 +290,12 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
     """
 
     line_id = df.id_linea.unique()[0]
-    n_sections = route_geoms.loc[route_geoms.id_linea ==
-                                 line_id, 'n_sections'].item()
-
     print(f"Calculando matriz od linea id {line_id}")
 
     if (route_geoms.id_linea == line_id).any():
+
+        n_sections = route_geoms.loc[route_geoms.id_linea ==
+                                     line_id, 'n_sections'].item()
 
         route_geom = route_geoms.loc[route_geoms.id_linea ==
                                      line_id, "geometry"].item()
@@ -359,5 +360,6 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
         )
     else:
         print("No existe recorrido para id_linea:", line_id)
+        totals_by_typeday_section_id = None
 
     return totals_by_typeday_section_id
