@@ -139,6 +139,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     line_id = od_line.id_linea.unique()[0]
     n_sections = od_line.n_sections.unique()[0]
     mes = od_line.yr_mo.unique()[0]
+    total_legs = int(od_line.legs.sum())
 
     # get data
     sections_data_q = f"""
@@ -175,8 +176,9 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     title = 'Matriz OD por segmento del recorrido'
     if indicator == 'cantidad_etapas':
-        title += ' - Cantidad de etapas'
+        title += ' - Cantidad de etapas (en miles)'
         values = 'legs'
+
     elif indicator == 'prop_etapas':
         title += ' - Porcentaje de etapas totales'
         values = 'prop'
@@ -193,8 +195,12 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     title = title + hr_str + ' - ' + day_str + '-' + mes + \
         '-' + f" {line_str} (id_linea: {line_id})"
+    if indicator == 'cantidad_etapas':
+        od_line[values] = od_line[values]/1000
 
     # pivot table to get a matrix
+    od_line[values] = od_line[values].round(1)
+
     matrix = od_line.pivot_table(values=values,
                                  index='section_id_o', columns='section_id_d')
 
@@ -238,7 +244,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     gdf.plot(ax=ax1, alpha=0.5)
     box.plot(ax=ax1, color='#ffffff00')
 
-    sns.heatmap(matrix, cmap='Blues', ax=ax2)
+    sns.heatmap(matrix, cmap='Blues', ax=ax2, annot=True)
 
     ax1.set_axis_off()
     ax2.grid(False)
@@ -252,6 +258,10 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
         pass
 
     # Notes
+    total_legs = '{:,.0f}'.format(total_legs).replace(',', '.')
+    ax1.annotate(f'Total de etapas: {total_legs}',
+                 xy=(0, -0.05), xycoords='axes fraction',
+                 size=18)
     ax1.annotate(f'{section_id_start}', xy=section_id_start_xy,
                  xytext=(-100, 0),
                  size=18,
