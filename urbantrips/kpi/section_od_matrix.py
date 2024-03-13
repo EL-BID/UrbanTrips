@@ -1,3 +1,4 @@
+import os
 import warnings
 import pandas as pd
 import geopandas as gpd
@@ -6,7 +7,8 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     check_date_type,
     is_date_string,
-    create_line_ids_sql_filter
+    create_line_ids_sql_filter,
+    leer_alias
 )
 from urbantrips.kpi.kpi import (
     create_route_section_ids,
@@ -23,6 +25,7 @@ def compute_lines_od_matrix(
     n_sections=10,
     section_meters=None,
     day_type="weekday",
+    save_csv=False
 ):
     """
     Computes leg od matrix for a line or set of lines using route sections
@@ -45,7 +48,8 @@ def compute_lines_od_matrix(
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
-
+    save_csv: bool
+        If a csv file should be saved in results directory
     """
 
     # check inputs
@@ -70,7 +74,7 @@ def compute_lines_od_matrix(
     q_route_geoms = q_route_geoms + line_ids_where
 
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    if line_ids:
+    if line_ids is not None:
         if isinstance(line_ids, int):
             line_ids = [line_ids]
         route_geoms = route_geoms.loc[route_geoms.id_linea.isin(line_ids)]
@@ -113,7 +117,8 @@ def compute_lines_od_matrix(
             compute_line_od_matrix,
             route_geoms=route_geoms,
             hour_range=hour_range,
-            day_type=day_type
+            day_type=day_type,
+            save_csv=save_csv
         )
 
         line_od_matrix = line_od_matrix.droplevel(
@@ -263,7 +268,7 @@ def delete_old_lines_od_matrix_by_section_data_q(
     print("Fin borrado datos previos")
 
 
-def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
+def compute_line_od_matrix(df, route_geoms, hour_range, day_type, save_csv=False):
     """
     Computes leg od matrix for a line or set of lines using route sections
 
@@ -280,6 +285,8 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
+    save_csv: bool
+        If a csv file should be saved in results directory
 
     Returns
     ----------
@@ -290,6 +297,8 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
     """
 
     line_id = df.id_linea.unique()[0]
+    mes = df.yr_mo.unique()[0]
+
     print(f"Calculando matriz od linea id {line_id}")
 
     if (route_geoms.id_linea == line_id).any():
@@ -358,6 +367,28 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
                 'hour_min', 'hour_max', 'section_id_o', 'section_id_d', 'legs', 'prop'
             ]
         )
+
+        if save_csv:
+            alias = leer_alias()
+            day = totals_by_typeday_section_id['day_type'].unique().item()
+
+            if day == 'weekend':
+                day_str = 'Fin de semana'
+            elif day == 'weekday':
+                day_str = 'Dia habil'
+            else:
+                day_str = day
+            if not totals_by_typeday_section_id.hour_min.isna().all():
+                from_hr = totals_by_typeday_section_id.hour_min.unique()[0]
+                to_hr = totals_by_typeday_section_id.hour_max.unique()[0]
+                hr_str = f' {from_hr}-{to_hr} hrs'
+            else:
+                hr_str = ''
+
+            archivo = f"{alias}({mes}_{day_str})_matriz_od_id_linea_"
+            archivo = archivo+f"{line_id}_{hr_str}.csv"
+            path = os.path.join("resultados", "matrices", archivo)
+            totals_by_typeday_section_id.to_csv(path, index=False)
     else:
         print("No existe recorrido para id_linea:", line_id)
         totals_by_typeday_section_id = None
