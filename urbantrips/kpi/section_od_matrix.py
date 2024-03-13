@@ -5,14 +5,15 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     check_date_type,
-    is_date_string
+    is_date_string,
+    create_line_ids_sql_filter
 )
 from urbantrips.kpi.kpi import (
     create_route_section_ids,
     add_od_lrs_to_legs_from_route,
     upload_route_section_points_table
 )
-
+from urbantrips.viz.viz import create_squared_polygon
 from urbantrips.geo import geo
 
 
@@ -50,16 +51,8 @@ def compute_lines_od_matrix(
 
     # check inputs
     check_date_type(day_type)
-    if line_ids is not None:
 
-        if isinstance(line_ids, int):
-            line_ids = [line_ids]
-        lines_str = ",".join(map(str, line_ids))
-        line_ids_where = f" where id_linea in ({lines_str})"
-
-    else:
-        lines_str = ''
-        line_ids_where = " where id_linea is not NULL"
+    line_ids_where = create_line_ids_sql_filter(line_ids)
 
     if n_sections is not None:
         if n_sections > 1000:
@@ -71,7 +64,7 @@ def compute_lines_od_matrix(
 
     # read legs data
     legs = read_legs_data_by_line_hours_and_day(
-        lines_str, hour_range, day_type)
+        line_ids_where, hour_range, day_type)
 
     # read routes data
     q_route_geoms = "select * from lines_geoms"
@@ -111,7 +104,7 @@ def compute_lines_od_matrix(
     delete_old_lines_od_matrix_by_section_data_q(
         route_geoms, hour_range, day_type, yr_mos)
 
-    print("Computing section load per route ...")
+    print("Calculando matriz od de lineas ...")
 
     if (len(route_geoms) > 0) and (len(legs) > 0):
 
@@ -154,16 +147,14 @@ def compute_lines_od_matrix(
         print("Cantidad de etapas", len(legs))
 
 
-def read_legs_data_by_line_hours_and_day(lines_str, hour_range, day_type):
+def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     """
     Reads legs data by line id, hour range and type of day
 
     Parameters
     ----------
-    line_id : int, list of ints or bool
-        route id or list of route ids present in the legs dataset. Route
-        section load will be computed for that subset of lines. If False, it
-        will run with all routes.
+    line_ids_where : str
+        where clause in a sql query with line ids .
     hour_range : tuple or bool
         tuple holding hourly range (from,to) and from 0 to 24. Route section
         load will be computed for legs happening within tat time range.
@@ -185,14 +176,7 @@ def read_legs_data_by_line_hours_and_day(lines_str, hour_range, day_type):
     select id_linea, dia, factor_expansion_linea,h3_o,h3_d, od_validado
     from etapas
     """
-
-    # If line and hour, get that subset
-    if len(lines_str) > 0:
-        line_id_where = f" where id_linea in ({lines_str})"
-    else:
-        line_id_where = " where id_linea is not NULL"
-
-    q_main_legs = q_main_legs + line_id_where
+    q_main_legs = q_main_legs + line_ids_where
 
     if hour_range:
         hour_range_where = (
@@ -308,7 +292,7 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type):
     n_sections = route_geoms.loc[route_geoms.id_linea ==
                                  line_id, 'n_sections'].item()
 
-    print(f"Computing section load id_route {line_id}")
+    print(f"Calculando matriz od linea id {line_id}")
 
     if (route_geoms.id_linea == line_id).any():
 

@@ -1112,3 +1112,20 @@ def check_date_type(day_type):
         raise Exception(
             "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
         )
+
+
+def create_line_ids_sql_filter(line_ids):
+    """
+    Takes a set of line ids and returns a where clause
+    to filter in sqlite
+    """
+    if line_ids is not None:
+        if isinstance(line_ids, int):
+            line_ids = [line_ids]
+        lines_str = ",".join(map(str, line_ids))
+        line_ids_where = f" where id_linea in ({lines_str})"
+
+    else:
+        lines_str = ''
+        line_ids_where = " where id_linea is not NULL"
+    return line_ids_where
