@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import contextily as cx
 
 from urbantrips.viz.viz import create_squared_polygon
-from urbantrips.kpi.section_od_matrix import delete_old_lines_od_matrix_by_section_data_q
+from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data_q
 
 from urbantrips.utils.utils import (
     iniciar_conexion_db,
