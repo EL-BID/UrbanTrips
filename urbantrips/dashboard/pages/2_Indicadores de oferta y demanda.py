@@ -583,10 +583,15 @@ with st.expander('Matriz OD por linea'):
 
         for idx, row in zonas.iterrows():
             # Replace 'column_name' with the name of the column containing the detail
-            detail = row['section_id']
+            detail = f"Sección {row['section_id']}"
             point = [row['geometry'].representative_point(
             ).y, row['geometry'].representative_point().x]
-            marker = folium.Marker(location=point, popup=detail)
+            marker = folium.CircleMarker(
+                location=point, popup=detail,
+                color='black',    radius=2,
+                fill=True,
+                fill_color='black',
+                fill_opacity=1,)
             marker.add_to(m)
 
         # Display the map using folium_static
