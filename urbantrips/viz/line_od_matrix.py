@@ -1,15 +1,24 @@
+from mycolorpy import colorlist as mcp
+import folium
+import mapclassify
 import os
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
-
+from folium import Figure
 import seaborn as sns
 import matplotlib.pyplot as plt
 import contextily as cx
 
-from urbantrips.viz.viz import create_squared_polygon
+from urbantrips.viz.viz import (
+    create_squared_polygon,
+    crear_linestring,
+    get_branch_geoms_from_line
+)
+
+
 from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data_q
 
 from urbantrips.utils.utils import (
@@ -34,6 +43,8 @@ def visualize_lines_od_matrix(line_ids=None, hour_range=False,
         viz_line_od_matrix,
         indicator=indicador
     )
+    od_lines.groupby(['id_linea', 'yr_mo']).apply(
+        map_desire_lines)
 
 
 def get_lines_od_matrix_data(line_ids, hour_range=False,
@@ -367,3 +378,110 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
+
+
+def map_desire_lines(od_line):
+
+    line_id = od_line.id_linea.unique()[0]
+    n_sections = od_line.n_sections.unique()[0]
+    mes = od_line.yr_mo.unique()[0]
+    day = od_line['day_type'].unique().item()
+
+    if day == 'weekend':
+        day_str = 'Fin de semana'
+    elif day == 'weekday':
+        day_str = 'Dia habil'
+    else:
+        day_str = day
+
+    if not od_line.hour_min.isna().all():
+        from_hr = od_line.hour_min.unique()[0]
+        to_hr = od_line.hour_max.unique()[0]
+        hr_str = f' {from_hr}-{to_hr} hrs'
+    else:
+        hr_str = ''
+
+    # get data
+    sections_data_q = f"""
+    select id_linea,n_sections,section_id,x,y from routes_section_id_coords 
+    where id_linea = {line_id}
+    and n_sections = {n_sections}
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    sections = pd.read_sql(sections_data_q, conn_insumos)
+    conn_insumos.close()
+
+    od_line = od_line\
+        .merge(
+            sections.rename(
+                columns={'x': 'lon_o', 'y': 'lat_o', 'section_id': 'section_id_o'}),
+            on=['id_linea', 'n_sections', 'section_id_o'],
+            how='left')\
+        .merge(
+            sections.rename(
+                columns={'x': 'lon_d', 'y': 'lat_d', 'section_id': 'section_id_d'}),
+            on=['id_linea', 'n_sections', 'section_id_d'],
+            how='left')
+
+    od_line = crear_linestring(od_line, 'lon_o', 'lat_o', 'lon_d', 'lat_d')
+
+    alias = leer_alias()
+
+    file_name = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
+    file_name = file_name+f"{line_id}_{hr_str}_{n_sections}_secciones"
+    print(file_name)
+    create_folium_desire_lines(od_line,
+                               cmap='Blues',
+                               var_fex='legs',
+                               savefile=f"{file_name}.html",
+                               k_jenks=5)
+
+
+def create_folium_desire_lines(od_line,
+                               cmap,
+                               var_fex,
+                               savefile,
+                               k_jenks=5):
+
+    bins = [od_line[var_fex].min()-1] + \
+        mapclassify.FisherJenks(od_line[var_fex], k=k_jenks).bins.tolist()
+
+    range_bins = range(0, len(bins)-1)
+    bins_labels = [
+        f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
+    od_line['cuts'] = pd.cut(od_line[var_fex], bins=bins, labels=bins_labels)
+
+    fig = folium.Figure(width=800, height=800)
+    m = folium.Map(location=[od_line.lat_o.mean(
+    ), od_line.lon_o.mean()], zoom_start=9, tiles='cartodbpositron')
+
+    # map lines
+    branch_geoms = get_branch_geoms_from_line(
+        id_linea=od_line.id_linea.unique().item())
+    branch_geoms.explore(m=m, name='Ramales',
+                         style_kwds=dict(
+                             color="black", opacity=0.4, dashArray='10'),
+                         )
+    line_w = 0.5
+
+    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+
+    n = 0
+    for i in bins_labels:
+
+        od_line[od_line.cuts == i].explore(
+            m=m,
+            color=colors[n],
+            style_kwds={'fillOpacity': 0.3, 'weight': line_w},
+            name=i,
+            tooltip=False,
+        )
+        n += 1
+        line_w += 3
+
+    folium.LayerControl(name='Legs').add_to(m)
+
+    fig.add_child(m)
+
+    db_path = os.path.join("resultados", "html", savefile)
+    m.save(db_path)
