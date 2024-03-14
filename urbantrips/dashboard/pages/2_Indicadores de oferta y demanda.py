@@ -106,19 +106,24 @@ def iniciar_conexion_db(tipo='data'):
 
 @st.cache_data
 def levanto_tabla_sql(tabla_sql,
+                      custom_query=False,
                       has_linestring=False,
                       has_wkt=False):
 
     conn_dash = iniciar_conexion_db(tipo='dash')
-
-    tabla = pd.read_sql_query(
-        f"""
-        SELECT *
-        FROM {tabla_sql}
-        """,
-        conn_dash,
-    )
-
+    if not custom_query:
+        tabla = pd.read_sql_query(
+            f"""
+            SELECT *
+            FROM {tabla_sql}
+            """,
+            conn_dash,
+        )
+    else:
+        tabla = pd.read_sql_query(
+            custom_query,
+            conn_dash,
+        )
     conn_dash.close()
 
     if has_linestring:
@@ -161,6 +166,52 @@ def get_logo():
             f.write(response.content)
     image = Image.open(file_logo)
     return image
+
+
+def crear_mapa_folium(df_agg,
+                      cmap,
+                      var_fex,
+                      savefile='',
+                      k_jenks=5):
+
+    bins = [df_agg[var_fex].min()-1] + \
+        mapclassify.FisherJenks(df_agg[var_fex], k=k_jenks).bins.tolist()
+    range_bins = range(0, len(bins)-1)
+    bins_labels = [
+        f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
+    df_agg['cuts'] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
+
+    fig = Figure(width=800, height=800)
+    m = folium.Map(location=[df_agg.lat_o.mean(
+    ), df_agg.lon_o.mean()], zoom_start=9, tiles='cartodbpositron')
+
+    title_html = """
+    <h3 align="center" style="font-size:20px"><b>Your map title</b></h3>
+    """
+    m.get_root().html.add_child(folium.Element(title_html))
+
+    line_w = 0.5
+
+    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+
+    n = 0
+    for i in bins_labels:
+
+        df_agg[df_agg.cuts == i].explore(
+            m=m,
+            color=colors[n],
+            style_kwds={'fillOpacity': 0.1, 'weight': line_w},
+            name=i,
+            tooltip=False,
+        )
+        n += 1
+        line_w += 3
+
+    folium.LayerControl(name='xx').add_to(m)
+
+    fig.add_child(m)
+
+    return fig
 
 
 def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
@@ -599,4 +650,77 @@ with st.expander('Matriz OD por linea'):
             folium_static(m)
 
 with st.expander('Líneas de deseo por linea'):
-    st.text("Hola")
+    col1, col2 = st.columns([1, 4])
+    custom_query = """
+    select m.*, co.x as lon_o, co.y as lat_o,  cd.x as lon_d, cd.y as lat_d
+    from matrices_linea m
+    left join matrices_linea_carto co
+    on m.id_linea = co.id_linea
+    and m.n_sections = co.n_sections
+    and m.Origen = co.section_id
+    left join matrices_linea_carto cd
+    on m.id_linea = cd.id_linea
+    and m.n_sections = cd.n_sections
+    and m.Destino = cd.section_id 
+    where lon_o is not NULL 
+    and lat_o is not NULL ;
+    """
+    matriz = levanto_tabla_sql(tabla_sql='matrices_linea',
+                               custom_query=custom_query,
+                               has_linestring=True)
+    nl4 = traigo_nombre_lineas(matriz[['id_linea', 'nombre_linea']])
+
+    matriz['rango'] = 'de ' + \
+        matriz['hour_min'].astype(str)+' a ' + \
+        matriz['hour_max'].astype(str) + ' hs'
+
+    if len(matriz) > 0:
+        if len(nl4) > 0:
+            nombre_linea_ = col1.selectbox(
+                'Línea  ', options=nl4, key='nombre_linea_ldeseo_od')
+            id_linea = matriz[matriz.nombre_linea ==
+                              nombre_linea_].id_linea.values[0]
+        else:
+            nombre_linea = ''
+            id_linea = col1.selectbox(
+                'Línea ', options=matriz.id_linea.unique())
+
+        desc_dia_ = col1.selectbox(
+            'Periodo ', options=matriz.yr_mo.unique(), key='desc_deseo')
+        tipo_dia_ = col1.selectbox(
+            'Tipo de dia ', options=matriz.day_type.unique(), key='day_type_line_matrix2')
+        secciones_ = col1.selectbox(
+            'Cantidad de secciones', options=matriz.n_sections.unique(), key='secc_deseo')
+        rango_ = col1.selectbox(
+            'Rango horario ', options=matriz.rango.unique(), key='reango_deseo')
+
+        matriz = matriz[(
+            (matriz.nombre_linea == nombre_linea_) &
+            (matriz.yr_mo == desc_dia_) &
+            (matriz.day_type == tipo_dia_) &
+            (matriz.n_sections == secciones_) &
+            (matriz.rango == rango_)
+        )].copy()
+
+        with col2:
+            k_jenks = st.slider('Cantidad de grupos', 1, 5)
+            st.text(f"Hay un total de {matriz.legs.sum()} etapas")
+            map = crear_mapa_folium(matriz,
+                                    cmap='BuPu',
+                                    var_fex='legs',
+                                    k_jenks=k_jenks
+                                    )
+
+            st_map = st_folium(map, width=900, height=700)
+    else:
+
+        col2.markdown("""
+        <style>
+        .big-font {
+            font-size:40px !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        col2.markdown(
+            '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)

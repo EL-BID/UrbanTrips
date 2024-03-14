@@ -383,6 +383,8 @@ def create_dash_tables():
         n_sections INT NOT NULL,
         section_id INT NOT NULL,
         wkt text,
+        x float,
+        y float,
         nombre_linea text
         )
         ;

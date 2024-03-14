@@ -214,7 +214,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     delete_old_lines_od_matrix_by_section_data_q(
         delete_df, hour_range=hour_range,
-        day_type=day, yr_mos=mes,
+        day_type=day, yr_mos=[mes],
         db_type='dash')
 
     od_line_dash.to_sql("matrices_linea", conn_dash,
@@ -247,6 +247,8 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     gdf_dash['id_linea'] = line_id
     gdf_dash['n_sections'] = n_sections
     gdf_dash['wkt'] = gdf_dash.geometry.to_wkt()
+    gdf_dash['x'] = gdf_dash.geometry.centroid.x
+    gdf_dash['y'] = gdf_dash.geometry.centroid.y
     gdf_dash = gdf_dash.drop('geometry', axis=1)
     gdf_dash['nombre_linea'] = line_str
 
