@@ -358,6 +358,68 @@ def create_dash_tables():
         ;
         """
     )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
+        (id_linea int not null,
+        yr_mo text,
+        day_type text nor null,
+        n_sections int,
+        hour_min int,
+        hour_max int,
+        Origen int not null,
+        Destino int not null,
+        legs int not null,
+        prop float not null,
+        nombre_linea text
+        )
+        ;
+        """
+    )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matrices_linea_carto
+        (id_linea INT NOT NULL,
+        n_sections INT NOT NULL,
+        section_id INT NOT NULL,
+        wkt text,
+        nombre_linea text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                yr_mo text,
+                id_linea int not null,
+                nombre_linea text,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
     conn_dash.close()
 
 
@@ -582,23 +644,6 @@ def create_basic_data_model_tables():
         """
     )
 
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
-        (id_linea int not null,
-        yr_mo text,
-        day_type text nor null,
-        n_sections int,
-        hour_min int,
-        hour_max int,
-        section_id_o int not null,
-        section_id_d int not null,
-        legs int not null,
-        prop float not null
-        )
-        ;
-        """
-    )
     conn_data.close()
 
 
@@ -913,7 +958,6 @@ def create_kpi_tables():
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
-    conn_dash = iniciar_conexion_db(tipo='dash')
 
     conn_data.execute(
         """
@@ -959,18 +1003,6 @@ def create_kpi_tables():
     )
 
     conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS services_by_line_hour
-                (
-                id_linea int not null,
-                dia text not null,
-                hora int  not null,
-                servicios float  not null
-                )
-            ;
-            """
-    )
-    conn_dash.execute(
         """
             CREATE TABLE IF NOT EXISTS services_by_line_hour
                 (
@@ -1036,27 +1068,25 @@ def create_kpi_tables():
             """
     )
 
-    conn_dash.execute(
+    conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
-                (
-                dia text not null,
-                yr_mo text,
-                id_linea int not null,
-                nombre_linea text,
-                hora int  not null,
-                veh float,
-                pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
-            """
+        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
+        (id_linea int not null,
+        yr_mo text,
+        day_type text nor null,
+        n_sections int,
+        hour_min int,
+        hour_max int,
+        section_id_o int not null,
+        section_id_d int not null,
+        legs int not null,
+        prop float not null
+        )
+        ;
+        """
     )
 
     conn_data.close()
-    conn_dash.close()
 
 
 def check_table_in_db(table_name, tipo_db):

@@ -223,13 +223,17 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
 
 
 def delete_old_lines_od_matrix_by_section_data_q(
-    route_geoms, hour_range, day_type, yr_mos
+    route_geoms, hour_range, day_type, yr_mos, db_type='data'
 ):
     """
     Deletes old data in table lines_od_matrix_by_section
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-
+    if db_type == 'data':
+        conn = iniciar_conexion_db(tipo="data")
+        table_name = 'lines_od_matrix_by_section'
+    else:
+        conn = iniciar_conexion_db(tipo="dash")
+        table_name = 'matrices_linea'
     # hour range filter
     if hour_range:
         hora_min_filter = f"= {hour_range[0]}"
@@ -251,7 +255,7 @@ def delete_old_lines_od_matrix_by_section_data_q(
                 print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
 
             q_delete = f"""
-                delete from lines_od_matrix_by_section
+                delete from {table_name}
                 where id_linea = {row.id_linea} 
                 and hour_min {hora_min_filter}
                 and hour_max {hora_max_filter}
@@ -260,11 +264,11 @@ def delete_old_lines_od_matrix_by_section_data_q(
                 and yr_mo = '{yr_mo}';
                 """
 
-            cur = conn_data.cursor()
+            cur = conn.cursor()
             cur.execute(q_delete)
-            conn_data.commit()
+            conn.commit()
 
-    conn_data.close()
+    conn.close()
     print("Fin borrado datos previos")
 
 
@@ -342,11 +346,11 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type, save_csv=False
             .groupby(["o_proj", "d_proj"])\
             .agg(legs=("legs", "mean"))\
             .reset_index()
-
+        totals_by_typeday_section_id['legs'] = totals_by_typeday_section_id['legs'].round(
+        ).map(int)
         totals_by_typeday_section_id['prop'] = (
             totals_by_typeday_section_id.legs / totals_by_typeday * 100
-        )
-
+        ).round(1)
         totals_by_typeday_section_id["day_type"] = day_type
         totals_by_typeday_section_id["n_sections"] = n_sections
 

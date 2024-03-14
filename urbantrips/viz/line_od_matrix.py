@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import contextily as cx
 
 from urbantrips.viz.viz import create_squared_polygon
+from urbantrips.kpi.section_od_matrix import delete_old_lines_od_matrix_by_section_data_q
 
 from urbantrips.utils.utils import (
     iniciar_conexion_db,
@@ -176,7 +177,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     title = 'Matriz OD por segmento del recorrido'
     if indicator == 'cantidad_etapas':
-        title += ' - Cantidad de etapas (en miles)'
+        title += ' - Cantidad de etapas'
         values = 'legs'
 
     elif indicator == 'prop_etapas':
@@ -190,19 +191,38 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
         from_hr = od_line.hour_min.unique()[0]
         to_hr = od_line.hour_max.unique()[0]
         hr_str = f' {from_hr}-{to_hr} hrs'
+        hour_range = [from_hr, to_hr]
     else:
         hr_str = ''
+        hour_range = None
 
     title = title + hr_str + ' - ' + day_str + '-' + mes + \
         '-' + f" {line_str} (id_linea: {line_id})"
-    if indicator == 'cantidad_etapas':
-        od_line[values] = od_line[values]/1000
 
-    # pivot table to get a matrix
-    od_line[values] = od_line[values].round(1)
+    # upload to dash db
+    od_line_dash = od_line.copy()
+    od_line_dash['nombre_linea'] = line_str
+    od_line_dash = od_line_dash.rename(columns={
+        'section_id_o': 'Origen',
+        'section_id_d': 'Destino'
+    })
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    delete_df = od_line\
+        .reindex(columns=['id_linea', 'n_sections'])\
+        .drop_duplicates()
+
+    delete_old_lines_od_matrix_by_section_data_q(
+        delete_df, hour_range=hour_range,
+        day_type=day, yr_mos=mes,
+        db_type='dash')
+
+    od_line_dash.to_sql("matrices_linea", conn_dash,
+                        if_exists="append", index=False)
 
     matrix = od_line.pivot_table(values=values,
-                                 index='section_id_o', columns='section_id_d')
+                                 index='section_id_o',
+                                 columns='section_id_d')
 
     # produce carto
     epsg = geo.get_epsg_m()
@@ -221,6 +241,28 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     gdf = gdf.to_crs(epsg=epsg)
 
     gdf.geometry = gdf.geometry.buffer(250)
+
+    # upload sections carto to dash
+    gdf_dash = gdf.to_crs(epsg=4326).copy()
+    gdf_dash['id_linea'] = line_id
+    gdf_dash['n_sections'] = n_sections
+    gdf_dash['wkt'] = gdf_dash.geometry.to_wkt()
+    gdf_dash = gdf_dash.drop('geometry', axis=1)
+    gdf_dash['nombre_linea'] = line_str
+
+    q_delete = f"""
+    delete from matrices_linea_carto
+    where id_linea = {line_id}
+    and n_sections = {n_sections}
+    """
+    cur = conn_dash.cursor()
+    cur.execute(q_delete)
+    conn_dash.commit()
+
+    gdf_dash.to_sql("matrices_linea_carto", conn_dash,
+                    if_exists="append", index=False)
+
+    conn_dash.close()
 
     # set sections to show in map
     section_id_start_xy = gdf.loc[gdf.section_id ==
@@ -244,7 +286,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     gdf.plot(ax=ax1, alpha=0.5)
     box.plot(ax=ax1, color='#ffffff00')
 
-    sns.heatmap(matrix, cmap='Blues', ax=ax2, annot=True)
+    sns.heatmap(matrix, cmap='Blues', ax=ax2, annot=True, fmt='g')
 
     ax1.set_axis_off()
     ax2.grid(False)

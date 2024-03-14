@@ -465,6 +465,7 @@ with st.expander('Cargas por tramos'):
     lineas['rango'] = 'de ' + \
         lineas['hora_min'].astype(str)+' a ' + \
         lineas['hora_max'].astype(str) + ' hs'
+
     if len(lineas) > 0:
         if len(nl2) > 0:
             nombre_linea = col1.selectbox('Línea  ', options=nl2)
@@ -497,3 +498,100 @@ with st.expander('Cargas por tramos'):
             col2.pyplot(f_lineas)
         else:
             st.write('No hay datos para mostrar')
+
+with st.expander('Matriz OD por linea'):
+    col1, col2 = st.columns([1, 4])
+
+    matriz = levanto_tabla_sql('matrices_linea')
+    nl3 = traigo_nombre_lineas(matriz[['id_linea', 'nombre_linea']])
+
+    matriz['rango'] = 'de ' + \
+        matriz['hour_min'].astype(str)+' a ' + \
+        matriz['hour_max'].astype(str) + ' hs'
+
+    if len(matriz) > 0:
+        if len(nl3) > 0:
+            nombre_linea_ = col1.selectbox('Línea  ', options=nl3)
+            id_linea = matriz[matriz.nombre_linea ==
+                              nombre_linea_].id_linea.values[0]
+        else:
+            nombre_linea = ''
+            id_linea = col1.selectbox(
+                'Línea ', options=matriz.id_linea.unique())
+
+        if col1.checkbox('Normalizar', value=True):
+            values = 'prop'
+        else:
+            values = 'legs'
+
+        desc_dia_ = col1.selectbox(
+            'Periodo ', options=matriz.yr_mo.unique())
+        tipo_dia_ = col1.selectbox(
+            'Tipo de dia ', options=matriz.day_type.unique(), key='day_type_line_matrix')
+        secciones_ = col1.selectbox(
+            'Cantidad de secciones', options=matriz.n_sections.unique())
+        rango_ = col1.selectbox(
+            'Rango horario ', options=matriz.rango.unique())
+
+        matriz = matriz[(
+            (matriz.nombre_linea == nombre_linea_) &
+            (matriz.yr_mo == desc_dia_) &
+            (matriz.day_type == tipo_dia_) &
+            (matriz.n_sections == secciones_) &
+            (matriz.rango == rango_)
+        )].copy()
+        od_heatmap = matriz.pivot_table(values=values,
+                                        index='Origen',
+                                        columns='Destino')
+
+        fig = px.imshow(od_heatmap, text_auto=True,
+                        color_continuous_scale='Blues',)
+
+        fig.update_coloraxes(showscale=True)
+
+        if len(od_heatmap) <= 20:
+            fig.update_layout(width=800, height=800)
+        elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
+            fig.update_layout(width=1000, height=1000)
+        elif len(od_heatmap) > 40:
+            fig.update_layout(width=1200, height=1200)
+
+        col2.plotly_chart(fig)
+
+    else:
+        st.write('No hay datos para mostrar')
+
+    zonas = levanto_tabla_sql('matrices_linea_carto', has_wkt=True)
+    zonas = zonas.loc[
+        (zonas.nombre_linea == nombre_linea_) &
+        (zonas.n_sections == secciones_), :]
+
+    col1, col2 = st.columns([1, 4])
+
+    if col1.checkbox('Mostrar zonificacion'):
+
+        # Create a folium map centered on the data
+        map_center = [zonas.geometry.centroid.y.mean(
+        ), zonas.geometry.centroid.x.mean()]
+
+        fig = Figure(width=800, height=800)
+        m = folium.Map(location=map_center, zoom_start=10,
+                       tiles='cartodbpositron')
+
+        # Add GeoDataFrame to the map
+        folium.GeoJson(zonas).add_to(m)
+
+        for idx, row in zonas.iterrows():
+            # Replace 'column_name' with the name of the column containing the detail
+            detail = row['section_id']
+            point = [row['geometry'].representative_point(
+            ).y, row['geometry'].representative_point().x]
+            marker = folium.Marker(location=point, popup=detail)
+            marker.add_to(m)
+
+        # Display the map using folium_static
+        with col2:
+            folium_static(m)
+
+with st.expander('Líneas de deseo por linea'):
+    st.text("Hola")
