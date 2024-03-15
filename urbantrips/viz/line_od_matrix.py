@@ -241,28 +241,21 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
     section_id_end = sections.section_id.max()
     section_id_middle = int(section_id_end/2)
 
-    geom = [LineString(
-        [[sections.loc[i, 'x'], sections.loc[i, 'y']],
-         [sections.loc[i+1, 'x'], sections.loc[i+1, 'y']]]
-    ) for i in sections.index[:-1]]
-
-    gdf = gpd.GeoDataFrame(pd.DataFrame(
-        {'section_id': sections.section_id.iloc[:-1]}),
-        geometry=geom, crs='epsg:4326')
-    gdf = gdf.to_crs(epsg=epsg)
-
-    gdf.geometry = gdf.geometry.buffer(250)
+    gdf = geo.create_sections_geoms(sections, buffer_meters=250)
 
     # upload sections carto to dash
     gdf_dash = gdf.to_crs(epsg=4326).copy()
-    gdf_dash['id_linea'] = line_id
-    gdf_dash['n_sections'] = n_sections
     gdf_dash['wkt'] = gdf_dash.geometry.to_wkt()
-    gdf_dash['x'] = gdf_dash.geometry.centroid.x
-    gdf_dash['y'] = gdf_dash.geometry.centroid.y
-    gdf_dash = gdf_dash.drop('geometry', axis=1)
     gdf_dash['nombre_linea'] = line_str
-
+    gdf_dash = gdf_dash.reindex(columns=[
+        'id_linea',
+        'n_sections',
+        'section_id',
+        'wkt',
+        'x',
+        'y',
+        'nombre_linea'
+    ])
     q_delete = f"""
     delete from matrices_linea_carto
     where id_linea = {line_id}
@@ -411,14 +404,21 @@ def map_desire_lines(od_line):
     sections = pd.read_sql(sections_data_q, conn_insumos)
     conn_insumos.close()
 
+    sections = geo.create_sections_geoms(sections, buffer_meters=250)
+    sections = sections.to_crs(epsg=4326)
+    section_centroids = sections.geometry.centroid
+    sections['x'] = section_centroids.x
+    sections['y'] = section_centroids.y
+    sections_merge = sections.drop('geometry', axis=1)
+
     od_line = od_line\
         .merge(
-            sections.rename(
+            sections_merge.rename(
                 columns={'x': 'lon_o', 'y': 'lat_o', 'section_id': 'section_id_o'}),
             on=['id_linea', 'n_sections', 'section_id_o'],
             how='left')\
         .merge(
-            sections.rename(
+            sections_merge.rename(
                 columns={'x': 'lon_d', 'y': 'lat_d', 'section_id': 'section_id_d'}),
             on=['id_linea', 'n_sections', 'section_id_d'],
             how='left')
@@ -429,11 +429,11 @@ def map_desire_lines(od_line):
 
     file_name = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
     file_name = file_name+f"{line_id}_{hr_str}_{n_sections}_secciones"
-    print(file_name)
     create_folium_desire_lines(od_line,
                                cmap='Blues',
                                var_fex='legs',
                                savefile=f"{file_name}.html",
+                               sections_gdf=sections,
                                k_jenks=5)
 
 
@@ -441,6 +441,7 @@ def create_folium_desire_lines(od_line,
                                cmap,
                                var_fex,
                                savefile,
+                               sections_gdf=None,
                                k_jenks=5):
 
     bins = [od_line[var_fex].min()-1] + \
@@ -455,13 +456,19 @@ def create_folium_desire_lines(od_line,
     m = folium.Map(location=[od_line.lat_o.mean(
     ), od_line.lon_o.mean()], zoom_start=9, tiles='cartodbpositron')
 
-    # map lines
+    # map branches geoms
     branch_geoms = get_branch_geoms_from_line(
         id_linea=od_line.id_linea.unique().item())
-    branch_geoms.explore(m=m, name='Ramales',
-                         style_kwds=dict(
-                             color="black", opacity=0.4, dashArray='10'),
-                         )
+    if len(branch_geoms):
+        branch_geoms.explore(m=m, name='Ramales',
+                             style_kwds=dict(
+                                 color="black", opacity=0.4, dashArray='10'),
+                             )
+    if sections_gdf is not None:
+        sections_gdf.explore(m=m, name='Secciones',
+                             style_kwds=dict(
+                                 color="#888888", opacity=0.9),
+                             )
     line_w = 0.5
 
     colors = mcp.gen_color(cmap=cmap, n=k_jenks)

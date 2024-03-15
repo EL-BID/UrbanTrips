@@ -360,3 +360,27 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
+
+
+def create_sections_geoms(sections_df, buffer_meters=False):
+    """
+    This function takes a sections dataframe with points
+    and a buffer parameters in meters
+    produced by kpi.create_route_section_points()
+    and returns a geodataframe with section geoms
+    """
+    geom = [LineString(
+        [[sections_df.loc[i, 'x'], sections_df.loc[i, 'y']],
+         [sections_df.loc[i+1, 'x'], sections_df.loc[i+1, 'y']]]
+    ) for i in sections_df.index[:-1]]
+
+    gdf = gpd.GeoDataFrame(sections_df.iloc[:-1, :],
+                           geometry=geom, crs='epsg:4326')
+    if buffer_meters:
+        epsg_m = get_epsg_m()
+
+        gdf = gdf.to_crs(epsg=epsg_m)
+
+        gdf.geometry = gdf.geometry.buffer(buffer_meters)
+
+    return gdf
