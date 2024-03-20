@@ -60,8 +60,7 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
-nombre_archivo_informacion_lineas: "lineas.csv"                                 
-informacion_lineas_contiene_ramales: True                          
+nombre_archivo_informacion_lineas: "lineas.csv"                                               
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
 
