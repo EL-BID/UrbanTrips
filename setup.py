@@ -30,6 +30,7 @@ setuptools.setup(
         'jupyterlab==4.0.6',
         'libpysal==4.8.0',
         'mapclassify==2.6.1',
+        'matplotlib==3.8.3',
         'matplotlib-scalebar==0.8.1',
         'mycolorpy==1.5.1',
         'notebook==7.0.4',
