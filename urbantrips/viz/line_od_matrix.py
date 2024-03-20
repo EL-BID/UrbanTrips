@@ -367,7 +367,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     for frm in ['png', 'pdf']:
         archivo = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
-        archivo = archivo+f"{line_id}_{indicator}_{hr_str}.{frm}"
+        archivo = archivo+f"{line_id}_{n_sections}_{indicator}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
