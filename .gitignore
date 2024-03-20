@@ -1,5 +1,7 @@
 # Data files
 data/*
+# Config file 
+configs/*
 
 # Results files
 /resultados
@@ -137,41 +139,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-prueba_sa.ipynb
-zonas_tmp.geojson
 *.json
-od_matrix/utils/visuals_bk.py
-setup-Copy1.py
-run_urbantrips.ipynb
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales_all.yaml
-configs/configuraciones_generales_muestra10.yaml
-configs/configuraciones_generales_muestra15.yaml
-configs/configuraciones_generales_muestra5.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales_amba_muestra5_xdia.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales_muestra_2022.yaml
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales_2022.yaml
-configs/configuraciones_generales.yaml
-educacion.ipynb
-configs/configuraciones_generales_2019_all.yaml
-configs/configuraciones_generales____.yaml
-configs/configuraciones_generales_2019_m20.yaml
-configs/configuraciones_generales_2019_m30.yaml
-configs/configuraciones_generales_2019_m40.yaml
-configs/configuraciones_generales_202209_40.yaml
-configs/configuraciones_generales_202209_all.yaml
-configs/configuraciones_generales_test.yaml
-configs/configuraciones_generales.yaml
 *.yaml
 *.ipynb
 .github/desktop.ini
 *.ini
-run_services.ipynb
-configs/configuraciones_generales.yaml
+
