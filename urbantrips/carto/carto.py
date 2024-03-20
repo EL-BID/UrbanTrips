@@ -352,6 +352,7 @@ def create_distances_table(use_parallel=False):
             WHERE h3_d != ''
     )
     """
+
     pares_h3_data = pd.read_sql_query(q, conn_data)
 
     q = """
@@ -384,29 +385,16 @@ def create_distances_table(use_parallel=False):
         print(f"de los {len(pares_h3_data)} originales en la data.")
         print('')
 
-        # Determine the size of each chunk (500 rows in this case)
-        chunk_size = 25000
-
-        # Get the total number of rows in the DataFrame
-        total_rows = len(agg2_total)
-
-        # Loop through the DataFrame in chunks of 500 rows
-        for start in range(0, total_rows, chunk_size):
-            end = start + chunk_size
-            # Select the chunk of 500 rows from the DataFrame
-            agg2 = agg2_total.iloc[start:end].copy()
-            # Call the process_chunk function with the selected chunk
-            print(
-                f'Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}')
-
-            agg2 = compute_distances_osm(
-                agg2,
+        agg2 = compute_distances_osm(
+                agg2_total,
                 h3_o="h3_o_norm",
                 h3_d="h3_d_norm",
                 processing="pandana",
                 modes=["drive"],
-                use_parallel=use_parallel
+                use_parallel=False
             )
+        
+        if len(agg2)>0:
 
             dist1 = agg2.copy()
             dist1['h3_o'] = dist1['h3_o_norm']
@@ -422,12 +410,57 @@ def create_distances_table(use_parallel=False):
                           'h3_d_norm'],
                          as_index=False)[['distance_osm_drive',
                                           'distance_h3']].first()
-
+    
             distancias_new.to_sql("distancias", conn_insumos,
                                   if_exists="append", index=False)
 
-            conn_insumos.close()
-            conn_insumos = iniciar_conexion_db(tipo='insumos')
+        
+        else:
+
+            # Determine the size of each chunk (500 rows in this case)
+            chunk_size = 25000
+    
+            # Get the total number of rows in the DataFrame
+            total_rows = len(agg2_total)
+    
+            # Loop through the DataFrame in chunks of 500 rows
+            for start in range(0, total_rows, chunk_size):
+                end = start + chunk_size
+                # Select the chunk of 500 rows from the DataFrame
+                agg2 = agg2_total.iloc[start:end].copy()
+                # Call the process_chunk function with the selected chunk
+                print(
+                    f'Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}')
+    
+                agg2 = compute_distances_osm(
+                    agg2,
+                    h3_o="h3_o_norm",
+                    h3_d="h3_d_norm",
+                    processing="osmnx",
+                    modes=["drive"],
+                    use_parallel=use_parallel
+                )
+    
+                dist1 = agg2.copy()
+                dist1['h3_o'] = dist1['h3_o_norm']
+                dist1['h3_d'] = dist1['h3_d_norm']
+                dist2 = agg2.copy()
+                dist2['h3_d'] = dist2['h3_o_norm']
+                dist2['h3_o'] = dist2['h3_d_norm']
+                distancias_new = pd.concat([dist1, dist2], ignore_index=True)
+                distancias_new = distancias_new\
+                    .groupby(['h3_o',
+                              'h3_d',
+                              'h3_o_norm',
+                              'h3_d_norm'],
+                             as_index=False)[['distance_osm_drive',
+                                              'distance_h3']].first()
+    
+                distancias_new.to_sql("distancias", conn_insumos,
+                                      if_exists="append", index=False)
+    
+                conn_insumos.close()
+                conn_insumos = iniciar_conexion_db(tipo='insumos')
 
         conn_insumos.close()
         conn_data.close()
@@ -597,13 +630,11 @@ def compute_distances_osm(
                 df = compute_distances_pandana(df=df, mode=mode)
             except:
                 print("No es posible computar distancias con pandana")
-                df = compute_distances_osmx(df=df, mode=mode,
-                                            use_parallel=use_parallel)
+                return pd.DataFrame([])
 
     var_distances += [f"distance_osm_{mode}"]
     df[f"distance_osm_{mode}"] = (
         df[f"distance_osm_{mode}"] / 1000).round(2)
-    print(df[f'distance_osm_{mode}'].head())
 
     condition = ('distance_osm_drive' in df.columns) & (
         'distance_osm_walk' in df.columns)
@@ -683,14 +714,9 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     n = len(nodes_from)
     chunksize = int(sqrt(n) * 10)
 
-    # print(f'Comenzando a correr distancias para {n} pares OD',
-    #       datetime.now().strftime("%H:%M:%S"))
-
     with multiprocessing.Pool(processes=n_cores) as pool:
         results = pool.map(partial(get_network_distance_osmnx, G=G), zip(
             nodes_from, nodes_to), chunksize=chunksize)
-
-    # print('Distancias calculadas:', datetime.now().strftime("%H:%M:%S"))
 
     return results
 
