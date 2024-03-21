@@ -616,7 +616,7 @@ def crear_tablas_geolocalizacion():
     conn_data.execute(
         """
             CREATE INDEX IF NOT EXISTS trx_idx_r ON trx_eco (
-                "id_linea","id_ramal","interno","fecha"
+                "dia","id_linea","id_ramal","interno","fecha"
                 );
             """
     )
@@ -624,7 +624,7 @@ def crear_tablas_geolocalizacion():
     conn_data.execute(
         """
             CREATE INDEX  IF NOT EXISTS gps_idx_r ON gps (
-                "id_linea","id_ramal","interno","fecha"
+                "dia","id_linea","id_ramal","interno","fecha"
                 );
         """
     )
@@ -632,7 +632,7 @@ def crear_tablas_geolocalizacion():
     conn_data.execute(
         """
             CREATE INDEX IF NOT EXISTS trx_idx_l ON trx_eco (
-                "id_linea","interno","fecha"
+                "dia","id_linea","interno","fecha"
                 );
             """
     )
@@ -640,7 +640,7 @@ def crear_tablas_geolocalizacion():
     conn_data.execute(
         """
             CREATE INDEX  IF NOT EXISTS gps_idx_l ON gps (
-                "id_linea","interno","fecha"
+                "dia","id_linea","interno","fecha"
                 );
         """
     )
