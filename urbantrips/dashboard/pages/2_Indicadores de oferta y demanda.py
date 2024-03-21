@@ -290,7 +290,8 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     labels_oe[0] = 'FIN'
 
     # Arrows
-    flecha_ida_wgs84 = gdf_d0.loc[gdf_d0.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = gdf_d0.loc[gdf_d0.section_id ==
+                                  gdf_d0.section_id.min(), 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
     flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
@@ -368,7 +369,8 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     flecha_ida_fin = flecha_ida[0]
 
     # For direction 1, get the first section of the route geom
-    flecha_vuelta = gdf_d1.loc[gdf_d1.section_id == 0.0, 'geometry']
+    flecha_vuelta = gdf_d1.loc[gdf_d1.section_id ==
+                               gdf_d1.section_id, min(), 'geometry']
     flecha_vuelta = list(flecha_vuelta.item().coords)
     # invert the direction of the arrow
     flecha_vuelta_inicio = flecha_vuelta[0]
