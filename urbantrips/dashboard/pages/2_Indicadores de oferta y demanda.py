@@ -370,7 +370,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
     # For direction 1, get the first section of the route geom
     flecha_vuelta = gdf_d1.loc[gdf_d1.section_id ==
-                               gdf_d1.section_id, min(), 'geometry']
+                               gdf_d1.section_id.min(), 'geometry']
     flecha_vuelta = list(flecha_vuelta.item().coords)
     # invert the direction of the arrow
     flecha_vuelta_inicio = flecha_vuelta[0]
