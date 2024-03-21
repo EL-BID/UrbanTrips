@@ -38,13 +38,16 @@ def visualize_lines_od_matrix(line_ids=None, hour_range=False,
     od_lines = get_lines_od_matrix_data(
         line_ids, hour_range, day_type, n_sections, section_meters)
 
-    # Viz data
-    od_lines.groupby(['id_linea', 'yr_mo']).apply(
-        viz_line_od_matrix,
-        indicator=indicador
-    )
-    od_lines.groupby(['id_linea', 'yr_mo']).apply(
-        map_desire_lines)
+    if len(od_lines) > 0:
+        # Viz data
+        od_lines.groupby(['id_linea', 'yr_mo']).apply(
+            viz_line_od_matrix,
+            indicator=indicador
+        )
+        od_lines.groupby(['id_linea', 'yr_mo']).apply(
+            map_desire_lines)
+    else:
+        print("No hay datos de matriz od para esas lineas con esos parametros")
 
 
 def get_lines_od_matrix_data(line_ids, hour_range=False,
@@ -96,8 +99,8 @@ def get_lines_od_matrix_data(line_ids, hour_range=False,
         print("Volver a correr compute_lines_od_matrix() con otro parámetros")
 
     if len(od_lines) == 0:
-        raise Exception("La consulta para estos id_lineas con estos parametros"
-                        "volvio vacía")
+        print("La consulta para estos id_lineas con estos parametros"
+              " volvio vacía")
     else:
         return od_lines
 
@@ -459,7 +462,8 @@ def create_folium_desire_lines(od_line,
     # map branches geoms
     branch_geoms = get_branch_geoms_from_line(
         id_linea=od_line.id_linea.unique().item())
-    if len(branch_geoms):
+
+    if branch_geoms is not None:
         branch_geoms.explore(m=m, name='Ramales',
                              style_kwds=dict(
                                  color="black", opacity=0.4, dashArray='10'),
