@@ -1,4 +1,5 @@
 import pandas as pd
+import geopandas as gpd
 import sqlite3
 import os
 import yaml
@@ -9,6 +10,8 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
+from shapely import wkt
+
 os.environ['USE_PYGEOS'] = '0'
 
 
@@ -227,6 +230,27 @@ def create_other_inputs_tables():
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonificaciones
+        (zona text NOT NULL,
+         id text NOT NULL,
+         orden int,
+         wkt text        
+        )
+        ;
+        """
+    )
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS poligonos
+        (id text NOT NULL,         
+         wkt text        
+        )
+        ;
+        """
+    )
     conn_insumos.close()
 
 
@@ -353,6 +377,26 @@ def create_dash_tables():
         prop_etapas float not null,
         buff_factor float,
         wkt text
+        )
+        ;
+        """
+    )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonificaciones
+        (zona text NOT NULL,
+         id text NOT NULL,
+         orden int,
+         wkt text        
+        )
+        ;
+        """
+    )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS poligonos
+        (id text NOT NULL,         
+         wkt text        
         )
         ;
         """
@@ -1057,3 +1101,64 @@ def check_table_in_db(table_name, tipo_db):
         return False
     else:
         return True
+
+def traigo_tabla_zonas():
+    alias = leer_alias()
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    zonas = pd.read_sql_query(
+        """
+        SELECT * from zonas
+        """,
+        conn_insumos,
+    )
+    zonas_cols = [i for i in zonas.columns if i not in ['h3', 'fex', 'latitud', 'longitud']]
+    return zonas, zonas_cols
+
+def normalize_vars(tabla):
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
+
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
+    if 'modo' in tabla.columns:
+        tabla['modo'] = tabla['modo'].str.capitalize()
+    return tabla
+
+def levanto_tabla_sql(tabla_sql,
+                      tabla_tipo='dash'):
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
+
+    try:
+        tabla = pd.read_sql_query(
+            f"""
+            SELECT *
+            FROM {tabla_sql}
+            """,
+            conn,
+        )
+    except:
+        print(f'{tabla_sql} no existe')
+        tabla = pd.DataFrame([])
+
+    conn.close()
+
+    if len(tabla) > 0:
+    
+        if 'wkt' in tabla.columns:
+            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+            tabla = gpd.GeoDataFrame(tabla,
+                                     crs=4326)
+            tabla = tabla.drop(['wkt'], axis=1)
+            
+    tabla = normalize_vars(tabla)
+
+    return tabla

@@ -244,6 +244,57 @@ def normalizo_lat_lon(df,
 
     return df
 
+# Convert H3 index to latitude and longitude, handling exceptions gracefully
+def h3_to_lat_lon(h3_hex):
+    try:
+        lat, lon = h3.h3_to_geo(h3_hex)
+    except Exception as e:  # Catch specific exceptions if possible
+        lat, lon = np.nan, np.nan
+    return pd.Series((lat, lon))
+
+# Convert H3 index to its parent at a specified resolution, with error handling
+def h3toparent(x, res=6):
+    try:
+        x = h3.h3_to_parent(x, res)
+    except:
+        x = ''
+    return x
+
+def h3_to_geodataframe(h3_indexes):
+    '''
+    h3_indexes es una lista de h3 (no pasar en formato DataFrame)
+    '''
+    
+    # Convert H3 indexes to polygons
+    polygons = []
+    for index in h3_indexes:
+        boundary_lat_lng = h3.h3_to_geo_boundary(index)
+        # Swap lat-lon to lon-lat for each coordinate
+        boundary_lon_lat = [(lon, lat) for lat, lon in boundary_lat_lng]
+        polygons.append(Polygon(boundary_lon_lat))
+    
+    # Create GeoDataFrame
+    gdf = gpd.GeoDataFrame({
+        'geometry': polygons,
+        'h3_index': h3_indexes
+    }, crs=4326)
+    
+    return gdf
+    
+def point_to_h3(row, resolution):
+    # Extract the latitude and longitude from the point
+    x, y = row.geometry.x, row.geometry.y
+    return h3.geo_to_h3(y, x, resolution)  # Note: lat, lon order
+    
+# Calculate weighted mean, handling division by zero or empty inputs
+def weighted_mean(series, weights):
+    try:
+        result = (series * weights).sum() / weights.sum()
+    except ZeroDivisionError:
+        result = np.nan
+    return result
+
+
 
 def create_point_from_h3(h):
     return Point(h3.h3_to_geo(h)[::-1])

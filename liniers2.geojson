@@ -1,0 +1,14 @@
+{
+"type": "FeatureCollection",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "linea_deseo": 0, "transferencia": 1, "viajes": 203409.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.488525890608088, -34.61286828352479 ], [ -58.527913442574459, -34.639808084374351 ], [ -58.589762654510757, -34.678175862917314 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 1, "transferencia": 1, "viajes": 122308.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.480939136899856, -34.604701702374186 ], [ -58.514034974949254, -34.631138929315952 ], [ -58.561112546648033, -34.646250367457775 ], [ -58.652017804561027, -34.678474527170202 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 2, "transferencia": 0, "viajes": 35154.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.526514627156018, -34.641032715794609 ], [ -58.560409059233855, -34.66295904826768 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 3, "transferencia": 1, "viajes": 992.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.482653914078703, -34.622873754589115 ], [ -58.526100144979999, -34.640936928357036 ], [ -58.643108921402685, -34.653439864362923 ], [ -58.879668773641598, -34.742623034509023 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 4, "transferencia": 1, "viajes": 480.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.520797403525471, -34.631481420823619 ], [ -58.58280234649903, -34.648163357554893 ], [ -58.828184134544905, -34.770966709679676 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 5, "transferencia": 1, "viajes": 210.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.506138841394183, -34.645140569623585 ], [ -58.526514627156018, -34.641032715794601 ], [ -58.742125243096972, -34.990627159112591 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 6, "transferencia": 0, "viajes": 48.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.526514627156018, -34.641032715794609 ], [ -58.732931441532088, -34.95898502159946 ] ] } },
+{ "type": "Feature", "properties": { "linea_deseo": 7, "transferencia": 1, "viajes": 92.0, "id_polygon": "Liniers" }, "geometry": { "type": "LineString", "coordinates": [ [ -58.526514627156018, -34.641032715794609 ], [ -58.51468177107661, -34.602951845542457 ], [ -58.911335311659663, -34.468194564694066 ], [ -58.939878069954773, -34.433434702664464 ] ] } }
+]
+}

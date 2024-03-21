@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "id_polygon": "Once", "linea_deseo": 1, "transferencia": 0, "poly_od": 0, "poly_transfer": 1, "viajes": 76089.0 }, "geometry": { "type": "LineString", "coordinates": [ [ -58.396257717823737, -34.607355166284137 ], [ -58.569996741967088, -34.655121058912243 ] ] } },
+{ "type": "Feature", "properties": { "id_polygon": "Once", "linea_deseo": 2, "transferencia": 1, "poly_od": 0, "poly_transfer": 1, "viajes": 25135.0 }, "geometry": { "type": "LineString", "coordinates": [ [ -58.398448890712459, -34.609255048113972 ], [ -58.665626831812418, -34.669956876653814 ] ] } },
+{ "type": "Feature", "properties": { "id_polygon": "Once", "linea_deseo": 3, "transferencia": 1, "poly_od": 0, "poly_transfer": 1, "viajes": 24174.0 }, "geometry": { "type": "LineString", "coordinates": [ [ -58.397856602505513, -34.607265021454666 ], [ -58.646842550488728, -34.672998063797621 ] ] } },
+{ "type": "Feature", "properties": { "id_polygon": "Once", "linea_deseo": 6, "transferencia": 0, "poly_od": 1, "poly_transfer": 1, "viajes": 2038.0 }, "geometry": { "type": "LineString", "coordinates": [ [ -58.404630757823469, -34.608012998233832 ], [ -58.497244537299125, -34.63922588631771 ] ] } },
+{ "type": "Feature", "properties": { "id_polygon": "Once", "linea_deseo": 7, "transferencia": 1, "poly_od": 1, "poly_transfer": 1, "viajes": 996.0 }, "geometry": { "type": "LineString", "coordinates": [ [ -58.408013947154693, -34.609820700899959 ], [ -58.612564569994021, -34.681663174950721 ] ] } }
+]
+}
