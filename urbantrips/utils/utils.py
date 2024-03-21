@@ -400,7 +400,7 @@ def create_dash_tables():
         n_sections INT NOT NULL,
         hour_min int,
         hour_max int,
-        section_id INT NOT NULL,
+        section_id INT,
         Origen int ,
         Destino int ,
         legs int,
