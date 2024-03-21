@@ -393,6 +393,26 @@ def create_dash_tables():
 
     conn_dash.execute(
         """
+        CREATE TABLE IF NOT EXISTS matrices_linea
+        (id_linea INT NOT NULL,
+        yr_mo text,
+        day_type text not null,
+        n_sections INT NOT NULL,
+        hour_min int,
+        hour_max int,
+        section_id INT NOT NULL,
+        Origen int ,
+        Destino int ,
+        legs int,
+        prop float,
+        nombre_linea text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
             CREATE TABLE IF NOT EXISTS services_by_line_hour
                 (
                 id_linea int not null,
