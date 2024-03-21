@@ -334,7 +334,8 @@ def viz_etapas_x_tramo_recorrido(df,
         geometry=geom, crs='epsg:4326')
 
     # Arrows
-    flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = gdf.loc[gdf.section_id ==
+                               gdf.section_id.min(), 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
     flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
@@ -514,7 +515,7 @@ def viz_etapas_x_tramo_recorrido(df,
     flecha_ida_fin = flecha_ida[0]
 
     # For direction 1, get the first section of the route geom
-    flecha_vuelta = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_vuelta = gdf.loc[gdf.section_id == gdf.section_id.min(), 'geometry']
     flecha_vuelta = list(flecha_vuelta.item().coords)
     # invert the direction of the arrow
     flecha_vuelta_inicio = flecha_vuelta[0]
