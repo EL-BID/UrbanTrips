@@ -334,7 +334,8 @@ def viz_etapas_x_tramo_recorrido(df,
         geometry=geom, crs='epsg:4326')
 
     # Arrows
-    flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = gdf.loc[gdf.section_id ==
+                               gdf.section_id.min(), 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
     flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
@@ -351,11 +352,15 @@ def viz_etapas_x_tramo_recorrido(df,
 
     gdf_d0 = gdf\
         .merge(df_d0, on='section_id', how='left')\
-        .fillna(0)
+
+    gdf_d0.cantidad_etapas = gdf_d0.cantidad_etapas.fillna(0)
+    gdf_d0.prop_etapas = gdf_d0.prop_etapas.fillna(0)
 
     gdf_d1 = gdf\
         .merge(df_d1, on='section_id', how='left')\
-        .fillna(0)
+
+    gdf_d1.cantidad_etapas = gdf_d1.cantidad_etapas.fillna(0)
+    gdf_d1.prop_etapas = gdf_d1.prop_etapas.fillna(0)
 
     # save data for dashboard
     gdf_d0_dash = gdf_d0.to_crs(epsg=4326).copy()
@@ -514,7 +519,7 @@ def viz_etapas_x_tramo_recorrido(df,
     flecha_ida_fin = flecha_ida[0]
 
     # For direction 1, get the first section of the route geom
-    flecha_vuelta = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_vuelta = gdf.loc[gdf.section_id == gdf.section_id.min(), 'geometry']
     flecha_vuelta = list(flecha_vuelta.item().coords)
     # invert the direction of the arrow
     flecha_vuelta_inicio = flecha_vuelta[0]
@@ -613,6 +618,17 @@ def viz_etapas_x_tramo_recorrido(df,
             """,
             conn_dash,
         )
+        # filter when hour is na
+        if len(hr_str) == 0:
+            hour_filter = (
+                (gdf_d_dash_ant.hora_min.isna()) &
+                (gdf_d_dash_ant.hora_max.isna())
+            )
+        else:
+            hour_filter = (
+                (gdf_d_dash_ant.hora_min == from_hr) &
+                (gdf_d_dash_ant.hora_max == to_hr)
+            )
 
         gdf_d_dash_ant = gdf_d_dash_ant[~(
             (gdf_d_dash_ant.id_linea.isin(
@@ -621,10 +637,8 @@ def viz_etapas_x_tramo_recorrido(df,
                 gdf_d_dash.day_type.unique().tolist())) &
             (gdf_d_dash_ant.n_sections.isin(
                 gdf_d_dash.n_sections.unique().tolist())) &
-            ((gdf_d_dash_ant.hora_min == from_hr)
-             & (gdf_d_dash_ant.hora_max == to_hr)) & (
-                gdf_d_dash_ant.yr_mo == mes
-            )
+            hour_filter &
+            (gdf_d_dash_ant.yr_mo == mes)
         )]
 
         gdf_d_dash = pd.concat(

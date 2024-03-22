@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 import weightedstats as ws
 from math import floor
-import re
 import h3
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
-    leer_configs_generales
+    leer_configs_generales,
+    is_date_string
 )
 
 # KPI WRAPPER
@@ -251,14 +251,6 @@ def compute_route_section_load(
         print("Cantidad de lineas:", len(id_linea))
         print("Cantidad de recorridos", len(recorridos))
         print("Cantidad de etapas", len(etapas))
-
-
-def is_date_string(input_str):
-    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    if pattern.match(input_str):
-        return True
-    else:
-        return False
 
 
 def delete_old_route_section_load_data_q(
@@ -512,7 +504,7 @@ def create_route_section_ids(n_sections):
 
 def build_leg_route_sections_df(row, section_ids):
     """
-    Computes for a leg a table with all sections id trversed by
+    Computes for a leg a table with all sections id traversed by
     that leg based on the origin and destionation's section id 
 
     Parameters
@@ -1763,3 +1755,95 @@ def compute_dispatched_services_by_line_hour_typeday():
         print("Correr la funcion kpi.compute_services_by_line_hour_day()")
 
     return type_of_day_stats
+
+
+def upload_route_section_points_table(route_geoms):
+    """
+    Uploads a table with route section points from a route geom row 
+    and returns a table with line_id, number of sections and the 
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoDataFrame
+        routes geom GeoDataFrame with geometry, n_sections and line id
+
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # delete old records
+    delete_old_routes_section_id_coords_data_q(route_geoms)
+
+    print("Creando tabla de secciones de recorrido")
+    route_section_points = pd.concat(
+        [create_route_section_points(row) for _, row in route_geoms.iterrows()])
+
+    route_section_points.to_sql(
+        "routes_section_id_coords", conn_insumos, if_exists="append",
+        index=False,)
+    print("Fin creacion de tabla de secciones de recorrido")
+    conn_insumos.close()
+
+
+def create_route_section_points(row):
+    """
+    Creates a table with route section points from a route geom row 
+    and returns a table with line_id, number of sections and the 
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoSeries
+        Row from route geom GeoDataFrame 
+        with geometry, n_sections and line id
+
+    Returns
+    ----------
+    pandas.DataFrame
+        dataFrame with line id, number of sections and the 
+        latlong for each section id
+    """
+
+    n_sections = row.n_sections
+    route_geom = row.geometry
+    line_id = row.id_linea
+    sections_lrs = create_route_section_ids(n_sections)
+    sections_id = list(range(1, len(sections_lrs))) + [-1]
+    points = route_geom.interpolate(sections_lrs, normalized=True)
+    route_section_points = pd.DataFrame(
+        {
+            'id_linea': [line_id] * len(sections_id),
+            'n_sections': [n_sections] * len(sections_id),
+            'section_id': sections_id,
+            'section_lrs': sections_lrs,
+            'x': points.map(lambda p: p.x),
+            'y': points.map(lambda p: p.y)
+
+        }
+    )
+    return route_section_points
+
+
+def delete_old_routes_section_id_coords_data_q(route_geoms):
+    """
+    Deletes old data in table routes_section_id_coords
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=['id_linea', 'n_sections'])
+    for _, row in delete_df.iterrows():
+        # Delete old data for those parameters
+
+        q_delete = f"""
+            delete from routes_section_id_coords
+            where id_linea = {row.id_linea} 
+            and n_sections = {row.n_sections}
+            """
+
+        cur = conn_insumos.cursor()
+        cur.execute(q_delete)
+        conn_insumos.commit()
+
+    conn_insumos.close()
+    print("Fin borrado datos previos")

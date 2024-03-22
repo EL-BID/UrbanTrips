@@ -71,7 +71,7 @@ def get_stop_hex_ring(h, ring_size):
 
 def h3togeo(x):
     try:
-        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])            
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
     except (TypeError, ValueError):
         result = ''
     return result
@@ -148,16 +148,17 @@ def bring_latlon(x, latlon='lat'):
         posi = 1
     try:
         result = float(x.split(',')[posi])
-    except (AttributeError, IndexError): 
+    except (AttributeError, IndexError):
         result = 0
     return result
+
 
 def normalizo_lat_lon(df,
                       h3_o='h3_o',
                       h3_d='h3_d',
                       origen='',
                       destino=''):
-    
+
     if len(origen) == 0:
         origen = h3_o
     if len(destino) == 0:
@@ -166,8 +167,8 @@ def normalizo_lat_lon(df,
     df["origin"] = df[h3_o].apply(h3togeo)
     df['lon_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lon')
     df['lat_o_tmp'] = df["origin"].apply(bring_latlon, latlon='lat')
-       
-    df["destination"] = df[h3_d].apply(h3togeo)        
+
+    df["destination"] = df[h3_d].apply(h3togeo)
     df['lon_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lon')
     df['lat_d_tmp'] = df["destination"].apply(bring_latlon, latlon='lat')
 
@@ -359,3 +360,27 @@ def distancia_h3(row, *args, **kwargs):
     except ValueError as e:
         out = None
     return out
+
+
+def create_sections_geoms(sections_df, buffer_meters=False):
+    """
+    This function takes a sections dataframe with points
+    and a buffer parameters in meters
+    produced by kpi.create_route_section_points()
+    and returns a geodataframe with section geoms
+    """
+    geom = [LineString(
+        [[sections_df.loc[i, 'x'], sections_df.loc[i, 'y']],
+         [sections_df.loc[i+1, 'x'], sections_df.loc[i+1, 'y']]]
+    ) for i in sections_df.index[:-1]]
+
+    gdf = gpd.GeoDataFrame(sections_df.iloc[:-1, :],
+                           geometry=geom, crs='epsg:4326')
+    if buffer_meters:
+        epsg_m = get_epsg_m()
+
+        gdf = gdf.to_crs(epsg=epsg_m)
+
+        gdf.geometry = gdf.geometry.buffer(buffer_meters)
+
+    return gdf
