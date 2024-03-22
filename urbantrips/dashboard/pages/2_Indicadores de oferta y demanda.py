@@ -515,9 +515,12 @@ with st.expander('Cargas por tramos'):
     lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
     nl2 = traigo_nombre_lineas(lineas[['id_linea', 'nombre_linea']])
 
-    lineas['rango'] = 'de ' + \
-        lineas['hora_min'].astype(str)+' a ' + \
-        lineas['hora_max'].astype(str) + ' hs'
+    lineas.loc[lineas['hora_min'].notna(), 'rango'] = 'de ' + \
+        lineas.loc[lineas['hora_min'].notna(), 'hora_min'].astype(int).astype(str) + ' a ' + \
+        lineas.loc[lineas['hora_max'].notna(), 'hora_max'].astype(
+            int).astype(str) + ' hrs'
+
+    lineas.loc[lineas['hora_min'].isna(), 'rango'] = "Todo el dia"
 
     if len(lineas) > 0:
         if len(nl2) > 0:
@@ -558,9 +561,12 @@ with st.expander('Matriz OD por linea'):
     matriz = levanto_tabla_sql('matrices_linea')
     nl3 = traigo_nombre_lineas(matriz[['id_linea', 'nombre_linea']])
 
-    matriz['rango'] = 'de ' + \
-        matriz['hour_min'].astype(str)+' a ' + \
-        matriz['hour_max'].astype(str) + ' hs'
+    matriz.loc[matriz['hour_min'].notna(), 'rango'] = 'de ' + \
+        matriz.loc[matriz['hour_min'].notna(), 'hour_min'].astype(int).astype(str) + ' a ' + \
+        matriz.loc[matriz['hour_max'].notna(), 'hour_max'].astype(
+            int).astype(str) + ' hrs'
+
+    matriz.loc[matriz['hour_min'].isna(), 'rango'] = "Todo el dia"
 
     if len(matriz) > 0:
         if len(nl3) > 0:
@@ -577,22 +583,28 @@ with st.expander('Matriz OD por linea'):
         else:
             values = 'legs'
 
+        matriz = matriz[matriz.nombre_linea == nombre_linea_]
+
         desc_dia_ = col1.selectbox(
             'Periodo ', options=matriz.yr_mo.unique())
+
+        matriz = matriz[matriz.yr_mo == desc_dia_]
+
         tipo_dia_ = col1.selectbox(
             'Tipo de dia ', options=matriz.day_type.unique(), key='day_type_line_matrix')
+
+        matriz = matriz[matriz.day_type == tipo_dia_]
+
         secciones_ = col1.selectbox(
             'Cantidad de secciones', options=matriz.n_sections.unique())
+
+        matriz = matriz[matriz.n_sections == secciones_]
+
         rango_ = col1.selectbox(
             'Rango horario ', options=matriz.rango.unique())
 
-        matriz = matriz[(
-            (matriz.nombre_linea == nombre_linea_) &
-            (matriz.yr_mo == desc_dia_) &
-            (matriz.day_type == tipo_dia_) &
-            (matriz.n_sections == secciones_) &
-            (matriz.rango == rango_)
-        )].copy()
+        matriz = matriz[matriz.rango == rango_]
+
         od_heatmap = matriz.pivot_table(values=values,
                                         index='Origen',
                                         columns='Destino')
@@ -672,9 +684,12 @@ with st.expander('Líneas de deseo por linea'):
                                has_linestring=True)
     nl4 = traigo_nombre_lineas(matriz[['id_linea', 'nombre_linea']])
 
-    matriz['rango'] = 'de ' + \
-        matriz['hour_min'].astype(str)+' a ' + \
-        matriz['hour_max'].astype(str) + ' hs'
+    matriz.loc[matriz['hour_min'].notna(), 'rango'] = 'de ' + \
+        matriz.loc[matriz['hour_min'].notna(), 'hour_min'].astype(int).astype(str) + ' a ' + \
+        matriz.loc[matriz['hour_max'].notna(), 'hour_max'].astype(
+            int).astype(str) + ' hrs'
+
+    matriz.loc[matriz['hour_min'].isna(), 'rango'] = "Todo el dia"
 
     if len(matriz) > 0:
         if len(nl4) > 0:
@@ -687,25 +702,31 @@ with st.expander('Líneas de deseo por linea'):
             id_linea = col1.selectbox(
                 'Línea ', options=matriz.id_linea.unique())
 
+        matriz = matriz[matriz.nombre_linea == nombre_linea_]
+
         desc_dia_ = col1.selectbox(
             'Periodo ', options=matriz.yr_mo.unique(), key='desc_deseo')
+
+        matriz = matriz[matriz.yr_mo == desc_dia_]
+
         tipo_dia_ = col1.selectbox(
             'Tipo de dia ', options=matriz.day_type.unique(), key='day_type_line_matrix2')
+
+        matriz = matriz[matriz.day_type == tipo_dia_]
+
         secciones_ = col1.selectbox(
             'Cantidad de secciones', options=matriz.n_sections.unique(), key='secc_deseo')
+
+        matriz = matriz[matriz.n_sections == secciones_]
+
         rango_ = col1.selectbox(
             'Rango horario ', options=matriz.rango.unique(), key='reango_deseo')
 
-        matriz = matriz[(
-            (matriz.nombre_linea == nombre_linea_) &
-            (matriz.yr_mo == desc_dia_) &
-            (matriz.day_type == tipo_dia_) &
-            (matriz.n_sections == secciones_) &
-            (matriz.rango == rango_)
-        )].copy()
+        matriz = matriz[matriz.rango == rango_]
 
         with col2:
-            k_jenks = st.slider('Cantidad de grupos', 1, 5)
+            k_jenks = st.slider('Cantidad de grupos', min_value=1,
+                                max_value=5, value=5)
             st.text(f"Hay un total de {matriz.legs.sum()} etapas")
             map = crear_mapa_folium(matriz,
                                     cmap='BuPu',
