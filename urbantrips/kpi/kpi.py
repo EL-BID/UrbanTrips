@@ -1847,3 +1847,72 @@ def delete_old_routes_section_id_coords_data_q(route_geoms):
 
     conn_insumos.close()
     print("Fin borrado datos previos")
+
+
+def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
+    """
+    Reads legs data by line id, hour range and type of day
+
+    Parameters
+    ----------
+    line_ids_where : str
+        where clause in a sql query with line ids .
+    hour_range : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24. Route section
+        load will be computed for legs happening within tat time range.
+        If False it won't filter by hour.
+    day_type: str
+        type of day on which the section load is to be computed. It can take
+        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
+
+    Returns
+    -------
+    legs : pandas.DataFrame
+        dataframe with legs data by line id, hour range and type of day
+
+    """
+
+    # Read legs data by line id, hours, day type
+    #
+    q_main_legs = """
+    select id_linea, dia, factor_expansion_linea,h3_o,h3_d, od_validado
+    from etapas
+    """
+    q_main_legs = q_main_legs + line_ids_where
+
+    if hour_range:
+        hour_range_where = (
+            f" and hora >= {hour_range[0]} and hora <= {hour_range[1]}"
+        )
+        q_main_legs = q_main_legs + hour_range_where
+
+    day_type_is_a_date = is_date_string(day_type)
+
+    if day_type_is_a_date:
+        q_main_legs = q_main_legs + f" and dia = '{day_type}'"
+
+    q_legs = f"""
+        select id_linea, dia, factor_expansion_linea,h3_o,h3_d
+        from ({q_main_legs}) e
+        where e.od_validado==1
+    """
+    print("Obteniendo datos de etapas")
+
+    # get data for legs and route geoms
+    conn_data = iniciar_conexion_db(tipo="data")
+    legs = pd.read_sql(q_legs, conn_data)
+    conn_data.close()
+
+    legs['yr_mo'] = legs.dia.str[:7]
+
+    if not day_type_is_a_date:
+        # create a weekday_filter
+        weekday_filter = pd.to_datetime(
+            legs.dia, format="%Y-%m-%d").dt.dayofweek < 5
+
+        if day_type == "weekday":
+            legs = legs.loc[weekday_filter, :]
+        else:
+            legs = legs.loc[~weekday_filter, :]
+
+    return legs
