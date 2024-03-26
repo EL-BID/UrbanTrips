@@ -1,17 +1,19 @@
 import itertools
-import geopandas as gpd
 import warnings
+from math import floor
+import geopandas as gpd
 import pandas as pd
 import numpy as np
 import weightedstats as ws
-from math import floor
 import h3
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    is_date_string
+    is_date_string,
+    check_date_type,
+    create_line_ids_sql_filter
 )
 
 # KPI WRAPPER
@@ -79,19 +81,14 @@ def compute_kpi():
 # SECTION LOAD KPI
 
 @duracion
-def compute_route_section_load(
-    id_linea=False,
-    rango_hrs=False,
-    n_sections=10,
-    section_meters=None,
-    day_type="weekday",
-):
+def compute_route_section_load(line_ids=False, hour_range=False,
+                               n_sections=10, section_meters=None, day_type="weekday"):
     """
     Computes the load per route section.
 
     Parameters
     ----------
-    id_linea : int, list of ints or bool
+    line_ids : int, list of ints or bool
         route id or list of route ids present in the legs dataset. Route
         section load will be computed for that subset of lines. If False, it
         will run with all routes.
@@ -107,19 +104,11 @@ def compute_route_section_load(
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
-
     """
 
-    dat_type_is_a_date = is_date_string(day_type)
+    check_date_type(day_type)
 
-    # check day type format
-    day_type_format_ok = (
-        day_type in ["weekday", "weekend"]) or dat_type_is_a_date
-
-    if not day_type_format_ok:
-        raise Exception(
-            "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
-        )
+    line_ids_where = create_line_ids_sql_filter(line_ids)
 
     if n_sections is not None:
         if n_sections > 1000:
@@ -129,92 +118,73 @@ def compute_route_section_load(
     conn_data = iniciar_conexion_db(tipo="data")
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
-    # delete old data
-    q_delete = delete_old_route_section_load_data_q(
-        id_linea, rango_hrs, n_sections, section_meters, day_type
+    # read legs data
+    legs = read_legs_data_by_line_hours_and_day(
+        line_ids_where, hour_range, day_type)
+
+    # read routes geoms
+    q_route_geoms = "select * from lines_geoms"
+    q_route_geoms = q_route_geoms + line_ids_where
+    print(q_route_geoms)
+    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
+    route_geoms = gpd.GeoDataFrame(
+        route_geoms, geometry="geometry", crs="EPSG:4326"
     )
 
-    cur = conn_data.cursor()
-    cur.execute(q_delete)
-    conn_data.commit()
+    # Set which parameter to use to split route geoms into sections
 
-    # Read data from legs and route geoms
-    q_rec = f"select * from lines_geoms"
-    q_main_etapas = f"select * from etapas"
+    epsg_m = geo.get_epsg_m()
 
-    # If line and hour, get that subset
-    if id_linea:
-        if type(id_linea) == int:
-            id_linea = [id_linea]
+    # project geoms and get for each geom both n_sections and meter
+    route_geoms = route_geoms.to_crs(epsg=epsg_m)
 
-        lineas_str = ",".join(map(str, id_linea))
-
-        id_linea_where = f" where id_linea in ({lineas_str})"
-        q_rec = q_rec + id_linea_where
-        q_main_etapas = q_main_etapas + id_linea_where
-
-    if rango_hrs:
-        rango_hrs_where = (
-            f" and hora >= {rango_hrs[0]} and hora <= {rango_hrs[1]}"
-        )
-        q_main_etapas = q_main_etapas + rango_hrs_where
-
-    if dat_type_is_a_date:
-        q_main_etapas = q_main_etapas + f" and dia = '{day_type}'"
-
-    q_etapas = f"""
-        select e.*
-        from ({q_main_etapas}) e
-        where e.od_validado==1
-    """
-
-    print("Obteniendo datos de etapas y rutas")
-
-    # get data for legs and route geoms
-    etapas = pd.read_sql(q_etapas, conn_data)
-    etapas['yr_mo'] = etapas.dia.str[:7]
-
-    if not dat_type_is_a_date:
-        # create a weekday_filter
-        weekday_filter = pd.to_datetime(
-            etapas.dia, format="%Y-%m-%d").dt.dayofweek < 5
-
-        if day_type == "weekday":
-            etapas = etapas.loc[weekday_filter, :]
-        else:
-            etapas = etapas.loc[~weekday_filter, :]
-
-    recorridos = pd.read_sql(q_rec, conn_insumos)
-    recorridos["geometry"] = gpd.GeoSeries.from_wkt(recorridos.wkt)
-
-    # Set which parameter to use to slit route geoms
     if section_meters:
-        epsg_m = geo.get_epsg_m()
-        # project geoms and get for each geom a n_section
-        recorridos = gpd.GeoDataFrame(
-            recorridos, geometry="geometry", crs="EPSG:4326"
-        ).to_crs(epsg=epsg_m)
-        recorridos["n_sections"] = (
-            recorridos.geometry.length / section_meters).astype(int)
+        # warning if meters params give to many sections
+        # get how many sections given the meters
+        n_sections = (route_geoms.geometry.length / section_meters).astype(int)
 
-        if (recorridos.n_sections > 1000).any():
-            warnings.warn(
-                "Algunos recorridos tienen mas de 1000 segmentos"
-                "Puede arrojar resultados imprecisos "
-            )
-
-        recorridos = recorridos.to_crs(epsg=4326)
     else:
-        recorridos["n_sections"] = n_sections
+        section_meters = (route_geoms.geometry.length / n_sections).astype(int)
+
+    if n_sections > 1000:
+        warnings.warn(
+            "Algunos recorridos tienen mas de 1000 segmentos"
+            "Puede arrojar resultados imprecisos ")
+
+    route_geoms = route_geoms.to_crs(epsg=4326)
+
+    # set the section length in meters
+    route_geoms["section_meters"] = section_meters
+
+    # set the number of sections
+    route_geoms["n_sections"] = n_sections
+
+    # check which section geoms are already crated
+    new_route_geoms = check_exists_route_section_points_table(route_geoms)
+
+    # create the line and n sections pair missing and upload it to the db
+    if len(new_route_geoms) > 0:
+
+        upload_route_section_points_table(
+            new_route_geoms, delete_old_data=False)
+
+    # delete old seciton load data
+    yr_mos = legs.yr_mo.unique()
+    delete_old_route_section_load_data(
+        route_geoms, hour_range, day_type, yr_mos, db_type='data'
+    )
+
+    # compute section load
 
     print("Computing section load per route ...")
 
-    if (len(recorridos) > 0) and (len(etapas) > 0):
+    if (len(route_geoms) > 0) and (len(legs) > 0):
 
-        section_load_table = etapas.groupby(["id_linea", "yr_mo"]).apply(
+        section_load_table = legs.groupby(["id_linea", "yr_mo"]).apply(
             compute_section_load_table,
-            recorridos=recorridos,
-            rango_hrs=rango_hrs,
+            route_geoms=route_geoms,
+            hour_range=hour_range,
             day_type=day_type
         )
 
@@ -222,8 +192,7 @@ def compute_route_section_load(
             2, axis=0).reset_index()
 
         # Add section meters to table
-        section_load_table["section_meters"] = section_meters
-
+        section_load_table["legs"] = section_load_table["legs"].map(int)
         section_load_table = section_load_table.reindex(
             columns=[
                 "id_linea",
@@ -233,12 +202,10 @@ def compute_route_section_load(
                 "section_meters",
                 "sentido",
                 "section_id",
-                "x",
-                "y",
-                "hora_min",
-                "hora_max",
-                "cantidad_etapas",
-                "prop_etapas",
+                "hour_min",
+                "hour_max",
+                "legs",
+                "prop",
             ]
         )
 
@@ -246,51 +213,85 @@ def compute_route_section_load(
         section_load_table.to_sql(
             "ocupacion_por_linea_tramo", conn_data, if_exists="append",
             index=False,)
+
+        return section_load_table
     else:
         print('No existen recorridos o etapas para las líneas')
-        print("Cantidad de lineas:", len(id_linea))
-        print("Cantidad de recorridos", len(recorridos))
-        print("Cantidad de etapas", len(etapas))
+        print("Cantidad de lineas:", len(line_ids))
+        print("Cantidad de recorridos", len(route_geoms))
+        print("Cantidad de etapas", len(legs))
 
 
-def delete_old_route_section_load_data_q(
-    id_linea, rango_hrs, n_sections, section_meters, day_type
+def check_exists_route_section_points_table(route_geoms):
+    """
+    This function checks is the route section points table exists
+    for those lines and n_sections in the route geoms gdf
+    """
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    q = """
+    select distinct id_linea,n_sections, 1 as section_exists from routes_section_id_coords
+    """
+    route_sections = pd.read_sql(q, conn_insumos)
+    conn_insumos.close()
+
+    new_route_geoms = route_geoms\
+        .merge(route_sections, on=['id_linea', 'n_sections'], how='left')
+    new_route_geoms = new_route_geoms\
+        .loc[new_route_geoms.section_exists.isna(), ['id_linea', 'n_sections', 'geometry']]
+
+    return new_route_geoms
+
+
+def delete_old_route_section_load_data(
+    route_geoms, hour_range, day_type, yr_mos, db_type='data'
 ):
+    """
+    Deletes old data in table ocupacion_por_linea_tramo
+    """
+    table_name = 'ocupacion_por_linea_tramo'
+
+    if db_type == 'data':
+        conn = iniciar_conexion_db(tipo="data")
+    else:
+        conn = iniciar_conexion_db(tipo="dash")
 
     # hour range filter
-    if rango_hrs:
-        hora_min_filter = f"= {rango_hrs[0]}"
-        hora_max_filter = f"= {rango_hrs[1]}"
+    if hour_range:
+        hora_min_filter = f"= {hour_range[0]}"
+        hora_max_filter = f"= {hour_range[1]}"
     else:
         hora_min_filter = "is NULL"
         hora_max_filter = "is NULL"
 
-    q_delete = f"""
-        delete from ocupacion_por_linea_tramo
-        where hora_min {hora_min_filter}
-        and hora_max {hora_max_filter}
-        and day_type = '{day_type}'
-        """
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=['id_linea', 'n_sections'])
+    for yr_mo in yr_mos:
+        for _, row in delete_df.iterrows():
+            # Delete old data for those parameters
+            print("Borrando datos antiguos de ocupacion_por_linea_tramo")
+            print(row.id_linea)
+            print(f"{row.n_sections} secciones")
+            print(yr_mo)
+            if hour_range:
+                print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
 
-    # route id filter
-    if id_linea:
+            q_delete = f"""
+                delete from {table_name}
+                where id_linea = {row.id_linea} 
+                and hour_min {hora_min_filter}
+                and hour_max {hora_max_filter}
+                and day_type = '{day_type}'
+                and n_sections = {row.n_sections}
+                and yr_mo = '{yr_mo}';
+                """
 
-        if type(id_linea) == int:
-            id_linea = [id_linea]
+            cur = conn.cursor()
+            cur.execute(q_delete)
+            conn.commit()
 
-        lineas_str = ",".join(map(str, id_linea))
-
-        q_delete = q_delete + f" and id_linea in ({lineas_str})"
-
-    if section_meters:
-        q_delete = q_delete + f" and  section_meters = {section_meters}"
-    else:
-        q_delete = (
-            q_delete +
-            f" and n_sections = {n_sections} and section_meters is NULL"
-        )
-    q_delete = q_delete + ";"
-    return q_delete
+    conn.close()
+    print("Fin borrado datos previos")
 
 
 def add_od_lrs_to_legs_from_route(legs_df, route_geom):
@@ -326,39 +327,39 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
     return legs_df
 
 
-def compute_section_load_table(
-        df, recorridos, rango_hrs, day_type, *args, **kwargs):
+def compute_section_load_table(legs, route_geoms, hour_range, day_type):
     """
     Computes for a route a table with the load per section
 
     Parameters
     ----------
-    df : pandas.DataFrame
+    legs : pandas.DataFrame
         table of legs in a route
-    recorridos : geopandas.GeoDataFrame
+    route_geoms : geopandas.GeoDataFrame
         routes geoms
-    rango_hrs : tuple
+    hour_range : tuple
         tuple holding hourly range (from,to).
 
     Returns
     ----------
-    legs_by_sections_full : pandas.DataFrame
+    pandas.DataFrame
         table of section load stats per route id, hour range
         and day type
 
     """
 
-    id_linea = df.id_linea.unique()[0]
-    n_sections = recorridos.n_sections.unique()[0]
+    line_id = legs.id_linea.unique()[0]
+    print(f"Calculando carga por tramo para linea id {line_id}")
 
-    print(f"Computing section load id_route {id_linea}")
+    if (route_geoms.id_linea == line_id).any():
+        route = route_geoms.loc[route_geoms.id_linea ==
+                                line_id, :]
 
-    if (recorridos.id_linea == id_linea).any():
+        route_geom = route.geometry.item()
+        n_sections = route.n_sections.item()
+        section_meters = route.section_meters.item()
 
-        route_geom = recorridos.loc[recorridos.id_linea ==
-                                    id_linea, "geometry"].item()
-
-        df = add_od_lrs_to_legs_from_route(legs_df=df, route_geom=route_geom)
+        df = add_od_lrs_to_legs_from_route(legs_df=legs, route_geom=route_geom)
 
         # Assign a direction based on line progression
         df = df.reindex(
@@ -380,13 +381,22 @@ def compute_section_load_table(
             .agg(cant_etapas_sentido=("cant_etapas_sentido", "mean"))
 
         # compute section ids based on amount of sections
-        section_ids = create_route_section_ids(n_sections)
+        section_ids_LRS = create_route_section_ids(n_sections)
+        # remove 0 form cuts so 0 gets included in bin
+        section_ids_LRS_cut = section_ids_LRS.copy()
+        section_ids_LRS_cut.loc[0] = -0.001
 
         # For each leg, build traversed route segments ids
+        section_ids = list(range(1, len(section_ids_LRS_cut)))
+
+        df['o_proj'] = pd.cut(df.o_proj, bins=section_ids_LRS_cut,
+                              labels=section_ids, right=True)
+        df['d_proj'] = pd.cut(df.d_proj, bins=section_ids_LRS_cut,
+                              labels=section_ids, right=True)
+
         legs_dict = df.to_dict("records")
         leg_route_sections_df = pd.concat(
-            map(build_leg_route_sections_df, legs_dict,
-                itertools.repeat(section_ids))
+            map(build_leg_route_sections_df, legs_dict)
         )
 
         # compute total legs by section and direction
@@ -413,18 +423,18 @@ def compute_section_load_table(
             legs_by_sections_full = section_direction_full_set.merge(
                 legs_by_sections, how="left", on=["sentido", "section_id"]
             )
-            legs_by_sections_full["cantidad_etapas"] = (
+            legs_by_sections_full["legs"] = (
                 legs_by_sections_full.size_y.combine_first(
                     legs_by_sections_full.size_x)
             )
 
             legs_by_sections_full = legs_by_sections_full.reindex(
-                columns=["sentido", "section_id", "cantidad_etapas"]
+                columns=["sentido", "section_id", "legs"]
             )
 
         else:
             legs_by_sections_full = legs_by_sections.rename(
-                columns={"size": "cantidad_etapas"}
+                columns={"size": "legs"}
             )
 
         # sum totals per direction and compute prop_etapas
@@ -432,67 +442,49 @@ def compute_section_load_table(
             totals_by_direction, how="left", on="sentido"
         )
 
-        legs_by_sections_full["prop_etapas"] = (
-            legs_by_sections_full["cantidad_etapas"]
+        legs_by_sections_full["prop"] = (
+            legs_by_sections_full["legs"]
             / legs_by_sections_full.cant_etapas_sentido
         )
 
-        legs_by_sections_full.prop_etapas = (
-            legs_by_sections_full.prop_etapas.fillna(0)
+        legs_by_sections_full['prop'] = (
+            legs_by_sections_full['prop'].fillna(0)
         )
 
-        legs_by_sections_full = legs_by_sections_full.drop(
-            "cant_etapas_sentido", axis=1
-        )
-        legs_by_sections_full["id_linea"] = id_linea
+        legs_by_sections_full["id_linea"] = line_id
 
         # Add hourly range
-        if rango_hrs:
-            legs_by_sections_full["hora_min"] = rango_hrs[0]
-            legs_by_sections_full["hora_max"] = rango_hrs[1]
+        if hour_range:
+            legs_by_sections_full["hour_min"] = hour_range[0]
+            legs_by_sections_full["hour_max"] = hour_range[1]
         else:
-            legs_by_sections_full["hora_min"] = None
-            legs_by_sections_full["hora_max"] = None
+            legs_by_sections_full["hour_min"] = None
+            legs_by_sections_full["hour_max"] = None
 
         # Add data for type of day and n sections
 
         legs_by_sections_full["day_type"] = day_type
         legs_by_sections_full["n_sections"] = n_sections
+        legs_by_sections_full["section_meters"] = section_meters
 
-        # Add section geom reference
-        geom = [route_geom.interpolate(section_id, normalized=True)
-                for section_id in section_ids]
-        x = [g.x for g in geom]
-        y = [g.y for g in geom]
-        section_ids_coords = pd.DataFrame({
-            'section_id': section_ids,
-            'x': x,
-            'y': y
-        })
-        legs_by_sections_full = legs_by_sections_full.merge(
-            section_ids_coords,
-            on='section_id',
-            how='left'
-        )
         # Set db schema
         legs_by_sections_full = legs_by_sections_full.reindex(
             columns=[
                 "day_type",
                 "n_sections",
+                "section_meters",
                 "sentido",
                 "section_id",
-                "x",
-                "y",
-                "hora_min",
-                "hora_max",
-                "cantidad_etapas",
-                "prop_etapas",
+                "hour_min",
+                "hour_max",
+                "legs",
+                "prop",
             ]
         )
 
         return legs_by_sections_full
     else:
-        print("No existe recorrido para id_linea:", id_linea)
+        print("No existe recorrido para id_linea:", line_id)
 
 
 def create_route_section_ids(n_sections):
@@ -505,7 +497,7 @@ def create_route_section_ids(n_sections):
     return section_ids
 
 
-def build_leg_route_sections_df(row, section_ids):
+def build_leg_route_sections_df(row):
     """
     Computes for a leg a table with all sections id traversed by
     that leg based on the origin and destionation's section id 
@@ -514,8 +506,6 @@ def build_leg_route_sections_df(row, section_ids):
     ----------
     row : dict
         row in a legs df with origin, destination and direction
-    section_ids : list
-        list of sections ids into which classify legs trajectory
 
     Returns
     ----------
@@ -531,28 +521,13 @@ def build_leg_route_sections_df(row, section_ids):
 
     # always build it in increasing order
     if sentido == "ida":
-        point_o = row["o_proj"]
-        point_d = row["d_proj"]
+        o_id = row["o_proj"]
+        d_id = row["d_proj"]
     else:
-        point_o = row["d_proj"]
-        point_d = row["o_proj"]
+        o_id = row["d_proj"]
+        d_id = row["o_proj"]
 
-    # when d_proj is 1, sections id exclude 1
-    if point_d == 1:
-        point_d = 0.999
-
-    # get the closest section id to origin
-    o_id = section_ids - point_o
-    o_id = o_id[o_id <= 0]
-    o_id = o_id.idxmax()
-
-    # get the closest section id to destination
-    d_id = section_ids - point_d
-    d_id = d_id[d_id >= 0]
-    d_id = d_id.idxmin()
-
-    # build a df with all traversed section ids
-    leg_route_sections = section_ids[o_id: d_id + 1]
+    leg_route_sections = list(range(o_id, d_id + 1))
     leg_route_sections_df = pd.DataFrame(
         {
             "dia": [dia] * len(leg_route_sections),
