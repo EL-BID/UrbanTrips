@@ -499,6 +499,9 @@ def create_route_section_ids(n_sections):
     step = 1 / n_sections
     sections = np.arange(0, 1 + step, step)
     section_ids = pd.Series(map(floor_rounding, sections))
+    # n sections like 6 returns steps with max setion > 1
+    section_ids = section_ids[section_ids <= 1]
+
     return section_ids
 
 
@@ -1757,7 +1760,7 @@ def compute_dispatched_services_by_line_hour_typeday():
     return type_of_day_stats
 
 
-def upload_route_section_points_table(route_geoms):
+def upload_route_section_points_table(route_geoms, delete_old_data=False):
     """
     Uploads a table with route section points from a route geom row 
     and returns a table with line_id, number of sections and the 
@@ -1772,7 +1775,8 @@ def upload_route_section_points_table(route_geoms):
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # delete old records
-    delete_old_routes_section_id_coords_data_q(route_geoms)
+    if delete_old_data:
+        delete_old_routes_section_id_coords_data_q(route_geoms)
 
     print("Creando tabla de secciones de recorrido")
     route_section_points = pd.concat(
