@@ -101,7 +101,7 @@ def compute_lines_od_matrix(
 
     # delete old data
     yr_mos = legs.yr_mo.unique()
-    delete_old_lines_od_matrix_by_section_data_q(
+    delete_old_lines_od_matrix_by_section_data(
         route_geoms, hour_range, day_type, yr_mos)
 
     print("Calculando matriz od de lineas ...")
@@ -148,7 +148,7 @@ def compute_lines_od_matrix(
         print("Cantidad de etapas", len(legs))
 
 
-def delete_old_lines_od_matrix_by_section_data_q(
+def delete_old_lines_od_matrix_by_section_data(
     route_geoms, hour_range, day_type, yr_mos, db_type='data'
 ):
     """

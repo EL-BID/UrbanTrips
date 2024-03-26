@@ -19,7 +19,7 @@ from urbantrips.viz.viz import (
 )
 
 
-from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data_q
+from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data
 
 from urbantrips.utils.utils import (
     iniciar_conexion_db,
@@ -226,7 +226,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
         .reindex(columns=['id_linea', 'n_sections'])\
         .drop_duplicates()
 
-    delete_old_lines_od_matrix_by_section_data_q(
+    delete_old_lines_od_matrix_by_section_data(
         delete_df, hour_range=hour_range,
         day_type=day, yr_mos=[mes],
         db_type='dash')
