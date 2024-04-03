@@ -46,7 +46,7 @@ def main():
     for rango in [[7, 10], [17, 19]]:
         # crate rout section load
         kpi.compute_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango)
+            line_ids=top_line_ids, hour_range=rango)
         viz.visualize_route_section_load(
             line_ids=top_line_ids, hour_range=rango,
             save_gdf=True, stat='proportion', factor=500,
