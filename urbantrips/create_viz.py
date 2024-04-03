@@ -48,8 +48,8 @@ def main():
         kpi.compute_route_section_load(
             id_linea=top_line_ids, rango_hrs=rango)
         viz.visualize_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango,
-            save_gdf=True, indicador='prop_etapas', factor=500,
+            line_ids=top_line_ids, hour_range=rango,
+            save_gdf=True, stat='proportion', factor=500,
             factor_min=50, )
 
         compute_lines_od_matrix(
