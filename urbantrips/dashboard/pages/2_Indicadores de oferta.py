@@ -25,150 +25,7 @@ from urbantrips.viz.viz import (
     create_squared_polygon)
 from urbantrips.geo import geo
 
-
-def create_linestring(df,
-                      lat_o='lat_o',
-                      lon_o='lon_o',
-                      lat_d='lat_d',
-                      lon_d='lon_d'):
-
-    # Create LineString objects from the coordinates
-    geometry = [LineString([(row['lon_o'], row['lat_o']),
-                           (row['lon_d'], row['lat_d'])])
-                for _, row in df.iterrows()]
-
-    # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry=geometry)
-
-    return gdf
-
-
-def leer_configs_generales():
-    """
-    Esta funcion lee los configs generales
-    """
-    path = os.path.join("configs", "configuraciones_generales.yaml")
-
-    try:
-        with open(path, 'r', encoding="utf8") as file:
-            config = yaml.safe_load(file)
-    except yaml.YAMLError as error:
-        print(f'Error al leer el archivo de configuracion: {error}')
-
-    return config
-
-
-def leer_alias(tipo='data'):
-    """
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve el alias seteado en el archivo de congifuracion
-    """
-    configs = leer_configs_generales()
-    # Setear el tipo de key en base al tipo de datos
-    if tipo == 'data':
-        key = 'alias_db_data'
-    elif tipo == 'insumos':
-        key = 'alias_db_insumos'
-    elif tipo == 'dash':
-        key = 'alias_db_data'
-    else:
-        raise ValueError('tipo invalido: %s' % tipo)
-    # Leer el alias
-    try:
-        alias = configs[key] + '_'
-    except KeyError:
-        alias = ''
-    return alias
-
-
-def traigo_db_path(tipo='data'):
-    """
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve el path a una base de datos con esa informacion
-    """
-    if tipo not in ('data', 'insumos', 'dash'):
-        raise ValueError('tipo invalido: %s' % tipo)
-
-    alias = leer_alias(tipo)
-    db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
-
-    return db_path
-
-
-def iniciar_conexion_db(tipo='data'):
-    """"
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve una conexion sqlite a la db
-    """
-    db_path = traigo_db_path(tipo)
-    assert os.path.isfile(
-        db_path), f'No existe la base de datos para el dashboard en {db_path}'
-    conn = sqlite3.connect(db_path, timeout=10)
-    return conn
-
-
-@st.cache_data
-def levanto_tabla_sql(tabla_sql,
-                      custom_query=False,
-                      has_linestring=False,
-                      has_wkt=False):
-
-    conn_dash = iniciar_conexion_db(tipo='dash')
-    if not custom_query:
-        tabla = pd.read_sql_query(
-            f"""
-            SELECT *
-            FROM {tabla_sql}
-            """,
-            conn_dash,
-        )
-    else:
-        tabla = pd.read_sql_query(
-            custom_query,
-            conn_dash,
-        )
-    conn_dash.close()
-
-    if has_linestring:
-        tabla = create_linestring(tabla)
-
-    if has_wkt:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla,
-                                 crs=4326)
-        tabla = tabla.drop(['wkt'], axis=1)
-
-    if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
-        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
-    if 'day_type' in tabla.columns:
-        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
-        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
-
-    if 'nombre_linea' in tabla.columns:
-        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
-    if 'Modo' in tabla.columns:
-        tabla['Modo'] = tabla['Modo'].str.capitalize()
-
-    return tabla
-
-
-@st.cache_data
-def get_logo():
-    file_logo = os.path.join(
-        "docs", "urbantrips_logo.jpg")
-    if not os.path.isfile(file_logo):
-        # URL of the image file on Github
-        url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg'
-
-        # Send a request to get the content of the image file
-        response = requests.get(url)
-
-        # Save the content to a local file
-        with open(file_logo, 'wb') as f:
-            f.write(response.content)
-    image = Image.open(file_logo)
-    return image
+from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od
 
 
 def crear_mapa_folium(df_agg,
@@ -521,7 +378,7 @@ with st.expander('Cargas por tramos'):
 
     col1, col2 = st.columns([1, 4])
 
-    lineas = levanto_tabla_sql('ocupacion_por_linea_tramo', has_wkt=True)
+    lineas = levanto_tabla_sql('ocupacion_por_linea_tramo')
     nl2 = traigo_nombre_lineas(lineas[['id_linea', 'nombre_linea']])
 
     lineas.loc[lineas['hour_min'].notna(), 'rango'] = 'de ' + \
@@ -636,7 +493,7 @@ with st.expander('Matriz OD por linea'):
     else:
         st.write('No hay datos para mostrar')
 
-    zonas = levanto_tabla_sql('matrices_linea_carto', has_wkt=True)
+    zonas = levanto_tabla_sql('matrices_linea_carto')
     zonas = zonas.loc[
         (zonas.nombre_linea == nombre_linea_) &
         (zonas.n_sections == secciones_), :]
@@ -691,7 +548,10 @@ with st.expander('Líneas de deseo por linea'):
     """
     matriz = levanto_tabla_sql(tabla_sql='matrices_linea',
                                custom_query=custom_query,
-                               has_linestring=True)
+                               )
+
+    matriz = create_linestring_od(matriz)
+
     nl4 = traigo_nombre_lineas(matriz[['id_linea', 'nombre_linea']])
 
     matriz.loc[matriz['hour_min'].notna(), 'rango'] = 'de ' + \
