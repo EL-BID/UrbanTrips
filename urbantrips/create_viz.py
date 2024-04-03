@@ -58,7 +58,7 @@ def main():
         )
         visualize_lines_od_matrix(
             line_ids=top_line_ids, hour_range=rango,
-            day_type='weekday', n_sections=10, indicador='prop_etapas')
+            day_type='weekday', n_sections=10, stat='prop_etapas')
 
     # Prduce main viz
     viz.create_visualizations()

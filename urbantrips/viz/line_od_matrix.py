@@ -32,7 +32,7 @@ from urbantrips.geo import geo
 def visualize_lines_od_matrix(line_ids=None, hour_range=False,
                               day_type='weekday',
                               n_sections=10, section_meters=None,
-                              indicador='cantidad_etapas'):
+                              stat='cantidad_etapas'):
     sns.set_style("whitegrid")
     # Download line data
     od_lines = get_lines_od_matrix_data(
@@ -42,7 +42,7 @@ def visualize_lines_od_matrix(line_ids=None, hour_range=False,
         # Viz data
         od_lines.groupby(['id_linea', 'yr_mo']).apply(
             viz_line_od_matrix,
-            indicator=indicador
+            stat=stat
         )
         od_lines.groupby(['id_linea', 'yr_mo']).apply(
             map_desire_lines)
@@ -147,7 +147,7 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
     return route_geoms
 
 
-def viz_line_od_matrix(od_line, indicator='prop_etapas'):
+def viz_line_od_matrix(od_line, stat='prop_etapas'):
     """
     Creates viz for line od matrix
     """
@@ -190,11 +190,11 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
                  }
 
     title = 'Matriz OD por segmento del recorrido'
-    if indicator == 'cantidad_etapas':
+    if stat == 'cantidad_etapas':
         title += ' - Cantidad de etapas'
         values = 'legs'
 
-    elif indicator == 'prop_etapas':
+    elif stat == 'prop_etapas':
         title += ' - Porcentaje de etapas totales'
         values = 'prop'
     else:
@@ -370,7 +370,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     for frm in ['png', 'pdf']:
         archivo = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
-        archivo = archivo+f"{line_id}_{n_sections}_{indicator}_{hr_str}.{frm}"
+        archivo = archivo+f"{line_id}_{n_sections}_{stat}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
