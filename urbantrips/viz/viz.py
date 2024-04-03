@@ -95,7 +95,7 @@ def visualize_route_section_load(line_ids=False, hour_range=False,
     section_meters: int
         section lenght in meters to split the route geom. If specified,
         this will be used instead of n_sections.
-    indicator: str
+    stat: str
         Tipe of section load to display. 'totals' (amount of legs)
         or `proportion` (proportion of legs)
     factor: int

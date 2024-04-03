@@ -32,7 +32,29 @@ from urbantrips.geo import geo
 def visualize_lines_od_matrix(line_ids=None, hour_range=False,
                               day_type='weekday',
                               n_sections=10, section_meters=None,
-                              stat='cantidad_etapas'):
+                              stat='totals'):
+    """
+    Visualize od matriz for a given set of lines using route sections
+
+    Parameters
+    ----------
+    line_ids : int, list of ints or bool
+        route id present in the ocupacion_por_linea_tramo table.
+    hour_range : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
+    """
+
     sns.set_style("whitegrid")
     # Download line data
     od_lines = get_lines_od_matrix_data(
@@ -147,9 +169,22 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
     return route_geoms
 
 
-def viz_line_od_matrix(od_line, stat='prop_etapas'):
+def viz_line_od_matrix(od_line, stat='totals'):
     """
     Creates viz for line od matrix
+
+    Parameters
+    ----------
+    od_line: pandas.DataFrame
+        table with od data for a given line
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
+
+    Returns
+    -------
+    None
+
     """
     line_id = od_line.id_linea.unique()[0]
     n_sections = od_line.n_sections.unique()[0]
@@ -190,11 +225,11 @@ def viz_line_od_matrix(od_line, stat='prop_etapas'):
                  }
 
     title = 'Matriz OD por segmento del recorrido'
-    if stat == 'cantidad_etapas':
+    if stat == 'totals':
         title += ' - Cantidad de etapas'
         values = 'legs'
 
-    elif stat == 'prop_etapas':
+    elif stat == 'proportion':
         title += ' - Porcentaje de etapas totales'
         values = 'prop'
     else:
@@ -377,6 +412,19 @@ def viz_line_od_matrix(od_line, stat='prop_etapas'):
 
 
 def map_desire_lines(od_line):
+    """
+    Creates viz for line od matrix
+
+    Parameters
+    ----------
+    od_line: pandas.DataFrame
+        table with od data for a given line
+
+    Returns
+    -------
+    None
+
+    """
 
     line_id = od_line.id_linea.unique()[0]
     n_sections = od_line.n_sections.unique()[0]
