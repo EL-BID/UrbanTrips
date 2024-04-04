@@ -14,7 +14,8 @@ from urbantrips.kpi.kpi import (
     create_route_section_ids,
     add_od_lrs_to_legs_from_route,
     upload_route_section_points_table,
-    read_legs_data_by_line_hours_and_day
+    read_legs_data_by_line_hours_and_day,
+    check_exists_route_section_points_table
 )
 from urbantrips.geo import geo
 
@@ -97,10 +98,18 @@ def compute_lines_od_matrix(
 
     route_geoms["n_sections"] = n_sections
 
-    upload_route_section_points_table(route_geoms)
+    # check which section geoms are already crated
+    new_route_geoms = check_exists_route_section_points_table(route_geoms)
+
+    # create the line and n sections pair missing and upload it to the db
+    if len(new_route_geoms) > 0:
+
+        upload_route_section_points_table(
+            new_route_geoms, delete_old_data=False)
 
     # delete old data
     yr_mos = legs.yr_mo.unique()
+
     delete_old_lines_od_matrix_by_section_data(
         route_geoms, hour_range, day_type, yr_mos)
 

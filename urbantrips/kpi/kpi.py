@@ -125,7 +125,6 @@ def compute_route_section_load(line_ids=False, hour_range=False,
     # read routes geoms
     q_route_geoms = "select * from lines_geoms"
     q_route_geoms = q_route_geoms + line_ids_where
-    print(q_route_geoms)
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
     route_geoms = gpd.GeoDataFrame(
@@ -171,6 +170,7 @@ def compute_route_section_load(line_ids=False, hour_range=False,
 
     # delete old seciton load data
     yr_mos = legs.yr_mo.unique()
+
     delete_old_route_section_load_data(
         route_geoms, hour_range, day_type, yr_mos, db_type='data'
     )
@@ -224,7 +224,7 @@ def compute_route_section_load(line_ids=False, hour_range=False,
 
 def check_exists_route_section_points_table(route_geoms):
     """
-    This function checks is the route section points table exists
+    This function checks if the route section points table exists
     for those lines and n_sections in the route geoms gdf
     """
 
