@@ -468,7 +468,7 @@ with st.expander('Matriz OD por linea'):
         matriz = matriz[matriz.n_sections == secciones_]
 
         rango_ = col1.selectbox(
-            'Rango horario ', options=matriz.rango.unique())
+            'Rango horario ', options=matriz.rango.unique(), key='rango_nl3')
 
         matriz = matriz[matriz.rango == rango_]
 
