@@ -290,28 +290,30 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     geopandas.GeoDataFrame
         GeoDataFrame points classified into services
     """
-
+    # get amount of original serviices
     n_original_services_ids = len(
         line_gps_points['original_service_id'].unique())
 
+    # get unique branches in the gps points
     branches = line_stops_gdf.id_ramal.unique()
 
-    n_original_services_ids = len(
-        line_gps_points['original_service_id'].unique())
-
+    # get how many branches pass through that node
     majority_by_node_id = line_stops_gdf\
         .drop_duplicates(['id_ramal', 'node_id'])\
         .groupby('node_id', as_index=False)\
         .agg(branch_mayority=('id_ramal', 'count'))
 
+    # go through all branches
     gps_all_branches = pd.DataFrame()
     debug_df = pd.DataFrame()
 
     for branch in branches:
+        # select stops for that branch
         stops_to_join = line_stops_gdf\
             .loc[line_stops_gdf.id_ramal == branch,
                  ['branch_stop_order', 'geometry']]
 
+        # get nearest stop for that branch within 1.5 km
         # Not use max_distance. Far away stops will appear as
         # still on the same stop and wont be active branches
         gps_branch = gpd.sjoin_nearest(
@@ -327,8 +329,8 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             .groupby(['interno', 'original_service_id'])\
             .apply(find_change_in_direction)
 
+        # when vehicle is always too far away from this branch
         if n_original_services_ids > 1:
-            # when vehicle is always too far away from this branch
 
             if isinstance(temp_change, type(pd.Series())):
                 temp_change = temp_change.droplevel([0, 1])
@@ -340,8 +342,8 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             temp_change = pd.Series(
                 temp_change.iloc[0].values, index=temp_change.columns)
 
+        # eval if temporary change is conssitent 5 points ahead
         gps_branch['temp_change'] = temp_change
-
         window = 5
         gps_branch['consistent_post'] = (
             gps_branch['temp_change']
@@ -354,6 +356,8 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             gps_branch['temp_change'] &
             gps_branch['consistent_post']
         )
+
+        # add debugging attributes
         if debug:
             debug_branch = gps_branch\
                 .reindex(columns=['id', 'branch_stop_order', 'id_ramal',
@@ -367,7 +371,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
              ], axis=1)
         gps_all_branches = pd.concat([gps_all_branches, gps_branch])
 
-    # para cada punto gps necesito el node id del branch mas cercano
+    # for each gps point get the node id form the nearest branch
     branches_distances_table = gps_all_branches\
         .reindex(columns=['id', 'id_ramal', 'distance_to_stop',
                           'branch_stop_order'])\
@@ -383,6 +387,7 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
             how='left')\
         .reindex(columns=['id', 'id_ramal', 'node_id'])
 
+    # count how many branches see a change in that node
     total_changes_by_gps = gps_all_branches\
         .groupby(['id'], as_index=False)\
         .agg(total_changes=('change', 'sum'))
@@ -390,10 +395,13 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
     gps_points_changes = gps_node_ids\
         .merge(total_changes_by_gps, how='left', on='id')\
         .merge(majority_by_node_id, how='left', on='node_id')
+
+    # set change when passes the mayority
     gps_points_changes['change'] = (
         gps_points_changes.total_changes >= gps_points_changes.branch_mayority
     )
 
+    # set schema
     cols = ['id', 'id_ramal', 'node_id',  'change']
     if debug:
         cols = cols + ['branch_mayority', 'total_changes']
