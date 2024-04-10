@@ -693,7 +693,7 @@ def guardo_zonificaciones():
         poly_file = configs['poligonos']
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
-        print(db_path)
+
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
             conn_dash = iniciar_conexion_db(tipo='dash')

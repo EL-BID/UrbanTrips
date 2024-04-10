@@ -71,9 +71,18 @@ def get_stop_hex_ring(h, ring_size):
 
 def h3togeo(x):
     try:
-        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])            
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])                    
     except (TypeError, ValueError):
-        result = ''
+        result = ''        
+    return result
+def h3togeo_latlon(x, latlon='lat'):
+    try:
+        if latlon=='lat':
+            result = h3.h3_to_geo(x)[1]
+        else:
+            result = h3.h3_to_geo(x)[0]        
+    except (TypeError, ValueError):
+        result = np.nan
     return result
 
 
@@ -260,10 +269,15 @@ def h3toparent(x, res=6):
         x = ''
     return x
 
-def h3_to_geodataframe(h3_indexes):
+def h3_to_geodataframe(h3_indexes, var_h3 = ''):
     '''
     h3_indexes es una lista de h3 (no pasar en formato DataFrame)
     '''
+    if len(var_h3)==0:
+        var_h3 = 'h3_index'
+        
+    if isinstance(h3_indexes, pd.DataFrame):
+        h3_indexes = h3_indexes[var_h3].unique()
     
     # Convert H3 indexes to polygons
     polygons = []
@@ -275,9 +289,12 @@ def h3_to_geodataframe(h3_indexes):
     
     # Create GeoDataFrame
     gdf = gpd.GeoDataFrame({
-        'geometry': polygons,
-        'h3_index': h3_indexes
+        var_h3: h3_indexes,
+        'geometry': polygons         
     }, crs=4326)
+
+    
+        
     
     return gdf
     

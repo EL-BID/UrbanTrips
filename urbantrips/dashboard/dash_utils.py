@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 import folium
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
@@ -91,6 +92,36 @@ def weighted_mean(series, weights):
         result = np.nan
     return result
 
+def calculate_weighted_means(df, 
+                               aggregate_cols, 
+                               weighted_mean_cols, 
+                               weight_col,
+                               zero_to_nan = []):
+    
+    for i in zero_to_nan:
+        df.loc[df[i]==0, i] = np.nan
+
+    calculate_weighted_means    # Validate inputs
+    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
+        raise ValueError("One or more columns specified do not exist in the DataFrame.")
+    result = pd.DataFrame([])
+    # Calculate the product of the value and its weight for weighted mean calculation
+    for col in weighted_mean_cols:
+        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(),col] * df.loc[df[col].notna(),weight_col]      
+        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[[f'{col}_weighted', weight_col]].sum()
+        grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
+        grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
+
+        if len(result) == 0:
+            result = grouped.copy()
+        else:
+            result = result.merge(grouped, how='left', on=aggregate_cols)
+
+    fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+    result = result.merge(fex_summed, how='left', on=aggregate_cols)
+
+    return result
+
 def normalize_vars(tabla):
     if 'dia' in tabla.columns:
         tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
@@ -172,3 +203,233 @@ def create_linestring_od(df,
     gdf = gpd.GeoDataFrame(df, geometry=geometry)
 
     return gdf
+
+def calculate_weighted_means_ods(df,
+                                 aggregate_cols, 
+                                 weighted_mean_cols, 
+                                 weight_col,
+                                 agg_transferencias=False,
+                                 agg_modo=False,
+                                 agg_hora=False,
+                                 agg_distancia=False,
+                                 zero_to_nan = []
+                                      ):
+
+    if agg_transferencias:
+        df['transferencia'] = 99        
+    if agg_modo:
+        df['modo_agregado'] = 99
+    if agg_hora:
+        df['rango_hora'] = 99
+    if agg_distancia:
+        df['distancia'] = 99
+
+    df = calculate_weighted_means(df, 
+                                  aggregate_cols, 
+                                  weighted_mean_cols, 
+                                  weight_col,
+                                  zero_to_nan)
+    return df
+
+def agg_matriz(df,
+               aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+               weight_col=['factor_expansion_linea'],
+               agg_transferencias=False,
+               agg_modo=False,
+               agg_hora=False,
+                agg_distancia=False):
+
+    if len(df)>0:
+        if agg_transferencias:
+            df['transferencia'] = 99        
+        if agg_modo:
+            df['modo_agregado'] = 99
+        if agg_hora:
+            df['rango_hora'] = 99
+        if agg_distancia:
+            df['distancia'] = 99
+        df = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+    
+    return df
+
+def creo_bubble_od(df,
+                  aggregate_cols,
+                  weighted_mean_cols,
+                  weight_col,                                
+                  agg_transferencias=False,
+                  agg_modo=False,
+                  agg_hora=False,
+                  agg_distancia=False,
+                  od = 'h3_inicio',
+                  lat='lat1',
+                  lon='lon1'):
+
+
+    if 'id_polygon' not in df.columns:
+        df['id_polygon'] = 'NONE'
+        
+    orig = pd.DataFrame([])
+    if len(df)> 0:
+        if agg_transferencias:
+            df['transferencia'] = 99        
+        if agg_modo:
+            df['modo_agregado'] = 99
+        if agg_hora:
+            df['rango_hora'] = 99
+        if agg_distancia:
+            df['distancia'] = 99
+        
+        orig = calculate_weighted_means_ods(df, 
+                                           ['id_polygon', 'zona', od, 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                                           ['lat1', 'lon1'],
+                                           'factor_expansion_linea',
+                                           agg_transferencias=agg_transferencias,
+                                           agg_modo=agg_modo,
+                                           agg_hora=agg_hora,
+                                           agg_distancia=agg_distancia)
+        
+        orig['tot'] = orig.groupby(['id_polygon', 
+                                 'zona',
+                                 'transferencia', 
+                                 'modo_agregado',
+                                 'rango_hora',
+                                 'distancia']).factor_expansion_linea.transform('sum')
+        geometry = [Point(xy) for xy in zip(orig['lon1'], orig['lat1'])]
+        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs="EPSG:4326")
+        orig['viajes_porc'] = (orig.factor_expansion_linea / orig.tot * 100).round(1)
+        orig = orig.rename(columns={od:'od',lat:'lat', lon:'lon'})
+    
+    return orig
+
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import LineString
+
+def df_to_linestrings(df, lat_cols, lon_cols):
+    """
+    Converts DataFrame rows into LineStrings based on specified lat/lon columns,
+    ignoring pairs where either lat or lon is zero.
+    
+    Parameters:
+    - df: pandas DataFrame containing the data.
+    - lat_cols: List of column names for latitudes.
+    - lon_cols: List of column names for longitudes.
+    
+    Returns:
+    - GeoDataFrame with an added 'geometry' column containing LineStrings.
+    """
+    
+    def create_linestring(row):
+        # Filter out coordinate pairs where lat or lon is 0
+        points = [(row[lon_cols[i]], row[lat_cols[i]]) for i in range(len(lat_cols))
+                  if row[lat_cols[i]] != 0 and row[lon_cols[i]] != 0]
+        # Create a LineString if there are at least two points
+        return LineString(points) if len(points) >= 2 else None
+
+    # Create 'geometry' column with LineStrings
+    df['geometry'] = df.apply(create_linestring, axis=1)
+
+    # Convert DataFrame to GeoDataFrame
+    gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    
+    return gdf
+
+
+def create_data_folium(etapas, 
+                       viajes_matrices,
+                       agg_transferencias=False,
+                       agg_modo=False,
+                       agg_hora=False,
+                       agg_distancia=False,
+                       agg_cols_etapas=[],
+                       agg_cols_viajes=[]):
+
+
+    etapas = calculate_weighted_means_ods(etapas, 
+                                       agg_cols_etapas,
+                                       ['distance_osm_drive', 'lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4'],
+                                       'factor_expansion_linea',
+                                       agg_transferencias=agg_transferencias,
+                                       agg_modo=agg_modo,
+                                       agg_hora=agg_hora,
+                                       agg_distancia=agg_distancia,
+                                       zero_to_nan = ['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4'] )
+
+    etapas[['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4']] = etapas[['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4']].fillna(0)
+        
+    viajes = calculate_weighted_means_ods(etapas, 
+                                       agg_cols_viajes,
+                                       ['distance_osm_drive', 
+                                        'lat1', 
+                                        'lon1', 
+                                        'lat4', 
+                                        'lon4'],
+                                       'factor_expansion_linea',
+                                       agg_transferencias=agg_transferencias,
+                                       agg_modo=agg_modo,
+                                       agg_hora=agg_hora,
+                                       agg_distancia=agg_distancia,
+                                       zero_to_nan = ['lat1', 'lon1', 'lat4', 'lon4'])
+    viajes[['lat1', 
+            'lon1', 
+            'lat4', 
+            'lon4']] = viajes[['lat1', 
+                               'lon1', 
+                               'lat4', 
+                               'lon4']].fillna(0)
+    
+    if 'id_polygon' not in viajes_matrices.columns:
+        viajes_matrices['id_polygon'] = 'NONE'
+        
+    matriz = agg_matriz(viajes_matrices, 
+                  aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                  weight_col=['factor_expansion_linea'],                                
+                   agg_transferencias=agg_transferencias,
+                   agg_modo=agg_modo,
+                   agg_hora=agg_hora,
+                   agg_distancia=agg_distancia)
+    
+    origen = creo_bubble_od(viajes_matrices, 
+                        aggregate_cols = ['id_polygon', 'zona', 'h3_inicio', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                           weighted_mean_cols= ['lat1', 'lon1'],
+                           weight_col='factor_expansion_linea',
+                           agg_transferencias=agg_transferencias,
+                           agg_modo=agg_modo,
+                           agg_hora=agg_hora,
+                           agg_distancia=agg_distancia,
+                           od='h3_inicio',
+                           lat='lat1',
+                           lon='lon1')
+    
+    destino = creo_bubble_od(viajes_matrices, 
+                        aggregate_cols = ['id_polygon', 'zona', 'h3_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                           weighted_mean_cols= ['lat4', 'lon4'],
+                           weight_col='factor_expansion_linea',
+                           agg_transferencias=agg_transferencias,
+                           agg_modo=agg_modo,
+                           agg_hora=agg_hora,
+                           agg_distancia=agg_distancia,
+                           od='h3_fin',
+                           lat='lat4',
+                           lon='lon4')
+
+    etapas = df_to_linestrings(etapas, 
+                            lat_cols= ['lat1', 'lat2', 'lat3', 'lat4'], lon_cols= ['lon1', 'lon2', 'lon3', 'lon4'])
+
+    viajes = df_to_linestrings(viajes, 
+                        lat_cols= ['lat1', 'lat4'], lon_cols= ['lon1', 'lon4'])
+
+
+    return etapas, viajes, matriz, origen, destino
+
+@st.cache_data
+def traigo_indicadores(tipo='all'):
+    if tipo == 'all':
+        indicadores_all = levanto_tabla_sql('agg_indicadores')
+    else:
+        indicadores_all = levanto_tabla_sql('poly_indicadores')
+    general = indicadores_all[indicadores_all.Tipo=='General']
+    modal = indicadores_all[indicadores_all.Tipo=='Modal']
+    distancias = indicadores_all[indicadores_all.Tipo=='Distancias']
+    return general, modal, distancias
+ 
