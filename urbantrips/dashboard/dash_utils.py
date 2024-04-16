@@ -260,7 +260,7 @@ def creo_bubble_od(df,
                   agg_modo=False,
                   agg_hora=False,
                   agg_distancia=False,
-                  od = 'h3_inicio',
+                  od='',                
                   lat='lat1',
                   lon='lon1'):
 
@@ -280,8 +280,8 @@ def creo_bubble_od(df,
             df['distancia'] = 99
         
         orig = calculate_weighted_means_ods(df, 
-                                           ['id_polygon', 'zona', od, 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-                                           ['lat1', 'lon1'],
+                                           aggregate_cols,
+                                           [lat, lon],
                                            'factor_expansion_linea',
                                            agg_transferencias=agg_transferencias,
                                            agg_modo=agg_modo,
@@ -294,7 +294,7 @@ def creo_bubble_od(df,
                                  'modo_agregado',
                                  'rango_hora',
                                  'distancia']).factor_expansion_linea.transform('sum')
-        geometry = [Point(xy) for xy in zip(orig['lon1'], orig['lat1'])]
+        geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
         orig = gpd.GeoDataFrame(orig, geometry=geometry, crs="EPSG:4326")
         orig['viajes_porc'] = (orig.factor_expansion_linea / orig.tot * 100).round(1)
         orig = orig.rename(columns={od:'od',lat:'lat', lon:'lon'})
@@ -347,36 +347,50 @@ def create_data_folium(etapas,
 
     etapas = calculate_weighted_means_ods(etapas, 
                                        agg_cols_etapas,
-                                       ['distance_osm_drive', 'lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4'],
+                                       ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm', 'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],
                                        'factor_expansion_linea',
                                        agg_transferencias=agg_transferencias,
                                        agg_modo=agg_modo,
                                        agg_hora=agg_hora,
                                        agg_distancia=agg_distancia,
-                                       zero_to_nan = ['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4'] )
+                                       zero_to_nan = ['lat1_norm', 'lon1_norm', 'lat2_norm', 'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'] )
 
-    etapas[['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4']] = etapas[['lat1', 'lon1', 'lat2', 'lon2', 'lat3', 'lon3', 'lat4', 'lon4']].fillna(0)
+    etapas[['lat1_norm', 
+            'lon1_norm', 
+            'lat2_norm', 
+            'lon2_norm', 
+            'lat3_norm', 
+            'lon3_norm', 
+            'lat4_norm', 
+            'lon4_norm']] = etapas[['lat1_norm', 
+                                    'lon1_norm', 
+                                    'lat2_norm', 
+                                    'lon2_norm', 
+                                    'lat3_norm', 
+                                    'lon3_norm', 
+                                    'lat4_norm', 
+                                    'lon4_norm']].fillna(0)
         
     viajes = calculate_weighted_means_ods(etapas, 
                                        agg_cols_viajes,
                                        ['distance_osm_drive', 
-                                        'lat1', 
-                                        'lon1', 
-                                        'lat4', 
-                                        'lon4'],
+                                        'lat1_norm', 
+                                        'lon1_norm', 
+                                        'lat4_norm', 
+                                        'lon4_norm'],
                                        'factor_expansion_linea',
                                        agg_transferencias=agg_transferencias,
                                        agg_modo=agg_modo,
                                        agg_hora=agg_hora,
                                        agg_distancia=agg_distancia,
-                                       zero_to_nan = ['lat1', 'lon1', 'lat4', 'lon4'])
-    viajes[['lat1', 
-            'lon1', 
-            'lat4', 
-            'lon4']] = viajes[['lat1', 
-                               'lon1', 
-                               'lat4', 
-                               'lon4']].fillna(0)
+                                       zero_to_nan = ['lat1_norm', 'lon1_norm', 'lat4_norm', 'lon4_norm'])
+    viajes[['lat1_norm', 
+            'lon1_norm', 
+            'lat4_norm', 
+            'lon4_norm']] = viajes[['lat1_norm', 
+                                   'lon1_norm', 
+                                   'lat4_norm', 
+                                   'lon4_norm']].fillna(0)
     
     if 'id_polygon' not in viajes_matrices.columns:
         viajes_matrices['id_polygon'] = 'NONE'
@@ -389,35 +403,42 @@ def create_data_folium(etapas,
                    agg_hora=agg_hora,
                    agg_distancia=agg_distancia)
     
+    if ('poly_inicio' in viajes_matrices.columns)|('poly_fin' in viajes_matrices.columns):
+        bubble_cols_o = ['id_polygon', 'zona', 'inicio', 'poly_inicio', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+        bubble_cols_d = ['id_polygon', 'zona', 'fin', 'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+    else:
+        bubble_cols_o = ['id_polygon', 'zona', 'inicio', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+        bubble_cols_d = ['id_polygon', 'zona', 'fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+
     origen = creo_bubble_od(viajes_matrices, 
-                        aggregate_cols = ['id_polygon', 'zona', 'h3_inicio', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                           aggregate_cols = bubble_cols_o,
                            weighted_mean_cols= ['lat1', 'lon1'],
                            weight_col='factor_expansion_linea',
                            agg_transferencias=agg_transferencias,
                            agg_modo=agg_modo,
                            agg_hora=agg_hora,
                            agg_distancia=agg_distancia,
-                           od='h3_inicio',
+                           od='inicio',
                            lat='lat1',
                            lon='lon1')
     
     destino = creo_bubble_od(viajes_matrices, 
-                        aggregate_cols = ['id_polygon', 'zona', 'h3_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                           aggregate_cols = bubble_cols_d,
                            weighted_mean_cols= ['lat4', 'lon4'],
                            weight_col='factor_expansion_linea',
                            agg_transferencias=agg_transferencias,
                            agg_modo=agg_modo,
                            agg_hora=agg_hora,
                            agg_distancia=agg_distancia,
-                           od='h3_fin',
+                           od='fin',
                            lat='lat4',
                            lon='lon4')
 
     etapas = df_to_linestrings(etapas, 
-                            lat_cols= ['lat1', 'lat2', 'lat3', 'lat4'], lon_cols= ['lon1', 'lon2', 'lon3', 'lon4'])
+                            lat_cols= ['lat1_norm', 'lat2_norm', 'lat3_norm', 'lat4_norm'], lon_cols= ['lon1_norm', 'lon2_norm', 'lon3_norm', 'lon4_norm'])
 
     viajes = df_to_linestrings(viajes, 
-                        lat_cols= ['lat1', 'lat4'], lon_cols= ['lon1', 'lon4'])
+                        lat_cols= ['lat1_norm', 'lat4_norm'], lon_cols= ['lon1_norm', 'lon4_norm'])
 
 
     return etapas, viajes, matriz, origen, destino

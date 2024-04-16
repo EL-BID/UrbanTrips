@@ -44,7 +44,7 @@ def crear_mapa_poligonos(df_viajes,
     if (len(df_viajes) > 0)|(len(df_etapas)>0)|(len(origenes) > 0)|(len(destinos)>0):
 
 
-        fig = Figure(width=1200, height=1200)
+        fig = Figure(width=2000, height=2000)
         m = folium.Map(location=[poly.geometry.representative_point().y.mean(), poly.geometry.representative_point().x.mean()], zoom_start=10, tiles='cartodbpositron')
 
         
@@ -78,10 +78,10 @@ def crear_mapa_poligonos(df_viajes,
             
 
         
-        colors_viajes = mcp.gen_color(cmap=cmap_viajes, n=k_jenks)
-        colors_etapas = mcp.gen_color(cmap=cmap_etapas, n=k_jenks)
+        colors_viajes = mcp.gen_color(cmap='viridis_r', n=k_jenks)
+        colors_etapas = mcp.gen_color(cmap='magma_r', n=k_jenks)
 
-        colors_origenes = mcp.gen_color(cmap='Reds', n=k_jenks)
+        colors_origenes = mcp.gen_color(cmap='Accent', n=k_jenks)
         colors_destinos = mcp.gen_color(cmap='Oranges', n=k_jenks)
 
     
@@ -348,24 +348,24 @@ with st.expander('Polígonos', expanded=True):
 
         agg_cols_etapas = ['id_polygon', 
                             'zona', 
-                            'h3_inicio_norm', 
-                            'h3_transfer1_norm', 
-                            'h3_transfer2_norm', 
-                            'h3_fin_norm', 
-                            'poly_inicio', 
-                            'poly_transfer1',
-                            'poly_transfer2', 
-                            'poly_fin', 
+                            'inicio_norm', 
+                            'transfer1_norm', 
+                            'transfer2_norm', 
+                            'fin_norm', 
+                            'poly_inicio_norm', 
+                            'poly_transfer1_norm',
+                            'poly_transfer2_norm', 
+                            'poly_fin_norm', 
                             'transferencia', 
                             'modo_agregado', 
                             'rango_hora',
                             'distancia']
         agg_cols_viajes = ['id_polygon', 
                             'zona', 
-                            'h3_inicio_norm', 
-                            'h3_fin_norm', 
-                            'poly_inicio', 
-                            'poly_fin', 
+                            'inicio_norm', 
+                            'fin_norm', 
+                            'poly_inicio_norm', 
+                            'poly_fin_norm', 
                             'transferencia', 
                             'modo_agregado', 
                             'rango_hora', 

@@ -55,15 +55,19 @@ def crear_mapa_lineas_deseo(df_viajes,
             x_val = destinos.geometry.representative_point().x.mean()
 
         
-        fig = Figure(width=1200, height=1200)
+        fig = Figure(width=2000, height=2000)
         m = folium.Map(location=[y_val, x_val], zoom_start=10, tiles='cartodbpositron')
 
-        colors_viajes = mcp.gen_color(cmap=cmap_viajes, n=k_jenks)
-        colors_etapas = mcp.gen_color(cmap=cmap_etapas, n=k_jenks)
+        # colors_viajes = mcp.gen_color(cmap=cmap_viajes, n=k_jenks)
+        # colors_etapas = mcp.gen_color(cmap=cmap_etapas, n=k_jenks)
 
-        colors_origenes = mcp.gen_color(cmap='Reds', n=k_jenks)
+        # colors_origenes = mcp.gen_color(cmap='Reds', n=k_jenks)
+        # colors_destinos = mcp.gen_color(cmap='Oranges', n=k_jenks)
+        colors_viajes = mcp.gen_color(cmap='viridis_r', n=k_jenks)
+        colors_etapas = mcp.gen_color(cmap='magma_r', n=k_jenks)
+
+        colors_origenes = mcp.gen_color(cmap='Accent', n=k_jenks)
         colors_destinos = mcp.gen_color(cmap='Oranges', n=k_jenks)
-
     
         # Etapas
         line_w = 0.5
@@ -304,17 +308,17 @@ with st.expander('Líneas de Deseo', expanded=True):
         matrices_ = matrices_[(matrices_.distancia == distancia)]
     
     agg_cols_etapas = ['zona', 
-                        'h3_inicio_norm', 
-                        'h3_transfer1_norm', 
-                        'h3_transfer2_norm', 
-                        'h3_fin_norm',                            
+                        'inicio_norm', 
+                        'transfer1_norm', 
+                        'transfer2_norm', 
+                        'fin_norm',                            
                         'transferencia', 
                         'modo_agregado', 
                         'rango_hora',
                         'distancia']
     agg_cols_viajes = ['zona', 
-                        'h3_inicio_norm', 
-                        'h3_fin_norm',                             
+                        'inicio_norm', 
+                        'fin_norm',                             
                         'transferencia', 
                         'modo_agregado', 
                         'rango_hora',
@@ -329,8 +333,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                                                                  agg_cols_etapas=agg_cols_etapas,
                                                                  agg_cols_viajes=agg_cols_viajes)
 
-    etapas = etapas[etapas.h3_inicio_norm!=etapas.h3_fin_norm].copy()
-    viajes = viajes[viajes.h3_inicio_norm!=viajes.h3_fin_norm].copy()
+    etapas = etapas[etapas.inicio_norm!=etapas.fin_norm].copy()
+    viajes = viajes[viajes.inicio_norm!=viajes.fin_norm].copy()
        
     if not desc_etapas:
         etapas = pd.DataFrame([])

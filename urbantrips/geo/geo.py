@@ -311,7 +311,29 @@ def weighted_mean(series, weights):
         result = np.nan
     return result
 
+# Function to convert H3 hex id to a polygon
+def hex_to_polygon(hex_id):
+    try:
+        vertices = h3.h3_to_geo_boundary(hex_id, geo_json=True)
+        return Polygon(vertices)
+    except ValueError:
+        print(f"Skipping invalid H3 ID: {hex_id}")
+        return None
 
+def create_h3_gdf(hexagon_ids):
+    # Convert H3 hexagons to polygons
+    polygons = [hex_to_polygon(hex_id) for hex_id in hexagon_ids if hex_id]
+    
+    # Filter out None values if any invalid hexagons were skipped
+    valid_data = [(hex_id, poly) for hex_id, poly in zip(hexagon_ids, polygons) if poly is not None]
+    
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame({
+        'hexagon_id': [data[0] for data in valid_data], 
+        'geometry': [data[1] for data in valid_data]
+    }, crs="EPSG:4326")
+
+    return gdf
 
 def create_point_from_h3(h):
     return Point(h3.h3_to_geo(h)[::-1])
