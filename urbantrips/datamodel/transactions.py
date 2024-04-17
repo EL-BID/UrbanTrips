@@ -571,10 +571,6 @@ def geolocalizar_trx(
 
     trx_eco = trx_eco.dropna(subset=cols)
 
-    # # Eliminar trx unica en el dia
-    # trx_eco = eliminar_tarjetas_trx_unica(trx_eco)
-    # #### No borrar transacciones únicas (quedan en estas con fex=0)
-
     cols = ['id',
             'id_original',
             'id_tarjeta',
@@ -617,9 +613,10 @@ def geolocalizar_trx(
                     PARTITION BY t."id"
                     ORDER BY g.fecha DESC) AS n_row
             from trx_eco t, gps g
-            where  t."id_linea" = g."id_linea"
-            and  t."id_ramal" = g."id_ramal"
-            and  t."interno" = g."interno"
+            where t."dia" = g."dia" 
+            and t."id_linea" = g."id_linea"
+            and t."id_ramal" = g."id_ramal"
+            and t."interno" = g."interno"
             and t.fecha > g.fecha
             )
             SELECT *
@@ -639,8 +636,9 @@ def geolocalizar_trx(
                     PARTITION BY t."id"
                     ORDER BY g.fecha DESC) AS n_row
             from trx_eco t, gps g
-            where  t."id_linea" = g."id_linea"
-            and  t."interno" = g."interno"
+            where t."dia" = g."dia" 
+            and t."id_linea" = g."id_linea"
+            and t."interno" = g."interno"
             and t.fecha > g.fecha
             )
             SELECT *
@@ -664,7 +662,7 @@ def geolocalizar_trx(
     print(trx.delta_trx_gps_min.describe())
     trx = trx.drop("delta_trx_gps_min", axis=1)
 
-    conn.execute("""DROP TABLE IF EXISTS trx_eco;""")
+    conn.execute("""DELETE FROM trx_eco;""")
     conn.close()
     return trx, tmp_trx_inicial
 
