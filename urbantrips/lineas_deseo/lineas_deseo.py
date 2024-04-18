@@ -126,7 +126,7 @@ def construyo_indicadores(viajes):
     ind9['type_val'] = 'percentage'
     
     ind5 = viajes.groupby(['id_polygon', 'id_tarjeta'], as_index=False).factor_expansion_linea.first().groupby(['id_polygon'], as_index=False).factor_expansion_linea.sum().round(0).rename(columns={'factor_expansion_linea':'Valor'})
-    ind5['Indicador'] = 'Cantidad de Tarjeta Únicas'
+    ind5['Indicador'] = 'Cantidad de Usuarios'
     ind5['Tipo'] = 'General'
     ind5['type_val'] = 'int'
     

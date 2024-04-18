@@ -246,24 +246,18 @@ st.image(logo)
 
 
 poligonos = levanto_tabla_sql('poligonos')
-
-
+etapas_all = levanto_tabla_sql('poly_etapas')
+matrices_all = levanto_tabla_sql('poly_matrices')        
+zonificaciones = levanto_tabla_sql('zonificaciones')        
 
 with st.expander('Polígonos', expanded=True):
-    
 
     col1, col2 = st.columns([1, 4])
 
-    if len(poligonos) > 0:
-
-        etapas_all = levanto_tabla_sql('poly_etapas')
-        matrices_all = levanto_tabla_sql('poly_matrices')
-        
-        zonificaciones = levanto_tabla_sql('zonificaciones')        
+    if (len(poligonos)> 0) & (len(etapas_all) > 0) :
 
         general, modal, distancias = traigo_indicadores('poligonos')
-        
-        
+
         desc_poly = col1.selectbox(
             'Polígono', options=etapas_all.id_polygon.unique())
         desc_zona = col1.selectbox(
@@ -402,13 +396,6 @@ with st.expander('Polígonos', expanded=True):
         show_poly = col1.checkbox(
             'Mostrar polígono', value=True)
 
-
-            
-        # if col2.checkbox('Ver datos: Viajes'):
-        #         col2.write(viajes)        
-        # if col2.checkbox('Ver datos: Etapas'):
-        #         col2.write(etapas)
-            
         
         poly = poligonos[poligonos.id==desc_poly]
 
@@ -452,23 +439,41 @@ with st.expander('Polígonos', expanded=True):
     
     else:
         matriz = pd.DataFrame([])
-        col2.markdown("""
-        <style>
-        .big-font {
-            font-size:40px !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
     
-        col2.markdown(
-            '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
+        # Usar HTML para personalizar el estilo del texto
+        texto_html = """
+            <style>
+            .big-font {
+                font-size:30px !important;
+                font-weight:bold;
+            }
+            </style>
+            <div class='big-font'>
+                No hay datos para mostrar            
+            </div>
+            """   
+        col2.markdown(texto_html, unsafe_allow_html=True)
+        texto_html = """
+            <style>
+            .big-font {
+                font-size:30px !important;
+                font-weight:bold;
+            }
+            </style>
+            <div class='big-font'>
+                Verifique que los procesos se corrieron correctamente            
+            </div>
+            """   
+        col2.markdown(texto_html, unsafe_allow_html=True)
+
+
 
 with st.expander('Indicadores'):
     col1, col2, col3 = st.columns([2,2,2])
-    
-    col1.table(general_)
-    col2.table(modal_)
-    col3.table(distancias_)
+    if len(etapas_all)>0:  
+        col1.table(general_)
+        col2.table(modal_)
+        col3.table(distancias_)
 
 with st.expander('Matrices'):
 

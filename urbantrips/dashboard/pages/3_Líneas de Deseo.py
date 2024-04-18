@@ -226,182 +226,227 @@ with st.expander('Líneas de Deseo', expanded=True):
 
     col1, col2 = st.columns([1, 4])
 
-    etapas_all = levanto_tabla_sql('agg_etapas')
-    etapas_all = etapas_all[etapas_all.factor_expansion_linea > 0].copy()
-    matrices_all = levanto_tabla_sql('agg_matrices')
-    general, modal, distancias = traigo_indicadores('all')
-
+    etapas_all = levanto_tabla_sql('agg_etapas')    
+    matrices_all = levanto_tabla_sql('agg_matrices')    
     zonificaciones = levanto_tabla_sql('zonificaciones')
-
-    desc_zona = col1.selectbox(
-        'Zonificación', options=etapas_all.zona.unique())
-    zonif = zonificaciones[zonificaciones.zona == desc_zona]
-
-    desc_etapas = col1.checkbox(
-        'etapas', value=True)
-
-    desc_viajes = col1.checkbox(
-        'Viajes', value=False)
-
-    desc_origenes = col1.checkbox(
-        'Origenes', value=False)
-
-    desc_destinos = col1.checkbox(
-        'Destinos', value=False)
-
-    transf_list_all = ['Todos', 'Con transferencia', 'Sin transferencia']
-    transf_list = col1.selectbox(
-        'Transferencias', options=transf_list_all)
-
-    modos_list_all = ['Todos']+etapas_all[etapas_all.modo_agregado !=
-                                          '99'].modo_agregado.unique().tolist()
-    modos_list = [text.capitalize() for text in modos_list_all]
-    modos_list = col1.selectbox(
-        'Modos', options=modos_list_all)
-
-    rango_hora_all = ['Todos']+etapas_all[etapas_all.rango_hora !=
-                                          '99'].rango_hora.unique().tolist()
-    rango_hora = [text.capitalize() for text in rango_hora_all]
-    rango_hora = col1.selectbox(
-        'Rango hora', options=rango_hora_all)
-
-    distancia_all = ['Todas']+etapas_all[etapas_all.distancia !=
-                                         '99'].distancia.unique().tolist()
-    distancia = col1.selectbox(
-        'Distancia', options=distancia_all)
-
-    etapas_ = etapas_all[(etapas_all.zona == desc_zona)].copy()
-    matrices_ = matrices_all[(matrices_all.zona == desc_zona)].copy()
-
-    general_ = general[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-    modal_ = modal[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-    distancias_ = distancias[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-
-    if transf_list == 'Todos':
-        desc_transfers = True
-    else:
-        desc_transfers = False
-        if transf_list == 'Con transferencia':
-            etapas_ = etapas_[(etapas_.transferencia == 1)]
-            matrices_ = matrices_[(matrices_.transferencia == 1)]
-        elif transf_list == 'Sin transferencia':
-            etapas_ = etapas_[(etapas_.transferencia == 0)]
-            matrices_ = matrices_[(matrices_.transferencia == 0)]
+    
+    if len(etapas_all) > 0:
+        etapas_all = etapas_all[etapas_all.factor_expansion_linea > 0].copy()
+        general, modal, distancias = traigo_indicadores('all')
+        
+        desc_zona = col1.selectbox(
+            'Zonificación', options=etapas_all.zona.unique())
+        zonif = zonificaciones[zonificaciones.zona == desc_zona]
+    
+        desc_etapas = col1.checkbox(
+            'etapas', value=True)
+    
+        desc_viajes = col1.checkbox(
+            'Viajes', value=False)
+    
+        desc_origenes = col1.checkbox(
+            'Origenes', value=False)
+    
+        desc_destinos = col1.checkbox(
+            'Destinos', value=False)
+    
+        transf_list_all = ['Todos', 'Con transferencia', 'Sin transferencia']
+        transf_list = col1.selectbox(
+            'Transferencias', options=transf_list_all)
+    
+        modos_list_all = ['Todos']+etapas_all[etapas_all.modo_agregado !=
+                                              '99'].modo_agregado.unique().tolist()
+        modos_list = [text.capitalize() for text in modos_list_all]
+        modos_list = col1.selectbox(
+            'Modos', options=modos_list_all)
+    
+        rango_hora_all = ['Todos']+etapas_all[etapas_all.rango_hora !=
+                                              '99'].rango_hora.unique().tolist()
+        rango_hora = [text.capitalize() for text in rango_hora_all]
+        rango_hora = col1.selectbox(
+            'Rango hora', options=rango_hora_all)
+    
+        distancia_all = ['Todas']+etapas_all[etapas_all.distancia !=
+                                             '99'].distancia.unique().tolist()
+        distancia = col1.selectbox(
+            'Distancia', options=distancia_all)
+    
+        etapas_ = etapas_all[(etapas_all.zona == desc_zona)].copy()
+        matrices_ = matrices_all[(matrices_all.zona == desc_zona)].copy()
+    
+        general_ = general[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+        modal_ = modal[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+        distancias_ = distancias[['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+    
+        if transf_list == 'Todos':
+            desc_transfers = True
         else:
-            etapas_ = pd.DataFrame([])
-            matrices_ = pd.DataFrame([])
-
-    if modos_list == 'Todos':
-        desc_modos = True
-    else:
-        desc_modos = False
-        etapas_ = etapas_[
-            (etapas_.modo_agregado.str.lower() == modos_list.lower())]
-        matrices_ = matrices_[
-            (matrices_.modo_agregado.str.lower() == modos_list.lower())]
-
-    if rango_hora == 'Todos':
-        desc_horas = True
-    else:
-        desc_horas = False
-        etapas_ = etapas_[(etapas_.rango_hora == rango_hora)]
-        matrices_ = matrices_[(matrices_.rango_hora == rango_hora)]
-
-    if distancia == 'Todas':
-        desc_distancia = True
-    else:
-        desc_distancia = False
-        etapas_ = etapas_[(etapas_.distancia == distancia)]
-        matrices_ = matrices_[(matrices_.distancia == distancia)]
-
-    agg_cols_etapas = ['zona',
-                       'inicio_norm',
-                       'transfer1_norm',
-                       'transfer2_norm',
-                       'fin_norm',
-                       'transferencia',
-                       'modo_agregado',
-                       'rango_hora',
-                       'distancia']
-    agg_cols_viajes = ['zona',
-                       'inicio_norm',
-                       'fin_norm',
-                       'transferencia',
-                       'modo_agregado',
-                       'rango_hora',
-                       'distancia']
-
-    etapas, viajes, matriz, origenes, destinos = create_data_folium(etapas_,
-                                                                    matrices_,
-                                                                    agg_transferencias=desc_transfers,
-                                                                    agg_modo=desc_modos,
-                                                                    agg_hora=desc_horas,
-                                                                    agg_distancia=desc_distancia,
-                                                                    agg_cols_etapas=agg_cols_etapas,
-                                                                    agg_cols_viajes=agg_cols_viajes)
-
-    etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
-    viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
-
-    if not desc_etapas:
-        etapas = pd.DataFrame([])
-
-    if not desc_viajes:
-        viajes = pd.DataFrame([])
-
-    if not desc_origenes:
-        origenes = pd.DataFrame([])
-
-    if not desc_destinos:
-        destinos = pd.DataFrame([])
-
-    desc_zonif = col1.checkbox(
-        'Mostrar zonificación', value=False)
-    if not desc_zonif:
-        zonif = ''
-
-    if not desc_origenes:
-        origenes = ''
-    if not desc_destinos:
-        destinos = ''
-
-    if (len(etapas) > 0) | (len(viajes) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
-
-        map = crear_mapa_lineas_deseo(df_viajes=viajes,
-                                      df_etapas=etapas,
-                                      zonif=zonif,
-                                      origenes=origenes,
-                                      destinos=destinos,
-                                      var_fex='factor_expansion_linea',
-                                      cmap_viajes='Blues',
-                                      cmap_etapas='Greens',
-                                      map_title='Líneas de Deseo',
-                                      savefile='',
-                                      k_jenks=5)
-
-        with col2:
-            # st_map = st_folium(map, width=1200, height=1000) #
-            folium_static(map, width=1200, height=600)
-
+            desc_transfers = False
+            if transf_list == 'Con transferencia':
+                etapas_ = etapas_[(etapas_.transferencia == 1)]
+                matrices_ = matrices_[(matrices_.transferencia == 1)]
+            elif transf_list == 'Sin transferencia':
+                etapas_ = etapas_[(etapas_.transferencia == 0)]
+                matrices_ = matrices_[(matrices_.transferencia == 0)]
+            else:
+                etapas_ = pd.DataFrame([])
+                matrices_ = pd.DataFrame([])
+    
+        if modos_list == 'Todos':
+            desc_modos = True
+        else:
+            desc_modos = False
+            etapas_ = etapas_[
+                (etapas_.modo_agregado.str.lower() == modos_list.lower())]
+            matrices_ = matrices_[
+                (matrices_.modo_agregado.str.lower() == modos_list.lower())]
+    
+        if rango_hora == 'Todos':
+            desc_horas = True
+        else:
+            desc_horas = False
+            etapas_ = etapas_[(etapas_.rango_hora == rango_hora)]
+            matrices_ = matrices_[(matrices_.rango_hora == rango_hora)]
+    
+        if distancia == 'Todas':
+            desc_distancia = True
+        else:
+            desc_distancia = False
+            etapas_ = etapas_[(etapas_.distancia == distancia)]
+            matrices_ = matrices_[(matrices_.distancia == distancia)]
+    
+        agg_cols_etapas = ['zona',
+                           'inicio_norm',
+                           'transfer1_norm',
+                           'transfer2_norm',
+                           'fin_norm',
+                           'transferencia',
+                           'modo_agregado',
+                           'rango_hora',
+                           'distancia']
+        agg_cols_viajes = ['zona',
+                           'inicio_norm',
+                           'fin_norm',
+                           'transferencia',
+                           'modo_agregado',
+                           'rango_hora',
+                           'distancia']
+    
+        etapas, viajes, matriz, origenes, destinos = create_data_folium(etapas_,
+                                                                        matrices_,
+                                                                        agg_transferencias=desc_transfers,
+                                                                        agg_modo=desc_modos,
+                                                                        agg_hora=desc_horas,
+                                                                        agg_distancia=desc_distancia,
+                                                                        agg_cols_etapas=agg_cols_etapas,
+                                                                        agg_cols_viajes=agg_cols_viajes)
+    
+        etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
+        viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+    
+        if not desc_etapas:
+            etapas = pd.DataFrame([])
+    
+        if not desc_viajes:
+            viajes = pd.DataFrame([])
+    
+        if not desc_origenes:
+            origenes = pd.DataFrame([])
+    
+        if not desc_destinos:
+            destinos = pd.DataFrame([])
+    
+        desc_zonif = col1.checkbox(
+            'Mostrar zonificación', value=False)
+        if not desc_zonif:
+            zonif = ''
+    
+        if not desc_origenes:
+            origenes = ''
+        if not desc_destinos:
+            destinos = ''
+    
+        if (len(etapas) > 0) | (len(viajes) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
+    
+            map = crear_mapa_lineas_deseo(df_viajes=viajes,
+                                          df_etapas=etapas,
+                                          zonif=zonif,
+                                          origenes=origenes,
+                                          destinos=destinos,
+                                          var_fex='factor_expansion_linea',
+                                          cmap_viajes='Blues',
+                                          cmap_etapas='Greens',
+                                          map_title='Líneas de Deseo',
+                                          savefile='',
+                                          k_jenks=5)
+    
+            with col2:
+                # st_map = st_folium(map, width=1200, height=1000) #
+                folium_static(map, width=1200, height=600)
+    
+        else:
+            matriz = pd.DataFrame([])
+            # Usar HTML para personalizar el estilo del texto
+            texto_html = """
+                <style>
+                .big-font {
+                    font-size:30px !important;
+                    font-weight:bold;
+                }
+                </style>
+                <div class='big-font'>
+                    No hay datos para mostrar            
+                </div>
+                """   
+            col2.markdown(texto_html, unsafe_allow_html=True)
+            texto_html = """
+                <style>
+                .big-font {
+                    font-size:30px !important;
+                    font-weight:bold;
+                }
+                </style>
+                <div class='big-font'>
+                    Verifique que los procesos se corrieron correctamente            
+                </div>
+                """   
+            col2.markdown(texto_html, unsafe_allow_html=True)
+    
     else:
         matriz = pd.DataFrame([])
-        col2.markdown("""
-        <style>
-        .big-font {
-            font-size:40px !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        col2.markdown(
-            '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
+        # Usar HTML para personalizar el estilo del texto
+        texto_html = """
+            <style>
+            .big-font {
+                font-size:30px !important;
+                font-weight:bold;
+            }
+            </style>
+            <div class='big-font'>
+                No hay datos para mostrar            
+            </div>
+            """   
+        col2.markdown(texto_html, unsafe_allow_html=True)
+        texto_html = """
+            <style>
+            .big-font {
+                font-size:30px !important;
+                font-weight:bold;
+            }
+            </style>
+            <div class='big-font'>
+                Verifique que los procesos se corrieron correctamente            
+            </div>
+            """   
+        col2.markdown(texto_html, unsafe_allow_html=True)
 
 with st.expander('Indicadores'):
     col1, col2, col3 = st.columns([2, 2, 2])
 
-    col1.table(general_)
-    col2.table(modal_)
-    col3.table(distancias_)
+    if len(etapas_all)>0:    
+        col1.table(general_)
+        col2.table(modal_)
+        col3.table(distancias_)
 
 with st.expander('Matrices'):
 
