@@ -675,6 +675,7 @@ def guardo_zonificaciones():
         if len(zonificaciones) > 0:
             conn_dash = iniciar_conexion_db(tipo='dash')
             conn_insumos = iniciar_conexion_db(tipo='insumos')
+            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
             zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
             zonificaciones = zonificaciones.drop(['geometry'], axis=1)
             zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
