@@ -37,7 +37,8 @@ def crear_mapa_poligonos(df_viajes,
                          map_title='',
                          savefile='',
                          k_jenks=5,
-                         show_poly=False):
+                         show_poly=False,
+                        ods_values=0):
 
     m = ''
     if (len(df_viajes) > 0) | (len(df_etapas) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
@@ -141,15 +142,16 @@ def crear_mapa_poligonos(df_viajes,
                 n += 1
                 line_w += 3
 
+        
         if len(origenes) > 0:
             try:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
+                bins = [min(ods_values)-1] + \
                     mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5).bins.tolist()
+                        ods_values, k=5).bins.tolist()
             except ValueError:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
+                bins = [min(ods_values)-1] + \
                     mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5-3).bins.tolist()
+                        ods_values, k=5-3).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -175,13 +177,13 @@ def crear_mapa_poligonos(df_viajes,
 
         if len(destinos) > 0:
             try:
-                bins = [destinos['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        destinos['factor_expansion_linea'], k=5).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=5).bins.tolist()            
             except ValueError:
-                bins = [destinos['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        destinos['factor_expansion_linea'], k=5-3).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=2).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -390,6 +392,8 @@ with st.expander('Polígonos', expanded=True):
                                                                         agg_cols_viajes=agg_cols_viajes,
                                                                         aggregate_cols_matriz = aggregate_cols_matriz)
 
+        ods_values = origenes['factor_expansion_linea'].tolist()+destinos['factor_expansion_linea'].tolist()
+
         if not desc_etapas:
             etapas = pd.DataFrame([])
 
@@ -431,7 +435,8 @@ with st.expander('Polígonos', expanded=True):
                                        map_title=desc_poly,
                                        savefile='',
                                        k_jenks=5,
-                                       show_poly=show_poly)
+                                       show_poly=show_poly,
+                                       ods_values=ods_values)
 
             with col2:
                 # st_map = st_folium(map, width=1200, height=1000) #

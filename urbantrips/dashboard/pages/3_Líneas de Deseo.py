@@ -36,7 +36,7 @@ def crear_mapa_lineas_deseo(df_viajes,
                             map_title='',
                             savefile='',
                             k_jenks=5,
-                            ):
+                            ods_values=0):
 
     m = ''
     if (len(df_viajes) > 0) | (len(df_etapas) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
@@ -131,15 +131,17 @@ def crear_mapa_lineas_deseo(df_viajes,
                 n += 1
                 line_w += 3
 
-        if len(origenes) > 0:
+                
+        
+        if len(origenes) > 0:                            
             try:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=5).bins.tolist()            
             except ValueError:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5-3).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=2).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -165,13 +167,13 @@ def crear_mapa_lineas_deseo(df_viajes,
 
         if len(destinos) > 0:
             try:
-                bins = [destinos['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        destinos['factor_expansion_linea'], k=5).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=5).bins.tolist()            
             except ValueError:
-                bins = [destinos['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        destinos['factor_expansion_linea'], k=5-3).bins.tolist()
+                bins = [min(ods_values)-1] + \
+                                    mapclassify.FisherJenks(
+                                        ods_values, k=2).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -349,6 +351,8 @@ with st.expander('Líneas de Deseo', expanded=True):
 
         etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
         viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+        
+        ods_values = origenes['factor_expansion_linea'].tolist()+destinos['factor_expansion_linea'].tolist()
 
         if not desc_etapas:
             etapas = pd.DataFrame([])
@@ -384,7 +388,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                                           cmap_etapas='Greens',
                                           map_title='Líneas de Deseo',
                                           savefile='',
-                                          k_jenks=5)
+                                          k_jenks=5,
+                                          ods_values=ods_values)
 
             with col2:
                 # st_map = st_folium(map, width=1200, height=1000) #
