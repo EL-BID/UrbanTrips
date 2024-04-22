@@ -342,7 +342,8 @@ def create_data_folium(etapas,
                        agg_hora=False,
                        agg_distancia=False,
                        agg_cols_etapas=[],
-                       agg_cols_viajes=[]):
+                       agg_cols_viajes=[],
+                       aggregate_cols_matriz=[]):
 
 
     etapas = calculate_weighted_means_ods(etapas, 
@@ -396,7 +397,7 @@ def create_data_folium(etapas,
         viajes_matrices['id_polygon'] = 'NONE'
         
     matriz = agg_matriz(viajes_matrices, 
-                  aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                  aggregate_cols=aggregate_cols_matriz,
                   weight_col=['factor_expansion_linea'],                                
                    agg_transferencias=agg_transferencias,
                    agg_modo=agg_modo,

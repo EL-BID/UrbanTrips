@@ -378,6 +378,8 @@ with st.expander('Polígonos', expanded=True):
                            'rango_hora',
                            'distancia']
 
+        aggregate_cols_matriz = ['id_polygon', 'zona', 'Origen', 'poly_inicio', 'Destino', 'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+
         etapas, viajes, matriz, origenes, destinos = create_data_folium(etapas_,
                                                                         matrices_,
                                                                         agg_transferencias=desc_transfers,
@@ -385,7 +387,8 @@ with st.expander('Polígonos', expanded=True):
                                                                         agg_hora=desc_horas,
                                                                         agg_distancia=desc_distancia,
                                                                         agg_cols_etapas=agg_cols_etapas,
-                                                                        agg_cols_viajes=agg_cols_viajes)
+                                                                        agg_cols_viajes=agg_cols_viajes,
+                                                                        aggregate_cols_matriz = aggregate_cols_matriz)
 
         if not desc_etapas:
             etapas = pd.DataFrame([])
@@ -488,12 +491,18 @@ with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
     normalize = col1.checkbox('Normalizar', value=True)
+    poly_matriz = col1.checkbox('Poligono en matriz', value=False)
 
-    if len(matriz) > 0:
+    matriz_ = matriz.copy()
+    if poly_matriz:
+        matriz_.loc[matriz_.poly_inicio!='', 'Origen'] = matriz_.loc[matriz_.poly_inicio!='', 'Origen'] +' (poligono)'
+        matriz_.loc[matriz_.poly_fin!='', 'Destino'] = matriz_.loc[matriz_.poly_fin!='', 'Destino'] +' (poligono)'
+   
+    if len(matriz_) > 0:
         od_heatmap = pd.crosstab(
-            index=matriz['Origen'],
-            columns=matriz['Destino'],
-            values=matriz['factor_expansion_linea'],
+            index=matriz_['Origen'],
+            columns=matriz_['Destino'],
+            values=matriz_['factor_expansion_linea'],
             aggfunc="sum",
             normalize=normalize,
         )

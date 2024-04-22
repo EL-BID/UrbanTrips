@@ -161,7 +161,7 @@ def crear_mapa_lineas_deseo(df_viajes,
                     tooltip=False,
                 )
                 n += 1
-                line_w += 5
+                line_w += 10
 
         if len(destinos) > 0:
             try:
@@ -193,7 +193,7 @@ def crear_mapa_lineas_deseo(df_viajes,
                     tooltip=False,
                 )
                 n += 1
-                line_w += 5
+                line_w += 10
 
         # Agrego zonificación
         if len(zonif) > 0:
@@ -335,6 +335,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                            'rango_hora',
                            'distancia']
 
+        aggregate_cols_matriz = ['id_polygon', 'zona', 'Origen', 'Destino', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+
         etapas, viajes, matriz, origenes, destinos = create_data_folium(etapas_,
                                                                         matrices_,
                                                                         agg_transferencias=desc_transfers,
@@ -342,7 +344,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                                                                         agg_hora=desc_horas,
                                                                         agg_distancia=desc_distancia,
                                                                         agg_cols_etapas=agg_cols_etapas,
-                                                                        agg_cols_viajes=agg_cols_viajes)
+                                                                        agg_cols_viajes=agg_cols_viajes,
+                                                                        aggregate_cols_matriz=aggregate_cols_matriz)
 
         etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
         viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
