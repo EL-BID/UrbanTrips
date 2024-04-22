@@ -144,4 +144,4 @@ dmypy.json
 *.ipynb
 .github/desktop.ini
 *.ini
-
+configs/configuraciones_generales.yaml

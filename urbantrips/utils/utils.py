@@ -1,4 +1,5 @@
 import pandas as pd
+import geopandas as gpd
 import sqlite3
 import os
 import yaml
@@ -9,6 +10,8 @@ import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
+from shapely import wkt
+
 os.environ['USE_PYGEOS'] = '0'
 
 
@@ -227,6 +230,27 @@ def create_other_inputs_tables():
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonificaciones
+        (zona text NOT NULL,
+         id text NOT NULL,
+         orden int,
+         wkt text        
+        )
+        ;
+        """
+    )
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS poligonos
+        (id text NOT NULL,         
+         wkt text        
+        )
+        ;
+        """
+    )
     conn_insumos.close()
 
 
@@ -353,6 +377,26 @@ def create_dash_tables():
         prop_etapas float not null,
         buff_factor float,
         wkt text
+        )
+        ;
+        """
+    )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS zonificaciones
+        (zona text NOT NULL,
+         id text NOT NULL,
+         orden int,
+         wkt text        
+        )
+        ;
+        """
+    )
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS poligonos
+        (id text NOT NULL,         
+         wkt text        
         )
         ;
         """
@@ -1057,3 +1101,94 @@ def check_table_in_db(table_name, tipo_db):
         return False
     else:
         return True
+
+def traigo_tabla_zonas():
+    alias = leer_alias()
+
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    zonas = pd.read_sql_query(
+        """
+        SELECT * from zonas
+        """,
+        conn_insumos,
+    )
+    zonas_cols = [i for i in zonas.columns if i not in ['h3', 'fex', 'latitud', 'longitud']]
+    return zonas, zonas_cols
+
+def normalize_vars(tabla):
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
+    if 'day_type' in tabla.columns:
+        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
+
+    if 'nombre_linea' in tabla.columns:
+        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
+    if 'Modo' in tabla.columns:
+        tabla['Modo'] = tabla['Modo'].str.capitalize()
+    if 'modo' in tabla.columns:
+        tabla['modo'] = tabla['modo'].str.capitalize()
+    return tabla
+
+def levanto_tabla_sql(tabla_sql,
+                      tabla_tipo='dash'):
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
+
+    try:
+        tabla = pd.read_sql_query(
+            f"""
+            SELECT *
+            FROM {tabla_sql}
+            """,
+            conn,
+        )
+    except:
+        print(f'{tabla_sql} no existe')
+        tabla = pd.DataFrame([])
+
+    conn.close()
+
+    if len(tabla) > 0:
+    
+        if 'wkt' in tabla.columns:
+            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+            tabla = gpd.GeoDataFrame(tabla,
+                                     crs=4326)
+            tabla = tabla.drop(['wkt'], axis=1)
+            
+    tabla = normalize_vars(tabla)
+
+    return tabla
+
+def calculate_weighted_means(df, 
+                               aggregate_cols, 
+                               weighted_mean_cols, 
+                               weight_col,
+                               zero_to_nan = []):
+    
+    for i in zero_to_nan:
+        df.loc[df[i]==0, i] = np.nan
+
+    calculate_weighted_means    # Validate inputs
+    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
+        raise ValueError("One or more columns specified do not exist in the DataFrame.")
+    result = pd.DataFrame([])
+    # Calculate the product of the value and its weight for weighted mean calculation
+    for col in weighted_mean_cols:
+        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(),col] * df.loc[df[col].notna(),weight_col]      
+        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[[f'{col}_weighted', weight_col]].sum()
+        grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
+        grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
+
+        if len(result) == 0:
+            result = grouped.copy()
+        else:
+            result = result.merge(grouped, how='left', on=aggregate_cols)
+
+    fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+    result = result.merge(fex_summed, how='left', on=aggregate_cols)
+
+    return result
