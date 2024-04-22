@@ -46,10 +46,10 @@ def main():
     for rango in [[7, 10], [17, 19]]:
         # crate rout section load
         kpi.compute_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango)
+            line_ids=top_line_ids, hour_range=rango)
         viz.visualize_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango,
-            save_gdf=True, indicador='prop_etapas', factor=500,
+            line_ids=top_line_ids, hour_range=rango,
+            save_gdf=True, stat='proportion', factor=500,
             factor_min=50, )
 
         compute_lines_od_matrix(
@@ -58,7 +58,7 @@ def main():
         )
         visualize_lines_od_matrix(
             line_ids=top_line_ids, hour_range=rango,
-            day_type='weekday', n_sections=10, indicador='prop_etapas')
+            day_type='weekday', n_sections=10, stat='proportion')
 
     # Prduce main viz
     viz.create_visualizations()

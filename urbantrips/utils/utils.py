@@ -344,14 +344,15 @@ def create_dash_tables():
         (id_linea int not null,
         yr_mo text,
         nombre_linea str,
-        day_type text nor null,
+        day_type text not null,
         n_sections int,
+        section_meters int,
         sentido text not null,
-        section_id float not null,
-        hora_min int,
-        hora_max int,
-        cantidad_etapas int not null,
-        prop_etapas float not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        legs int not null,
+        prop float not null,
         buff_factor float,
         wkt text
         )
@@ -654,13 +655,11 @@ def create_basic_data_model_tables():
         n_sections int,
         section_meters int,
         sentido text not null,
-        section_id float not null,
-        x float,
-        y float,
-        hora_min int,
-        hora_max int,
-        cantidad_etapas int not null,
-        prop_etapas float not null
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        legs int not null,
+        prop float not null
         )
         ;
         """

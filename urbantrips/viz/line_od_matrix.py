@@ -19,7 +19,7 @@ from urbantrips.viz.viz import (
 )
 
 
-from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data_q
+from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data
 
 from urbantrips.utils.utils import (
     iniciar_conexion_db,
@@ -32,7 +32,29 @@ from urbantrips.geo import geo
 def visualize_lines_od_matrix(line_ids=None, hour_range=False,
                               day_type='weekday',
                               n_sections=10, section_meters=None,
-                              indicador='cantidad_etapas'):
+                              stat='totals'):
+    """
+    Visualize od matriz for a given set of lines using route sections
+
+    Parameters
+    ----------
+    line_ids : int, list of ints or bool
+        route id present in the ocupacion_por_linea_tramo table.
+    hour_range : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24.
+    day_type: str
+        type of day. It can take `weekday`, `weekend` or a specific
+        day in format 'YYYY-MM-DD'
+    n_sections: int
+        number of sections to split the route geom
+    section_meters: int
+        section lenght in meters to split the route geom. If specified,
+        this will be used instead of n_sections.
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
+    """
+
     sns.set_style("whitegrid")
     # Download line data
     od_lines = get_lines_od_matrix_data(
@@ -42,7 +64,7 @@ def visualize_lines_od_matrix(line_ids=None, hour_range=False,
         # Viz data
         od_lines.groupby(['id_linea', 'yr_mo']).apply(
             viz_line_od_matrix,
-            indicator=indicador
+            stat=stat
         )
         od_lines.groupby(['id_linea', 'yr_mo']).apply(
             map_desire_lines)
@@ -147,9 +169,22 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
     return route_geoms
 
 
-def viz_line_od_matrix(od_line, indicator='prop_etapas'):
+def viz_line_od_matrix(od_line, stat='totals'):
     """
     Creates viz for line od matrix
+
+    Parameters
+    ----------
+    od_line: pandas.DataFrame
+        table with od data for a given line
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
+
+    Returns
+    -------
+    None
+
     """
     line_id = od_line.id_linea.unique()[0]
     n_sections = od_line.n_sections.unique()[0]
@@ -190,11 +225,11 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
                  }
 
     title = 'Matriz OD por segmento del recorrido'
-    if indicator == 'cantidad_etapas':
+    if stat == 'totals':
         title += ' - Cantidad de etapas'
         values = 'legs'
 
-    elif indicator == 'prop_etapas':
+    elif stat == 'proportion':
         title += ' - Porcentaje de etapas totales'
         values = 'prop'
     else:
@@ -226,7 +261,7 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
         .reindex(columns=['id_linea', 'n_sections'])\
         .drop_duplicates()
 
-    delete_old_lines_od_matrix_by_section_data_q(
+    delete_old_lines_od_matrix_by_section_data(
         delete_df, hour_range=hour_range,
         day_type=day, yr_mos=[mes],
         db_type='dash')
@@ -370,13 +405,26 @@ def viz_line_od_matrix(od_line, indicator='prop_etapas'):
 
     for frm in ['png', 'pdf']:
         archivo = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
-        archivo = archivo+f"{line_id}_{n_sections}_{indicator}_{hr_str}.{frm}"
+        archivo = archivo+f"{line_id}_{n_sections}_{stat}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
 
 def map_desire_lines(od_line):
+    """
+    Creates viz for line od matrix
+
+    Parameters
+    ----------
+    od_line: pandas.DataFrame
+        table with od data for a given line
+
+    Returns
+    -------
+    None
+
+    """
 
     line_id = od_line.id_linea.unique()[0]
     n_sections = od_line.n_sections.unique()[0]
