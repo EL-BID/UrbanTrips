@@ -257,6 +257,7 @@ def create_other_inputs_tables():
 
 def create_dash_tables():
     conn_dash = iniciar_conexion_db(tipo='dash')
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS matrices
@@ -383,6 +384,7 @@ def create_dash_tables():
         ;
         """
     )
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
@@ -397,17 +399,11 @@ def create_dash_tables():
         legs int not null,
         prop float not null,
         nombre_linea text
-
-        CREATE TABLE IF NOT EXISTS zonificaciones
-        (zona text NOT NULL,
-         id text NOT NULL,
-         orden int,
-         wkt text        
-
         )
         ;
         """
     )
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS matrices_linea_carto
@@ -474,28 +470,7 @@ def create_dash_tables():
             ;
             """
     )
-    
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS zonificaciones
-        (zona text NOT NULL,
-         id text NOT NULL,
-         orden int,
-         wkt text        
-        )
-        ;
-        """
-    )
-      
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS poligonos
-        (id text NOT NULL,         
-         wkt text        
-        )
-        ;
-        """
-    )
+
     conn_dash.close()
 
 
@@ -1234,6 +1209,7 @@ def create_line_ids_sql_filter(line_ids):
         line_ids_where = " where id_linea is not NULL"
     return line_ids_where
 
+
 def traigo_tabla_zonas():
     alias = leer_alias()
 
@@ -1245,8 +1221,10 @@ def traigo_tabla_zonas():
         """,
         conn_insumos,
     )
-    zonas_cols = [i for i in zonas.columns if i not in ['h3', 'fex', 'latitud', 'longitud']]
+    zonas_cols = [i for i in zonas.columns if i not in [
+        'h3', 'fex', 'latitud', 'longitud']]
     return zonas, zonas_cols
+
 
 def normalize_vars(tabla):
     if 'dia' in tabla.columns:
@@ -1263,6 +1241,7 @@ def normalize_vars(tabla):
     if 'modo' in tabla.columns:
         tabla['modo'] = tabla['modo'].str.capitalize()
     return tabla
+
 
 def levanto_tabla_sql(tabla_sql,
                       tabla_tipo='dash'):
@@ -1284,34 +1263,38 @@ def levanto_tabla_sql(tabla_sql,
     conn.close()
 
     if len(tabla) > 0:
-    
+
         if 'wkt' in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla,
                                      crs=4326)
             tabla = tabla.drop(['wkt'], axis=1)
-            
+
     tabla = normalize_vars(tabla)
 
     return tabla
 
-def calculate_weighted_means(df, 
-                               aggregate_cols, 
-                               weighted_mean_cols, 
-                               weight_col,
-                               zero_to_nan = []):
-    
+
+def calculate_weighted_means(df,
+                             aggregate_cols,
+                             weighted_mean_cols,
+                             weight_col,
+                             zero_to_nan=[]):
+
     for i in zero_to_nan:
-        df.loc[df[i]==0, i] = np.nan
+        df.loc[df[i] == 0, i] = np.nan
 
     calculate_weighted_means    # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError("One or more columns specified do not exist in the DataFrame.")
+        raise ValueError(
+            "One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])
     # Calculate the product of the value and its weight for weighted mean calculation
     for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(),col] * df.loc[df[col].notna(),weight_col]      
-        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[[f'{col}_weighted', weight_col]].sum()
+        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(
+        ), col] * df.loc[df[col].notna(), weight_col]
+        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[
+            [f'{col}_weighted', weight_col]].sum()
         grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
         grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
 
