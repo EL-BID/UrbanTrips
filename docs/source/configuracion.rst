@@ -173,7 +173,15 @@ Por úlitmo, se puede especificar un archivo con la localización de las paradas
    nombre_archivo_paradas: 
 
 
-Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en ``data/data_ciudad/``.
+
+Parámetros de zonificaciones y polígonos de interés
+---------------------------------------------------
+
+Se pueden suministrar diferentes archivos con unidades espaciales o zonas de análisis de tránsito para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo geojson a consumir, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. 
+
+Puede haber tantos archivos como lo desee. Si existen estructuras anidadas (por ejemplo unidades censales de diferente nivel de agregación) se puede usar el mismo archivo, con diferentes atributos o columnas indicando los diferentes ids o valores para cada nivel de agregación. Luego se para el mismo archivo indicando en `var` qué atributo o columna tomar.
+
+Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en ``data/data_ciudad/``.
 
 .. code:: 
 
@@ -183,4 +191,14 @@ Finalmente se pueden suministrar diferentes archivos con unidades espaciales par
       orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
       geo2: hexs_amba.geojson
       var2: Partido
+      
+      
+Al mismo tiempo, si se quiere realizar un análisis de patrones de orígenes y destinos para una determinada zona de interés, se puede suministrar otro archivo geojson donde se especifique una capa geográfica de polígonos en formato con las siguientes columnas `'id', 'tipo', 'geometry'`. `id` debe ser un texto con el nombre del polígono  de interés y `tipo` puede ser `poligono` o `cuenca`. El primero hace referencia a una zona particular de interés como un centro de transbordo o un barrio-localidad. El segundo hace referencia a una zona de mayor tamaño que puede agrupar el recorrido de un grupo de líneas o ser el área de influencia de una línea en particular.
+
+El archivo puede contener la cantidad de polígonos (o cuencas) que se desee (ya sena polígnos o multi-polígonos), el proceso corre en forma independiente para cada poligoo o cuenca. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en ``data/data_ciudad/``. Estos archivos deben informarse en el archivo de configuraciones del siguiente modo. Los resultados se verán en el Dashboard.
+
+
+.. code:: 
+
+   poligonos: "[NOMBRE_DEL_ARCHIVO].geojson"  
 
