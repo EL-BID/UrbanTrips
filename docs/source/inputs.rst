@@ -192,3 +192,29 @@ Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo 
      - int
      - **Obligatorio**. Identifica con el mismo id estaciones donde puede haber transbordo entre ramales de una misma linea. Único para los otros casos dentro de la misma línea.     
      
+     
+Zonificaciones  
+--------------
+
+Tabla que contenga las zonificaciones o zonas de análisis de tránsito para las que se quieran agregar datos. No existe una esquema de datos definido, puede tener cualquier columna o atributo y la cantidad que se desee, siempre que se especifique correctamente en el archivo de configuración.
+
+Polígonos de interés
+--------------------
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - id
+     - tipo
+     - geometry
+   * - *id*
+     - str
+     - **Obligatorio**. Texto que identifique con un nombre al polígono de interés.
+   * - *tipo*
+     - str
+     - Debe identificar si se trata de un polígono de interés o de una cuenca. Debe tomar valores `poligono` o `cuenca`.
+   * - *geometry*
+     - Polygon o MultiPolygon
+     - Polígono de la zona de interés. 
+

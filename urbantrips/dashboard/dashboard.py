@@ -36,66 +36,94 @@ col1, col2, col3 = st.columns([1, 3, 3])
 
 indicadores = levanto_tabla_sql('indicadores')
 
+if len(indicadores) > 0:
+    desc_dia_i = col1.selectbox(
+        'Periodo', options=indicadores.desc_dia.unique(), key='desc_dia_i')
+    tipo_dia_i = col1.selectbox(
+        'Tipo de dia', options=indicadores.tipo_dia.unique(), key='tipo_dia_i')
+    
+    
+    indicadores = indicadores[(indicadores.desc_dia == desc_dia_i) & (
+        indicadores.tipo_dia == tipo_dia_i)]
+    
+    df = indicadores.loc[indicadores.orden == 1, ['Indicador', 'Valor']].copy()
+    titulo = indicadores.loc[indicadores.orden == 1].Titulo.unique()[0]
+    
+    # CSS to inject contained in a string
+    hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+    
+    # Inject CSS with Markdown
+    col2.markdown(hide_table_row_index, unsafe_allow_html=True)
+    
+    col2.text(titulo)
+    col2.table(df)
+    
+    
+    df = indicadores.loc[indicadores.orden == 2, ['Indicador', 'Valor']].copy()
+    titulo = indicadores.loc[indicadores.orden == 2].Titulo.unique()[0]
+    
+    col3.text(titulo)
+    
+    # CSS to inject contained in a string
+    hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+    
+    # Inject CSS with Markdown
+    col3.markdown(hide_table_row_index, unsafe_allow_html=True)
+    
+    
+    col3.table(df)
+    
+    df = indicadores.loc[indicadores.orden == 3, ['Indicador', 'Valor']].copy()
+    titulo = indicadores.loc[indicadores.orden == 3].Titulo.unique()[0]
+    
+    col2.text(titulo)
+    # CSS to inject contained in a string
+    hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+    
+    # Inject CSS with Markdown
+    col2.markdown(hide_table_row_index, unsafe_allow_html=True)
+    
+    col2.table(df)
+else:
 
-desc_dia_i = col1.selectbox(
-    'Periodo', options=indicadores.desc_dia.unique(), key='desc_dia_i')
-tipo_dia_i = col1.selectbox(
-    'Tipo de dia', options=indicadores.tipo_dia.unique(), key='tipo_dia_i')
+    # Usar HTML para personalizar el estilo del texto
+    texto_html = """
+        <style>
+        .big-font {
+            font-size:30px !important;
+            font-weight:bold;
+        }
+        </style>
+        <div class='big-font'>
+            No hay datos de indicadores            
+        </div>
+        """   
+    col2.markdown(texto_html, unsafe_allow_html=True)
+    texto_html = """
+        <style>
+        .big-font {
+            font-size:30px !important;
+            font-weight:bold;
+        }
+        </style>
+        <div class='big-font'>
+            Verifique que los procesos se corrieron correctamente            
+        </div>
+        """   
+    col2.markdown(texto_html, unsafe_allow_html=True)
 
-
-indicadores = indicadores[(indicadores.desc_dia == desc_dia_i) & (
-    indicadores.tipo_dia == tipo_dia_i)]
-
-df = indicadores.loc[indicadores.orden == 1, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden == 1].Titulo.unique()[0]
-
-# CSS to inject contained in a string
-hide_table_row_index = """
-            <style>
-            thead tr th:first-child {display:none}
-            tbody th {display:none}
-            </style>
-            """
-
-# Inject CSS with Markdown
-col2.markdown(hide_table_row_index, unsafe_allow_html=True)
-
-col2.text(titulo)
-col2.table(df)
-
-
-df = indicadores.loc[indicadores.orden == 2, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden == 2].Titulo.unique()[0]
-
-col3.text(titulo)
-
-# CSS to inject contained in a string
-hide_table_row_index = """
-            <style>
-            thead tr th:first-child {display:none}
-            tbody th {display:none}
-            </style>
-            """
-
-# Inject CSS with Markdown
-col3.markdown(hide_table_row_index, unsafe_allow_html=True)
-
-
-col3.table(df)
-
-df = indicadores.loc[indicadores.orden == 3, ['Indicador', 'Valor']].copy()
-titulo = indicadores.loc[indicadores.orden == 3].Titulo.unique()[0]
-
-col2.text(titulo)
-# CSS to inject contained in a string
-hide_table_row_index = """
-            <style>
-            thead tr th:first-child {display:none}
-            tbody th {display:none}
-            </style>
-            """
-
-# Inject CSS with Markdown
-col2.markdown(hide_table_row_index, unsafe_allow_html=True)
-
-col2.table(df)

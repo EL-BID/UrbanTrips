@@ -16,7 +16,7 @@ def main():
     carto.create_voronoi_zones()
 
     # Create distances table
-    carto.create_distances_table(use_parallel=True)
+    carto.create_distances_table(use_parallel=False)   ## lo cambié a False, con True me dejó de funcionar
 
     # Persist datamodel into csv tables
     persist_datamodel_tables()
