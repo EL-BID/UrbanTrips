@@ -579,8 +579,8 @@ def test_section_load_viz(matriz_validacion_test_amba):
     # Build final routes from official an inferred sources
     routes.build_routes_from_official_inferred()
 
-    kpi.compute_route_section_load(id_linea=32, rango_hrs=False)
-    viz.visualize_route_section_load(id_linea=32, rango_hrs=False)
+    kpi.compute_route_section_load(line_ids=117, hour_range=False)
+    viz.visualize_route_section_load(line_ids=117, hour_range=False)
 
 
 def test_viz(matriz_validacion_test_amba):

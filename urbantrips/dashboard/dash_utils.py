@@ -140,18 +140,26 @@ def normalize_vars(tabla):
 
 @st.cache_data
 def levanto_tabla_sql(tabla_sql,
+                      custom_query=False,
                       tabla_tipo='dash'):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
-        tabla = pd.read_sql_query(
-            f"""
-            SELECT *
-            FROM {tabla_sql}
-            """,
-            conn,
-        )
+        if not custom_query:
+            tabla = pd.read_sql_query(
+                f"""
+                SELECT *
+                FROM {tabla_sql}
+                """,
+                conn,
+            )
+        else:
+            tabla = pd.read_sql_query(
+                custom_query,
+                conn,
+            )
+
     except:
         print(f'{tabla_sql} no existe')
         tabla = pd.DataFrame([])
@@ -164,7 +172,7 @@ def levanto_tabla_sql(tabla_sql,
             tabla = gpd.GeoDataFrame(tabla,
                                      crs=4326)
             tabla = tabla.drop(['wkt'], axis=1)
-            
+
     tabla = normalize_vars(tabla)
 
     return tabla
@@ -186,6 +194,7 @@ def get_logo():
             f.write(response.content)
     image = Image.open(file_logo)
     return image
+
 
 @st.cache_data
 def create_linestring_od(df,

@@ -6,6 +6,7 @@ import yaml
 import time
 from functools import wraps
 import h3
+import re
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
@@ -256,6 +257,7 @@ def create_other_inputs_tables():
 
 def create_dash_tables():
     conn_dash = iniciar_conexion_db(tipo='dash')
+
     conn_dash.execute(
         """
         CREATE TABLE IF NOT EXISTS matrices
@@ -367,40 +369,108 @@ def create_dash_tables():
         (id_linea int not null,
         yr_mo text,
         nombre_linea str,
-        day_type text nor null,
+        day_type text not null,
         n_sections int,
+        section_meters int,
         sentido text not null,
-        section_id float not null,
-        hora_min int,
-        hora_max int,
-        cantidad_etapas int not null,
-        prop_etapas float not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        legs int not null,
+        prop float not null,
         buff_factor float,
         wkt text
         )
         ;
         """
     )
+
     conn_dash.execute(
         """
-        CREATE TABLE IF NOT EXISTS zonificaciones
-        (zona text NOT NULL,
-         id text NOT NULL,
-         orden int,
-         wkt text        
+        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
+        (id_linea int not null,
+        yr_mo text,
+        day_type text nor null,
+        n_sections int,
+        hour_min int,
+        hour_max int,
+        Origen int not null,
+        Destino int not null,
+        legs int not null,
+        prop float not null,
+        nombre_linea text
         )
         ;
         """
     )
+
     conn_dash.execute(
         """
-        CREATE TABLE IF NOT EXISTS poligonos
-        (id text NOT NULL,         
-         wkt text        
+        CREATE TABLE IF NOT EXISTS matrices_linea_carto
+        (id_linea INT NOT NULL,
+        n_sections INT NOT NULL,
+        section_id INT NOT NULL,
+        wkt text,
+        x float,
+        y float,
+        nombre_linea text
         )
         ;
         """
     )
+
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS matrices_linea
+        (id_linea INT NOT NULL,
+        yr_mo text,
+        day_type text not null,
+        n_sections INT NOT NULL,
+        hour_min int,
+        hour_max int,
+        section_id INT,
+        Origen int ,
+        Destino int ,
+        legs int,
+        prop float,
+        nombre_linea text
+        )
+        ;
+        """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS services_by_line_hour
+                (
+                id_linea int not null,
+                dia text not null,
+                hora int  not null,
+                servicios float  not null
+                )
+            ;
+            """
+    )
+
+    conn_dash.execute(
+        """
+            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+                (
+                dia text not null,
+                yr_mo text,
+                id_linea int not null,
+                nombre_linea text,
+                hora int  not null,
+                veh float,
+                pax float,
+                dmt float,
+                of float,
+                speed_kmh float
+                )
+            ;
+            """
+    )
+
     conn_dash.close()
 
 
@@ -461,6 +531,21 @@ def create_stops_and_routes_carto_tables():
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS routes_section_id_coords
+        (id_linea INT NOT NULL,
+        n_sections INT NOT NULL,
+        section_id INT NOT NULL,
+        section_lrs float NOT NULL,
+        x float NOT NULL,
+        y float NOT NULL
+        )
+        ;
+        """
+    )
+
     conn_insumos.close()
 
 
@@ -598,13 +683,11 @@ def create_basic_data_model_tables():
         n_sections int,
         section_meters int,
         sentido text not null,
-        section_id float not null,
-        x float,
-        y float,
-        hora_min int,
-        hora_max int,
-        cantidad_etapas int not null,
-        prop_etapas float not null
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        legs int not null,
+        prop float not null
         )
         ;
         """
@@ -924,7 +1007,6 @@ def create_kpi_tables():
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
-    conn_dash = iniciar_conexion_db(tipo='dash')
 
     conn_data.execute(
         """
@@ -970,18 +1052,6 @@ def create_kpi_tables():
     )
 
     conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS services_by_line_hour
-                (
-                id_linea int not null,
-                dia text not null,
-                hora int  not null,
-                servicios float  not null
-                )
-            ;
-            """
-    )
-    conn_dash.execute(
         """
             CREATE TABLE IF NOT EXISTS services_by_line_hour
                 (
@@ -1047,27 +1117,25 @@ def create_kpi_tables():
             """
     )
 
-    conn_dash.execute(
+    conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
-                (
-                dia text not null,
-                yr_mo text,
-                id_linea int not null,
-                nombre_linea text,
-                hora int  not null,
-                veh float,
-                pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
-            """
+        CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
+        (id_linea int not null,
+        yr_mo text,
+        day_type text nor null,
+        n_sections int,
+        hour_min int,
+        hour_max int,
+        section_id_o int not null,
+        section_id_d int not null,
+        legs int not null,
+        prop float not null
+        )
+        ;
+        """
     )
 
     conn_data.close()
-    conn_dash.close()
 
 
 def check_table_in_db(table_name, tipo_db):
@@ -1102,6 +1170,46 @@ def check_table_in_db(table_name, tipo_db):
     else:
         return True
 
+
+def is_date_string(input_str):
+    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    if pattern.match(input_str):
+        return True
+    else:
+        return False
+
+
+def check_date_type(day_type):
+    """Checks if a day_type param is formated in the right way"""
+    day_type_is_a_date = is_date_string(day_type)
+
+    # check day type format
+    day_type_format_ok = (
+        day_type in ["weekday", "weekend"]) or day_type_is_a_date
+
+    if not day_type_format_ok:
+        raise Exception(
+            "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
+        )
+
+
+def create_line_ids_sql_filter(line_ids):
+    """
+    Takes a set of line ids and returns a where clause
+    to filter in sqlite
+    """
+    if line_ids is not None:
+        if isinstance(line_ids, int):
+            line_ids = [line_ids]
+        lines_str = ",".join(map(str, line_ids))
+        line_ids_where = f" where id_linea in ({lines_str})"
+
+    else:
+        lines_str = ''
+        line_ids_where = " where id_linea is not NULL"
+    return line_ids_where
+
+
 def traigo_tabla_zonas():
     alias = leer_alias()
 
@@ -1113,8 +1221,10 @@ def traigo_tabla_zonas():
         """,
         conn_insumos,
     )
-    zonas_cols = [i for i in zonas.columns if i not in ['h3', 'fex', 'latitud', 'longitud']]
+    zonas_cols = [i for i in zonas.columns if i not in [
+        'h3', 'fex', 'latitud', 'longitud']]
     return zonas, zonas_cols
+
 
 def normalize_vars(tabla):
     if 'dia' in tabla.columns:
@@ -1131,6 +1241,7 @@ def normalize_vars(tabla):
     if 'modo' in tabla.columns:
         tabla['modo'] = tabla['modo'].str.capitalize()
     return tabla
+
 
 def levanto_tabla_sql(tabla_sql,
                       tabla_tipo='dash'):
@@ -1152,34 +1263,38 @@ def levanto_tabla_sql(tabla_sql,
     conn.close()
 
     if len(tabla) > 0:
-    
+
         if 'wkt' in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla,
                                      crs=4326)
             tabla = tabla.drop(['wkt'], axis=1)
-            
+
     tabla = normalize_vars(tabla)
 
     return tabla
 
-def calculate_weighted_means(df, 
-                               aggregate_cols, 
-                               weighted_mean_cols, 
-                               weight_col,
-                               zero_to_nan = []):
-    
+
+def calculate_weighted_means(df,
+                             aggregate_cols,
+                             weighted_mean_cols,
+                             weight_col,
+                             zero_to_nan=[]):
+
     for i in zero_to_nan:
-        df.loc[df[i]==0, i] = np.nan
+        df.loc[df[i] == 0, i] = np.nan
 
     calculate_weighted_means    # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError("One or more columns specified do not exist in the DataFrame.")
+        raise ValueError(
+            "One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])
     # Calculate the product of the value and its weight for weighted mean calculation
     for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(),col] * df.loc[df[col].notna(),weight_col]      
-        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[[f'{col}_weighted', weight_col]].sum()
+        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(
+        ), col] * df.loc[df[col].notna(), weight_col]
+        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[
+            [f'{col}_weighted', weight_col]].sum()
         grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
         grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
 

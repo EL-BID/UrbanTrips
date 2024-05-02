@@ -21,8 +21,6 @@ from folium import Figure
 from shapely.geometry import LineString
 
 
-
-
 from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od
 
 
@@ -224,6 +222,7 @@ with st.expander('Líneas de deseo'):
     col1, col2 = st.columns([1, 4])
 
     lineas_deseo = levanto_tabla_sql('lineas_deseo')
+
     if len(lineas_deseo)>0:
     
         lineas_deseo = create_linestring_od(lineas_deseo)

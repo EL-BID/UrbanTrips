@@ -24,6 +24,7 @@ setuptools.setup(
     install_requires=[
         'contextily==1.4.0',
         'folium==0.14.0',
+        'fiona==1.9.6',
         'geopandas==0.14.0',
         'fiona==1.9.6',
         'h3==3.7.6',

@@ -5,6 +5,8 @@ from urbantrips.viz_ppt_utils import viz_ppt_utils
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.utils import (leer_configs_generales)
+from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
+from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
 
 
 def main():
@@ -42,12 +44,21 @@ def main():
 
     # Compute and viz route section load by line
     for rango in [[7, 10], [17, 19]]:
+        # crate rout section load
         kpi.compute_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango)
+            line_ids=top_line_ids, hour_range=rango)
         viz.visualize_route_section_load(
-            id_linea=top_line_ids, rango_hrs=rango,
-            save_gdf=True, indicador='prop_etapas', factor=500,
+            line_ids=top_line_ids, hour_range=rango,
+            save_gdf=True, stat='proportion', factor=500,
             factor_min=50, )
+
+        compute_lines_od_matrix(
+            line_ids=top_line_ids, hour_range=rango,
+            n_sections=10, day_type='weekday', save_csv=False
+        )
+        visualize_lines_od_matrix(
+            line_ids=top_line_ids, hour_range=rango,
+            day_type='weekday', n_sections=10, stat='proportion')
 
     # Prduce main viz
     viz.create_visualizations()

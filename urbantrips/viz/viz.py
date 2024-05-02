@@ -34,7 +34,8 @@ from urbantrips.utils.utils import (
     traigo_db_path,
     iniciar_conexion_db,
     leer_alias,
-    duracion)
+    duracion,
+    create_line_ids_sql_filter)
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -71,10 +72,10 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
 
 
 @duracion
-def visualize_route_section_load(id_linea=False, rango_hrs=False,
+def visualize_route_section_load(line_ids=False, hour_range=False,
                                  day_type='weekday',
                                  n_sections=10, section_meters=None,
-                                 indicador='cantidad_etapas', factor=1,
+                                 stat='totals', factor=1,
                                  factor_min=50,
                                  save_gdf=False):
     """
@@ -82,9 +83,9 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
 
     Parameters
     ----------
-    id_linea : int, list of ints or bool
+    line_ids : int, list of ints or bool
         route id present in the ocupacion_por_linea_tramo table.
-    rango_hrs : tuple or bool
+    hour_range : tuple or bool
         tuple holding hourly range (from,to) and from 0 to 24.
     day_type: str
         type of day. It can take `weekday`, `weekend` or a specific
@@ -94,9 +95,9 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
     section_meters: int
         section lenght in meters to split the route geom. If specified,
         this will be used instead of n_sections.
-    indicator: str
-        Tipe of section load to display. 'cantidad_etapas' (amount of legs)
-        or `prop_etapas` (proportion of legs)
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
     factor: int
         scaling factor to use for line width to plot section load
     factor_min: int
@@ -105,22 +106,17 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
     """
     sns.set_style("whitegrid")
 
-    if id_linea:
-
-        if type(id_linea) == int:
-            id_linea = [id_linea]
-
-    table = get_route_section_load(
-        id_linea=id_linea,
-        rango_hrs=rango_hrs,
+    section_load_data = get_route_section_load(
+        line_ids=line_ids,
+        hour_range=hour_range,
         day_type=day_type,
         n_sections=n_sections,
         section_meters=section_meters)
 
     # Create a viz for each route
-    table.groupby(['id_linea', 'yr_mo']).apply(
+    section_load_data.groupby(['id_linea', 'yr_mo']).apply(
         viz_etapas_x_tramo_recorrido,
-        indicator=indicador,
+        stat=stat,
         factor=factor,
         factor_min=factor_min,
         return_gdfs=False,
@@ -128,17 +124,21 @@ def visualize_route_section_load(id_linea=False, rango_hrs=False,
     )
 
 
-def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
-                           n_sections=10, section_meters=None,):
+def get_route_section_load(line_ids=False, hour_range=False, day_type='weekday',
+                           n_sections=10, section_meters=None):
     """
     Get the load per route section data
 
     Parameters
     ----------
-    id_linea : int, list of ints or bool
-        route id present in the ocupacion_por_linea_tramo table.
-    rango_hrs : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24.
+    line_ids : int, list of ints or bool
+        route id or list of route ids present in the legs dataset. Route
+        section load will be computed for that subset of lines. If False, it
+        will run with all routes.
+    hour_range : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24. Route section
+        load will be computed for legs happening within tat time range.
+        If False it won't filter by hour.
     day_type: str
         type of day. It can take `weekday`, `weekend` or a specific
         day in format 'YYYY-MM-DD'
@@ -150,67 +150,57 @@ def get_route_section_load(id_linea=False, rango_hrs=False, day_type='weekday',
 
     Returns
     -------
-    table : pandas.Data.Frame
+    pandas.Data.Frame
         dataframe with load per section per route
-
-    recorridos : geopandas.GeoDataFrame
-        geodataframe with route geoms
-
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
 
-    # route id filter
-    if id_linea:
-
-        if type(id_linea) == int:
-            id_linea = [id_linea]
-
-        lineas_str = ",".join(map(str, id_linea))
-    else:
-        lineas_str = ''
-
-    # create query to get data from db
     q = load_route_section_load_data_q(
-        lineas_str, rango_hrs, n_sections, section_meters, day_type
+        line_ids=line_ids, hour_range=hour_range, day_type=day_type,
+        n_sections=n_sections, section_meters=section_meters
     )
 
     # Read data from section load table
-    table = pd.read_sql(q, conn_data)
+    section_load_data = pd.read_sql(q, conn_data)
 
-    if len(table) == 0:
+    conn_data.close()
+
+    if len(section_load_data) == 0:
         print("No hay datos de carga por tramo para estos parametros.")
-        print(" id_linea:", id_linea,
-              " rango_hrs:", rango_hrs,
+        print(" id_linea:", line_ids,
+              " rango_hrs:", hour_range,
               " n_sections:", n_sections,
               " section_meters:", section_meters,
               " day_type:", day_type)
 
-    return table
+    return section_load_data
 
 
 def load_route_section_load_data_q(
-    lineas_str, rango_hrs, n_sections, section_meters, day_type
-):
+        line_ids, hour_range, day_type, n_sections, section_meters):
     """
     Creates a query that gets route section load data from the db
     for a specific set of lineas, hours, section meters and day type
 
     Parameters
     ----------
-    lineas_str : str
-        list of lines to query in a string format separated by comma
-    rango_hrs : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24.
+    line_ids : int, list of ints or bool
+        route id or list of route ids present in the legs dataset. Route
+        section load will be computed for that subset of lines. If False, it
+        will run with all routes.
+    hour_range : tuple or bool
+        tuple holding hourly range (from,to) and from 0 to 24. Route section
+        load will be computed for legs happening within tat time range.
+        If False it won't filter by hour.
     day_type: str
-        type of day. It can take `weekday`, `weekend` or a specific
-        day in format 'YYYY-MM-DD'
+        type of day on which the section load is to be computed. It can take
+        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
     n_sections: int
         number of sections to split the route geom
     section_meters: int
         section lenght in meters to split the route geom. If specified,
         this will be used instead of n_sections.
-
     Returns
     -------
     str
@@ -218,38 +208,40 @@ def load_route_section_load_data_q(
 
     """
 
+    line_ids_where = create_line_ids_sql_filter(line_ids)
+
+    q_main_data = """
+    select *
+    from ocupacion_por_linea_tramo
+    """
+    q_main_data = q_main_data + line_ids_where
+
     # hour range filter
-    if rango_hrs:
-        hora_min_filter = f"= {rango_hrs[0]}"
-        hora_max_filter = f"= {rango_hrs[1]}"
+    if hour_range:
+        hora_min_filter = f"= {hour_range[0]}"
+        hora_max_filter = f"= {hour_range[1]}"
     else:
         hora_min_filter = "is NULL"
         hora_max_filter = "is NULL"
 
-    q = f"""
-        select * from ocupacion_por_linea_tramo
-        where hora_min {hora_min_filter}
-        and hora_max {hora_max_filter}
+    q_main_data = q_main_data + f"""
+        and hour_min {hora_min_filter}
+        and hour_max {hora_max_filter}
         and day_type = '{day_type}'
         """
 
-    if lineas_str != '':
-        q = q + f" and id_linea in ({lineas_str})"
-
     if section_meters:
-        q = q + f" and  section_meters = {section_meters}"
+        q_main_data = q_main_data + f" and section_meters = {section_meters}"
 
     else:
-        q = (
-            q +
-            f" and n_sections = {n_sections} and section_meters is NULL"
-        )
-    q = q + ";"
-    return q
+        q_main_data = q_main_data + f" and n_sections = {n_sections}"
+
+    q_main_data = q_main_data + ";"
+    return q_main_data
 
 
 def viz_etapas_x_tramo_recorrido(df,
-                                 indicator='cantidad_etapas', factor=1,
+                                 stat='totals', factor=1,
                                  factor_min=50, return_gdfs=False,
                                  save_gdf=False):
     """
@@ -261,9 +253,9 @@ def viz_etapas_x_tramo_recorrido(df,
         table for a given route in section load db table
     route geom: geopandas.GeoSeries
         route geoms with id_route as index
-    indicator: str
-        Tipe of section load to display. 'cantidad_etapas' (amount of legs)
-        or `prop_etapas` (proportion of legs)
+    stat: str
+        Tipe of section load to display. 'totals' (amount of legs)
+        or `proportion` (proportion of legs)
     factor: int
         scaling factor to use for line width to plot section load
     factor_min: int
@@ -281,11 +273,14 @@ def viz_etapas_x_tramo_recorrido(df,
     """
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
-    id_linea = df.id_linea.unique()[0]
-    mes = df.yr_mo.unique()[0]
+    line_id = df.id_linea.unique().item()
+    n_sections = df.n_sections.unique().item()
+    mes = df.yr_mo.unique().item()
+    day = df['day_type'].unique().item()
 
+    # get line name from metadata
     s = f"select nombre_linea from metadata_lineas" +\
-        f" where id_linea = {id_linea};"
+        f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
 
     if len(id_linea_str) > 0:
@@ -293,8 +288,7 @@ def viz_etapas_x_tramo_recorrido(df,
     else:
         id_linea_str = ''
 
-    day = df['day_type'].unique().item()
-
+    # Turn day type into printable string
     if day == 'weekend':
         day_str = 'Fin de semana'
     elif day == 'weekday':
@@ -304,58 +298,74 @@ def viz_etapas_x_tramo_recorrido(df,
 
     section_ids = df.section_id.unique()
 
-    print('Produciendo grafico de ocupacion por tramos', id_linea)
+    # Set title and plot axis
+    if stat == 'totals':
+        title = 'Segmentos del recorrido - Cantidad de etapas'
+        y_axis_lable = 'Cantidad de etapas por sentido'
+        indicator_col = 'legs'
+    elif stat == 'proportion':
+        title = 'Segmentos del recorrido - Porcentaje de etapas totales'
+        y_axis_lable = 'Porcentaje del total de etapas'
+        indicator_col = 'prop'
+
+    else:
+        raise Exception(
+            "Indicador stat debe ser 'cantidad_etapas' o 'prop_etapas'")
+
+    print('Produciendo grafico de ocupacion por tramos', line_id)
 
     # set a expansion factor for viz purposes
-    df['buff_factor'] = df[indicator]*factor
+    df['buff_factor'] = df[indicator_col]*factor
 
     # Set a minimum for each section to be displated in map
     df['buff_factor'] = np.where(
         df['buff_factor'] <= factor_min, factor_min, df['buff_factor'])
 
     cols = ['id_linea', 'yr_mo', 'day_type', 'n_sections', 'sentido',
-            'section_id', 'hora_min', 'hora_max', 'cantidad_etapas',
-            'prop_etapas', 'buff_factor']
+            'section_id', 'hour_min', 'hour_max', 'legs',
+            'prop', 'buff_factor']
 
     df_d0 = df.loc[df.sentido == 'ida', cols]
     df_d1 = df.loc[df.sentido == 'vuelta', cols]
 
-    # Create geoms for route in both directions
-    df_geom = df.query("sentido == 'ida'")\
-        .sort_values('section_id')\
-        .reset_index(drop=True)
-
-    geom = [LineString(
-        [[df_geom.loc[i, 'x'], df_geom.loc[i, 'y']],
-         [df_geom.loc[i+1, 'x'], df_geom.loc[i+1, 'y']]]
-    ) for i in df_geom.index[:-1]]
-    gdf = gpd.GeoDataFrame(pd.DataFrame(
-        {'section_id': df_geom.section_id.iloc[:-1]}),
-        geometry=geom, crs='epsg:4326')
+    # get data
+    sections_geoms_q = f"""
+    select * from routes_section_id_coords 
+    where id_linea = {line_id}
+    and n_sections = {n_sections}
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
+    sections_geoms = geo.create_sections_geoms(
+        sections_geoms, buffer_meters=False)
 
     # Arrows
-    flecha_ida_wgs84 = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_ida_wgs84 = sections_geoms.loc[sections_geoms.section_id ==
+                                          sections_geoms.section_id.min(), 'geometry']
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
-    flecha_ida_fin_wgs84 = flecha_ida_wgs84[1]
 
-    flecha_vuelta_wgs84 = gdf.loc[gdf.section_id ==
-                                  max(gdf.section_id), 'geometry']
+    flecha_vuelta_wgs84 = sections_geoms.loc[sections_geoms.section_id ==
+                                             max(sections_geoms.section_id), 'geometry']
     flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
-    flecha_vuelta_inicio_wgs84 = flecha_vuelta_wgs84[0]
     flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
 
     # Use a projected crs in meters
     epsg = geo.get_epsg_m()
-    gdf = gdf.to_crs(epsg=epsg)
+    sections_geoms = sections_geoms.to_crs(epsg=epsg)
 
-    gdf_d0 = gdf\
-        .merge(df_d0, on='section_id', how='left')\
-        .fillna(0)
+    gdf_d0 = sections_geoms\
+        .merge(df_d0, on=['id_linea', 'n_sections', 'section_id'], how='left')\
 
-    gdf_d1 = gdf\
-        .merge(df_d1, on='section_id', how='left')\
-        .fillna(0)
+    gdf_d0.legs = gdf_d0.legs.fillna(0)
+    gdf_d0.prop = gdf_d0.prop.fillna(0)
+
+    gdf_d1 = sections_geoms\
+        .merge(df_d1, on=['id_linea', 'n_sections', 'section_id'],
+               how='left')\
+
+    gdf_d1.legs = gdf_d1.legs.fillna(0)
+    gdf_d1.prop = gdf_d1.prop.fillna(0)
 
     # save data for dashboard
     gdf_d0_dash = gdf_d0.to_crs(epsg=4326).copy()
@@ -383,7 +393,7 @@ def viz_etapas_x_tramo_recorrido(df,
     box.plot(ax=ax2, color='#ffffff00')
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=id_linea)
+    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -392,17 +402,17 @@ def viz_etapas_x_tramo_recorrido(df,
         branch_geoms.plot(ax=ax2, color='Orange',
                           alpha=0.4, linestyle='dashed')
 
-    gdf.plot(ax=ax1, color='black')
-    gdf.plot(ax=ax2, color='black')
+    sections_geoms.plot(ax=ax1, color='black')
+    sections_geoms.plot(ax=ax2, color='black')
 
     try:
-        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu',
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap='BuPu',
                     scheme='fisherjenks', k=5, alpha=.6)
-        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges',
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap='Oranges',
                     scheme='fisherjenks', k=5, alpha=.6)
     except ValueError:
-        gdf_d0.plot(ax=ax1, column=indicator, cmap='BuPu', alpha=.6)
-        gdf_d1.plot(ax=ax2, column=indicator, cmap='Oranges', alpha=.6)
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap='BuPu', alpha=.6)
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap='Oranges', alpha=.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
@@ -410,26 +420,17 @@ def viz_etapas_x_tramo_recorrido(df,
     ax1.set_title('IDA', fontdict=font_dicc, y=1.0, pad=-20)
     ax2.set_title('VUELTA', fontdict=font_dicc, y=1.0, pad=-20)
 
-    # Set title and plot axis
-    if indicator == 'cantidad_etapas':
-        title = 'Segmentos del recorrido - Cantidad de etapas'
-        y_axis_lable = 'Cantidad de etapas por sentido'
-    elif indicator == 'prop_etapas':
-        title = 'Segmentos del recorrido - Porcentaje de etapas totales'
-        y_axis_lable = 'Porcentaje del total de etapas'
-    else:
-        raise Exception(
-            "Indicador debe ser 'cantidad_etapas' o 'prop_etapas'")
-
-    if not df.hora_min.isna().all():
-        from_hr = df.hora_min.unique()[0]
-        to_hr = df.hora_max.unique()[0]
+    if not df.hour_min.isna().all():
+        from_hr = df.hour_min.unique()[0]
+        to_hr = df.hour_max.unique()[0]
         hr_str = f' {from_hr}-{to_hr} hrs'
+        hour_range = [from_hr, to_hr]
     else:
         hr_str = ''
+        hour_range = False
 
     title = title + hr_str + ' - ' + day_str + '-' + mes + \
-        '-' + f" {id_linea_str} (id_linea: {id_linea})"
+        '-' + f" {id_linea_str} (id_linea: {line_id})"
     f.suptitle(title, fontsize=18)
 
     # Matching bar plot with route direction
@@ -476,11 +477,11 @@ def viz_etapas_x_tramo_recorrido(df,
         df_d1 = df_d1.sort_values('section_id', ascending=False)
 
     sns.barplot(data=df_d0, x="section_id",
-                y=indicator, ax=ax3, color='Purple',
+                y=indicator_col, ax=ax3, color='Purple',
                 order=df_d0.section_id.values)
 
     sns.barplot(data=df_d1, x="section_id",
-                y=indicator, ax=ax4, color='Orange',
+                y=indicator_col, ax=ax4, color='Orange',
                 order=df_d1.section_id.values)
 
     # Axis
@@ -494,7 +495,7 @@ def viz_etapas_x_tramo_recorrido(df,
 
     ax4.set_ylabel('')
     ax4.set_xlabel('')
-    max_y_barplot = max(df_d0[indicator].max(), df_d1[indicator].max())
+    max_y_barplot = max(df_d0[indicator_col].max(), df_d1[indicator_col].max())
     ax3.set_ylim(0, max_y_barplot)
     ax4.set_ylim(0, max_y_barplot)
 
@@ -508,13 +509,15 @@ def viz_etapas_x_tramo_recorrido(df,
     ax4.grid(False)
 
     # For direction 0, get the last section of the route geom
-    flecha_ida = gdf.loc[gdf.section_id == max(gdf.section_id), 'geometry']
+    flecha_ida = sections_geoms\
+        .loc[sections_geoms.section_id == sections_geoms.section_id.max(), 'geometry']
     flecha_ida = list(flecha_ida.item().coords)
     flecha_ida_inicio = flecha_ida[1]
     flecha_ida_fin = flecha_ida[0]
 
     # For direction 1, get the first section of the route geom
-    flecha_vuelta = gdf.loc[gdf.section_id == 0.0, 'geometry']
+    flecha_vuelta = sections_geoms\
+        .loc[sections_geoms.section_id == sections_geoms.section_id.min(), 'geometry']
     flecha_vuelta = list(flecha_vuelta.item().coords)
     # invert the direction of the arrow
     flecha_vuelta_inicio = flecha_vuelta[0]
@@ -525,7 +528,8 @@ def viz_etapas_x_tramo_recorrido(df,
                  xytext=(flecha_ida_fin[0],
                          flecha_ida_fin[1]),
                  arrowprops=dict(facecolor='black',
-                                 edgecolor='black'),
+                                 edgecolor='black',
+                                 shrink=0.2),
                  )
 
     ax2.annotate('', xy=(flecha_vuelta_inicio[0],
@@ -533,7 +537,8 @@ def viz_etapas_x_tramo_recorrido(df,
                  xytext=(flecha_vuelta_fin[0],
                          flecha_vuelta_fin[1]),
                  arrowprops=dict(facecolor='black',
-                                 edgecolor='black'),
+                                 edgecolor='black',
+                                 shrink=0.2),
                  )
 
     ax3.annotate('Sentido', xy=flecha_ida_xy, xytext=flecha_ida_text_xy,
@@ -563,77 +568,61 @@ def viz_etapas_x_tramo_recorrido(df,
 
     for frm in ['png', 'pdf']:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
-        archivo = archivo+f"{id_linea}_{indicator}_{hr_str}.{frm}"
+        archivo = archivo+f"{line_id}_{stat}_{hr_str}.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
+
+    # Save to dash db
+
+    gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
+    gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
+
+    gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
+    gdf_d_dash['nombre_linea'] = id_linea_str
+
+    cols = ['id_linea',
+            'yr_mo',
+            'nombre_linea',
+            'day_type',
+            'n_sections',
+            'sentido',
+            'section_id',
+            'hour_min',
+            'hour_max',
+            'legs',
+            'prop',
+            'buff_factor',
+            'wkt']
+
+    gdf_d_dash = gdf_d_dash[cols]
+
+    # delete old data
+    delete_df = sections_geoms.reindex(
+        columns=['id_linea', 'n_sections']).drop_duplicates()
+
+    kpi.delete_old_route_section_load_data(
+        route_geoms=delete_df, hour_range=hour_range, day_type=day,
+        yr_mos=[mes], db_type='dash')
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+
+    gdf_d_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
+                      if_exists="append", index=False)
+    conn_dash.close()
 
     if save_gdf:
         gdf_d0 = gdf_d0.to_crs(epsg=4326)
         gdf_d1 = gdf_d1.to_crs(epsg=4326)
 
-        f_0 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{id_linea}_{indicator}{hr_str}_0.geojson'
-        f_1 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{id_linea}_{indicator}{hr_str}_1.geojson'
+        f_0 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_0.geojson'
+        f_1 = f'segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_1.geojson'
 
         db_path_0 = os.path.join("resultados", "geojson", f_0)
         db_path_1 = os.path.join("resultados", "geojson", f_1)
 
         gdf_d0.to_file(db_path_0, driver='GeoJSON')
         gdf_d1.to_file(db_path_1, driver='GeoJSON')
-
-        conn_dash = iniciar_conexion_db(tipo='dash')
-
-        gdf_d0_dash['wkt'] = gdf_d0_dash.geometry.to_wkt()
-        gdf_d1_dash['wkt'] = gdf_d1_dash.geometry.to_wkt()
-
-        gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
-
-        gdf_d_dash['nombre_linea'] = id_linea_str
-
-        cols = ['id_linea',
-                'yr_mo',
-                'nombre_linea',
-                'day_type',
-                'n_sections',
-                'sentido',
-                'section_id',
-                'hora_min',
-                'hora_max',
-                'cantidad_etapas',
-                'prop_etapas',
-                'buff_factor',
-                'wkt']
-
-        gdf_d_dash = gdf_d_dash[cols]
-
-        gdf_d_dash_ant = pd.read_sql_query(
-            """
-            SELECT *
-            FROM ocupacion_por_linea_tramo
-            """,
-            conn_dash,
-        )
-
-        gdf_d_dash_ant = gdf_d_dash_ant[~(
-            (gdf_d_dash_ant.id_linea.isin(
-                gdf_d_dash.id_linea.unique().tolist())) &
-            (gdf_d_dash_ant.day_type.isin(
-                gdf_d_dash.day_type.unique().tolist())) &
-            (gdf_d_dash_ant.n_sections.isin(
-                gdf_d_dash.n_sections.unique().tolist())) &
-            ((gdf_d_dash_ant.hora_min == from_hr)
-             & (gdf_d_dash_ant.hora_max == to_hr)) & (
-                gdf_d_dash_ant.yr_mo == mes
-            )
-        )]
-
-        gdf_d_dash = pd.concat(
-            [gdf_d_dash_ant, gdf_d_dash], ignore_index=True)
-
-        gdf_d_dash.to_sql("ocupacion_por_linea_tramo", conn_dash,
-                          if_exists="replace", index=False)
-
-        conn_dash.close()
 
     if return_gdfs:
         return gdf_d0, gdf_d1

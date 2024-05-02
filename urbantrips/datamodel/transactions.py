@@ -652,14 +652,13 @@ def geolocalizar_trx(
         parse_dates={"fecha": "%Y-%m-%d %H:%M:%S"},
     )
 
-    # trx['fecha'] = pd.to_datetime(trx.fecha, unit='s',errors='coerce')
-
     print(
         "Gelocalización terminada "
         + "Resumen diferencia entre las fechas de las trx "
         + "y las del gps en minutos:"
     )
     print(trx.delta_trx_gps_min.describe())
+
     trx = trx.drop("delta_trx_gps_min", axis=1)
 
     conn.execute("""DELETE FROM trx_eco;""")
