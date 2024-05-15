@@ -23,6 +23,10 @@ def main():
     tipo_trx_invalidas = configs["tipo_trx_invalidas"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
+    # gps configs
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
     trx_order_params = {
@@ -30,14 +34,6 @@ def main():
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
-
-    # gps configs
-    if geolocalizar_trx_config:
-        nombre_archivo_gps = configs["nombre_archivo_gps"]
-        nombres_variables_gps = configs["nombres_variables_gps"]
-    else:
-        nombre_archivo_gps = None
-        nombres_variables_gps = None
 
     # Compute tolerance in h3 ring
     ring_size = geo.get_h3_buffer_ring_size(
@@ -57,11 +53,19 @@ def main():
     # Turn transactions into legs
     legs.create_legs_from_transactions(trx_order_params)
 
+    if nombre_archivo_gps is not None:
+        # Assign a gps point id to legs' origins
+        legs.assign_gps_origin()
+
     # Update destination validation matrix
     carto.update_stations_catchment_area(ring_size=ring_size)
 
     # Infer legs destinations
     dest.infer_destinations()
+
+    if nombre_archivo_gps is not None:
+        # Assign a gps point id to legs' destination
+        legs.assign_gps_destination()
 
     # Fix trips with same OD
     trips.rearrange_trip_id_same_od()

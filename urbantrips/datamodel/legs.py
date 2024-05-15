@@ -2,7 +2,7 @@ import pandas as pd
 import itertools
 import time
 import numpy as np
-from urbantrips.geo.geo import referenciar_h3
+from urbantrips.geo.geo import referenciar_h3, convert_h3_to_resolution
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -240,7 +240,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
 
     trx['interno2'] = trx['interno']
     trx['interno2'] = trx['interno2'].fillna(0)
-    
+
     trx = trx.sort_values(['dia', 'id_tarjeta', 'id_linea',
                           'interno2', 'fecha_aux', 'orden_trx']).reset_index(drop=True)
 
@@ -532,3 +532,63 @@ def crear_viaje_id_acumulada(df, ventana_viajes=120):
         viajes.append(viaje_id)
 
     return viajes
+
+
+@duracion
+def assign_gps_origin():
+    """
+    This function read legs data and if there is gps table 
+    assigns a gps to the leg origin
+    """
+    print("Clasificando etapas en su gps de origen")
+    conn_data = iniciar_conexion_db(tipo='data')
+    # get legs data
+    legs = pd.read_sql_query(
+        """
+        SELECT dia,id_linea,id_ramal,interno,id, tiempo
+        FROM etapas
+        WHERE od_validado==1
+        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
+        """,
+        conn_data,
+    )
+    legs['fecha'] = pd.to_datetime(legs['dia']+' '+legs['tiempo'])
+
+    # get gps data
+    q = """
+    select dia,id_linea,id_ramal,interno,fecha,id 
+    from gps
+    order by dia, id_linea,id_ramal,interno,fecha;
+    """
+    gps = pd.read_sql(q, conn_data)
+    gps.loc[:, ['fecha']] = gps.fecha.map(
+        lambda ts: pd.Timestamp(ts, unit='s'))
+    cols = ['dia', 'id_linea', 'id_ramal', 'interno', 'fecha', 'id']
+    legs_to_join = legs.reindex(columns=cols).sort_values('fecha')
+    gps_to_join = gps.reindex(columns=cols).sort_values('fecha')
+
+    legs_to_gps_o = pd.merge_asof(
+        legs_to_join,
+        gps_to_join,
+        on='fecha', by=['dia', 'id_linea', 'id_ramal', 'interno'],
+        direction='nearest', tolerance=pd.Timedelta('7 minutes'),
+        suffixes=('_legs', '_gps'))
+
+    legs_to_gps_o = legs_to_gps_o\
+        .reindex(columns=['id_legs', 'id_gps']).dropna()
+    print(f"Subiendo {len(legs_to_gps_o)} etapas con id gps a la DB")
+    legs_to_gps_o.to_sql("legs_to_gps_origin", conn_data,
+                         if_exists='append', index=False)
+    conn_data.close()
+
+    return legs_to_gps_o
+
+
+@duracion
+def assign_gps_destination():
+    """
+    This function read legs data and if there is gps table 
+    assigns a gps to the leg origin
+    """
+    print("D")
+    return None

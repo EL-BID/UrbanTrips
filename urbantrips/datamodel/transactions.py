@@ -8,7 +8,6 @@ from urbantrips.utils.utils import (leer_configs_generales,
                                     duracion,
                                     iniciar_conexion_db,
                                     agrego_indicador,
-                                    eliminar_tarjetas_trx_unica,
                                     crear_tablas_geolocalizacion)
 
 
@@ -129,9 +128,13 @@ def create_transactions(geolocalizar_trx_config,
         trx["id"] = crear_id_interno(
             conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
-    # # Elminar transacciones unicas en el dia
-    # trx = eliminar_tarjetas_trx_unica(trx)  #### No borrar transacciones
-    # únicas (quedan en estas con fex=0)
+        # process gps table when no geocoding
+        if nombre_archivo_gps is not None:
+            print("Uploading GPS table wiithout geocoding")
+            process_and_upload_gps_table(
+                nombre_archivo_gps=nombre_archivo_gps,
+                nombres_variables_gps=nombres_variables_gps,
+                formato_fecha=formato_fecha)
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
