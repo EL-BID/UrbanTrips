@@ -1,31 +1,18 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from PIL import Image
-import requests
 import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
 from mycolorpy import colorlist as mcp
-import os
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
-
-import yaml
-import sqlite3
-from shapely import wkt
 from folium import Figure
-from shapely.geometry import LineString
-from urbantrips.viz.viz import (
-    create_squared_polygon)
-from urbantrips.geo import geo
-
-from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od
+from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od, create_squared_polygon, get_epsg_m
 
 
 def crear_mapa_folium(df_agg,
@@ -85,7 +72,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
                     (lineas.day_type == day_type) &
                     (lineas.n_sections == n_sections) &
                     (lineas.sentido == 'vuelta')].copy()
-    epsg_m = geo.get_epsg_m()
+    epsg_m = get_epsg_m()
     gdf_d0 = gdf_d0.to_crs(epsg=epsg_m)
     gdf_d1 = gdf_d1.to_crs(epsg=epsg_m)
 
