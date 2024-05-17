@@ -455,7 +455,7 @@ with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
     normalize = col1.checkbox('Normalizar', value=True)
-
+    matriz.to_excel('matriz_partido_all.xlsx')
     if len(matriz) > 0:
         od_heatmap = pd.crosstab(
             index=matriz['Origen'],
@@ -464,7 +464,11 @@ with st.expander('Matrices'):
             aggfunc="sum",
             normalize=normalize,
         )
-        od_heatmap = (od_heatmap * 100).round(1)
+            
+        if normalize:
+            od_heatmap = (od_heatmap * 100).round(1)
+        else:
+            od_heatmap = (od_heatmap).round(0).fillna(0).astype(int)
 
         od_heatmap = od_heatmap.reset_index()
         od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
