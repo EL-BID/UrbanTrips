@@ -717,6 +717,19 @@ def create_basic_data_model_tables():
         """
     )
 
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_gps
+        (
+        dia text,
+        id int not null,
+        travel_time_min float,
+        commercial_speed float
+        )
+        ;
+        """
+    )
+
     conn_data.close()
 
 

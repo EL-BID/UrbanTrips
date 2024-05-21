@@ -615,9 +615,10 @@ def assign_gps_destination():
         FROM etapas e
         JOIN dias_ultima_corrida d
         ON e.dia = d.dia
+        JOIN (SELECT DISTINCT id_linea FROM gps) idg
+        ON e.id_linea = idg.id_linea
         WHERE od_validado==1
-        and modo = 'autobus'
-        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
+        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno;
         ;
         """,
         conn_data,
@@ -758,6 +759,8 @@ def assign_gps_destination():
     tot_gps = len(travel_times)
     tot_gps_asig = travel_times.travel_time_min.notna().sum()
     print('% imputado', round(tot_gps_asig / tot_gps * 100, 1))
+    travel_times = travel_times.reindex(
+        columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
 
     travel_times.to_sql("travel_times_gps", conn_data,
                         if_exists='append', index=False)
