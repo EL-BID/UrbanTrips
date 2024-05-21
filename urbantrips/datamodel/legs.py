@@ -1,14 +1,14 @@
 import pandas as pd
 import itertools
-import time
 import numpy as np
+import h3
 from urbantrips.geo.geo import referenciar_h3, convert_h3_to_resolution
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    agrego_indicador,
-    eliminar_tarjetas_trx_unica)
+    agrego_indicador
+)
 
 
 @duracion
@@ -567,6 +567,7 @@ def assign_gps_origin():
     legs_to_join = legs.reindex(columns=cols).sort_values('fecha')
     gps_to_join = gps.reindex(columns=cols).sort_values('fecha')
 
+    # Join on closest date
     legs_to_gps_o = pd.merge_asof(
         legs_to_join,
         gps_to_join,
@@ -575,7 +576,8 @@ def assign_gps_origin():
         suffixes=('_legs', '_gps'))
 
     legs_to_gps_o = legs_to_gps_o\
-        .reindex(columns=['id_legs', 'id_gps']).dropna()
+        .reindex(columns=['dia', 'id_legs', 'id_gps']).dropna()
+
     print(f"Subiendo {len(legs_to_gps_o)} etapas con id gps a la DB")
     legs_to_gps_o.to_sql("legs_to_gps_origin", conn_data,
                          if_exists='append', index=False)
@@ -590,5 +592,179 @@ def assign_gps_destination():
     This function read legs data and if there is gps table 
     assigns a gps to the leg origin
     """
-    print("D")
-    return None
+    print("Clasificando etapas en su gps de destino")
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    configs = leer_configs_generales()
+    legs_h3_res = configs['resolucion_h3']
+
+    # read stops zone of incluence
+    q = """
+    select distinct parada,area_influencia
+    from matriz_validacion;
+    """
+    matriz = pd.read_sql(q, conn_insumos)
+    matriz['ring'] = matriz.apply(lambda row: h3.h3_distance(
+        row.parada, row.area_influencia), axis=1)
+    matriz = matriz[matriz.ring < 3]
+
+    print("Leyendo datos de etapas con GPS")
+    legs = pd.read_sql_query(
+        """
+        SELECT e.*
+        FROM etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
+        WHERE od_validado==1
+        and modo = 'autobus'
+        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
+        ;
+        """,
+        conn_data,
+    )
+
+    # Add distances to legs
+    q = """
+    select h3_o, h3_d, distance_osm_drive
+    from distancias
+    where distance_osm_drive is not null;
+    """
+    distances = pd.read_sql(q, conn_insumos)
+
+    legs = legs.merge(distances, how='inner', on=['h3_o', 'h3_d'])
+    del distances
+    legs['fecha'] = pd.to_datetime(legs['dia']+' '+legs['tiempo'])
+
+    print("Leyendo datos de GPS")
+    q = """
+    select * 
+    from gps g
+    JOIN dias_ultima_corrida d
+    ON g.dia = d.dia
+    order by dia, id_linea,id_ramal,interno,fecha
+    ;
+    """
+    gps = pd.read_sql(q, conn_data)
+
+    # get h3 res for gps
+    gps_h3_res = h3.h3_get_resolution(gps['h3'].sample().item())
+
+    # geocode gps with same h3 res than legs
+    gps = referenciar_h3(gps, res=legs_h3_res,
+                         nombre_h3='h3_legs_res', lat='latitud', lon='longitud')
+    gps.loc[:, ['fecha_gps']] = gps.fecha.map(
+        lambda ts: pd.Timestamp(ts, unit='s'))
+    gps.loc[:, ['hora']] = gps.fecha_gps.dt.hour
+
+    # Geocode legs destination in the same h3 resolution than gps
+    legs['h3_d_gps_res'] = legs['h3_d'].apply(
+        lambda x: convert_h3_to_resolution(x, gps_h3_res))
+
+    # Lista para acumular resultados parciales
+    etapas_result_list = []
+
+    # Iteración por cada hora del día
+    legs_hours = legs.hora.unique()
+    legs_hours.sort()
+
+    print("Imputando GPS de destino")
+
+    for hora in legs_hours:
+        # Filtrar las etapas por la hora específica y eliminar valores nulos en 'h3_d'
+        etapas_tx = legs.loc[legs['hora'] == hora, [
+            'dia', 'id', 'id_linea', 'id_ramal', 'interno',
+            'h3_o', 'h3_d', 'h3_d_gps_res', 'distance_osm_drive', 'fecha']].copy()
+
+        # Agregar anillos a las etapas
+        etapas_tx = etapas_tx.merge(
+            matriz, how='left', left_on='h3_d', right_on='parada')
+
+        # Determinar horas consecutivas para el filtrado de datos GPS
+        hora_filtro = [hora + i for i in range(0, 4)]
+        gps_tx = gps.loc[gps['hora'].isin(hora_filtro), :].copy()
+
+        # Renombrar y seleccionar columnas relevantes en los datos GPS
+        gps_tx = gps_tx.reindex(columns=['id', 'id_linea', 'id_ramal',
+                                         'interno', 'h3_legs_res',
+                                         'h3', 'fecha_gps']
+                                ).rename(columns={'h3_legs_res': 'area_influencia'})
+
+        # Join gps to legs destination rings dataframe by the same resolution (legs resolution)
+        etapas_tx = etapas_tx.merge(gps_tx, how='inner',
+                                    on=['id_linea', 'id_ramal',
+                                        'interno', 'area_influencia'],
+                                    suffixes=('_legs', '_gps'),)
+
+        # Calcular la diferencia de tiempo entre cada punto de gps y cada etapa
+        etapas_tx['fecha_dif'] = (
+            etapas_tx['fecha_gps'] - etapas_tx['fecha']).dt.total_seconds() / 60
+
+        # Filtrar por diferencia de fecha positiva y ordenar por id, anillo y fecha_dif
+        etapas_tx = etapas_tx.loc[etapas_tx.fecha_dif > 0, :]
+
+        if len(etapas_tx) > 0:
+
+            # Calcular la distancia entre h3 del destino de la etapa y h3 del gps
+
+            gps_dict = etapas_tx.reindex(
+                columns=['h3_d_gps_res', 'h3']).to_dict("records")
+            etapas_tx.loc[:, ["distancia_h3"]] = list(
+                map(distancia_h3_gps_leg, gps_dict))
+
+            # Calcular el tiempo mínimo de destino por id
+            etapas_tx['min_fecha_d'] = etapas_tx.groupby(
+                ['id_legs']).fecha_gps.transform('min')
+            etapas_tx['min_fecha_d'] = round(
+                (etapas_tx.fecha_gps -
+                 etapas_tx['min_fecha_d']).dt.total_seconds() / 60,
+                1)
+
+            # Filtrar por tiempo mínimo de destino menor a 20 minutos y ordenar por distancia_h3
+            etapas_tx = etapas_tx.loc[etapas_tx.min_fecha_d < 20, :]
+            etapas_tx = etapas_tx.sort_values(
+                ['id_legs', 'ring', 'distancia_h3', 'min_fecha_d'])
+
+            # Obtener la primera ocurrencia por id - elijo el gps que se encuentra más cerca del destino
+            etapas_tx = etapas_tx.groupby('id_legs', as_index=False).first()
+
+            # Agregar resultado a la lista
+            etapas_result_list.append(etapas_tx)
+
+    # Concatenar todos los resultados acumulados
+    etapas_result = pd.concat(etapas_result_list, ignore_index=True)
+
+    legs_to_gps_d = etapas_result.reindex(
+        columns=['dia', 'id_legs', 'id_gps'])
+
+    legs_to_gps_d.to_sql("legs_to_gps_destination", conn_data,
+                         if_exists='append', index=False)
+
+    # Unir los resultados con el DataFrame original de etapas
+    travel_times = legs.reindex(columns=['dia', 'id', 'fecha', 'distance_osm_drive'])\
+        .merge(
+            etapas_result.reindex(columns=['id_legs', 'fecha_gps']),
+            how='left', left_on=['id'], right_on=['id_legs'])
+
+    # Calcular el tiempo de viaje en minutos y velocidad comercial
+    travel_times['travel_time_min'] = round(
+        (travel_times['fecha_gps'] - travel_times['fecha']).dt.total_seconds() / 60, 1)
+
+    travel_times = travel_times.loc[travel_times.travel_time_min > 0, :]
+    travel_times.loc[:, 'commercial_speed'] = (
+        travel_times['distance_osm_drive'] /
+        (travel_times['travel_time_min']/60)
+    ).round(1)
+
+    tot_gps = len(travel_times)
+    tot_gps_asig = travel_times.travel_time_min.notna().sum()
+    print('% imputado', round(tot_gps_asig / tot_gps * 100, 1))
+
+    travel_times.to_sql("travel_times_gps", conn_data,
+                        if_exists='append', index=False)
+    conn_data.close()
+
+    return etapas_result
+
+
+def distancia_h3_gps_leg(row):
+    return h3.h3_distance(row["h3_d_gps_res"], row["h3"])

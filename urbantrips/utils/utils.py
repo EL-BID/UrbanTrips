@@ -696,7 +696,9 @@ def create_basic_data_model_tables():
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS legs_to_gps_origin
-        (id_legs int not null,
+        (
+        dia text,
+        id_legs int not null,
         id_gps int not null
         )
         ;
@@ -706,7 +708,9 @@ def create_basic_data_model_tables():
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS legs_to_gps_destination
-        (id_legs int not null,
+        (
+        dia text,
+        id_legs int not null,
         id_gps int not null
         )
         ;
