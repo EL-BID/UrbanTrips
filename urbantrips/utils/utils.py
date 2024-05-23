@@ -252,6 +252,22 @@ def create_other_inputs_tables():
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_stations
+        (id_o int NOT NULL,         
+         lat_o float NOT NULL,
+         lon_o float NOT NULL,
+         id_d int NOT NULL,         
+         lat_d float NOT NULL,
+         lon_d float NOT NULL,
+         travel_time_min float NOT NULL
+        )
+        ;
+        """
+    )
+
     conn_insumos.close()
 
 
@@ -730,6 +746,17 @@ def create_basic_data_model_tables():
         """
     )
 
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_legs
+        (
+        dia text,
+        id int not null,
+        travel_time_min float
+        )
+        ;
+        """
+    )
     conn_data.close()
 
 
@@ -1248,7 +1275,6 @@ def create_line_ids_sql_filter(line_ids):
 
 
 def traigo_tabla_zonas():
-    alias = leer_alias()
 
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
