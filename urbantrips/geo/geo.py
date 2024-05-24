@@ -497,3 +497,60 @@ def create_sections_geoms(sections_df, buffer_meters=False):
         gdf.geometry = gdf.geometry.buffer(buffer_meters)
 
     return gdf
+
+
+def classify_leg_into_station(legs, stations):
+    """
+    Computes for a distance between a h3 point and its lag
+
+    Parameters
+    ----------
+    legs : pandas.DataFrame
+        df with legs info holding geocoding and line_id
+    stations : pandas.DataFrame
+        df with stations info holding station id,
+        geocoding and line_id
+
+    Returns
+    ----------
+    pandas.DataFrame
+        df with leg id and nearest station id  
+
+    """
+
+    geom = gpd.GeoSeries.from_xy(x=stations.lon, y=stations.lat, crs=4326)
+    stations = gpd.GeoDataFrame(stations, geometry=geom,  crs=4326)\
+        .reindex(columns=['id', 'geometry'])
+
+    stations = stations.to_crs(epsg=epsg_m)
+
+    # classify OD into stations
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+
+    lat_o, lon_o = zip(*legs.h3_o.map(h3.h3_to_geo).tolist())
+    lat_d, lon_d = zip(*legs.h3_d.map(h3.h3_to_geo).tolist())
+
+    legs_o = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_o, y=lat_o, crs=4326),
+                              crs=4326).to_crs(epsg=epsg_m)
+
+    legs_d = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_d, y=lat_d, crs=4326),
+                              crs=4326).to_crs(epsg=epsg_m)
+
+    legs_o_station = gpd.sjoin_nearest(
+        legs_o, stations,    lsuffix='legs', rsuffix='station_o',
+        how='inner', max_distance=tolerancia_parada_destino,
+        exclusive=True)
+
+    print("Origenes", len(legs_o_station)/len(legs) * 100)
+
+    legs_d_station = gpd.sjoin_nearest(
+        legs_d, stations,    lsuffix='legs', rsuffix='station_d',
+        how='inner', max_distance=tolerancia_parada_destino,
+        exclusive=True)
+
+    print("Destinos", len(legs_d_station)/len(legs) * 100)
+
+    legs_d_station = legs_d_station.reindex(
+        columns=['id_legs', 'id_station_d'])
+    legs_o_station = legs_o_station.reindex(
+        columns=['id_legs', 'id_station_o'])

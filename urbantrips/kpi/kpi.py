@@ -71,6 +71,9 @@ def compute_kpi():
 
         # compute amount of hourly services by line and type of day
         compute_dispatched_services_by_line_hour_typeday()
+
+        # compute travel times
+        compute_travel_times()
     else:
 
         print("No hay servicios procesados.")
@@ -1895,3 +1898,92 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
             legs = legs.loc[~weekday_filter, :]
 
     return legs
+
+
+@duracion
+def compute_travel_times():
+    """
+    This function reads legs, classifies OD into stations,
+    reads travel times in gps and computes a single travel time 
+    for each leg 
+    """
+
+    # read legs with out travel time in gps
+    configs = leer_configs_generales()
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    q = """
+        SELECT e.* 
+        FROM etapas e  
+        LEFT JOIN travel_times_gps tt 
+        ON e.dia = tt.dia 
+        AND e.id = tt.id 
+        WHERE tt.id IS NULL
+        AND e.od_validado = 1
+    """
+    legs = pd.read_sql(q, conn_data)
+
+    # read stations data
+    epsg_m = geo.get_epsg_m()
+
+    travel_times_stations = pd.read_sql(
+        "select * from travel_times_stations", conn_insumos)
+    stations_o = travel_times_stations.reindex(columns=['o_id', 'lat_o', 'lon_o'])\
+        .drop_duplicates()\
+        .rename(columns={'o_id': 'id', 'lat_o': 'lat', 'lon_o': 'lon'})
+
+    stations_d = travel_times_stations.reindex(columns=['d_id', 'lat_d', 'lon_d'])\
+        .drop_duplicates()\
+        .rename(columns={'d_id': 'id', 'lat_d': 'lat', 'lon_d': 'lon'})
+
+    stations = pd.concat([stations_o, stations_d])\
+        .drop_duplicates()\
+        .reset_index(drop=True)
+
+    geom = gpd.GeoSeries.from_xy(x=stations.lon, y=stations.lat, crs=4326)
+    stations = gpd.GeoDataFrame(stations, geometry=geom,  crs=4326)\
+        .reindex(columns=['id', 'geometry'])
+
+    stations = stations.to_crs(epsg=epsg_m)
+
+    # classify OD into stations
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+
+    lat_o, lon_o = zip(*legs.h3_o.map(h3.h3_to_geo).tolist())
+    lat_d, lon_d = zip(*legs.h3_d.map(h3.h3_to_geo).tolist())
+
+    legs_o = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_o, y=lat_o, crs=4326),
+                              crs=4326).to_crs(epsg=epsg_m)
+
+    legs_d = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_d, y=lat_d, crs=4326),
+                              crs=4326).to_crs(epsg=epsg_m)
+
+    legs_o_station = gpd.sjoin_nearest(
+        legs_o, stations,    lsuffix='legs', rsuffix='station_o',
+        how='inner', max_distance=tolerancia_parada_destino,
+        exclusive=True)
+
+    print("Origenes", len(legs_o_station)/len(legs) * 100)
+
+    legs_d_station = gpd.sjoin_nearest(
+        legs_d, stations,    lsuffix='legs', rsuffix='station_d',
+        how='inner', max_distance=tolerancia_parada_destino,
+        exclusive=True)
+
+    print("Destinos", len(legs_d_station)/len(legs) * 100)
+
+    legs_d_station = legs_d_station.reindex(
+        columns=['id_legs', 'id_station_d'])
+    legs_o_station = legs_o_station.reindex(
+        columns=['id_legs', 'id_station_o'])
+
+    # assign travel times based on stations
+    travel_times = legs.reindex(columns=['id'])\
+        .merge(legs_o_station, left_on=['id'], right_on=['id_legs'], how='left')\
+        .merge(legs_d_station, left_on=['id'], right_on=['id_legs'], how='left')\
+        .drop(['id_legs_x', 'id_legs_y'], axis=1)\
+        .dropna(subset=['id_station_o', 'id_station_d'])
+
+    # upload data into table
+
+    # compute travel time
