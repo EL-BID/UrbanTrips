@@ -16,13 +16,12 @@ def create_stops_table():
     stops table in the db
     """
     configs = leer_configs_generales()
-    stops_file_name = 'stops.csv'
 
     if 'nombre_archivo_paradas' in configs:
         if configs['nombre_archivo_paradas'] is not None:
             stops_file_name = configs['nombre_archivo_paradas']
-
-    stops_path = os.path.join("data", "data_ciudad", stops_file_name)
+            stops_path = os.path.join("data", "data_ciudad", stops_file_name)
+            print("Leyendo stops", stops_file_name)
 
     if os.path.isfile(stops_path):
         stops = pd.read_csv(stops_path)
@@ -46,6 +45,7 @@ def upload_stops_table(stops):
 
     print("Subiendo paradas a stops")
     stops.to_sql("stops", conn, if_exists="replace", index=False)
+    conn.close()
 
 
 def create_temporary_stops_csv_with_node_id(geojson_path):

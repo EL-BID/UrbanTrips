@@ -547,7 +547,6 @@ def assign_gps_origin():
         """
         SELECT dia,id_linea,id_ramal,interno,id, tiempo
         FROM etapas
-        WHERE od_validado==1
         order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
         """,
         conn_data,
@@ -618,7 +617,7 @@ def assign_gps_destination():
         JOIN (SELECT DISTINCT id_linea FROM gps) idg
         ON e.id_linea = idg.id_linea
         WHERE od_validado==1
-        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno;
+        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
         ;
         """,
         conn_data,
@@ -638,7 +637,7 @@ def assign_gps_destination():
 
     print("Leyendo datos de GPS")
     q = """
-    select * 
+    select g.* 
     from gps g
     JOIN dias_ultima_corrida d
     ON g.dia = d.dia
@@ -653,9 +652,9 @@ def assign_gps_destination():
     # geocode gps with same h3 res than legs
     gps = referenciar_h3(gps, res=legs_h3_res,
                          nombre_h3='h3_legs_res', lat='latitud', lon='longitud')
-    gps.loc[:, ['fecha_gps']] = gps.fecha.map(
+    gps['fecha_gps'] = gps.fecha.map(
         lambda ts: pd.Timestamp(ts, unit='s'))
-    gps.loc[:, ['hora']] = gps.fecha_gps.dt.hour
+    gps['hora'] = gps.fecha_gps.dt.hour
 
     # Geocode legs destination in the same h3 resolution than gps
     legs['h3_d_gps_res'] = legs['h3_d'].apply(
@@ -736,10 +735,11 @@ def assign_gps_destination():
 
     legs_to_gps_d = etapas_result.reindex(
         columns=['dia', 'id_legs', 'id_gps'])
-
+    print("Subiendo GPS de destino de las etapas a la db ")
     legs_to_gps_d.to_sql("legs_to_gps_destination", conn_data,
                          if_exists='append', index=False)
 
+    print("Computando tiempos de viaje en GPS")
     # Unir los resultados con el DataFrame original de etapas
     travel_times = legs.reindex(columns=['dia', 'id', 'fecha', 'distance_osm_drive'])\
         .merge(
@@ -761,6 +761,8 @@ def assign_gps_destination():
     print('% imputado', round(tot_gps_asig / tot_gps * 100, 1))
     travel_times = travel_times.reindex(
         columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
+
+    print("Subiendo tiempos de viaje de GPS a la db ")
 
     travel_times.to_sql("travel_times_gps", conn_data,
                         if_exists='append', index=False)
