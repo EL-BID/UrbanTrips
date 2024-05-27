@@ -26,6 +26,7 @@ def main():
     # gps configs
     nombre_archivo_gps = configs["nombre_archivo_gps"]
     nombres_variables_gps = configs["nombres_variables_gps"]
+    tiempos_viaje_estaciones = configs["tiempos_viaje_estaciones"]
 
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
@@ -53,10 +54,6 @@ def main():
     # Turn transactions into legs
     legs.create_legs_from_transactions(trx_order_params)
 
-    if nombre_archivo_gps is not None:
-        # Assign a gps point id to legs' origins
-        legs.assign_gps_origin()
-
     # Update destination validation matrix
     carto.update_stations_catchment_area(ring_size=ring_size)
 
@@ -64,8 +61,22 @@ def main():
     dest.infer_destinations()
 
     if nombre_archivo_gps is not None:
+        # if there is no geocoding but a GPS table is available
+        if geolocalizar_trx_config is False:
+            # upload gps data
+            trx.process_and_upload_gps_table(nombre_archivo_gps,
+                                             nombres_variables_gps,
+                                             formato_fecha)
+
+        # Assign a gps point id to legs' origins
+        legs.assign_gps_origin()
+
         # Assign a gps point id to legs' destination
         legs.assign_gps_destination()
+
+    if tiempos_viaje_estaciones is not None:
+        # Assign stations to legs for travel times
+        legs.assign_stations_od()
 
     # Fix trips with same OD
     trips.rearrange_trip_id_same_od()

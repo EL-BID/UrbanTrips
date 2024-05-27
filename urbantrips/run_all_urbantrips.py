@@ -3,6 +3,7 @@ from urbantrips import process_transactions
 from urbantrips import run_postprocessing
 from urbantrips import create_viz
 from urbantrips import run_dashboard
+from urbantrips import run_poligonos
 
 import warnings
 
@@ -14,6 +15,7 @@ def main():
     initialize_environment.main()
     process_transactions.main()
     run_postprocessing.main()
+    run_poligonos.main()
     create_viz.main()
     run_dashboard.main()
     

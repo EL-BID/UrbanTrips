@@ -1,8 +1,9 @@
 import pandas as pd
+import geopandas as gpd
 import itertools
 import numpy as np
 import h3
-from urbantrips.geo.geo import referenciar_h3, convert_h3_to_resolution
+from urbantrips.geo.geo import referenciar_h3, convert_h3_to_resolution, classify_leg_into_station, get_epsg_m
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -545,8 +546,10 @@ def assign_gps_origin():
     # get legs data
     legs = pd.read_sql_query(
         """
-        SELECT dia,id_linea,id_ramal,interno,id, tiempo
-        FROM etapas
+        SELECT e.dia,e.id_linea,e.id_ramal,e.interno,e.id, e.tiempo
+        FROM etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
         order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
         """,
         conn_data,
@@ -555,8 +558,10 @@ def assign_gps_origin():
 
     # get gps data
     q = """
-    select dia,id_linea,id_ramal,interno,fecha,id 
-    from gps
+    select g.dia,g.id_linea,g.id_ramal,g.interno,g.fecha,id 
+    from gps g
+    JOIN dias_ultima_corrida d
+    ON g.dia = d.dia    
     order by dia, id_linea,id_ramal,interno,fecha;
     """
     gps = pd.read_sql(q, conn_data)
@@ -773,3 +778,125 @@ def assign_gps_destination():
 
 def distancia_h3_gps_leg(row):
     return h3.h3_distance(row["h3_d_gps_res"], row["h3"])
+
+
+@duracion
+def assign_stations_od():
+    """
+    This function reads legs, classifies OD into stations,
+    reads travel times in gps and computes a single travel time 
+    for each leg 
+    """
+
+    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    # read legs with out travel time in gps and distances
+    q = """
+        SELECT e.dia,e.id,e.id_linea,e.id_ramal,e.h3_o,e.h3_d
+        FROM etapas e  
+        LEFT JOIN travel_times_gps tt 
+        ON e.dia = tt.dia 
+        AND e.id = tt.id 
+        WHERE tt.id IS NULL
+        AND e.od_validado = 1
+    """
+    legs = pd.read_sql(q, conn_data)
+
+    q = """
+    select h3_o, h3_d, distance_osm_drive
+    from distancias
+    where distance_osm_drive is not null;
+    """
+    distances = pd.read_sql(q, conn_insumos)
+
+    legs = legs.merge(distances, how='inner', on=['h3_o', 'h3_d'])
+    del distances
+
+    # read stations data
+    epsg_m = get_epsg_m()
+
+    travel_times_stations = pd.read_sql(
+        "select * from travel_times_stations", conn_insumos)
+
+    stations_o = travel_times_stations\
+        .reindex(columns=['o_id', 'id_linea_o', 'id_ramal_o', 'lat_o', 'lon_o'])\
+        .drop_duplicates()\
+        .rename(columns={
+            'o_id': 'id', 'lat_o': 'lat', 'lon_o': 'lon',
+            'id_linea_o': 'id_linea', 'id_ramal_o': 'id_ramal'
+        })
+
+    stations_d = travel_times_stations\
+        .reindex(columns=['d_id', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
+        .drop_duplicates()\
+        .rename(columns={
+            'd_id': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
+            'id_linea_d': 'id_linea', 'id_ramal_d': 'id_ramal'
+        })
+
+    stations = pd.concat([stations_o, stations_d])\
+        .drop_duplicates()\
+        .reset_index(drop=True)
+
+    geom = gpd.GeoSeries.from_xy(x=stations.lon, y=stations.lat, crs=4326)
+    stations = gpd.GeoDataFrame(stations, geometry=geom,  crs=4326)\
+        .reindex(columns=['id', 'geometry'])
+
+    stations = stations.to_crs(epsg=epsg_m)
+
+    # classify origin and destination into station id
+    stations_o = legs\
+        .groupby(['id_linea'])\
+        .apply(classify_leg_into_station,
+               stations=stations, leg_h3_field='h3_o', join_branch_id=False)\
+        .reset_index(drop=True)\
+        .rename(columns={'id_station': 'id_station_o'})
+    print("Etapas clasificadas en estaciones de origen: ",
+          round(len(stations_o)/len(legs) * 100, 1))
+
+    stations_d = legs\
+        .groupby(['id_linea'])\
+        .apply(classify_leg_into_station,
+               stations=stations, leg_h3_field='h3_d', join_branch_id=False)\
+        .reset_index(drop=True)\
+        .rename(columns={'id_station': 'id_station_d'})
+
+    print("Etapas clasificadas en estaciones de destino: ",
+          round(len(stations_d)/len(legs) * 100, 1))
+
+    # upload data into table
+    stations_o.to_sql("legs_to_station_origin", conn_data, index=False)
+    stations_d.to_sql("legs_to_station_destination", conn_data, index=False)
+
+    # compute travel time
+    travel_times = legs.reindex(columns=['dia', 'id', 'id_linea', 'distance_osm_drive'])\
+        .merge(stations_o, left_on=['id'], right_on=['id_legs'], how='left')\
+        .merge(stations_d, left_on=['id'], right_on=['id_legs'], how='left')\
+        .drop(['id_legs_x', 'id_legs_y', 'dia_x', 'dia_y'], axis=1)\
+        .dropna(subset=['id_station_o', 'id_station_d'])\
+
+    print("Etapas clasificadas en la misma estación OD",
+          round(len(travel_times[travel_times.id_station_o == travel_times.id_station_d])/len(travel_times) * 100, 1), "%")
+
+    travel_times = travel_times.loc[travel_times.id_station_o !=
+                                    travel_times.id_station_d, :]
+
+    travel_times = travel_times.merge(
+        travel_times_stations.reindex(
+            columns=['o_id', 'd_id', 'travel_time_min']),
+        left_on=['id_station_o', 'id_station_d'],
+        right_on=['o_id', 'd_id'],
+        how='left')
+
+    print("Sin tiempos de viaje",
+          travel_times.travel_time_min.isna().sum()/len(travel_times))
+    travel_times = travel_times.dropna(subset=['travel_time_min'])
+    travel_times.loc[:, 'commercial_speed'] = (
+        travel_times.loc[:, 'distance_osm_drive'] /
+        (travel_times.loc[:, 'travel_time_min']/60)
+    ).round(1)
+    travel_times = travel_times\
+        .reindex(columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
+    travel_times.to_sql("travel_times_stations", conn_data,
+                        if_exists='append', index=False)
