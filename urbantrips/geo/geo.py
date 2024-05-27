@@ -499,17 +499,19 @@ def create_sections_geoms(sections_df, buffer_meters=False):
     return gdf
 
 
-def classify_leg_into_station(legs, stations):
+def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False):
     """
     Computes for a distance between a h3 point and its lag
 
     Parameters
     ----------
     legs : pandas.DataFrame
-        df with legs info holding geocoding and line_id
-    stations : pandas.DataFrame
-        df with stations info holding station id,
-        geocoding and line_id
+        df with legs info holding geocoding from a single line_id
+    stations : geopandas.GeoDataFrame
+        gdf with stations data and geoms
+        holding station id and line_id
+    leg_h3_field: str
+        column name holding the h3 to geocode into station
 
     Returns
     ----------
@@ -517,40 +519,37 @@ def classify_leg_into_station(legs, stations):
         df with leg id and nearest station id  
 
     """
-
-    geom = gpd.GeoSeries.from_xy(x=stations.lon, y=stations.lat, crs=4326)
-    stations = gpd.GeoDataFrame(stations, geometry=geom,  crs=4326)\
-        .reindex(columns=['id', 'geometry'])
-
-    stations = stations.to_crs(epsg=epsg_m)
-
-    # classify OD into stations
+    configs = leer_configs_generales()
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    epsg_m = get_epsg_m()
 
-    lat_o, lon_o = zip(*legs.h3_o.map(h3.h3_to_geo).tolist())
-    lat_d, lon_d = zip(*legs.h3_d.map(h3.h3_to_geo).tolist())
+    # Filter stations based on line and branch
+    if not stations.crs.is_projected:
+        stations = stations.to_crs(epsg=epsg_m)
 
-    legs_o = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_o, y=lat_o, crs=4326),
-                              crs=4326).to_crs(epsg=epsg_m)
+    legs_line_id = legs.id_linea.unique()[0]
 
-    legs_d = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_d, y=lat_d, crs=4326),
-                              crs=4326).to_crs(epsg=epsg_m)
+    stations = stations.loc[stations.id_linea == legs_line_id, :]
 
-    legs_o_station = gpd.sjoin_nearest(
-        legs_o, stations,    lsuffix='legs', rsuffix='station_o',
+    if join_branch_id:
+        legs_branch_id = legs.id_linea.unique()[0]
+        stations = stations.loc[stations.id_ramal == legs_branch_id, :]
+
+    # create legs geoms
+    lat, lon = zip(*legs[leg_h3_field].map(h3.h3_to_geo).tolist())
+
+    legs_geom = gpd.GeoDataFrame(legs.reindex(columns=['dia', 'id']),
+                                 geometry=gpd.GeoSeries.from_xy(
+                                     x=lon, y=lat, crs=4326, index=legs.index),
+                                 crs=4326).to_crs(epsg=epsg_m)
+
+    # join stations
+    legs_to_station = gpd.sjoin_nearest(
+        legs_geom, stations,    lsuffix='legs', rsuffix='station',
         how='inner', max_distance=tolerancia_parada_destino,
         exclusive=True)
 
-    print("Origenes", len(legs_o_station)/len(legs) * 100)
+    legs_w_station = legs_to_station.reindex(
+        columns=['dia', 'id_legs', 'id_station'])
 
-    legs_d_station = gpd.sjoin_nearest(
-        legs_d, stations,    lsuffix='legs', rsuffix='station_d',
-        how='inner', max_distance=tolerancia_parada_destino,
-        exclusive=True)
-
-    print("Destinos", len(legs_d_station)/len(legs) * 100)
-
-    legs_d_station = legs_d_station.reindex(
-        columns=['id_legs', 'id_station_d'])
-    legs_o_station = legs_o_station.reindex(
-        columns=['id_legs', 'id_station_o'])
+    return legs_w_station

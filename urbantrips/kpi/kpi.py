@@ -1908,12 +1908,12 @@ def compute_travel_times():
     for each leg 
     """
 
-    # read legs with out travel time in gps
-    configs = leer_configs_generales()
     conn_data = iniciar_conexion_db(tipo='data')
     conn_insumos = iniciar_conexion_db(tipo='insumos')
+
+    # read legs with out travel time in gps and distances
     q = """
-        SELECT e.* 
+        SELECT e.dia,e.id,e.id_linea,e.id_ramal,e.h3_o,e.h3_d
         FROM etapas e  
         LEFT JOIN travel_times_gps tt 
         ON e.dia = tt.dia 
@@ -1922,19 +1922,39 @@ def compute_travel_times():
         AND e.od_validado = 1
     """
     legs = pd.read_sql(q, conn_data)
+    legs = legs.loc[legs.id_linea.isin(meta.id_linea)]
+
+    q = """
+    select h3_o, h3_d, distance_osm_drive
+    from distancias
+    where distance_osm_drive is not null;
+    """
+    distances = pd.read_sql(q, conn_insumos)
+
+    legs = legs.merge(distances, how='inner', on=['h3_o', 'h3_d'])
+    del distances
 
     # read stations data
     epsg_m = geo.get_epsg_m()
 
     travel_times_stations = pd.read_sql(
         "select * from travel_times_stations", conn_insumos)
-    stations_o = travel_times_stations.reindex(columns=['o_id', 'lat_o', 'lon_o'])\
-        .drop_duplicates()\
-        .rename(columns={'o_id': 'id', 'lat_o': 'lat', 'lon_o': 'lon'})
 
-    stations_d = travel_times_stations.reindex(columns=['d_id', 'lat_d', 'lon_d'])\
+    stations_o = travel_times_stations\
+        .reindex(columns=['o_id', 'id_linea_o', 'id_ramal_o', 'lat_o', 'lon_o'])\
         .drop_duplicates()\
-        .rename(columns={'d_id': 'id', 'lat_d': 'lat', 'lon_d': 'lon'})
+        .rename(columns={
+            'o_id': 'id', 'lat_o': 'lat', 'lon_o': 'lon',
+            'id_linea_o': 'id_linea', 'id_ramal_o': 'id_ramal'
+        })
+
+    stations_d = travel_times_stations\
+        .reindex(columns=['d_id', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
+        .drop_duplicates()\
+        .rename(columns={
+            'd_id': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
+            'id_linea_d': 'id_linea', 'id_ramal_d': 'id_ramal'
+        })
 
     stations = pd.concat([stations_o, stations_d])\
         .drop_duplicates()\
@@ -1946,44 +1966,58 @@ def compute_travel_times():
 
     stations = stations.to_crs(epsg=epsg_m)
 
-    # classify OD into stations
-    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    # classify origin and destination into station id
+    stations_o = legs\
+        .groupby(['id_linea'])\
+        .apply(geo.classify_leg_into_station,
+               stations=stations, leg_h3_field='h3_o', join_branch_id=False)\
+        .reset_index(drop=True)\
+        .rename(columns={'id_station': 'id_station_o'})
+    print("Etapas clasificadas en estaciones de origen: ",
+          round(len(stations_o)/len(legs) * 100, 1))
 
-    lat_o, lon_o = zip(*legs.h3_o.map(h3.h3_to_geo).tolist())
-    lat_d, lon_d = zip(*legs.h3_d.map(h3.h3_to_geo).tolist())
+    stations_d = legs\
+        .groupby(['id_linea'])\
+        .apply(geo.classify_leg_into_station,
+               stations=stations, leg_h3_field='h3_d', join_branch_id=False)\
+        .reset_index(drop=True)\
+        .rename(columns={'id_station': 'id_station_d'})
 
-    legs_o = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_o, y=lat_o, crs=4326),
-                              crs=4326).to_crs(epsg=epsg_m)
-
-    legs_d = gpd.GeoDataFrame(legs[['id']], geometry=gpd.GeoSeries.from_xy(x=lon_d, y=lat_d, crs=4326),
-                              crs=4326).to_crs(epsg=epsg_m)
-
-    legs_o_station = gpd.sjoin_nearest(
-        legs_o, stations,    lsuffix='legs', rsuffix='station_o',
-        how='inner', max_distance=tolerancia_parada_destino,
-        exclusive=True)
-
-    print("Origenes", len(legs_o_station)/len(legs) * 100)
-
-    legs_d_station = gpd.sjoin_nearest(
-        legs_d, stations,    lsuffix='legs', rsuffix='station_d',
-        how='inner', max_distance=tolerancia_parada_destino,
-        exclusive=True)
-
-    print("Destinos", len(legs_d_station)/len(legs) * 100)
-
-    legs_d_station = legs_d_station.reindex(
-        columns=['id_legs', 'id_station_d'])
-    legs_o_station = legs_o_station.reindex(
-        columns=['id_legs', 'id_station_o'])
-
-    # assign travel times based on stations
-    travel_times = legs.reindex(columns=['id'])\
-        .merge(legs_o_station, left_on=['id'], right_on=['id_legs'], how='left')\
-        .merge(legs_d_station, left_on=['id'], right_on=['id_legs'], how='left')\
-        .drop(['id_legs_x', 'id_legs_y'], axis=1)\
-        .dropna(subset=['id_station_o', 'id_station_d'])
+    print("Etapas clasificadas en estaciones de destino: ",
+          round(len(stations_d)/len(legs) * 100, 1))
 
     # upload data into table
+    stations_o.to_sql("legs_to_station_origin", conn_data, index=False)
+    stations_d.to_sql("legs_to_station_destination", conn_data, index=False)
 
     # compute travel time
+    travel_times = legs.reindex(columns=['dia', 'id', 'id_linea', 'distance_osm_drive'])\
+        .merge(stations_o, left_on=['id'], right_on=['id_legs'], how='left')\
+        .merge(stations_d, left_on=['id'], right_on=['id_legs'], how='left')\
+        .drop(['id_legs_x', 'id_legs_y', 'dia_x', 'dia_y'], axis=1)\
+        .dropna(subset=['id_station_o', 'id_station_d'])\
+
+    print("Etapas clasificadas en la misma estación OD",
+          round(len(travel_times[travel_times.id_station_o == travel_times.id_station_d])/len(travel_times) * 100, 1), "%")
+
+    travel_times = travel_times.loc[travel_times.id_station_o !=
+                                    travel_times.id_station_d, :]
+
+    travel_times = travel_times.merge(
+        travel_times_stations.reindex(
+            columns=['o_id', 'd_id', 'travel_time_min']),
+        left_on=['id_station_o', 'id_station_d'],
+        right_on=['o_id', 'd_id'],
+        how='left')
+
+    print("Sin tiempos de viaje",
+          travel_times.travel_time_min.isna().sum()/len(travel_times))
+    travel_times = travel_times.dropna(subset=['travel_time_min'])
+    travel_times.loc[:, 'commercial_speed'] = (
+        travel_times.loc[:, 'distance_osm_drive'] /
+        (travel_times.loc[:, 'travel_time_min']/60)
+    ).round(1)
+    travel_times = travel_times\
+        .reindex(columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
+    travel_times.to_sql("travel_times_stations", conn_data,
+                        if_exists='append', index=False)

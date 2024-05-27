@@ -256,12 +256,16 @@ def create_other_inputs_tables():
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS travel_times_stations
-        (id_o int NOT NULL,         
+        (id_o int NOT NULL,
+         id_linea_o int NOT NULL,
+         id_ramal_o int,         
          lat_o float NOT NULL,
          lon_o float NOT NULL,
          id_d int NOT NULL,         
          lat_d float NOT NULL,
          lon_d float NOT NULL,
+         id_linea_d int NOT NULL,
+         id_ramal_d int,    
          travel_time_min float NOT NULL
         )
         ;
@@ -735,7 +739,44 @@ def create_basic_data_model_tables():
 
     conn_data.execute(
         """
+        CREATE TABLE IF NOT EXISTS legs_to_station_origin
+        (
+        dia text,
+        id_legs int not null,
+        id_station int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legs_to_station_destination
+        (
+        dia text,
+        id_legs int not null,
+        id_station int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
         CREATE TABLE IF NOT EXISTS travel_times_gps
+        (
+        dia text,
+        id int not null,
+        travel_time_min float,
+        commercial_speed float
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_stations
         (
         dia text,
         id int not null,
