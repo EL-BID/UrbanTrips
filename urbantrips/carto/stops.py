@@ -32,6 +32,10 @@ def create_stops_table():
               "para crearlo a partir de los recorridos"
               )
 
+    # upload trave times between stations
+    if configs['tiempos_viaje_estaciones'] is not None:
+        upload_travel_times_stations()
+
 
 def upload_stops_table(stops):
     """
@@ -269,3 +273,35 @@ def create_node_id(line_stops_gdf):
     gdf = gdf.reindex(columns=cols)
 
     return gdf
+
+
+def upload_travel_times_stations():
+    """
+    This function loads a table holding travel time in minutes 
+    between stations for modes that don't have GPS in the vehicles 
+    """
+    configs = leer_configs_generales()
+
+    tts_file_name = configs['tiempos_viaje_estaciones']
+    path = os.path.join("data", "data_ciudad", tts_file_name)
+    print("Leyendo tabla de tiempos de viaje entre estaciones", tts_file_name)
+
+    if os.path.isfile(path):
+        travel_times_stations = pd.read_csv(path)
+        cols = ['id_o', 'id_linea_o', 'id_ramal_o', 'lat_o', 'lon_o',
+                'id_d', 'lat_d', 'lon_d', 'id_linea_d', 'id_ramal_d',
+                'travel_time_min']
+
+        travel_times_stations = travel_times_stations.reindex(columns=cols)
+
+        assert not travel_times_stations.isna().any(
+        ).all(), "Hay datos faltantes en la tabla"
+
+        print("Subiendo tabla de tiempos de viaje entre estaciones a la DB")
+        conn = iniciar_conexion_db(tipo='insumos')
+        travel_times_stations.to_sql(
+            "travel_times_stations", conn, if_exists="replace", index=False)
+        conn.close()
+
+    else:
+        print(f"No existe el archivo {tts_file_name}")

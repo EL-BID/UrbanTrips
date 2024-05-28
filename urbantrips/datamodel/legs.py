@@ -820,18 +820,18 @@ def assign_stations_od():
         "select * from travel_times_stations", conn_insumos)
 
     stations_o = travel_times_stations\
-        .reindex(columns=['o_id', 'id_linea_o', 'id_ramal_o', 'lat_o', 'lon_o'])\
+        .reindex(columns=['id_o', 'id_linea_o', 'id_ramal_o', 'lat_o', 'lon_o'])\
         .drop_duplicates()\
         .rename(columns={
-            'o_id': 'id', 'lat_o': 'lat', 'lon_o': 'lon',
+            'id_o': 'id', 'lat_o': 'lat', 'lon_o': 'lon',
             'id_linea_o': 'id_linea', 'id_ramal_o': 'id_ramal'
         })
 
     stations_d = travel_times_stations\
-        .reindex(columns=['d_id', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
+        .reindex(columns=['id_o', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
         .drop_duplicates()\
         .rename(columns={
-            'd_id': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
+            'id_o': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
             'id_linea_d': 'id_linea', 'id_ramal_d': 'id_ramal'
         })
 
@@ -884,9 +884,9 @@ def assign_stations_od():
 
     travel_times = travel_times.merge(
         travel_times_stations.reindex(
-            columns=['o_id', 'd_id', 'travel_time_min']),
+            columns=['id_o', 'id_o', 'travel_time_min']),
         left_on=['id_station_o', 'id_station_d'],
-        right_on=['o_id', 'd_id'],
+        right_on=['id_o', 'id_o'],
         how='left')
 
     print("Sin tiempos de viaje",
