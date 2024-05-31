@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
 import os
-
+import numpy as np
 import yaml
 import sqlite3
 from shapely import wkt
