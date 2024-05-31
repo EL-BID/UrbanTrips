@@ -8,7 +8,8 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    agrego_indicador
+    agrego_indicador,
+    delete_data_from_table_run_days
 )
 
 
@@ -543,6 +544,7 @@ def assign_gps_origin():
     """
     print("Clasificando etapas en su gps de origen")
     conn_data = iniciar_conexion_db(tipo='data')
+
     # get legs data
     legs = pd.read_sql_query(
         """
@@ -550,7 +552,7 @@ def assign_gps_origin():
         FROM etapas e
         JOIN dias_ultima_corrida d
         ON e.dia = d.dia
-        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
+        order by e.dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
         """,
         conn_data,
     )
@@ -562,7 +564,7 @@ def assign_gps_origin():
     from gps g
     JOIN dias_ultima_corrida d
     ON g.dia = d.dia    
-    order by dia, id_linea,id_ramal,interno,fecha;
+    order by g.dia, id_linea,id_ramal,interno,fecha;
     """
     gps = pd.read_sql(q, conn_data)
     gps.loc[:, ['fecha']] = gps.fecha.map(
@@ -582,6 +584,7 @@ def assign_gps_origin():
     legs_to_gps_o = legs_to_gps_o\
         .reindex(columns=['dia', 'id_legs', 'id_gps']).dropna()
 
+    delete_data_from_table_run_days("legs_to_gps_origin")
     print(f"Subiendo {len(legs_to_gps_o)} etapas con id gps a la DB")
     legs_to_gps_o.to_sql("legs_to_gps_origin", conn_data,
                          if_exists='append', index=False)
@@ -622,7 +625,8 @@ def assign_gps_destination():
         JOIN (SELECT DISTINCT id_linea FROM gps) idg
         ON e.id_linea = idg.id_linea
         WHERE od_validado==1
-        order by dia,id_tarjeta,id_viaje,id_etapa, id_linea,id_ramal,interno
+        order by e.dia,e.id_tarjeta,e.id_viaje,e.id_etapa, 
+        e.id_linea,e.id_ramal,e.interno
         ;
         """,
         conn_data,
@@ -740,6 +744,8 @@ def assign_gps_destination():
 
     legs_to_gps_d = etapas_result.reindex(
         columns=['dia', 'id_legs', 'id_gps'])
+
+    delete_data_from_table_run_days("legs_to_gps_destination")
     print("Subiendo GPS de destino de las etapas a la db ")
     legs_to_gps_d.to_sql("legs_to_gps_destination", conn_data,
                          if_exists='append', index=False)
@@ -769,6 +775,7 @@ def assign_gps_destination():
 
     print("Subiendo tiempos de viaje de GPS a la db ")
 
+    delete_data_from_table_run_days("travel_times_gps")
     travel_times.to_sql("travel_times_gps", conn_data,
                         if_exists='append', index=False)
     conn_data.close()
@@ -828,10 +835,10 @@ def assign_stations_od():
         })
 
     stations_d = travel_times_stations\
-        .reindex(columns=['id_o', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
+        .reindex(columns=['id_d', 'id_linea_d', 'id_ramal_d', 'lat_d', 'lon_d'])\
         .drop_duplicates()\
         .rename(columns={
-            'id_o': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
+            'id_d': 'id', 'lat_d': 'lat', 'lon_d': 'lon',
             'id_linea_d': 'id_linea', 'id_ramal_d': 'id_ramal'
         })
 
@@ -841,21 +848,22 @@ def assign_stations_od():
 
     geom = gpd.GeoSeries.from_xy(x=stations.lon, y=stations.lat, crs=4326)
     stations = gpd.GeoDataFrame(stations, geometry=geom,  crs=4326)\
-        .reindex(columns=['id', 'geometry'])
+        .reindex(columns=['id', 'id_linea', 'geometry'])
 
     stations = stations.to_crs(epsg=epsg_m)
 
-    # classify origin and destination into station id
-    stations_o = legs\
+    # classify legs' origin and destination with station id
+    legs_with_origin_station = legs\
         .groupby(['id_linea'])\
         .apply(classify_leg_into_station,
                stations=stations, leg_h3_field='h3_o', join_branch_id=False)\
         .reset_index(drop=True)\
         .rename(columns={'id_station': 'id_station_o'})
-    print("Etapas clasificadas en estaciones de origen: ",
-          round(len(stations_o)/len(legs) * 100, 1))
 
-    stations_d = legs\
+    print("Etapas clasificadas en estaciones de origen: ",
+          round(len(legs_with_origin_station)/len(legs) * 100, 1))
+
+    legs_with_destination_station = legs\
         .groupby(['id_linea'])\
         .apply(classify_leg_into_station,
                stations=stations, leg_h3_field='h3_d', join_branch_id=False)\
@@ -863,18 +871,33 @@ def assign_stations_od():
         .rename(columns={'id_station': 'id_station_d'})
 
     print("Etapas clasificadas en estaciones de destino: ",
-          round(len(stations_d)/len(legs) * 100, 1))
+          round(len(legs_with_destination_station)/len(legs) * 100, 1))
 
-    # upload data into table
-    stations_o.to_sql("legs_to_station_origin", conn_data, index=False)
-    stations_d.to_sql("legs_to_station_destination", conn_data, index=False)
+    # upload od station into db
+    stations_o = legs_with_origin_station\
+        .rename(columns={'id_station_o': 'id_station'})\
+        .reindex(columns=['dia', 'id_legs', 'id_station'])
 
-    # compute travel time
+    stations_d = legs_with_destination_station\
+        .rename(columns={'id_station_d': 'id_station'})\
+        .reindex(columns=['dia', 'id_legs', 'id_station'])
+
+    delete_data_from_table_run_days("legs_to_station_origin")
+    delete_data_from_table_run_days("legs_to_station_destination")
+
+    stations_o.to_sql("legs_to_station_origin", conn_data,
+                      index=False, if_exists='append')
+    stations_d.to_sql("legs_to_station_destination",
+                      conn_data, index=False, if_exists='append')
+    del stations_o
+    del stations_d
+
+    # add stations to legs data
     travel_times = legs.reindex(columns=['dia', 'id', 'id_linea', 'distance_osm_drive'])\
-        .merge(stations_o, left_on=['id'], right_on=['id_legs'], how='left')\
-        .merge(stations_d, left_on=['id'], right_on=['id_legs'], how='left')\
+        .merge(legs_with_origin_station, left_on=['id'], right_on=['id_legs'], how='left')\
+        .merge(legs_with_destination_station, left_on=['id'], right_on=['id_legs'], how='left')\
         .drop(['id_legs_x', 'id_legs_y', 'dia_x', 'dia_y'], axis=1)\
-        .dropna(subset=['id_station_o', 'id_station_d'])\
+        .dropna(subset=['id_station_o', 'id_station_d'])
 
     print("Etapas clasificadas en la misma estación OD",
           round(len(travel_times[travel_times.id_station_o == travel_times.id_station_d])/len(travel_times) * 100, 1), "%")
@@ -882,11 +905,12 @@ def assign_stations_od():
     travel_times = travel_times.loc[travel_times.id_station_o !=
                                     travel_times.id_station_d, :]
 
+    # compute travel time
     travel_times = travel_times.merge(
         travel_times_stations.reindex(
-            columns=['id_o', 'id_o', 'travel_time_min']),
+            columns=['id_o', 'id_d', 'travel_time_min']),
         left_on=['id_station_o', 'id_station_d'],
-        right_on=['id_o', 'id_o'],
+        right_on=['id_o', 'id_d'],
         how='left')
 
     print("Sin tiempos de viaje",
@@ -896,6 +920,11 @@ def assign_stations_od():
         travel_times.loc[:, 'distance_osm_drive'] /
         (travel_times.loc[:, 'travel_time_min']/60)
     ).round(1)
+
+    # upload to db
+    travel_times = travel_times\
+        .reindex(columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
+    delete_data_from_table_run_days("travel_times_stations")
     travel_times = travel_times\
         .reindex(columns=['dia', 'id', 'travel_time_min', 'commercial_speed'])
     travel_times.to_sql("travel_times_stations", conn_data,

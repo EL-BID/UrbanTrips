@@ -1411,3 +1411,22 @@ def calculate_weighted_means(df,
     result = result.merge(fex_summed, how='left', on=aggregate_cols)
 
     return result
+
+
+def delete_data_from_table_run_days(table_name):
+
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    dias_ultima_corrida = pd.read_sql_query(
+        """
+                                    SELECT *
+                                    FROM dias_ultima_corrida
+                                    """,
+        conn_data,
+    )
+    # delete data from same day if exists
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM {table_name} WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+    conn_data.close()

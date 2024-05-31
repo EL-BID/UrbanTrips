@@ -544,12 +544,13 @@ def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False
                                  crs=4326).to_crs(epsg=epsg_m)
 
     # join stations
-    legs_to_station = gpd.sjoin_nearest(
+    legs_w_station = gpd.sjoin_nearest(
         legs_geom, stations,    lsuffix='legs', rsuffix='station',
         how='inner', max_distance=tolerancia_parada_destino,
-        exclusive=True)
-
-    legs_w_station = legs_to_station.reindex(
-        columns=['dia', 'id_legs', 'id_station'])
+        distance_col='distancia', exclusive=True)
+    legs_w_station = legs_w_station\
+        .sort_values('distancia')\
+        .drop_duplicates(subset='id_legs')\
+        .reindex(columns=['dia', 'id_legs', 'id_station'])
 
     return legs_w_station
