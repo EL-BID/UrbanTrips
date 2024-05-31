@@ -20,7 +20,6 @@ from matplotlib.collections import QuadMesh
 from pathlib import Path
 from matplotlib import colors as mcolors
 from matplotlib.text import Text
-from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
 from pandas.io.sql import DatabaseError
 
@@ -544,14 +543,13 @@ def viz_etapas_x_tramo_recorrido(df,
                                  shrink=0.05, edgecolor='Orange'),
                  )
 
-    prov = cx.providers.Stamen.TonerLite
+    prov = cx.providers.CartoDB.Positron
     try:
         cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string())
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string())
     except (r_ConnectionError):
         pass
 
@@ -2219,7 +2217,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:
@@ -2519,9 +2517,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         ax.set_xlabel("Hora")
         ax.set_ylabel(ylabel_str)
 
-        f.suptitle(f"Indicadores de oferta y demanda estadarizados",
-                   fontdict={'size': 18,
-                             'weight': 'bold'})
+        f.suptitle(f"Indicadores de oferta y demanda estadarizados")
 
         ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
                      fontdict={"fontsize": 11})
@@ -2896,3 +2892,16 @@ def create_visualizations():
 
     # plot basic kpi if exists
     plot_basic_kpi_wrapper()
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors

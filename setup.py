@@ -8,7 +8,7 @@ with open('requirements.txt', 'r') as f:
 
 setuptools.setup(
     name='urbantrips',
-    version='0.2.4',
+    version='0.2.5',
     author="Felipe Gonzalez & Sebastian Anapolsky",
     author_email="",
     description="A library to process public transit smart card data.",
@@ -31,7 +31,6 @@ setuptools.setup(
         'libpysal==4.8.0',
         'mapclassify==2.6.1',
         'matplotlib-scalebar==0.8.1',
-        'mycolorpy==1.5.1',
         'notebook==7.0.4',
         'numba==0.58.0',
         'numpy==1.25.2',

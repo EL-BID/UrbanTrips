@@ -11,7 +11,6 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
-from mycolorpy import colorlist as mcp
 import os
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
@@ -353,17 +352,14 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
                  )
 
     try:
-        prov = cx.providers.Stamen.TonerLite
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
-                       source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
-                       source=prov, attribution_size=7)
-    except (UnidentifiedImageError, ValueError):
         prov = cx.providers.CartoDB.Positron
         cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(),
                        source=prov, attribution_size=7)
         cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(),
                        source=prov, attribution_size=7)
+    except (UnidentifiedImageError, ValueError):
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except (r_ConnectionError):
         pass
 
