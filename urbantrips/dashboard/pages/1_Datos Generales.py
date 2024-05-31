@@ -11,7 +11,6 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
-from mycolorpy import colorlist as mcp
 import os
 
 import yaml
@@ -19,6 +18,19 @@ import sqlite3
 from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors
 
 
 def create_linestring(df,
@@ -187,7 +199,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:

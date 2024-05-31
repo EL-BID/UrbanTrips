@@ -11,7 +11,6 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
-from mycolorpy import colorlist as mcp
 import os
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError

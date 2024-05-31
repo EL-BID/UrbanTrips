@@ -16,7 +16,6 @@ seaborn
 IPython
 matplotlib-scalebar
 numba
-mycolorpy
 streamlit
 streamlit_folium
 Pillow
