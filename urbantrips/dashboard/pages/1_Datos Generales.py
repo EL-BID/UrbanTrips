@@ -9,6 +9,7 @@ import requests
 import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
 import seaborn as sns
 import contextily as cx
 import os
