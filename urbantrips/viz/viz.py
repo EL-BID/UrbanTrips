@@ -2517,9 +2517,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False,
         ax.set_xlabel("Hora")
         ax.set_ylabel(ylabel_str)
 
-        f.suptitle(f"Indicadores de oferta y demanda estadarizados",
-                   fontdict={'size': 18,
-                             'weight': 'bold'})
+        f.suptitle(f"Indicadores de oferta y demanda estadarizados")
 
         ax.set_title(f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
                      fontdict={"fontsize": 11})
