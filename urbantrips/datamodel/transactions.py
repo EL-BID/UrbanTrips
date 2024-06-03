@@ -130,7 +130,7 @@ def create_transactions(geolocalizar_trx_config,
 
         # process gps table when no geocoding
         if nombre_archivo_gps is not None:
-            print("Uploading GPS table wiithout geocoding")
+            print("Uploading GPS table without geocoding")
             process_and_upload_gps_table(
                 nombre_archivo_gps=nombre_archivo_gps,
                 nombres_variables_gps=nombres_variables_gps,
@@ -175,6 +175,10 @@ def create_transactions(geolocalizar_trx_config,
 
     # parse date into timestamp
     trx["fecha"] = trx["fecha"].map(lambda s: s.timestamp())
+
+    # if branches are not present, add branch id as the same as line
+    if not configs['lineas_contienen_ramales']:
+        trx.loc[:, 'id_ramal'] = trx['id_linea'].copy()
 
     print(f"Subiendo {len(trx)} registros a la db")
 
@@ -741,6 +745,10 @@ def process_and_upload_gps_table(nombre_archivo_gps,
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)
+
+    # if branches are not present, add branch id as the same as line
+    if not configs['lineas_contienen_ramales']:
+        gps.loc[:, 'id_ramal'] = gps['id_linea'].copy()
 
     cols = ['id',
             'id_original',

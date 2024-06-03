@@ -5,15 +5,12 @@ import os
 import yaml
 import time
 from functools import wraps
-import h3
 import re
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
-
-os.environ['USE_PYGEOS'] = '0'
 
 
 def duracion(f):
@@ -942,6 +939,8 @@ def create_gps_table():
                 (
                 id INT PRIMARY KEY NOT NULL,
                 id_linea int not null,
+                id_ramal int,
+                interno int,
                 dia text,
                 original_service_id int not null,
                 new_service_id int not null,
@@ -1036,7 +1035,7 @@ def agrego_indicador(df_indicador,
             conn_data,
         )
     except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola...")
+        print("No existe la tabla indicadores, construyendola...", e)
         indicadores = pd.DataFrame([])
 
     if var not in df.columns:
@@ -1055,20 +1054,21 @@ def agrego_indicador(df_indicador,
             {'indicador': aggfunc}).round(2)
 
     elif aggfunc == 'mean':
-        resultado = df.groupby('dia')
-        .apply(lambda x: np.average(x['indicador'], weights=x[var_fex]))
-        .reset_index()
-        .rename(columns={0: 'indicador'})
-        .round(2)
+        resultado = df.groupby('dia')\
+            .apply(lambda x: np.average(x['indicador'], weights=x[var_fex]))\
+            .reset_index()\
+            .rename(columns={0: 'indicador'})\
+            .round(2)
+
     elif aggfunc == 'median':
-        resultado = df.groupby('dia')
-        .apply(
+        resultado = df.groupby('dia')\
+            .apply(
             lambda x: ws.weighted_median(
                 x['indicador'].tolist(),
-                weights=x[var_fex].tolist()))
-        .reset_index()
-        .rename(columns={0: 'indicador'})
-        .round(2)
+                weights=x[var_fex].tolist()))\
+            .reset_index()\
+            .rename(columns={0: 'indicador'})\
+            .round(2)
 
     resultado['detalle'] = detalle
     resultado = resultado[['dia', 'detalle', 'indicador']]

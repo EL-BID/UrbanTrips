@@ -19,7 +19,7 @@ def process_services(line_ids=None):
         and services_stats tables in db
 
     """
-
+    print("Procesando servicios en base a tabla gps")
     # check line id type and turn it into list if is a single line id
     if line_ids is not None:
         if isinstance(line_ids, int):
@@ -74,9 +74,6 @@ def get_stops_and_gps_data(line_ids_str):
     Download unprocessed gps data and stops for all lines
     or ofr a specified set of line ids and all days
     """
-
-    # AGREGAR ACA EL CHECK DE QUE TENGA GPS Y STOPS
-
     configs = utils.leer_configs_generales()
 
     conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
@@ -121,11 +118,16 @@ def get_stops_and_gps_data(line_ids_str):
             x=gps_points.longitud, y=gps_points.latitud, crs='EPSG:4326'),
         crs='EPSG:4326'
     )
+    gps_points = gps_points.to_crs(epsg=configs['epsg_m'])
+
     gps_lines = gps_points.id_linea.drop_duplicates()
     gps_lines_str = ','.join(gps_lines.map(str))
 
     if len(gps_lines_str) == 0:
         return None, None
+
+    elif configs['utilizar_servicios_gps']:
+        return gps_points, None
 
     else:
         # check if data is present in the db
@@ -171,7 +173,7 @@ def get_stops_and_gps_data(line_ids_str):
                 x=stops.node_x, y=stops.node_y, crs='EPSG:4326'),
             crs='EPSG:4326'
         )
-        gps_points = gps_points.to_crs(epsg=configs['epsg_m'])
+
         stops = stops.to_crs(epsg=configs['epsg_m'])
 
         return gps_points, stops
@@ -201,12 +203,15 @@ def process_line_services(gps_points, stops):
     conn_data = utils.iniciar_conexion_db(tipo='data')
     print(f"Procesando servicios en base a gps para id_linea {line_id}")
 
-    # select only stops for that line
-    line_stops_gdf = stops.loc[stops.id_linea == line_id, :]
+    # if there are stops select only stops for that line
+    if stops is not None:
+        line_stops_gdf = stops.loc[stops.id_linea == line_id, :]
+    else:
+        line_stops_gdf = None
 
     print("Asignando servicios")
     gps_points_with_new_service_id = gps_points\
-        .groupby(['dia', 'interno'], as_index=False)\
+        .groupby(['dia', 'id_ramal', 'interno'], as_index=False)\
         .apply(classify_line_gps_points_into_services,
                line_stops_gdf=line_stops_gdf)\
         .droplevel(0)
@@ -214,7 +219,7 @@ def process_line_services(gps_points, stops):
     print("Subiendo servicios a la db")
     # save result to services table
     services_gps_points = gps_points_with_new_service_id\
-        .reindex(columns=['id', 'id_linea', 'dia', 'original_service_id', 'new_service_id',
+        .reindex(columns=['id', 'id_linea', 'id_ramal', 'interno', 'dia', 'original_service_id', 'new_service_id',
                           'service_id', 'id_ramal_gps_point', 'node_id'])
     services_gps_points.to_sql("services_gps_points",
                                conn_data, if_exists='append', index=False)
@@ -459,7 +464,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, debu
     Parameters
     ----------
     line_gps_points : geopandas.GeoDataFrame
-        GeoDataFrame with gps points for a given line
+        GeoDataFrame with gps points for a given line, branch and vehicle
 
     line_stops_gdf : geopandas.GeoDataFrame
         GeoDataFrame with stops for a given line
@@ -470,25 +475,21 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, debu
     """
     # create original service id
     original_service_id = line_gps_points\
-        .reindex(columns=['dia', 'interno', 'service_type'])\
-        .groupby(['dia', 'interno'])\
+        .reindex(columns=['dia', 'id_ramal', 'interno', 'service_type'])\
+        .groupby(['dia', 'id_ramal', 'interno'])\
         .apply(create_original_service_id)
     original_service_id = original_service_id.service_type
-    original_service_id = original_service_id.droplevel([0, 1])
+    original_service_id = original_service_id.droplevel([0, 1, 2])
     line_gps_points.loc[:, ['original_service_id']] = original_service_id
 
     # check configs if trust in service type gps
     configs = utils.leer_configs_generales()
 
-    if 'utilizar_servicios_gps' in configs:
-        trust_service_type_gps = configs['utilizar_servicios_gps']
-
-    else:
-        trust_service_type_gps = False
+    trust_service_type_gps = configs['utilizar_servicios_gps']
 
     if trust_service_type_gps:
         # classify services based on gps dataset attribute
-        line_gps_points['new_service_id'] = (
+        line_gps_points.loc[:, ['new_service_id']] = (
             line_gps_points['original_service_id'].copy()
         )
     else:
@@ -497,7 +498,7 @@ def classify_line_gps_points_into_services(line_gps_points, line_stops_gdf, debu
             line_gps_points, line_stops_gdf, debug=debug)
 
     # Classify idling points when there is no movement
-    line_gps_points['idling'] = line_gps_points.distance_km < 0.1
+    line_gps_points.loc[:, ['idling']] = line_gps_points.distance_km < 0.1
 
     # create a unique id from both old and new
     new_ids = line_gps_points\

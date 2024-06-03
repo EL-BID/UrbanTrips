@@ -1,5 +1,6 @@
 from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
+from urbantrips.datamodel import services
 from urbantrips.destinations import destinations as dest
 from urbantrips.geo import geo
 from urbantrips.carto import carto, routes
@@ -61,12 +62,7 @@ def main():
     dest.infer_destinations()
 
     if nombre_archivo_gps is not None:
-        # if there is no geocoding but a GPS table is available
-        if geolocalizar_trx_config is False:
-            # upload gps data
-            trx.process_and_upload_gps_table(nombre_archivo_gps,
-                                             nombres_variables_gps,
-                                             formato_fecha)
+        services.process_services(line_ids=None)
 
         # Assign a gps point id to legs' origins
         legs.assign_gps_origin()
