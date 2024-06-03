@@ -34,7 +34,6 @@ setuptools.setup(
         'mapclassify==2.6.1',
         'matplotlib==3.8.3',
         'matplotlib-scalebar==0.8.1',
-        'mycolorpy==1.5.1',
         'notebook==7.0.4',
         'numba==0.58.0',
         'numpy==1.25.2',

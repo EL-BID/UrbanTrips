@@ -1,13 +1,10 @@
-from mycolorpy import colorlist as mcp
 import folium
 import mapclassify
 import os
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import LineString
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
-from folium import Figure
 import seaborn as sns
 import matplotlib.pyplot as plt
 import contextily as cx
@@ -15,7 +12,8 @@ import contextily as cx
 from urbantrips.viz.viz import (
     create_squared_polygon,
     crear_linestring,
-    get_branch_geoms_from_line
+    get_branch_geoms_from_line,
+    extract_hex_colors_from_cmap
 )
 
 
@@ -523,7 +521,7 @@ def create_folium_desire_lines(od_line,
                              )
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:

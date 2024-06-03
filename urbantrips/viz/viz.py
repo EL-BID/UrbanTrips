@@ -20,12 +20,10 @@ from matplotlib.collections import QuadMesh
 from pathlib import Path
 from matplotlib import colors as mcolors
 from matplotlib.text import Text
-from mycolorpy import colorlist as mcp
 from requests.exceptions import ConnectionError as r_ConnectionError
 from pandas.io.sql import DatabaseError
 
 from urbantrips.kpi import kpi
-from urbantrips.carto import carto
 from urbantrips.geo import geo
 from urbantrips.geo.geo import (
     normalizo_lat_lon, crear_linestring)
@@ -2215,7 +2213,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:
@@ -2895,3 +2893,16 @@ def create_visualizations():
 
     # plot basic kpi if exists
     plot_basic_kpi_wrapper()
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors

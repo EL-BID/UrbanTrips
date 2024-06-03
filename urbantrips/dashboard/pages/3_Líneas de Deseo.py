@@ -1,28 +1,15 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import folium
-from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-import streamlit.components.v1 as components
-
-from PIL import Image
-import requests
 import mapclassify
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as cx
-from mycolorpy import colorlist as mcp
-import os
-
-import yaml
-import sqlite3
-from shapely import wkt
 from folium import Figure
-from shapely.geometry import LineString, Point
-
-from dash_utils import levanto_tabla_sql, get_logo, weighted_mean, create_data_folium, traigo_indicadores
+from dash_utils import (
+    levanto_tabla_sql, get_logo,
+    create_data_folium, traigo_indicadores,
+    extract_hex_colors_from_cmap
+)
 
 
 def crear_mapa_lineas_deseo(df_viajes,
@@ -57,21 +44,13 @@ def crear_mapa_lineas_deseo(df_viajes,
         m = folium.Map(location=[y_val, x_val],
                        zoom_start=10, tiles='cartodbpositron')
 
-        # colors_viajes = mcp.gen_color(cmap=cmap_viajes, n=k_jenks)
-        # colors_etapas = mcp.gen_color(cmap=cmap_etapas, n=k_jenks)
-
-        # colors_origenes = mcp.gen_color(cmap='Reds', n=k_jenks)
-        # colors_destinos = mcp.gen_color(cmap='Oranges', n=k_jenks)
-        colors_viajes = mcp.gen_color(cmap='viridis_r', n=k_jenks)
-        colors_etapas = mcp.gen_color(cmap='magma_r', n=k_jenks)
-
-        colors_origenes = mcp.gen_color(cmap='BuPu', n=k_jenks)
-        colors_destinos = mcp.gen_color(cmap='OrRd', n=k_jenks)
+        colors_viajes = extract_hex_colors_from_cmap(
+            cmap='viridis_r', n=k_jenks)
+        colors_etapas = extract_hex_colors_from_cmap(cmap='magma_r', n=k_jenks)
 
         # Etapas
         line_w = 0.5
         if len(df_etapas) > 0:
-
             try:
                 bins = [df_etapas[var_fex].min()-1] + \
                     mapclassify.FisherJenks(
@@ -154,7 +133,6 @@ def crear_mapa_lineas_deseo(df_viajes,
 
                 origenes[origenes.cuts == i].explore(
                     m=m,
-                    # color=colors_origenes[n],
                     color="#0173b299",
                     style_kwds={'fillOpacity': 0.1, 'weight': line_w},
                     name=i,
@@ -186,7 +164,6 @@ def crear_mapa_lineas_deseo(df_viajes,
 
                 destinos[destinos.cuts == i].explore(
                     m=m,
-                    # color=colors_destinos[n],
                     color="#de8f0599",
                     style_kwds={'fillOpacity': 0.1, 'weight': line_w},
                     name=i,

@@ -8,11 +8,14 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
-from mycolorpy import colorlist as mcp
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
 from folium import Figure
-from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od, create_squared_polygon, get_epsg_m
+from dash_utils import (
+    levanto_tabla_sql, get_logo, create_linestring_od,
+    create_squared_polygon, get_epsg_m,
+    extract_hex_colors_from_cmap
+)
 
 
 def crear_mapa_folium(df_agg,
@@ -39,7 +42,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:

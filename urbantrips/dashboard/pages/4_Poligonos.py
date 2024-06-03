@@ -1,28 +1,15 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import folium
-from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-import streamlit.components.v1 as components
-
-from PIL import Image
-import requests
 import mapclassify
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as cx
-from mycolorpy import colorlist as mcp
-import os
-
-import yaml
-import sqlite3
-from shapely import wkt
 from folium import Figure
-from shapely.geometry import LineString, Point
-
-from dash_utils import levanto_tabla_sql, get_logo, weighted_mean, create_data_folium, traigo_indicadores
+from dash_utils import (
+    levanto_tabla_sql, get_logo,
+    create_data_folium, traigo_indicadores,
+    extract_hex_colors_from_cmap
+)
 
 
 def crear_mapa_poligonos(df_viajes,
@@ -46,38 +33,9 @@ def crear_mapa_poligonos(df_viajes,
         m = folium.Map(location=[poly.geometry.representative_point().y.mean(
         ), poly.geometry.representative_point().x.mean()], zoom_start=10, tiles='cartodbpositron')
 
-        # map_key = f"map_{map_title}_{var_fex}"
-
-        # # if map_key not in st.session_state or st.session_state[map_key] is None:
-
-        # if map_key not in st.session_state:
-        #     # Initialize the map only if it doesn't exist in the session state
-        #     fig = Figure(width=1200, height=1200)
-        #     m = folium.Map(location=[poly.geometry.representative_point().y.mean(), poly.geometry.representative_point().x.mean()], zoom_start=10, tiles='cartodbpositron')
-
-        #     # title_html = f"""
-        #     # <h3 align="center" style="font-size:20px"><b>{map_title}</b></h3>
-        #     # """
-        #     # m.get_root().html.add_child(folium.Element(title_html))
-
-        #     # if 'tile_layer_added' not in st.session_state:
-        #     #     folium.TileLayer('cartodbpositron').add_to(m)
-        #     #     st.session_state['tile_layer_added'] = True
-
-        #     st.session_state[map_key] = m
-        #     # st.session_state['poly_hash'] = poly_hash
-        #     # st.session_state[f"{map_key}_params"] = {'center': center, 'zoom_start': zoom_start}
-
-        # else:
-
-        #     m = st.session_state[map_key]
-        #     # folium.LayerControl(name='xx').add_to(m)
-
-        colors_viajes = mcp.gen_color(cmap='viridis_r', n=k_jenks)
-        colors_etapas = mcp.gen_color(cmap='magma_r', n=k_jenks)
-
-        colors_origenes = mcp.gen_color(cmap='Accent', n=k_jenks)
-        colors_destinos = mcp.gen_color(cmap='Oranges', n=k_jenks)
+        colors_viajes = extract_hex_colors_from_cmap(
+            cmap='viridis_r', n=k_jenks)
+        colors_etapas = extract_hex_colors_from_cmap(cmap='magma_r', n=k_jenks)
 
         # Etapas
         line_w = 0.5

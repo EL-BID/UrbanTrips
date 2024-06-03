@@ -1,26 +1,16 @@
-from shapely.geometry import LineString
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-import folium
-from streamlit_folium import st_folium
-from streamlit_folium import folium_static
 from PIL import Image
 import requests
-import mapclassify
-import plotly.express as px
 import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as cx
-from mycolorpy import colorlist as mcp
 import os
-
 import yaml
 import sqlite3
 from shapely import wkt
-from folium import Figure
 from shapely.geometry import LineString, Point, Polygon
+from matplotlib import colors as mcolors
 
 
 def leer_configs_generales():
@@ -511,3 +501,16 @@ def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
     p = Polygon(square_bbox_coords)
     s = gpd.GeoSeries([p], crs=f'EPSG:{epsg}')
     return s
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors
