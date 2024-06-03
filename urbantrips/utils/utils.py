@@ -238,7 +238,7 @@ def create_other_inputs_tables():
         (zona text NOT NULL,
          id text NOT NULL,
          orden int,
-         wkt text        
+         wkt text
         )
         ;
         """
@@ -246,8 +246,8 @@ def create_other_inputs_tables():
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS poligonos
-        (id text NOT NULL,         
-         wkt text        
+        (id text NOT NULL,
+         wkt text
         )
         ;
         """
@@ -258,14 +258,14 @@ def create_other_inputs_tables():
         CREATE TABLE IF NOT EXISTS travel_times_stations
         (id_o int NOT NULL,
          id_linea_o int NOT NULL,
-         id_ramal_o int,         
+         id_ramal_o int,
          lat_o float NOT NULL,
          lon_o float NOT NULL,
-         id_d int NOT NULL,         
+         id_d int NOT NULL,
          lat_d float NOT NULL,
          lon_d float NOT NULL,
          id_linea_d int NOT NULL,
-         id_ramal_d int,    
+         id_ramal_d int,
          travel_time_min float NOT NULL
         )
         ;
@@ -773,6 +773,13 @@ def create_basic_data_model_tables():
         ;
         """
     )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS travel_times_gps_idx ON travel_times_gps (
+        "id"
+        );
+        """
+    )
 
     conn_data.execute(
         """
@@ -786,6 +793,13 @@ def create_basic_data_model_tables():
         ;
         """
     )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS travel_times_ts_idx ON travel_times_stations (
+        "id"
+        );
+        """
+    )
 
     conn_data.execute(
         """
@@ -793,11 +807,28 @@ def create_basic_data_model_tables():
         (
         dia text,
         id int not null,
+        id_etapa int,
+        id_viaje int,
+        id_tarjeta text,
         travel_time_min float
         )
         ;
         """
     )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_trips
+        (
+        dia text,
+        id_tarjeta text,
+        id_viaje int,
+        travel_time_min float
+        )
+        ;
+        """
+    )
+
     conn_data.close()
 
 
@@ -1024,20 +1055,20 @@ def agrego_indicador(df_indicador,
             {'indicador': aggfunc}).round(2)
 
     elif aggfunc == 'mean':
-        resultado = df.groupby('dia')\
-            .apply(lambda x: np.average(x['indicador'], weights=x[var_fex]))\
-            .reset_index()\
-            .rename(columns={0: 'indicador'})\
-            .round(2)
+        resultado = df.groupby('dia')
+        .apply(lambda x: np.average(x['indicador'], weights=x[var_fex]))
+        .reset_index()
+        .rename(columns={0: 'indicador'})
+        .round(2)
     elif aggfunc == 'median':
-        resultado = df.groupby('dia')\
-            .apply(
-                lambda x: ws.weighted_median(
-                    x['indicador'].tolist(),
-                    weights=x[var_fex].tolist()))\
-            .reset_index()\
-            .rename(columns={0: 'indicador'})\
-            .round(2)
+        resultado = df.groupby('dia')
+        .apply(
+            lambda x: ws.weighted_median(
+                x['indicador'].tolist(),
+                weights=x[var_fex].tolist()))
+        .reset_index()
+        .rename(columns={0: 'indicador'})
+        .round(2)
 
     resultado['detalle'] = detalle
     resultado = resultado[['dia', 'detalle', 'indicador']]
@@ -1052,7 +1083,7 @@ def agrego_indicador(df_indicador,
         )]
 
     indicadores = pd.concat([indicadores,
-                            resultado],
+                             resultado],
                             ignore_index=True)
     if nivel > 0:
         for i in indicadores[(indicadores.tabla == tabla) &

@@ -438,3 +438,51 @@ def rearrange_trip_id_same_od():
     conn_data.close()
 
     print("Fin correxión de ids de etapas y viajes con mismo od")
+
+
+@duracion
+def compute_trips_travel_time():
+    """
+    This function reads from legs travel time in gps and stations
+    and computes travel times for trips
+    """
+
+    conn_data = iniciar_conexion_db(tipo='data')
+    dias_ultima_corrida = pd.read_sql_query(
+        """
+        SELECT *
+        FROM dias_ultima_corrida
+        """,
+        conn_data,
+    )
+
+    print("Insertando tiempos de viaje a etapas en base a gps y estaciones")
+
+    q = """
+    INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
+    SELECT e.dia, e.id,e.id_tarjeta,  e.id_etapa,e.id_viaje,
+    (ifnull(tg.travel_time_min,0) + ifnull(ts.travel_time_min,0)) tt
+    FROM etapas e
+    JOIN dias_ultima_corrida d
+    ON e.dia = d.dia
+    LEFT JOIN travel_times_gps tg
+    ON e.id = tg.id
+    LEFT JOIN travel_times_stations ts
+    ON e.id = ts.id
+    WHERE e.od_validado = 1
+    AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
+    """
+    conn_data.execute(q)
+    conn_data.commit()
+
+    print("Insertando tiempos de viaje a viajes en base a etapas")
+    q = """
+    INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
+    SELECT dia, id_tarjeta,id_viaje, sum(travel_time_min) AS travel_time_min 
+    FROM travel_times_legs tt
+    JOIN dias_ultima_corrida d
+    ON tt.dia = d.dia
+    GROUP BY dia, id_tarjeta,id_viaje ;
+    """
+    conn_data.execute(q)
+    conn_data.commit()
