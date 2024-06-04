@@ -2906,3 +2906,43 @@ def extract_hex_colors_from_cmap(cmap, n=5):
     hex_colors = [mcolors.rgb2hex(color) for color in colors]
 
     return hex_colors
+
+
+def viz_travel_times_poly():
+    """
+    This function takes a shapely polygon as destination
+    fills it with h3 indexes in config resolution
+    and produces a coropleth    
+    """
+    configs = leer_configs_generales()
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    poly_geojson = shapely.to_geojson(poly)
+    poly_geojson = json.loads(poly_geojson)
+    poly_h3 = h3.polyfill(poly_geojson, res=8, geo_json_conformant=True)
+    poly_str = "','".join(poly_h3)
+
+    q = f"""
+    select h3_o,factor_expansion_linea,travel_time_min 
+    from viajes v
+    join travel_times_trips tt
+    on  v.dia = tt.dia
+    and v.id_tarjeta = tt.id_tarjeta
+    and v. id_viaje = tt.id_viaje
+    where od_validado = 1
+    and h3_d in ('{poly_str}')
+    """
+    v = pd.read_sql(q, conn_data)
+
+    travel_time_choro = v\
+        .groupby('h3_o')\
+        .apply(
+            lambda x: np.average(
+                x['travel_time_min'], weights=x['factor_expansion_linea']))\
+        .reset_index()\
+        .rename(columns={0: 'travel_time_min'})
+    gdf = geo.h3_to_geodataframe(
+        h3_indexes=travel_time_choro.h3_o, var_h3='h3_o')
+    gdf = gdf.merge(travel_time_choro, on='h3_o')
+    gdf.explore(column='travel_time_min', scheme='fisherjenks', k=10, cmap='cool',
+                tiles="CartoDB positron")

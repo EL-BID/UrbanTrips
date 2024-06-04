@@ -448,13 +448,6 @@ def compute_trips_travel_time():
     """
 
     conn_data = iniciar_conexion_db(tipo='data')
-    dias_ultima_corrida = pd.read_sql_query(
-        """
-        SELECT *
-        FROM dias_ultima_corrida
-        """,
-        conn_data,
-    )
 
     print("Insertando tiempos de viaje a etapas en base a gps y estaciones")
 
@@ -478,11 +471,11 @@ def compute_trips_travel_time():
     print("Insertando tiempos de viaje a viajes en base a etapas")
     q = """
     INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
-    SELECT dia, id_tarjeta,id_viaje, sum(travel_time_min) AS travel_time_min 
+    SELECT tt.dia, tt.id_tarjeta,tt.id_viaje, sum(tt.travel_time_min) AS travel_time_min 
     FROM travel_times_legs tt
     JOIN dias_ultima_corrida d
     ON tt.dia = d.dia
-    GROUP BY dia, id_tarjeta,id_viaje ;
+    GROUP BY tt.dia, tt.id_tarjeta,tt.id_viaje ;
     """
     conn_data.execute(q)
     conn_data.commit()
