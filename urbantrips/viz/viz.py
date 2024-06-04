@@ -1,3 +1,5 @@
+import json
+import shapely
 import pandas as pd
 import numpy as np
 import os
@@ -2908,18 +2910,26 @@ def extract_hex_colors_from_cmap(cmap, n=5):
     return hex_colors
 
 
-def viz_travel_times_poly():
+def viz_travel_times_poly(polygon):
     """
     This function takes a shapely polygon as destination
     fills it with h3 indexes in config resolution
     and produces a coropleth    
     """
     configs = leer_configs_generales()
+    h3_res = configs["resolucion_h3"]
+
     conn_data = iniciar_conexion_db(tipo='data')
 
-    poly_geojson = shapely.to_geojson(poly)
+    poly_geojson = shapely.to_geojson(polygon)
     poly_geojson = json.loads(poly_geojson)
-    poly_h3 = h3.polyfill(poly_geojson, res=8, geo_json_conformant=True)
+    poly_h3 = h3.polyfill(poly_geojson, res=h3_res, geo_json_conformant=True)
+
+    if len(poly_h3) == 0:
+        poly_h3 = h3.polyfill(poly_geojson, res=h3_res +
+                              1, geo_json_conformant=True)
+        poly_h3 = set(map(h3.h3_to_parent, poly_h3))
+
     poly_str = "','".join(poly_h3)
 
     q = f"""
@@ -2944,5 +2954,5 @@ def viz_travel_times_poly():
     gdf = geo.h3_to_geodataframe(
         h3_indexes=travel_time_choro.h3_o, var_h3='h3_o')
     gdf = gdf.merge(travel_time_choro, on='h3_o')
-    gdf.explore(column='travel_time_min', scheme='fisherjenks', k=10, cmap='cool',
-                tiles="CartoDB positron")
+
+    return gdf

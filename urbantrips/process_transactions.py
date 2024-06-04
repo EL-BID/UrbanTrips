@@ -41,7 +41,7 @@ def main():
     ring_size = geo.get_h3_buffer_ring_size(
         resolucion_h3, tolerancia_parada_destino
     )
-    '''
+
     # Produce transaction table
     trx.create_transactions(geolocalizar_trx_config,
                             nombre_archivo_trx,
@@ -66,7 +66,7 @@ def main():
 
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
-    '''
+
     # Create distances table
     carto.create_distances_table(use_parallel=False)
 
