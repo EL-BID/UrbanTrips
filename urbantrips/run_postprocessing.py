@@ -1,8 +1,6 @@
 from urbantrips.datamodel.misc import persist_datamodel_tables
 from urbantrips.kpi import kpi
-from urbantrips.viz import viz
 from urbantrips.carto import carto
-from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 
 
@@ -14,9 +12,6 @@ def main():
 
     # Create voronoi TAZs
     carto.create_voronoi_zones()
-
-    # Create distances table
-    carto.create_distances_table(use_parallel=False)   ## lo cambié a False, con True me dejó de funcionar
 
     # Persist datamodel into csv tables
     persist_datamodel_tables()

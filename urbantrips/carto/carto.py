@@ -386,15 +386,15 @@ def create_distances_table(use_parallel=False):
         print('')
 
         agg2 = compute_distances_osm(
-                agg2_total,
-                h3_o="h3_o_norm",
-                h3_d="h3_d_norm",
-                processing="pandana",
-                modes=["drive"],
-                use_parallel=False
-            )
-        
-        if len(agg2)>0:
+            agg2_total,
+            h3_o="h3_o_norm",
+            h3_d="h3_d_norm",
+            processing="pandana",
+            modes=["drive"],
+            use_parallel=False
+        )
+
+        if len(agg2) > 0:
 
             dist1 = agg2.copy()
             dist1['h3_o'] = dist1['h3_o_norm']
@@ -410,19 +410,18 @@ def create_distances_table(use_parallel=False):
                           'h3_d_norm'],
                          as_index=False)[['distance_osm_drive',
                                           'distance_h3']].first()
-    
+
             distancias_new.to_sql("distancias", conn_insumos,
                                   if_exists="append", index=False)
 
-        
         else:
 
             # Determine the size of each chunk (500 rows in this case)
             chunk_size = 25000
-    
+
             # Get the total number of rows in the DataFrame
             total_rows = len(agg2_total)
-    
+
             # Loop through the DataFrame in chunks of 500 rows
             for start in range(0, total_rows, chunk_size):
                 end = start + chunk_size
@@ -431,7 +430,7 @@ def create_distances_table(use_parallel=False):
                 # Call the process_chunk function with the selected chunk
                 print(
                     f'Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}')
-    
+
                 agg2 = compute_distances_osm(
                     agg2,
                     h3_o="h3_o_norm",
@@ -440,7 +439,7 @@ def create_distances_table(use_parallel=False):
                     modes=["drive"],
                     use_parallel=use_parallel
                 )
-    
+
                 dist1 = agg2.copy()
                 dist1['h3_o'] = dist1['h3_o_norm']
                 dist1['h3_d'] = dist1['h3_d_norm']
@@ -455,10 +454,10 @@ def create_distances_table(use_parallel=False):
                               'h3_d_norm'],
                              as_index=False)[['distance_osm_drive',
                                               'distance_h3']].first()
-    
+
                 distancias_new.to_sql("distancias", conn_insumos,
                                       if_exists="append", index=False)
-    
+
                 conn_insumos.close()
                 conn_insumos = iniciar_conexion_db(tipo='insumos')
 

@@ -61,6 +61,15 @@ def main():
     # Infer legs destinations
     dest.infer_destinations()
 
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
+    # Create distances table
+    carto.create_distances_table(use_parallel=False)
+
     if nombre_archivo_gps is not None:
         services.process_services(line_ids=None)
 
@@ -73,12 +82,6 @@ def main():
     if tiempos_viaje_estaciones is not None:
         # Assign stations to legs for travel times
         legs.assign_stations_od()
-
-    # Fix trips with same OD
-    trips.rearrange_trip_id_same_od()
-
-    # Produce trips and users tables from legs
-    trips.create_trips_from_legs()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms(plotear_lineas=False)
