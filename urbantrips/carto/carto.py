@@ -24,6 +24,15 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     leer_alias)
 
+import subprocess
+
+def get_library_version(library_name):
+    result = subprocess.run(["pip", "show", library_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode == 0:
+        for line in result.stdout.split('\n'):
+            if line.startswith("Version:"):
+                return line.split(":")[1].strip()
+    return None
 
 @duracion
 def update_stations_catchment_area(ring_size):
@@ -340,6 +349,8 @@ def create_distances_table(use_parallel=False):
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
 
+    print('Verifica viajes sin distancias calculadas')
+
     q = """
     select distinct h3_o,h3_d
     from viajes
@@ -384,7 +395,8 @@ def create_distances_table(use_parallel=False):
             f"Hay {len(agg2_total)} nuevos pares od para sumar a tabla distancias")
         print(f"de los {len(pares_h3_data)} originales en la data.")
         print('')
-
+        print('Procesa distancias con Pandana')
+        
         agg2 = compute_distances_osm(
             agg2_total,
             h3_o="h3_o_norm",
@@ -415,7 +427,7 @@ def create_distances_table(use_parallel=False):
                                   if_exists="append", index=False)
 
         else:
-
+            print('Procesa distancias con OSMNX')
             # Determine the size of each chunk (500 rows in this case)
             chunk_size = 25000
 
@@ -629,6 +641,19 @@ def compute_distances_osm(
                 df = compute_distances_pandana(df=df, mode=mode)
             except:
                 print("No es posible computar distancias con pandana")
+                library_name = "Pandana"
+                version = get_library_version(library_name)
+                if version:
+                    print(f"{library_name} version {version} is installed.")
+                else:
+                    print(f"{library_name} is not installed.")
+
+                library_name = "OSMnet"
+                version = get_library_version(library_name)
+                if version:
+                    print(f"{library_name} version {version} is installed.")
+                else:
+                    print(f"{library_name} is not installed.")
                 return pd.DataFrame([])
 
     var_distances += [f"distance_osm_{mode}"]

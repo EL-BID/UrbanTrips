@@ -415,6 +415,7 @@ def rearrange_trip_id_same_od():
     )
 
     print("Crear nuevos ids")
+    
     # crear nuevos ids
     nuevos_ids_etapas_viajes = cambia_id_viajes_etapas_tarjeta_dia(etapas)
 
@@ -433,7 +434,7 @@ def rearrange_trip_id_same_od():
     etapas.to_sql("etapas", conn_data,
                   if_exists="append", index=False)
 
-    print('len etapas final', len(etapas))
+
 
     conn_data.close()
 
