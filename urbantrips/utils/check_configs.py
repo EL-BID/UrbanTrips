@@ -390,6 +390,7 @@ def check_config_errors(config_default):
             f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}']
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+        print(f'--Archivo de transacciones en proceso: {ruta}')
         if not os.path.isfile(ruta):
             errores += [f'No se encuentra el archivo de transacciones {ruta}']
         else:

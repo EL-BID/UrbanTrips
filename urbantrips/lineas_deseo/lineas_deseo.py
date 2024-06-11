@@ -32,15 +32,37 @@ def load_and_process_data():
     distancias = pd.read_sql_query(q_distancias, conn_insumos)
 
     # Load stage data from 'etapas' table in 'data' database and merge with distance data
-    etapas = pd.read_sql_query("SELECT * FROM etapas", conn_data)
+    etapas = pd.read_sql_query("SELECT * FROM etapas where od_validado==1", conn_data)
     etapas = etapas.merge(distancias, how='left')
 
     # Load journey data from 'viajes' table in 'data' database and merge with distance data
-    viajes = pd.read_sql_query("SELECT * FROM viajes", conn_data)
+    viajes = pd.read_sql_query("SELECT * FROM viajes where od_validado==1", conn_data)
     viajes = viajes.merge(distancias, how='left')
 
-    etapas = etapas[etapas.od_validado == 1].reset_index(drop=True)
-    viajes = viajes[viajes.od_validado == 1].reset_index(drop=True)
+    # Load travel times from gps and stations
+    travel_times = pd.read_sql_query("SELECT * FROM travel_times_gps", conn_data)
+    travel_times_stations = pd.read_sql_query("SELECT * FROM travel_times_stations", conn_data)
+
+    travel_times = pd.concat([travel_times, travel_times_stations], ignore_index=True)
+    
+    if len(travel_times) > 0:
+        etapas = etapas.merge(travel_times, how='left', on=['dia', 'id'])
+    
+        viajes = viajes.merge(etapas.groupby(['dia', 'id_tarjeta', 'id_viaje'], as_index=False).travel_time_min.sum().round(2), 
+                              how='left', 
+                              on=['dia', 'id_tarjeta', 'id_viaje'])
+    
+        viajes['travel_speed'] = (
+                viajes['distance_osm_drive'] /
+                (viajes['travel_time_min']/60)
+            ).round(1)
+        
+        viajes.loc[viajes.travel_speed==np.inf, 'travel_speed'] = np.nan
+    else:
+        etapas['travel_time_min'] = np.nan
+        etapas['travel_speed'] = np.nan
+        viajes['travel_time_min'] = np.nan
+        viajes['travel_speed'] = np.nan
 
     return etapas, viajes
 

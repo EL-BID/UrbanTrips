@@ -765,7 +765,7 @@ def create_basic_data_model_tables():
         dia text,
         id int not null,
         travel_time_min float,
-        commercial_speed float
+        travel_speed float
         )
         ;
         """
@@ -785,7 +785,7 @@ def create_basic_data_model_tables():
         dia text,
         id int not null,
         travel_time_min float,
-        commercial_speed float
+        travel_speed float
         )
         ;
         """

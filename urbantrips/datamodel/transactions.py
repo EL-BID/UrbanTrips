@@ -1,15 +1,21 @@
 import h3
 import os
 import pandas as pd
+import geopandas as gpd
 import warnings
 import time
+
+from shapely.geometry import Point
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (leer_configs_generales,
                                     duracion,
                                     iniciar_conexion_db,
+                                    levanto_tabla_sql,
                                     agrego_indicador,
                                     crear_tablas_geolocalizacion)
 
+
+ 
 
 @duracion
 def create_transactions(geolocalizar_trx_config,
@@ -416,24 +422,39 @@ def eliminar_trx_fuera_bbox(trx):
 
     print("Eliminando trx con mal lat long")
 
-    configs = leer_configs_generales()
-    try:
-        configs = configs["filtro_latlong_bbox"]
-        print(configs)
+    original = len(trx)
 
-        filtro = (
-            (trx.longitud > configs["minx"])
-            & (trx.latitud > configs["miny"])
-            & (trx.longitud < configs["maxx"])
-            & (trx.latitud < configs["maxy"])
-        )
-
-        pre = len(trx)
-        trx = trx.loc[filtro, :]
-        post = len(trx)
-        print(pre - post, "casos elminados por latlong fuera del bbox")
-    except KeyError:
-        print("No se especificó una ventana para la bbox")
+    zonificaciones = levanto_tabla_sql('zonificaciones')
+    if len(zonificaciones) > 0:
+        trx['geometry'] = trx.apply(lambda row: Point(row['longitud'], row['latitud']), axis=1)
+        trx = gpd.GeoDataFrame(trx, geometry='geometry', crs=4326)
+    
+        zona = zonificaciones.zona.head().values[0]
+        zonificaciones = zonificaciones[zonificaciones.zona == zona]
+        zonificaciones = zonificaciones.dissolve(by='zona')
+    
+        trx = gpd.sjoin(zonificaciones[['geometry']], trx).drop(['geometry', 'index_right'], axis=1).drop_duplicates().sort_values('id').reset_index(drop=True)
+    else: 
+        configs = leer_configs_generales()
+        try:
+            configs = configs["filtro_latlong_bbox"]
+            print(configs)
+    
+            filtro = (
+                (trx.longitud > configs["minx"])
+                & (trx.latitud > configs["miny"])
+                & (trx.longitud < configs["maxx"])
+                & (trx.latitud < configs["maxy"])
+            )
+    
+            pre = len(trx)
+            trx = trx.loc[filtro, :]
+            post = len(trx)
+            print(pre - post, "casos elminados por latlong fuera del bbox")
+        except KeyError:
+            print("No se especificó una ventana para la bbox")
+    limpio = len(trx)
+    print(f'--Se borraron {original-limpio} registros')
     return trx
 
 

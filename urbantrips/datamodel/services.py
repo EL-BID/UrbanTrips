@@ -2,7 +2,6 @@ import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
 
-
 def process_services(line_ids=None):
     """
     Download unprocessed gps data and classify them into services
@@ -19,33 +18,37 @@ def process_services(line_ids=None):
         and services_stats tables in db
 
     """
-    print("Procesando servicios en base a tabla gps")
-    # check line id type and turn it into list if is a single line id
-    if line_ids is not None:
-        if isinstance(line_ids, int):
-            line_ids = [line_ids]
-
-        line_ids_str = ','.join(map(str, line_ids))
-    else:
-        line_ids_str = None
-
-    print("Eliminando datos anteriores")
-    delete_old_services_data(line_ids_str)
-    print("Fin de borrado de datos anteriores")
-    if line_ids is not None:
-        print(f"para id lineas {line_ids_str}")
-    else:
-        print("para todas las lineas")
-
-    print("Descargando paradas y puntos gps")
-    gps_points, stops = get_stops_and_gps_data(line_ids_str)
-
-    if gps_points is None:
-        print("Todos los puntos gps ya fueron procesados en servicios ")
-    else:
-        print("Clasificando puntos gps en servicios")
-        gps_points.groupby('id_linea').apply(
-            process_line_services, stops=stops)
+    configs = utils.leer_configs_generales()
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    
+    if nombre_archivo_gps is not None:
+        print("Procesando servicios en base a tabla gps")
+        # check line id type and turn it into list if is a single line id
+        if line_ids is not None:
+            if isinstance(line_ids, int):
+                line_ids = [line_ids]
+    
+            line_ids_str = ','.join(map(str, line_ids))
+        else:
+            line_ids_str = None
+    
+        print("Eliminando datos anteriores")
+        delete_old_services_data(line_ids_str)
+        print("Fin de borrado de datos anteriores")
+        if line_ids is not None:
+            print(f"para id lineas {line_ids_str}")
+        else:
+            print("para todas las lineas")
+    
+        print("Descargando paradas y puntos gps")
+        gps_points, stops = get_stops_and_gps_data(line_ids_str)
+    
+        if gps_points is None:
+            print("Todos los puntos gps ya fueron procesados en servicios ")
+        else:
+            print("Clasificando puntos gps en servicios")
+            gps_points.groupby('id_linea').apply(
+                process_line_services, stops=stops)
 
 
 def delete_old_services_data(line_ids_str):
