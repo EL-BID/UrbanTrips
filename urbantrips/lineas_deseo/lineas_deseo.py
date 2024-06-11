@@ -334,7 +334,7 @@ def construyo_matrices(etapas_desagrupadas,
     matriz = calculate_weighted_means(matriz,
                                       aggregate_cols=aggregate_cols,
                                       weighted_mean_cols=[
-                                          'lat1', 'lon1', 'lat4', 'lon4'],
+                                          'lat1', 'lon1', 'lat4', 'lon4', 'distance_osm_drive', 'travel_time_min', 'travel_speed'],
                                       weight_col='factor_expansion_linea',
                                       zero_to_nan=[
                                           'lat1', 'lon1', 'lat4', 'lon4'],
@@ -534,9 +534,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
     etapas_selec = etapas_selec.rename(
         columns={'distance_osm_drive': 'distance_osm_drive_etapas'})
     distancias_all = etapas_selec.groupby(
-        ['id_polygon', 'dia', 'id_tarjeta', 'id_viaje'], as_index=False).distance_osm_drive_etapas.sum()
+        ['id_polygon', 'dia', 'id_tarjeta', 'id_viaje'], as_index=False)[['distance_osm_drive_etapas']].sum()
     distancias_all = distancias_all.merge(viajes_selec.loc[viajes_selec.od_validado == 1, [
-                                          'id_polygon', 'dia', 'id_tarjeta', 'id_viaje', 'distance_osm_drive']])
+                                          'id_polygon', 'dia', 'id_tarjeta', 'id_viaje', 'distance_osm_drive', 'travel_time_min', 'travel_speed']])
     distancias_all['distancia'] = 'Viajes cortos (<=5kms)'
     distancias_all.loc[(distancias_all.distance_osm_drive > 5),
                        'distancia'] = 'Viajes largos (>5kms)'
@@ -670,6 +670,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                     'factor_expansion_linea',
                                                                     'polygon']].rename(columns={'h3': 'h3_inicio',
                                                                                                 'polygon': 'poly_inicio'})
+        
+        
         fin = etapas_all.loc[etapas_all.tipo_viaje == 'Fin', ['dia',
                                                               'id_tarjeta',
                                                               'id_viaje',
@@ -687,6 +689,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                            'h3',
                                                                            'polygon']].rename(columns={'h3': 'h3_transfer2',
                                                                                                        'polygon': 'poly_transfer2'})
+        
+
+        
         etapas_agrupadas = inicio.merge(transfer1, how='left').merge(
             transfer2, how='left').merge(fin, how='left').fillna('')
 
@@ -705,6 +710,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                              'rango_hora',
                                              'factor_expansion_linea']]
 
+
+        
         for zona in zonas:
 
             if id_polygon != 'NONE':
@@ -844,7 +851,10 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                  'poly_inicio_norm', 'poly_transfer1_norm', 'poly_transfer2_norm', 'poly_fin_norm',
                                                  'lon1', 'lat1', 'lon2', 'lat2', 'lon3', 'lat3', 'lon4', 'lat4',
                                                  'lon1_norm', 'lat1_norm', 'lon2_norm', 'lat2_norm', 'lon3_norm', 'lat3_norm', 'lon4_norm', 'lat4_norm',
-                                                 'transferencia', 'modo_agregado', 'rango_hora', 'distancia', 'distance_osm_drive', 'distance_osm_drive_etapas', 'factor_expansion_linea']]
+                                                 'transferencia', 'modo_agregado', 'rango_hora', 'distancia', 
+                                                 'distance_osm_drive', 'distance_osm_drive_etapas', 
+                                                  'travel_time_min', 'travel_speed',
+                                                 'factor_expansion_linea']]
 
     etapas_sin_agrupar = etapas_agrupadas_all.copy()
 
@@ -875,6 +885,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
 
     weighted_mean_cols = ['distance_osm_drive',
                           'distance_osm_drive_etapas',
+                          'travel_time_min', 
+                          'travel_speed',
                           'lat1_norm',
                           'lon1_norm',
                           'lat2_norm',
