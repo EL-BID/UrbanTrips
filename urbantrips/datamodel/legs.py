@@ -775,6 +775,8 @@ def assign_gps_destination():
             travel_times['distance_osm_drive'] /
             (travel_times['travel_time_min']/60)
         ).round(1)
+
+        travel_times.loc[(travel_times.travel_speed==np.inf)|(travel_times.travel_speed>=50), 'travel_speed'] = np.nan
     
         tot_gps = len(travel_times)
         tot_gps_asig = travel_times.travel_time_min.notna().sum()
@@ -934,6 +936,8 @@ def assign_stations_od():
             travel_times.loc[:, 'distance_osm_drive'] /
             (travel_times.loc[:, 'travel_time_min']/60)
         ).round(1)
+
+        travel_times.loc[(travel_times.travel_speed==np.inf)|(travel_times.travel_speed>=50), 'travel_speed'] = np.nan
     
         # upload to db
         travel_times = travel_times\

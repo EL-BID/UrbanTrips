@@ -245,7 +245,8 @@ def calculate_weighted_means_ods(df,
 def agg_matriz(df,
                aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
                                'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-               weight_col=['factor_expansion_linea'],
+               weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+               weight_var='factor_expansion_linea',               
                agg_transferencias=False,
                agg_modo=False,
                agg_hora=False,
@@ -260,7 +261,15 @@ def agg_matriz(df,
             df['rango_hora'] = 99
         if agg_distancia:
             df['distancia'] = 99
-        df = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+        
+        df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
+
+        df2 = calculate_weighted_means(df,
+                              aggregate_cols=aggregate_cols,
+                              weighted_mean_cols=weight_col,
+                              weight_col=weight_var
+                              )
+        df = df1.merge(df2)
 
     return df
 
@@ -408,7 +417,8 @@ def create_data_folium(etapas,
     matriz = agg_matriz(viajes_matrices,
                         aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
                                         'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-                        weight_col=['factor_expansion_linea'],
+                        weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                        weight_var='factor_expansion_linea',
                         agg_transferencias=agg_transferencias,
                         agg_modo=agg_modo,
                         agg_hora=agg_hora,

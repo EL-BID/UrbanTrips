@@ -56,8 +56,8 @@ def load_and_process_data():
                 viajes['distance_osm_drive'] /
                 (viajes['travel_time_min']/60)
             ).round(1)
-        
-        viajes.loc[viajes.travel_speed==np.inf, 'travel_speed'] = np.nan
+                
+        viajes.loc[(viajes.travel_speed==np.inf)|(viajes.travel_speed>=50), 'travel_speed'] = np.nan
     else:
         etapas['travel_time_min'] = np.nan
         etapas['travel_speed'] = np.nan

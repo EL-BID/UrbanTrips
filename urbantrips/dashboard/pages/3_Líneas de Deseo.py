@@ -431,18 +431,35 @@ with st.expander('Indicadores'):
 with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
-    normalize = col1.checkbox('Normalizar', value=True)
+
+    tipo_matriz = col1.selectbox(
+            'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
+        
+    normalize = False
+    if tipo_matriz == 'Viajes':
+        var_matriz = 'factor_expansion_linea'
+        normalize = col1.checkbox('Normalizar', value=True)
+    if tipo_matriz == 'Distancia promedio (kms)':
+        var_matriz = 'distance_osm_drive'
+    if tipo_matriz == 'Tiempo promedio (min)':
+        var_matriz = 'travel_time_min'
+    if tipo_matriz == 'Velocidad promedio (km/h)':
+        var_matriz = 'travel_speed'
 
     if len(matriz) > 0:
         od_heatmap = pd.crosstab(
             index=matriz['Origen'],
             columns=matriz['Destino'],
-            values=matriz['factor_expansion_linea'],
+            values=matriz[var_matriz],
             aggfunc="sum",
             normalize=normalize,
         )
-        od_heatmap = (od_heatmap * 100).round(1)
-
+        
+        if normalize:
+            od_heatmap = (od_heatmap * 100).round(1)
+        else:
+            od_heatmap = od_heatmap.round(0)
+        
         od_heatmap = od_heatmap.reset_index()
         od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
         od_heatmap = od_heatmap.set_index('Origen')
@@ -456,8 +473,8 @@ with st.expander('Matrices'):
         if len(od_heatmap) <= 20:
             fig.update_layout(width=800, height=800)
         elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
-            fig.update_layout(width=1000, height=1000)
+            fig.update_layout(width=1100, height=1100)
         elif len(od_heatmap) > 40:
-            fig.update_layout(width=1200, height=1200)
+            fig.update_layout(width=1400, height=1400)
 
         col2.plotly_chart(fig)
