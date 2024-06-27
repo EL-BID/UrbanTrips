@@ -147,7 +147,7 @@ def compute_route_section_load(line_ids=False, hour_range=False,
     else:
         section_meters = (route_geoms.geometry.length / n_sections).astype(int)
 
-    if n_sections > 1000:
+    if any(n_sections > 1000):
         warnings.warn(
             "Algunos recorridos tienen mas de 1000 segmentos"
             "Puede arrojar resultados imprecisos ")
