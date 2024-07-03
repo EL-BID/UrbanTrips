@@ -1372,26 +1372,27 @@ def imprime_graficos_hora(viajes,
     sns.set_style("darkgrid", {"axes.facecolor": "#cadce0",
                   'figure.facecolor': '#cadce0', "grid.linestyle": ":"})
 
-    fig = Figure(figsize=(8, 4), dpi=200)
-    canvas = FigureCanvas(fig)
-    ax = fig.add_subplot(111)
+    try:
+        fig = Figure(figsize=(8, 4), dpi=200)
+        ax = fig.add_subplot(111)
 
-    sns.histplot(x='distance_osm_drive', weights='cant',
-                 data=vi, bins=len(vi), ax=ax)  # element='poly',
-    ax.set_title(title, fontsize=12)
-    ax.set_xlabel("Distancia (kms)", fontsize=10)
-    ax.set_ylabel(ytitle, fontsize=10)
-    ax.set_xticks(list(range(0, len(vi)+1, 5)))
+        sns.histplot(x='distance_osm_drive', weights='cant',
+                    data=vi, bins=len(vi), ax=ax)  # element='poly',
+        ax.set_title(title, fontsize=12)
+        ax.set_xlabel("Distancia (kms)", fontsize=10)
+        ax.set_ylabel(ytitle, fontsize=10)
+        ax.set_xticks(list(range(0, len(vi)+1, 5)))
 
-    fig.tight_layout()
+        fig.tight_layout()
 
-    print("Nuevos archivos en resultados: ", f'{alias}{savefile_}')
-    db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
-    fig.savefig(db_path, dpi=300, bbox_inches="tight")
+        print("Nuevos archivos en resultados: ", f'{alias}{savefile_}')
+        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-    db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
-    fig.savefig(db_path, dpi=300, bbox_inches="tight")
-
+        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        fig.savefig(db_path, dpi=300, bbox_inches="tight")
+    except ValueError as e:
+        print(e))
 
 def imprime_burbujas(df,
                      res=7,
