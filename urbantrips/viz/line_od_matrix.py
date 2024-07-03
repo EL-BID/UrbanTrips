@@ -58,7 +58,7 @@ def visualize_lines_od_matrix(line_ids=None, hour_range=False,
     od_lines = get_lines_od_matrix_data(
         line_ids, hour_range, day_type, n_sections, section_meters)
 
-    if len(od_lines) > 0:
+    if od_lines is not None:
         # Viz data
         od_lines.groupby(['id_linea', 'yr_mo']).apply(
             viz_line_od_matrix,
@@ -121,6 +121,7 @@ def get_lines_od_matrix_data(line_ids, hour_range=False,
     if len(od_lines) == 0:
         print("La consulta para estos id_lineas con estos parametros"
               " volvio vacía")
+        return None
     else:
         return od_lines
 
@@ -478,12 +479,19 @@ def map_desire_lines(od_line):
 
     file_name = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
     file_name = file_name+f"{line_id}_{hr_str}_{n_sections}_secciones"
-    create_folium_desire_lines(od_line,
-                               cmap='Blues',
-                               var_fex='legs',
-                               savefile=f"{file_name}.html",
-                               sections_gdf=sections,
-                               k_jenks=5)
+    for k_jenks in range(1, 6)[::-1]:
+        try:
+            create_folium_desire_lines(
+                od_line,
+                cmap="Blues",
+                var_fex="legs",
+                savefile=f"{file_name}.html",
+                sections_gdf=sections,
+                k_jenks=k_jenks,
+            )
+            break
+        except ValueError:
+            continue
 
 
 def create_folium_desire_lines(od_line,
