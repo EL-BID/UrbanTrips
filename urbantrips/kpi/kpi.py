@@ -721,7 +721,9 @@ def compute_kpi_by_line_day(legs, gps):
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
     # demand data
-    day_demand_stats = legs.groupby(["id_linea", "dia"], as_index=False).apply(
+    day_demand_stats = legs\
+        .dropna(subset=["distance", "factor_expansion_linea"])\
+        .groupby(["id_linea", "dia"], as_index=False).apply(
         demand_stats
     )
 
@@ -1031,8 +1033,6 @@ def compute_kpi_by_service():
 
 def demand_stats(df):
     d = {}
-    # remove NaNs
-    df = df.dropna(subset=["distance", "factor_expansion_linea"])
     d["tot_pax"] = df["factor_expansion_linea"].sum()
     d["dmt_mean"] = np.average(a=df["distance"], weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
