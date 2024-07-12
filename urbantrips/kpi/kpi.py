@@ -1031,6 +1031,8 @@ def compute_kpi_by_service():
 
 def demand_stats(df):
     d = {}
+    # remove NaNs
+    df = df.dropna(subset=["distance", "factor_expansion_linea"])
     d["tot_pax"] = df["factor_expansion_linea"].sum()
     d["dmt_mean"] = np.average(a=df["distance"], weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
