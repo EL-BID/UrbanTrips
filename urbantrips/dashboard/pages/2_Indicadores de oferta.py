@@ -11,12 +11,12 @@ import contextily as cx
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
 from folium import Figure
+from shapely.geometry import LineString
 from dash_utils import (
     levanto_tabla_sql, get_logo, create_linestring_od,
     create_squared_polygon, get_epsg_m,
     extract_hex_colors_from_cmap
 )
-
 
 def crear_mapa_folium(df_agg,
                       cmap,

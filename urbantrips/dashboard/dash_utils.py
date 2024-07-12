@@ -1,3 +1,4 @@
+from shapely.geometry import LineString
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -9,8 +10,9 @@ import os
 import yaml
 import sqlite3
 from shapely import wkt
-from shapely.geometry import LineString, Point, Polygon
 from matplotlib import colors as mcolors
+from folium import Figure
+from shapely.geometry import LineString, Point, Polygon
 
 
 def leer_configs_generales():
@@ -271,6 +273,7 @@ def agg_matriz(df,
                               )
         df = df1.merge(df2)
 
+
     return df
 
 
@@ -367,6 +370,7 @@ def create_data_folium(etapas,
                                           agg_cols_etapas,
                                           ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm',
                                            'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],
+
                                           'factor_expansion_linea',
                                           agg_transferencias=agg_transferencias,
                                           agg_modo=agg_modo,
