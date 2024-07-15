@@ -9,12 +9,10 @@ def test_routes():
     utils.create_db()
     routes.process_routes_geoms()
 
-    conn_insumos = utils.iniciar_conexion_db(tipo='insumos')
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
 
-    lines_routes = pd.read_sql(
-        "select * from official_lines_geoms", conn_insumos)
-    branches_routes = pd.read_sql(
-        "select * from official_branches_geoms", conn_insumos)
+    lines_routes = pd.read_sql("select * from official_lines_geoms", conn_insumos)
+    branches_routes = pd.read_sql("select * from official_branches_geoms", conn_insumos)
 
     assert len(lines_routes) == 2
     assert len(branches_routes) == 8

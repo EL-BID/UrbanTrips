@@ -1,5 +1,6 @@
 from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
+from urbantrips.datamodel import services
 from urbantrips.destinations import destinations as dest
 from urbantrips.geo import geo
 from urbantrips.carto import carto, routes
@@ -23,6 +24,11 @@ def main():
     tipo_trx_invalidas = configs["tipo_trx_invalidas"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
 
+    # gps configs
+    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombres_variables_gps = configs["nombres_variables_gps"]
+    tiempos_viaje_estaciones = configs["tiempos_viaje_estaciones"]
+
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     resolucion_h3 = configs["resolucion_h3"]
     trx_order_params = {
@@ -30,14 +36,6 @@ def main():
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
-
-    # gps configs
-    if geolocalizar_trx_config:
-        nombre_archivo_gps = configs["nombre_archivo_gps"]
-        nombres_variables_gps = configs["nombres_variables_gps"]
-    else:
-        nombre_archivo_gps = None
-        nombres_variables_gps = None
 
     # Compute tolerance in h3 ring
     ring_size = geo.get_h3_buffer_ring_size(
@@ -68,6 +66,25 @@ def main():
 
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
+
+    # Create distances table
+    carto.create_distances_table(use_parallel=False)
+
+    if nombre_archivo_gps is not None:
+        services.process_services(line_ids=None)
+
+        # Assign a gps point id to legs' origins
+        legs.assign_gps_origin()
+
+        # Assign a gps point id to legs' destination
+        legs.assign_gps_destination()
+
+    if tiempos_viaje_estaciones is not None:
+        # Assign stations to legs for travel times
+        legs.assign_stations_od()
+
+    # compute travel time for trips
+    trips.compute_trips_travel_time()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms(plotear_lineas=False)

@@ -24,6 +24,15 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     leer_alias)
 
+import subprocess
+
+def get_library_version(library_name):
+    result = subprocess.run(["pip", "show", library_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode == 0:
+        for line in result.stdout.split('\n'):
+            if line.startswith("Version:"):
+                return line.split(":")[1].strip()
+    return None
 
 @duracion
 def update_stations_catchment_area(ring_size):
@@ -340,6 +349,8 @@ def create_distances_table(use_parallel=False):
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
 
+    print('Verifica viajes sin distancias calculadas')
+
     q = """
     select distinct h3_o,h3_d
     from viajes
@@ -384,17 +395,18 @@ def create_distances_table(use_parallel=False):
             f"Hay {len(agg2_total)} nuevos pares od para sumar a tabla distancias")
         print(f"de los {len(pares_h3_data)} originales en la data.")
         print('')
-
-        agg2 = compute_distances_osm(
-                agg2_total,
-                h3_o="h3_o_norm",
-                h3_d="h3_d_norm",
-                processing="pandana",
-                modes=["drive"],
-                use_parallel=False
-            )
+        print('Procesa distancias con Pandana')
         
-        if len(agg2)>0:
+        agg2 = compute_distances_osm(
+            agg2_total,
+            h3_o="h3_o_norm",
+            h3_d="h3_d_norm",
+            processing="pandana",
+            modes=["drive"],
+            use_parallel=False
+        )
+
+        if len(agg2) > 0:
 
             dist1 = agg2.copy()
             dist1['h3_o'] = dist1['h3_o_norm']
@@ -410,19 +422,18 @@ def create_distances_table(use_parallel=False):
                           'h3_d_norm'],
                          as_index=False)[['distance_osm_drive',
                                           'distance_h3']].first()
-    
+
             distancias_new.to_sql("distancias", conn_insumos,
                                   if_exists="append", index=False)
 
-        
         else:
-
+            print('Procesa distancias con OSMNX')
             # Determine the size of each chunk (500 rows in this case)
             chunk_size = 25000
-    
+
             # Get the total number of rows in the DataFrame
             total_rows = len(agg2_total)
-    
+
             # Loop through the DataFrame in chunks of 500 rows
             for start in range(0, total_rows, chunk_size):
                 end = start + chunk_size
@@ -431,7 +442,7 @@ def create_distances_table(use_parallel=False):
                 # Call the process_chunk function with the selected chunk
                 print(
                     f'Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}')
-    
+
                 agg2 = compute_distances_osm(
                     agg2,
                     h3_o="h3_o_norm",
@@ -440,7 +451,7 @@ def create_distances_table(use_parallel=False):
                     modes=["drive"],
                     use_parallel=use_parallel
                 )
-    
+
                 dist1 = agg2.copy()
                 dist1['h3_o'] = dist1['h3_o_norm']
                 dist1['h3_d'] = dist1['h3_d_norm']
@@ -455,10 +466,10 @@ def create_distances_table(use_parallel=False):
                               'h3_d_norm'],
                              as_index=False)[['distance_osm_drive',
                                               'distance_h3']].first()
-    
+
                 distancias_new.to_sql("distancias", conn_insumos,
                                       if_exists="append", index=False)
-    
+
                 conn_insumos.close()
                 conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -630,6 +641,19 @@ def compute_distances_osm(
                 df = compute_distances_pandana(df=df, mode=mode)
             except:
                 print("No es posible computar distancias con pandana")
+                library_name = "Pandana"
+                version = get_library_version(library_name)
+                if version:
+                    print(f"{library_name} version {version} is installed.")
+                else:
+                    print(f"{library_name} is not installed.")
+
+                library_name = "OSMnet"
+                version = get_library_version(library_name)
+                if version:
+                    print(f"{library_name} version {version} is installed.")
+                else:
+                    print(f"{library_name} is not installed.")
                 return pd.DataFrame([])
 
     var_distances += [f"distance_osm_{mode}"]

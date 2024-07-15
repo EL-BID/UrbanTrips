@@ -75,13 +75,9 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
 
     # query legs
     q_etapas = f"""
-        select e.*,d.h3_d, f.factor_expansion
-        from ({q_main_etapas}) e
-        left join destinos d
-        on d.id = e.id
-        left join factores_expansion f
-        on e.dia = f.dia
-        and e.id_tarjeta = f.id_tarjeta
+        select e.*, e.factor_expansion_linea AS factor_expansion
+		from ({q_main_etapas}) e
+		WHERE od_validado = 1;
     """
 
     print("Obteniendo datos de etapas y rutas")

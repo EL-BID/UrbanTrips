@@ -1,27 +1,13 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from PIL import Image
-import requests
 import mapclassify
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as cx
-from mycolorpy import colorlist as mcp
-import os
-
-import yaml
-import sqlite3
-from shapely import wkt
 from folium import Figure
-from shapely.geometry import LineString
-
-
-from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od
+from dash_utils import (levanto_tabla_sql, get_logo,
+                        create_linestring_od, extract_hex_colors_from_cmap)
 
 
 def crear_mapa_folium(df_agg,
@@ -48,7 +34,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:
@@ -80,7 +66,7 @@ with st.expander('Partición modal'):
 
     col1, col2, col3 = st.columns([1, 3, 3])
     particion_modal = levanto_tabla_sql('particion_modal')
-    
+
     desc_dia_m = col1.selectbox(
         'Periodo', options=particion_modal.desc_dia.unique(), key='desc_dia_m')
     tipo_dia_m = col1.selectbox(
@@ -117,33 +103,33 @@ with st.expander('Distancias de viajes'):
 
     hist_values = levanto_tabla_sql('distribucion')
 
-    if len(hist_values) >0:
+    if len(hist_values) > 0:
         hist_values.columns = ['desc_dia', 'tipo_dia',
                                'Distancia (kms)', 'Viajes', 'Modo']
         hist_values = hist_values[hist_values['Distancia (kms)'] <= 60]
         hist_values = hist_values.sort_values(['Modo', 'Distancia (kms)'])
-    
+
         if col2.checkbox('Ver datos: distribución de viajes'):
             col2.write(hist_values)
-    
+
         desc_dia_d = col1.selectbox(
             'Periodo', options=hist_values.desc_dia.unique(), key='desc_dia_d')
         tipo_dia_d = col1.selectbox(
             'Tipo de dia', options=hist_values.tipo_dia.unique(), key='tipo_dia_d')
-    
+
         dist = hist_values.Modo.unique().tolist()
         dist.remove('Todos')
         dist = ['Todos'] + dist
         modo_d = col1.selectbox('Modo', options=dist)
-    
+
         hist_values = hist_values[(hist_values.desc_dia == desc_dia_d) & (
             hist_values.tipo_dia == tipo_dia_d) & (hist_values.Modo == modo_d)]
-    
+
         fig = px.histogram(hist_values, x='Distancia (kms)',
                            y='Viajes', nbins=len(hist_values))
         fig.update_xaxes(type='category')
         fig.update_yaxes(title_text='Viajes')
-    
+
         fig.update_layout(
             xaxis=dict(
                 tickmode='linear',
@@ -154,7 +140,7 @@ with st.expander('Distancias de viajes'):
                 tickfont=dict(size=9)
             )
         )
-    
+
         col2.plotly_chart(fig)
     else:
         # Usar HTML para personalizar el estilo del texto
@@ -168,7 +154,7 @@ with st.expander('Distancias de viajes'):
             <div class='big-font'>
                 No hay datos para mostrar            
             </div>
-            """   
+            """
         col2.markdown(texto_html, unsafe_allow_html=True)
         texto_html = """
             <style>
@@ -180,7 +166,7 @@ with st.expander('Distancias de viajes'):
             <div class='big-font'>
                 Verifique que los procesos se corrieron correctamente            
             </div>
-            """   
+            """
         col2.markdown(texto_html, unsafe_allow_html=True)
 
 
@@ -223,36 +209,37 @@ with st.expander('Líneas de deseo'):
 
     lineas_deseo = levanto_tabla_sql('lineas_deseo')
 
-    if len(lineas_deseo)>0:
-    
+    if len(lineas_deseo) > 0:
+
         lineas_deseo = create_linestring_od(lineas_deseo)
-    
+
         desc_dia = col1.selectbox(
             'Periodo', options=lineas_deseo.desc_dia.unique())
         tipo_dia = col1.selectbox(
             'Tipo de dia', options=lineas_deseo.tipo_dia.unique())
         var_zona = col1.selectbox(
             'Zonificación', options=lineas_deseo.var_zona.unique())
-        filtro1 = col1.selectbox('Filtro', options=lineas_deseo.filtro1.unique())
-    
+        filtro1 = col1.selectbox(
+            'Filtro', options=lineas_deseo.filtro1.unique())
+
         df_agg = lineas_deseo[(
             (lineas_deseo.desc_dia == desc_dia) &
             (lineas_deseo.tipo_dia == tipo_dia) &
             (lineas_deseo.var_zona == var_zona) &
             (lineas_deseo.filtro1 == filtro1)
         )].copy()
-    
+
         if len(df_agg) > 0:
-    
+
             map = crear_mapa_folium(df_agg,
                                     cmap='BuPu',
                                     var_fex='Viajes',
                                     k_jenks=5)
-    
+
             with col2:
                 st_map = st_folium(map, width=900, height=700)
         else:
-    
+
             col2.markdown("""
             <style>
             .big-font {
@@ -260,7 +247,7 @@ with st.expander('Líneas de deseo'):
             }
             </style>
             """, unsafe_allow_html=True)
-    
+
             col2.markdown(
                 '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
 
@@ -276,7 +263,7 @@ with st.expander('Líneas de deseo'):
             <div class='big-font'>
                 No hay datos para mostrar            
             </div>
-            """   
+            """
         col2.markdown(texto_html, unsafe_allow_html=True)
         texto_html = """
             <style>
@@ -288,7 +275,7 @@ with st.expander('Líneas de deseo'):
             <div class='big-font'>
                 Verifique que los procesos se corrieron correctamente            
             </div>
-            """   
+            """
         col2.markdown(texto_html, unsafe_allow_html=True)
 with st.expander('Matrices OD'):
     col1, col2 = st.columns([1, 4])

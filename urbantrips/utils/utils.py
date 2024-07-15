@@ -5,15 +5,12 @@ import os
 import yaml
 import time
 from functools import wraps
-import h3
 import re
 import numpy as np
 import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
-
-os.environ['USE_PYGEOS'] = '0'
 
 
 def duracion(f):
@@ -238,7 +235,7 @@ def create_other_inputs_tables():
         (zona text NOT NULL,
          id text NOT NULL,
          orden int,
-         wkt text        
+         wkt text
         )
         ;
         """
@@ -246,12 +243,32 @@ def create_other_inputs_tables():
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS poligonos
-        (id text NOT NULL,         
-         wkt text        
+        (id text NOT NULL,
+         wkt text
         )
         ;
         """
     )
+
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_stations
+        (id_o int NOT NULL,
+         id_linea_o int NOT NULL,
+         id_ramal_o int,
+         lat_o float NOT NULL,
+         lon_o float NOT NULL,
+         id_d int NOT NULL,
+         lat_d float NOT NULL,
+         lon_d float NOT NULL,
+         id_linea_d int NOT NULL,
+         id_ramal_d int,
+         travel_time_min float NOT NULL
+        )
+        ;
+        """
+    )
+
     conn_insumos.close()
 
 
@@ -693,6 +710,122 @@ def create_basic_data_model_tables():
         """
     )
 
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legs_to_gps_origin
+        (
+        dia text,
+        id_legs int not null,
+        id_gps int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legs_to_gps_destination
+        (
+        dia text,
+        id_legs int not null,
+        id_gps int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legs_to_station_origin
+        (
+        dia text,
+        id_legs int not null,
+        id_station int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legs_to_station_destination
+        (
+        dia text,
+        id_legs int not null,
+        id_station int not null
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_gps
+        (
+        dia text,
+        id int not null,
+        travel_time_min float,
+        travel_speed float
+        )
+        ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS travel_times_gps_idx ON travel_times_gps (
+        "id"
+        );
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_stations
+        (
+        dia text,
+        id int not null,
+        travel_time_min float,
+        travel_speed float
+        )
+        ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS travel_times_ts_idx ON travel_times_stations (
+        "id"
+        );
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_legs
+        (
+        dia text,
+        id int not null,
+        id_etapa int,
+        id_viaje int,
+        id_tarjeta text,
+        travel_time_min float
+        )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS travel_times_trips
+        (
+        dia text,
+        id_tarjeta text,
+        id_viaje int,
+        travel_time_min float
+        )
+        ;
+        """
+    )
+
     conn_data.close()
 
 
@@ -806,6 +939,8 @@ def create_gps_table():
                 (
                 id INT PRIMARY KEY NOT NULL,
                 id_linea int not null,
+                id_ramal int,
+                interno int,
                 dia text,
                 original_service_id int not null,
                 new_service_id int not null,
@@ -900,7 +1035,7 @@ def agrego_indicador(df_indicador,
             conn_data,
         )
     except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola...")
+        print("No existe la tabla indicadores, construyendola...", e)
         indicadores = pd.DataFrame([])
 
     if var not in df.columns:
@@ -924,12 +1059,13 @@ def agrego_indicador(df_indicador,
             .reset_index()\
             .rename(columns={0: 'indicador'})\
             .round(2)
+
     elif aggfunc == 'median':
         resultado = df.groupby('dia')\
             .apply(
-                lambda x: ws.weighted_median(
-                    x['indicador'].tolist(),
-                    weights=x[var_fex].tolist()))\
+            lambda x: ws.weighted_median(
+                x['indicador'].tolist(),
+                weights=x[var_fex].tolist()))\
             .reset_index()\
             .rename(columns={0: 'indicador'})\
             .round(2)
@@ -947,7 +1083,7 @@ def agrego_indicador(df_indicador,
         )]
 
     indicadores = pd.concat([indicadores,
-                            resultado],
+                             resultado],
                             ignore_index=True)
     if nivel > 0:
         for i in indicadores[(indicadores.tabla == tabla) &
@@ -1211,7 +1347,6 @@ def create_line_ids_sql_filter(line_ids):
 
 
 def traigo_tabla_zonas():
-    alias = leer_alias()
 
     conn_insumos = iniciar_conexion_db(tipo='insumos')
 
@@ -1307,3 +1442,22 @@ def calculate_weighted_means(df,
     result = result.merge(fex_summed, how='left', on=aggregate_cols)
 
     return result
+
+
+def delete_data_from_table_run_days(table_name):
+
+    conn_data = iniciar_conexion_db(tipo='data')
+
+    dias_ultima_corrida = pd.read_sql_query(
+        """
+                                    SELECT *
+                                    FROM dias_ultima_corrida
+                                    """,
+        conn_data,
+    )
+    # delete data from same day if exists
+    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    query = f"DELETE FROM {table_name} WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+    conn_data.close()

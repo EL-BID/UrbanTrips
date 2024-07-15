@@ -13,7 +13,7 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     is_date_string,
     check_date_type,
-    create_line_ids_sql_filter
+    create_line_ids_sql_filter,
 )
 
 # KPI WRAPPER
@@ -71,6 +71,7 @@ def compute_kpi():
 
         # compute amount of hourly services by line and type of day
         compute_dispatched_services_by_line_hour_typeday()
+
     else:
 
         print("No hay servicios procesados.")
@@ -80,9 +81,15 @@ def compute_kpi():
 
 # SECTION LOAD KPI
 
+
 @duracion
-def compute_route_section_load(line_ids=False, hour_range=False,
-                               n_sections=10, section_meters=None, day_type="weekday"):
+def compute_route_section_load(
+    line_ids=False,
+    hour_range=False,
+    n_sections=10,
+    section_meters=None,
+    day_type="weekday",
+):
     """
     Computes the load per route section.
 
@@ -112,24 +119,20 @@ def compute_route_section_load(line_ids=False, hour_range=False,
 
     if n_sections is not None:
         if n_sections > 1000:
-            raise Exception(
-                "No se puede utilizar una cantidad de secciones > 1000")
+            raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
     conn_data = iniciar_conexion_db(tipo="data")
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(
-        line_ids_where, hour_range, day_type)
+    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
 
     # read routes geoms
     q_route_geoms = "select * from lines_geoms"
     q_route_geoms = q_route_geoms + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
-    route_geoms = gpd.GeoDataFrame(
-        route_geoms, geometry="geometry", crs="EPSG:4326"
-    )
+    route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
 
     # Set which parameter to use to split route geoms into sections
 
@@ -146,10 +149,16 @@ def compute_route_section_load(line_ids=False, hour_range=False,
     else:
         section_meters = (route_geoms.geometry.length / n_sections).astype(int)
 
-    if n_sections > 1000:
+    if isinstance(n_sections, int):
+        n_sections_check = pd.Series([n_sections])
+    else:
+        n_sections_check = n_sections
+
+    if any(n_sections_check > 1000):
         warnings.warn(
             "Algunos recorridos tienen mas de 1000 segmentos"
-            "Puede arrojar resultados imprecisos ")
+            "Puede arrojar resultados imprecisos "
+        )
 
     route_geoms = route_geoms.to_crs(epsg=4326)
 
@@ -165,14 +174,13 @@ def compute_route_section_load(line_ids=False, hour_range=False,
     # create the line and n sections pair missing and upload it to the db
     if len(new_route_geoms) > 0:
 
-        upload_route_section_points_table(
-            new_route_geoms, delete_old_data=False)
+        upload_route_section_points_table(new_route_geoms, delete_old_data=False)
 
     # delete old seciton load data
     yr_mos = legs.yr_mo.unique()
 
     delete_old_route_section_load_data(
-        route_geoms, hour_range, day_type, yr_mos, db_type='data'
+        route_geoms, hour_range, day_type, yr_mos, db_type="data"
     )
 
     # compute section load
@@ -185,11 +193,10 @@ def compute_route_section_load(line_ids=False, hour_range=False,
             compute_section_load_table,
             route_geoms=route_geoms,
             hour_range=hour_range,
-            day_type=day_type
+            day_type=day_type,
         )
 
-        section_load_table = section_load_table.droplevel(
-            2, axis=0).reset_index()
+        section_load_table = section_load_table.droplevel(2, axis=0).reset_index()
 
         # Add section meters to table
         section_load_table["legs"] = section_load_table["legs"].map(int)
@@ -211,12 +218,15 @@ def compute_route_section_load(line_ids=False, hour_range=False,
 
         print("Uploading data to db...")
         section_load_table.to_sql(
-            "ocupacion_por_linea_tramo", conn_data, if_exists="append",
-            index=False,)
+            "ocupacion_por_linea_tramo",
+            conn_data,
+            if_exists="append",
+            index=False,
+        )
 
         return section_load_table
     else:
-        print('No existen recorridos o etapas para las líneas')
+        print("No existen recorridos o etapas para las líneas")
         print("Cantidad de lineas:", len(line_ids))
         print("Cantidad de recorridos", len(route_geoms))
         print("Cantidad de etapas", len(legs))
@@ -235,23 +245,25 @@ def check_exists_route_section_points_table(route_geoms):
     route_sections = pd.read_sql(q, conn_insumos)
     conn_insumos.close()
 
-    new_route_geoms = route_geoms\
-        .merge(route_sections, on=['id_linea', 'n_sections'], how='left')
-    new_route_geoms = new_route_geoms\
-        .loc[new_route_geoms.section_exists.isna(), ['id_linea', 'n_sections', 'geometry']]
+    new_route_geoms = route_geoms.merge(
+        route_sections, on=["id_linea", "n_sections"], how="left"
+    )
+    new_route_geoms = new_route_geoms.loc[
+        new_route_geoms.section_exists.isna(), ["id_linea", "n_sections", "geometry"]
+    ]
 
     return new_route_geoms
 
 
 def delete_old_route_section_load_data(
-    route_geoms, hour_range, day_type, yr_mos, db_type='data'
+    route_geoms, hour_range, day_type, yr_mos, db_type="data"
 ):
     """
     Deletes old data in table ocupacion_por_linea_tramo
     """
-    table_name = 'ocupacion_por_linea_tramo'
+    table_name = "ocupacion_por_linea_tramo"
 
-    if db_type == 'data':
+    if db_type == "data":
         conn = iniciar_conexion_db(tipo="data")
     else:
         conn = iniciar_conexion_db(tipo="dash")
@@ -265,7 +277,7 @@ def delete_old_route_section_load_data(
         hora_max_filter = "is NULL"
 
     # create a df with n sections for each line
-    delete_df = route_geoms.reindex(columns=['id_linea', 'n_sections'])
+    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
     for yr_mo in yr_mos:
         for _, row in delete_df.iterrows():
             # Delete old data for those parameters
@@ -313,8 +325,8 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
 
     """
     # create Points for origins and destination
-    legs_df["o"] = legs_df['h3_o'].map(geo.create_point_from_h3)
-    legs_df["d"] = legs_df['h3_d'].map(geo.create_point_from_h3)
+    legs_df["o"] = legs_df["h3_o"].map(geo.create_point_from_h3)
+    legs_df["d"] = legs_df["h3_d"].map(geo.create_point_from_h3)
 
     # Assign a route section id
     legs_df["o_proj"] = list(
@@ -352,8 +364,7 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
     print(f"Calculando carga por tramo para linea id {line_id}")
 
     if (route_geoms.id_linea == line_id).any():
-        route = route_geoms.loc[route_geoms.id_linea ==
-                                line_id, :]
+        route = route_geoms.loc[route_geoms.id_linea == line_id, :]
 
         route_geom = route.geometry.item()
         n_sections = route.n_sections.item()
@@ -362,23 +373,21 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         df = add_od_lrs_to_legs_from_route(legs_df=legs, route_geom=route_geom)
 
         # Assign a direction based on line progression
-        df = df.reindex(
-            columns=["dia", "o_proj", "d_proj", "factor_expansion_linea"])
+        df = df.reindex(columns=["dia", "o_proj", "d_proj", "factor_expansion_linea"])
         df["sentido"] = [
-            "ida" if row.o_proj <= row.d_proj
-            else "vuelta" for _, row in df.iterrows()
+            "ida" if row.o_proj <= row.d_proj else "vuelta" for _, row in df.iterrows()
         ]
 
         # Compute total legs per direction
         # First totals per day
-        totals_by_direction = df\
-            .groupby(["dia", "sentido"], as_index=False)\
-            .agg(cant_etapas_sentido=("factor_expansion_linea", "sum"))
+        totals_by_direction = df.groupby(["dia", "sentido"], as_index=False).agg(
+            cant_etapas_sentido=("factor_expansion_linea", "sum")
+        )
 
         # then average for weekdays
-        totals_by_direction = totals_by_direction\
-            .groupby(["sentido"], as_index=False)\
-            .agg(cant_etapas_sentido=("cant_etapas_sentido", "mean"))
+        totals_by_direction = totals_by_direction.groupby(
+            ["sentido"], as_index=False
+        ).agg(cant_etapas_sentido=("cant_etapas_sentido", "mean"))
 
         # compute section ids based on amount of sections
         section_ids_LRS = create_route_section_ids(n_sections)
@@ -389,26 +398,26 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         # For each leg, build traversed route segments ids
         section_ids = list(range(1, len(section_ids_LRS_cut)))
 
-        df['o_proj'] = pd.cut(df.o_proj, bins=section_ids_LRS_cut,
-                              labels=section_ids, right=True)
-        df['d_proj'] = pd.cut(df.d_proj, bins=section_ids_LRS_cut,
-                              labels=section_ids, right=True)
+        df["o_proj"] = pd.cut(
+            df.o_proj, bins=section_ids_LRS_cut, labels=section_ids, right=True
+        )
+        df["d_proj"] = pd.cut(
+            df.d_proj, bins=section_ids_LRS_cut, labels=section_ids, right=True
+        )
 
         legs_dict = df.to_dict("records")
-        leg_route_sections_df = pd.concat(
-            map(build_leg_route_sections_df, legs_dict)
-        )
+        leg_route_sections_df = pd.concat(map(build_leg_route_sections_df, legs_dict))
 
         # compute total legs by section and direction
         # first adding totals per day
-        legs_by_sections = leg_route_sections_df\
-            .groupby(["dia", "sentido", "section_id"], as_index=False)\
-            .agg(size=("factor_expansion_linea", "sum"))
+        legs_by_sections = leg_route_sections_df.groupby(
+            ["dia", "sentido", "section_id"], as_index=False
+        ).agg(size=("factor_expansion_linea", "sum"))
 
         # then computing average across days
-        legs_by_sections = legs_by_sections\
-            .groupby(["sentido", "section_id"], as_index=False)\
-            .agg(size=("size", "mean"))
+        legs_by_sections = legs_by_sections.groupby(
+            ["sentido", "section_id"], as_index=False
+        ).agg(size=("size", "mean"))
 
         # If there is no information for all sections in both directions
         if len(legs_by_sections) < len(section_ids) * 2:
@@ -423,9 +432,8 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
             legs_by_sections_full = section_direction_full_set.merge(
                 legs_by_sections, how="left", on=["sentido", "section_id"]
             )
-            legs_by_sections_full["legs"] = (
-                legs_by_sections_full.size_y.combine_first(
-                    legs_by_sections_full.size_x)
+            legs_by_sections_full["legs"] = legs_by_sections_full.size_y.combine_first(
+                legs_by_sections_full.size_x
             )
 
             legs_by_sections_full = legs_by_sections_full.reindex(
@@ -433,9 +441,7 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
             )
 
         else:
-            legs_by_sections_full = legs_by_sections.rename(
-                columns={"size": "legs"}
-            )
+            legs_by_sections_full = legs_by_sections.rename(columns={"size": "legs"})
 
         # sum totals per direction and compute prop_etapas
         legs_by_sections_full = legs_by_sections_full.merge(
@@ -443,13 +449,10 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         )
 
         legs_by_sections_full["prop"] = (
-            legs_by_sections_full["legs"]
-            / legs_by_sections_full.cant_etapas_sentido
+            legs_by_sections_full["legs"] / legs_by_sections_full.cant_etapas_sentido
         )
 
-        legs_by_sections_full['prop'] = (
-            legs_by_sections_full['prop'].fillna(0)
-        )
+        legs_by_sections_full["prop"] = legs_by_sections_full["prop"].fillna(0)
 
         legs_by_sections_full["id_linea"] = line_id
 
@@ -500,7 +503,7 @@ def create_route_section_ids(n_sections):
 def build_leg_route_sections_df(row):
     """
     Computes for a leg a table with all sections id traversed by
-    that leg based on the origin and destionation's section id 
+    that leg based on the origin and destionation's section id
 
     Parameters
     ----------
@@ -563,6 +566,7 @@ def get_route_section_id(point, route_geom):
 
 # GENERAL PURPOSE KPIS WITH GPS
 
+
 def read_data_for_daily_kpi():
     """
     Read legs and gps micro data from db and
@@ -607,7 +611,7 @@ def read_data_for_daily_kpi():
     """
     processed_days = pd.read_sql(processed_days_q, conn_data)
     processed_days = processed_days.dia
-    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+    processed_days = ", ".join([f"'{val}'" for val in processed_days])
 
     print("Leyendo datos de oferta")
     q = f"""
@@ -654,7 +658,7 @@ def add_distances_to_legs(legs):
 
     """
     configs = leer_configs_generales()
-    h3_original_res = configs['resolucion_h3']
+    h3_original_res = configs["resolucion_h3"]
     min_distance = h3.edge_length(resolution=h3_original_res, unit="km")
 
     conn_insumos = iniciar_conexion_db(tipo="insumos")
@@ -672,8 +676,8 @@ def add_distances_to_legs(legs):
 
     print("Sumando distancias a etapas")
     # use distances h3 when osm missing
-    distances.loc[:, ['distance']] = (
-        distances.distance_osm_drive.combine_first(distances.distance_h3)
+    distances.loc[:, ["distance"]] = distances.distance_osm_drive.combine_first(
+        distances.distance_h3
     )
     distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
 
@@ -683,7 +687,7 @@ def add_distances_to_legs(legs):
     # add minimum distance in km as length of h3
     legs.distance = legs.distance.map(lambda x: max(x, min_distance))
 
-    no_distance = legs.distance.isna().sum()/len(legs) * 100
+    no_distance = legs.distance.isna().sum() / len(legs) * 100
     print("Hay un {:.2f} % de etapas sin distancias ".format(no_distance))
     conn_insumos.close()
 
@@ -714,42 +718,36 @@ def compute_kpi_by_line_day(legs, gps):
     # get veh expansion factors for supply data
     q = "select id_linea,dia,veh_exp from vehicle_expansion_factors"
     vehicle_expansion_factor = pd.read_sql(q, conn_data)
-    gps = gps.merge(vehicle_expansion_factor, on=[
-                    'dia', 'id_linea'], how='left')
+    gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
     # demand data
     day_demand_stats = legs\
-        .groupby(['id_linea', 'dia'], as_index=False)\
-        .apply(demand_stats)
+        .dropna(subset=["distance", "factor_expansion_linea"])\
+        .groupby(["id_linea", "dia"], as_index=False).apply(
+        demand_stats
+    )
 
     # supply data
-    day_supply_stats = gps\
-        .groupby(['id_linea', 'dia'], as_index=False)\
-        .apply(supply_stats)
+    day_supply_stats = gps.groupby(["id_linea", "dia"], as_index=False).apply(
+        supply_stats
+    )
 
-    day_stats = day_demand_stats\
-        .merge(day_supply_stats,
-               how='inner', on=['id_linea', 'dia'])
+    day_stats = day_demand_stats.merge(
+        day_supply_stats, how="inner", on=["id_linea", "dia"]
+    )
 
     # compute KPI
-    day_stats['pvd'] = day_stats.tot_pax / \
-        day_stats.tot_veh
-    day_stats['kvd'] = day_stats.tot_km / \
-        day_stats.tot_veh
-    day_stats['ipk'] = day_stats.tot_pax / \
-        day_stats.tot_km
+    day_stats["pvd"] = day_stats.tot_pax / day_stats.tot_veh
+    day_stats["kvd"] = day_stats.tot_km / day_stats.tot_veh
+    day_stats["ipk"] = day_stats.tot_pax / day_stats.tot_km
 
     # Calcular espacios-km ofertados (EKO) y los espacios-km demandados (EKD).
-    day_stats['ekd_mean'] = day_stats.tot_pax * \
-        day_stats.dmt_mean
-    day_stats['ekd_median'] = day_stats.tot_pax * \
-        day_stats.dmt_median
-    day_stats['eko'] = day_stats.tot_km * 60
+    day_stats["ekd_mean"] = day_stats.tot_pax * day_stats.dmt_mean
+    day_stats["ekd_median"] = day_stats.tot_pax * day_stats.dmt_median
+    day_stats["eko"] = day_stats.tot_km * 60
 
-    day_stats['fo_mean'] = day_stats.ekd_mean / \
-        day_stats.eko
-    day_stats['fo_median'] = day_stats.ekd_median / \
-        day_stats.eko
+    day_stats["fo_mean"] = day_stats.ekd_mean / day_stats.eko
+    day_stats["fo_median"] = day_stats.ekd_median / day_stats.eko
 
     cols = [
         "id_linea",
@@ -763,7 +761,7 @@ def compute_kpi_by_line_day(legs, gps):
         "kvd",
         "ipk",
         "fo_mean",
-        "fo_median"
+        "fo_median",
     ]
 
     day_stats = day_stats.reindex(columns=cols)
@@ -810,14 +808,12 @@ def compute_kpi_by_line_typeday():
     daily_data = pd.read_sql(q, conn_data)
 
     # get day of the week
-    weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
-    daily_data.loc[:, ['dia']] = 'weekday'
-    daily_data.loc[weekend, ['dia']] = 'weekend'
+    weekend = pd.to_datetime(daily_data["dia"].copy()).dt.dayofweek > 4
+    daily_data.loc[:, ["dia"]] = "weekday"
+    daily_data.loc[weekend, ["dia"]] = "weekend"
 
     # compute aggregated stats
-    type_of_day_stats = daily_data\
-        .groupby(['id_linea', 'dia'], as_index=False)\
-        .mean()
+    type_of_day_stats = daily_data.groupby(["id_linea", "dia"], as_index=False).mean()
 
     print("Subiendo indicadores por linea a la db")
 
@@ -833,7 +829,7 @@ def compute_kpi_by_line_typeday():
         "kvd",
         "ipk",
         "fo_mean",
-        "fo_median"
+        "fo_median",
     ]
 
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
@@ -849,6 +845,7 @@ def compute_kpi_by_line_typeday():
 
 
 # KPIS BY SERVICE
+
 
 @duracion
 def compute_kpi_by_service():
@@ -958,9 +955,8 @@ def compute_kpi_by_service():
     invalid_demand_dups = pd.read_sql(q_invalid_services, conn_data)
 
     # remove duplicates leaving the first, i.e. next valid service in time
-    invalid_demand = invalid_demand_dups.drop_duplicates(
-        subset=['id'], keep='first')
-    invalid_demand = invalid_demand.dropna(subset=['service_id'])
+    invalid_demand = invalid_demand_dups.drop_duplicates(subset=["id"], keep="first")
+    invalid_demand = invalid_demand.dropna(subset=["service_id"])
 
     # create single demand by service df
     service_demand = pd.concat([valid_demand, invalid_demand])
@@ -969,13 +965,13 @@ def compute_kpi_by_service():
     service_demand = add_distances_to_legs(legs=service_demand)
 
     # TODO: remove this line when factor is corrected
-    service_demand['factor_expansion_linea'] = (
-        service_demand['factor_expansion_linea'].replace(0, 1)
-    )
+    service_demand["factor_expansion_linea"] = service_demand[
+        "factor_expansion_linea"
+    ].replace(0, 1)
     # compute demand stats
-    service_demand_stats = service_demand\
-        .groupby(['dia', 'id_linea', 'interno', 'service_id'], as_index=False)\
-        .apply(demand_stats)
+    service_demand_stats = service_demand.groupby(
+        ["dia", "id_linea", "interno", "service_id"], as_index=False
+    ).apply(demand_stats)
 
     # read supply service data
     service_supply_q = """
@@ -988,30 +984,40 @@ def compute_kpi_by_service():
     service_supply = pd.read_sql(service_supply_q, conn_data)
 
     # merge supply and demand data
-    service_stats = service_supply\
-        .merge(service_demand_stats, how='left',
-               on=['dia', 'id_linea', 'interno', 'service_id'])
+    service_stats = service_supply.merge(
+        service_demand_stats,
+        how="left",
+        on=["dia", "id_linea", "interno", "service_id"],
+    )
     service_stats.tot_pax = service_stats.tot_pax.fillna(0)
 
     # compute stats
-    service_stats['ipk'] = service_stats['tot_pax'] / service_stats['tot_km']
-    service_stats['ekd_mean'] = service_stats['tot_pax'] * \
-        service_stats['dmt_mean']
-    service_stats['ekd_median'] = service_stats['tot_pax'] * \
-        service_stats['dmt_median']
-    service_stats['eko'] = service_stats['tot_km'] * 60
-    service_stats['fo_mean'] = service_stats['ekd_mean'] / service_stats['eko']
-    service_stats['fo_median'] = service_stats['ekd_median'] / \
-        service_stats['eko']
+    service_stats["ipk"] = service_stats["tot_pax"] / service_stats["tot_km"]
+    service_stats["ekd_mean"] = service_stats["tot_pax"] * service_stats["dmt_mean"]
+    service_stats["ekd_median"] = service_stats["tot_pax"] * service_stats["dmt_median"]
+    service_stats["eko"] = service_stats["tot_km"] * 60
+    service_stats["fo_mean"] = service_stats["ekd_mean"] / service_stats["eko"]
+    service_stats["fo_median"] = service_stats["ekd_median"] / service_stats["eko"]
 
-    service_stats['hora_inicio'] = service_stats.min_datetime.str[10:13].map(
-        int)
-    service_stats['hora_fin'] = service_stats.max_datetime.str[10:13].map(int)
+    service_stats["hora_inicio"] = service_stats.min_datetime.str[10:13].map(int)
+    service_stats["hora_fin"] = service_stats.max_datetime.str[10:13].map(int)
 
     # reindex to meet schema
-    cols = ['id_linea', 'dia', 'interno', 'service_id',
-            'hora_inicio', 'hora_fin', 'tot_km', 'tot_pax', 'dmt_mean',
-            'dmt_median', 'ipk', 'fo_mean', 'fo_median']
+    cols = [
+        "id_linea",
+        "dia",
+        "interno",
+        "service_id",
+        "hora_inicio",
+        "hora_fin",
+        "tot_km",
+        "tot_pax",
+        "dmt_mean",
+        "dmt_median",
+        "ipk",
+        "fo_mean",
+        "fo_median",
+    ]
 
     service_stats = service_stats.reindex(columns=cols)
 
@@ -1028,11 +1034,9 @@ def compute_kpi_by_service():
 def demand_stats(df):
     d = {}
     d["tot_pax"] = df["factor_expansion_linea"].sum()
-    d["dmt_mean"] = np.average(
-        a=df['distance'], weights=df.factor_expansion_linea)
+    d["dmt_mean"] = np.average(a=df["distance"], weights=df.factor_expansion_linea)
     d["dmt_median"] = ws.weighted_median(
-        data=df['distance'].tolist(),
-        weights=df.factor_expansion_linea.tolist()
+        data=df["distance"].tolist(), weights=df.factor_expansion_linea.tolist()
     )
 
     return pd.Series(d, index=["tot_pax", "dmt_mean", "dmt_median"])
@@ -1045,16 +1049,17 @@ def supply_stats(df):
 
     return pd.Series(d, index=["tot_veh", "tot_km"])
 
+
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
 def compute_speed_by_day_veh_hour():
     """
-    This function read gps data and computes 
+    This function read gps data and computes
     average speed by veh for each day and line
     """
     conn_data = iniciar_conexion_db(tipo="data")
-    processed_days = get_processed_days(table_name='basic_kpi_by_line_day')
+    processed_days = get_processed_days(table_name="basic_kpi_by_line_day")
 
     # read data
     q = f"""
@@ -1067,7 +1072,7 @@ def compute_speed_by_day_veh_hour():
     conn_data.close()
 
     # create a lag in date
-    gps_df = gps_df.sort_values(['dia', 'id_linea', 'interno', 'fecha'])
+    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"])
     gps_df["fecha_lag"] = (
         gps_df.reindex(columns=["dia", "id_linea", "interno", "fecha"])
         .groupby(["dia", "id_linea", "interno"])
@@ -1076,19 +1081,25 @@ def compute_speed_by_day_veh_hour():
 
     # compute delta in time
     gps_df = gps_df.dropna(subset=["fecha", "fecha_lag"])
-    gps_df.loc[:, ['delta_hr']] = (gps_df.fecha_lag - gps_df.fecha) / (60*60)
+    gps_df.loc[:, ["delta_hr"]] = (gps_df.fecha_lag - gps_df.fecha) / (60 * 60)
     gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
 
     # compute speed in kmr
-    gps_df.loc[:, ['speed_kmh_veh_h']] = gps_df.distance_km / gps_df.delta_hr
-    gps_df['hora'] = pd.to_datetime(gps_df['fecha'], unit='s').dt.hour
+    gps_df.loc[:, ["speed_kmh_veh_h"]] = gps_df.distance_km / gps_df.delta_hr
+    gps_df["hora"] = pd.to_datetime(gps_df["fecha"], unit="s").dt.hour
 
     # get mean speed by day, linea, veh
-    speed_vehicle_hour_gps = gps_df\
-        .reindex(columns=['dia', 'id_linea', 'interno', 'hora', 'speed_kmh_veh_h'])\
-        .groupby(['dia', 'id_linea', 'interno', 'hora'], as_index=False).mean()
+    speed_vehicle_hour_gps = (
+        gps_df.reindex(
+            columns=["dia", "id_linea", "interno", "hora", "speed_kmh_veh_h"]
+        )
+        .groupby(["dia", "id_linea", "interno", "hora"], as_index=False)
+        .mean()
+    )
 
-    speed_vehicle_hour_gps = speed_vehicle_hour_gps.loc[speed_vehicle_hour_gps.speed_kmh_veh_h > 0, :]
+    speed_vehicle_hour_gps = speed_vehicle_hour_gps.loc[
+        speed_vehicle_hour_gps.speed_kmh_veh_h > 0, :
+    ]
 
     return speed_vehicle_hour_gps
 
@@ -1113,10 +1124,10 @@ def gps_table_exists():
 
 @duracion
 def run_basic_kpi():
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     # read already process days
-    processed_days = get_processed_days(table_name='basic_kpi_by_line_day')
+    processed_days = get_processed_days(table_name="basic_kpi_by_line_day")
 
     # read unprocessed data from legs
 
@@ -1136,7 +1147,7 @@ def run_basic_kpi():
     legs = add_distances_to_legs(legs=legs)
 
     # if there is no full timestamp
-    if legs['tiempo'].isna().all():
+    if legs["tiempo"].isna().all():
 
         unique_line_ids = legs.id_linea.unique()
         id_lines = np.repeat(unique_line_ids, 24)
@@ -1144,17 +1155,17 @@ def run_basic_kpi():
 
         # fix commercial speed at 15kmh for all veh
         speed_vehicle_hour = pd.DataFrame(
-            {'id_linea': id_lines,
-             'hora': hours,
-             'speed_kmh_veh_h': [15]*24*len(unique_line_ids)
-             }
+            {
+                "id_linea": id_lines,
+                "hora": hours,
+                "speed_kmh_veh_h": [15] * 24 * len(unique_line_ids),
+            }
         )
-        speed_vehicle_hour = legs\
-            .reindex(columns=['dia', 'id_linea', 'interno'])\
-            .drop_duplicates()\
-            .merge(speed_vehicle_hour,
-                   on=['id_linea'],
-                   how='left')
+        speed_vehicle_hour = (
+            legs.reindex(columns=["dia", "id_linea", "interno"])
+            .drop_duplicates()
+            .merge(speed_vehicle_hour, on=["id_linea"], how="left")
+        )
 
     # else compute commercial speed based on gps or demand
     else:
@@ -1163,97 +1174,119 @@ def run_basic_kpi():
             speed_vehicle_hour = compute_speed_by_day_veh_hour()
         else:
             # compute mean veh speed using demand data
-            legs.loc[:, ['datetime']] = legs.dia + ' ' + legs.tiempo
+            legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
 
-            legs.loc[:, ['time']] = pd.to_datetime(
-                legs.loc[:, 'datetime'], format="%Y-%m-%d %H:%M:%S")
+            legs.loc[:, ["time"]] = pd.to_datetime(
+                legs.loc[:, "datetime"], format="%Y-%m-%d %H:%M:%S"
+            )
 
             print("Calculando velocidades comerciales")
             # compute vehicle speed per hour
-            speed_vehicle_hour = legs\
-                .groupby(['dia', 'id_linea', 'interno'])\
-                .apply(compute_speed_by_veh_hour)
+            speed_vehicle_hour = legs.groupby(["dia", "id_linea", "interno"]).apply(
+                compute_speed_by_veh_hour
+            )
 
             speed_vehicle_hour = speed_vehicle_hour.droplevel(3).reset_index()
 
     # set a max speed te remove outliers
     speed_max = 60
-    speed_vehicle_hour.loc[speed_vehicle_hour.speed_kmh_veh_h >
-                           speed_max, 'speed_kmh_veh_h'] = speed_max
+    speed_vehicle_hour.loc[
+        speed_vehicle_hour.speed_kmh_veh_h > speed_max, "speed_kmh_veh_h"
+    ] = speed_max
 
     print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
-    speed_dev = speed_vehicle_hour\
-        .groupby(['dia', 'id_linea'], as_index=False)\
-        .agg(
-            mean=('speed_kmh_veh_h', 'mean'),
-            std=('speed_kmh_veh_h', 'std')
-        )
-    speed_dev['speed_min'] = speed_dev['mean'] - \
-        (2 * speed_dev['std']).map(lambda x: max(1, x))
-    speed_dev = speed_dev.reindex(columns=['dia', 'id_linea', 'speed_min'])
+    speed_dev = speed_vehicle_hour.groupby(["dia", "id_linea"], as_index=False).agg(
+        mean=("speed_kmh_veh_h", "mean"), std=("speed_kmh_veh_h", "std")
+    )
+    speed_dev["speed_min"] = speed_dev["mean"] - (2 * speed_dev["std"]).map(
+        lambda x: max(1, x)
+    )
+    speed_dev = speed_dev.reindex(columns=["dia", "id_linea", "speed_min"])
 
     speed_vehicle_hour = speed_vehicle_hour.merge(
-        speed_dev, on=['dia', 'id_linea'], how='left')
+        speed_dev, on=["dia", "id_linea"], how="left"
+    )
 
-    speed_mask = (speed_vehicle_hour.speed_kmh_veh_h < speed_max) &\
-        (speed_vehicle_hour.speed_kmh_veh_h > speed_vehicle_hour.speed_min)
+    speed_mask = (speed_vehicle_hour.speed_kmh_veh_h < speed_max) & (
+        speed_vehicle_hour.speed_kmh_veh_h > speed_vehicle_hour.speed_min
+    )
 
-    speed_vehicle_hour = speed_vehicle_hour.loc[speed_mask, [
-        'dia', 'id_linea', 'interno', 'hora', 'speed_kmh_veh_h']]
+    speed_vehicle_hour = speed_vehicle_hour.loc[
+        speed_mask, ["dia", "id_linea", "interno", "hora", "speed_kmh_veh_h"]
+    ]
 
     # compute by hour to fill nans in vehicle speed
-    speed_line_hour = speed_vehicle_hour\
-        .drop('interno', axis=1)\
-        .groupby(['dia', 'id_linea', 'hora'], as_index=False).mean()\
-        .rename(columns={'speed_kmh_veh_h': 'speed_kmh_line_h'})
+    speed_line_hour = (
+        speed_vehicle_hour.drop("interno", axis=1)
+        .groupby(["dia", "id_linea", "hora"], as_index=False)
+        .mean()
+        .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_h"})
+    )
 
-    speed_line_day = speed_vehicle_hour\
-        .drop('interno', axis=1)\
-        .groupby(['dia', 'id_linea'], as_index=False).mean()\
-        .rename(columns={'speed_kmh_veh_h': 'speed_kmh_line_day'})
+    speed_line_day = (
+        speed_vehicle_hour.drop("interno", axis=1)
+        .groupby(["dia", "id_linea"], as_index=False)
+        .mean()
+        .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_day"})
+    )
 
     # add commercial speed to demand data
-    legs = legs\
-        .merge(speed_vehicle_hour,
-               on=['dia', 'id_linea', 'interno', 'hora'], how='left')\
-        .merge(speed_line_hour, on=['dia', 'id_linea', 'hora'], how='left')
+    legs = legs.merge(
+        speed_vehicle_hour, on=["dia", "id_linea", "interno", "hora"], how="left"
+    ).merge(speed_line_hour, on=["dia", "id_linea", "hora"], how="left")
 
-    legs['speed_kmh'] = legs.speed_kmh_veh_h.combine_first(
-        legs.speed_kmh_line_h)
+    legs["speed_kmh"] = legs.speed_kmh_veh_h.combine_first(legs.speed_kmh_line_h)
 
-    print("Calculando pasajero equivalente otros KPI por dia"
-          ", linea, interno y hora")
+    print("Calculando pasajero equivalente otros KPI por dia" ", linea, interno y hora")
 
     # get an vehicle space equivalent passenger
-    legs['eq_pax'] = (legs.distance / legs.speed_kmh) * \
-        legs.factor_expansion_linea
+    legs["eq_pax"] = (legs.distance / legs.speed_kmh) * legs.factor_expansion_linea
 
     # COMPUTE KPI BY DAY LINE VEHICLE HOUR
-    kpi_by_veh = legs\
-        .reindex(columns=['dia', 'id_linea', 'interno', 'hora',
-                          'factor_expansion_linea', 'eq_pax', 'distance'])\
-        .groupby(['dia', 'id_linea', 'interno', 'hora'], as_index=False)\
-        .agg(
-            tot_pax=('factor_expansion_linea', 'sum'),
-            eq_pax=('eq_pax', 'sum'),
-            dmt=('distance', 'mean')
+    kpi_by_veh = (
+        legs.reindex(
+            columns=[
+                "dia",
+                "id_linea",
+                "interno",
+                "hora",
+                "factor_expansion_linea",
+                "eq_pax",
+                "distance",
+            ]
         )
+        .groupby(["dia", "id_linea", "interno", "hora"], as_index=False)
+        .agg(
+            tot_pax=("factor_expansion_linea", "sum"),
+            eq_pax=("eq_pax", "sum"),
+            dmt=("distance", "mean"),
+        )
+    )
 
     # compute ocupation factor
-    kpi_by_veh['of'] = kpi_by_veh.eq_pax/60 * 100
+    kpi_by_veh["of"] = kpi_by_veh.eq_pax / 60 * 100
 
     # add average commercial speed data
-    kpi_by_veh = kpi_by_veh\
-        .merge(speed_vehicle_hour,
-               on=['dia', 'id_linea', 'interno', 'hora'], how='left')
-    kpi_by_veh = kpi_by_veh.rename(columns={'speed_kmh_veh_h': 'speed_kmh'})
+    kpi_by_veh = kpi_by_veh.merge(
+        speed_vehicle_hour, on=["dia", "id_linea", "interno", "hora"], how="left"
+    )
+    kpi_by_veh = kpi_by_veh.rename(columns={"speed_kmh_veh_h": "speed_kmh"})
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'id_linea', 'interno', 'hora', 'tot_pax', 'eq_pax',
-            'dmt', 'of', 'speed_kmh']
+    cols = [
+        "dia",
+        "id_linea",
+        "interno",
+        "hora",
+        "tot_pax",
+        "eq_pax",
+        "dmt",
+        "of",
+        "speed_kmh",
+    ]
 
     kpi_by_veh = kpi_by_veh.reindex(columns=cols)
 
@@ -1269,47 +1302,48 @@ def run_basic_kpi():
     # COMPUTE KPI BY DAY LINE HOUR
 
     # compute ocupation factor
-    ocupation_factor_line_hour = kpi_by_veh\
-        .reindex(columns=['dia', 'id_linea', 'hora', 'of'])\
-        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
+    ocupation_factor_line_hour = (
+        kpi_by_veh.reindex(columns=["dia", "id_linea", "hora", "of"])
+        .groupby(["dia", "id_linea", "hora"], as_index=False)
         .mean()
+    )
 
     # compute supply as unique vehicles day per hour
-    supply = legs\
-        .reindex(columns=['dia', 'id_linea', 'interno', 'hora'])\
-        .drop_duplicates().groupby(['dia', 'id_linea', 'hora']).size()\
-        .reset_index()\
-        .rename(columns={0: 'veh'})
+    supply = (
+        legs.reindex(columns=["dia", "id_linea", "interno", "hora"])
+        .drop_duplicates()
+        .groupby(["dia", "id_linea", "hora"])
+        .size()
+        .reset_index()
+        .rename(columns={0: "veh"})
+    )
 
     # compute demand as total legs per hour and DMT
-    demand = legs\
-        .reindex(columns=['dia', 'id_linea', 'hora',
-                          'factor_expansion_linea', 'distance'])\
-        .groupby(['dia', 'id_linea', 'hora'], as_index=False)\
-        .agg(
-            pax=('factor_expansion_linea', 'sum'),
-            dmt=('distance', 'mean')
+    demand = (
+        legs.reindex(
+            columns=["dia", "id_linea", "hora", "factor_expansion_linea", "distance"]
         )
+        .groupby(["dia", "id_linea", "hora"], as_index=False)
+        .agg(pax=("factor_expansion_linea", "sum"), dmt=("distance", "mean"))
+    )
 
     # compute line kpi table
-    kpi_by_line_hr = supply\
-        .merge(demand, on=['dia', 'id_linea', 'hora'], how='left')\
-        .merge(ocupation_factor_line_hour,
-               on=['dia', 'id_linea', 'hora'], how='left')
+    kpi_by_line_hr = supply.merge(
+        demand, on=["dia", "id_linea", "hora"], how="left"
+    ).merge(ocupation_factor_line_hour, on=["dia", "id_linea", "hora"], how="left")
 
     kpi_by_line_hr = kpi_by_line_hr.merge(
-        speed_line_hour, on=['dia', 'id_linea', 'hora'], how='left')
-    kpi_by_line_hr = kpi_by_line_hr.rename(
-        columns={'speed_kmh_line_h': 'speed_kmh'})
+        speed_line_hour, on=["dia", "id_linea", "hora"], how="left"
+    )
+    kpi_by_line_hr = kpi_by_line_hr.rename(columns={"speed_kmh_line_h": "speed_kmh"})
 
     print("Subiendo a la base de datos")
 
     # create month
-    kpi_by_line_hr['yr_mo'] = kpi_by_line_hr.dia.str[:7]
+    kpi_by_line_hr["yr_mo"] = kpi_by_line_hr.dia.str[:7]
 
     # set schema and upload to db
-    cols = ['dia', 'yr_mo', 'id_linea', 'hora', 'veh', 'pax', 'dmt', 'of',
-            'speed_kmh']
+    cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
 
@@ -1324,43 +1358,49 @@ def run_basic_kpi():
     print("Calculando pasajero equivalente otros KPI por dia y linea")
 
     # compute daily stats
-    ocupation_factor_line = kpi_by_veh\
-        .reindex(columns=['dia', 'id_linea', 'of'])\
-        .groupby(['dia', 'id_linea'], as_index=False).mean()
+    ocupation_factor_line = (
+        kpi_by_veh.reindex(columns=["dia", "id_linea", "of"])
+        .groupby(["dia", "id_linea"], as_index=False)
+        .mean()
+    )
 
     # compute supply as unique vehicles day
-    daily_supply = legs\
-        .reindex(columns=['dia', 'id_linea', 'interno'])\
-        .drop_duplicates().groupby(['dia', 'id_linea'])\
-        .size()\
-        .reset_index()\
-        .rename(columns={0: 'veh'})
+    daily_supply = (
+        legs.reindex(columns=["dia", "id_linea", "interno"])
+        .drop_duplicates()
+        .groupby(["dia", "id_linea"])
+        .size()
+        .reset_index()
+        .rename(columns={0: "veh"})
+    )
 
     # compute demand as total legs per hour and DMT
-    daily_demand = legs\
-        .reindex(columns=['dia', 'id_linea',
-                          'factor_expansion_linea', 'distance'])\
-        .groupby(['dia', 'id_linea'], as_index=False)\
+    daily_demand = (
+        legs.reindex(columns=["dia", "id_linea", "factor_expansion_linea", "distance"])
+        .groupby(["dia", "id_linea"], as_index=False)
         .agg(
-            pax=('factor_expansion_linea', 'sum'),
-            dmt=('distance', 'mean'),
+            pax=("factor_expansion_linea", "sum"),
+            dmt=("distance", "mean"),
         )
+    )
 
     # compute line kpi table
-    kpi_by_line_day = daily_supply\
-        .merge(daily_demand, on=['dia', 'id_linea'], how='left')\
-        .merge(ocupation_factor_line, on=['dia', 'id_linea'], how='left')
+    kpi_by_line_day = daily_supply.merge(
+        daily_demand, on=["dia", "id_linea"], how="left"
+    ).merge(ocupation_factor_line, on=["dia", "id_linea"], how="left")
 
     kpi_by_line_day = kpi_by_line_day.merge(
-        speed_line_day, on=['dia', 'id_linea'], how='left')
+        speed_line_day, on=["dia", "id_linea"], how="left"
+    )
     kpi_by_line_day = kpi_by_line_day.rename(
-        columns={'speed_kmh_line_day': 'speed_kmh'})
+        columns={"speed_kmh_line_day": "speed_kmh"}
+    )
 
-    kpi_by_line_day['yr_mo'] = kpi_by_line_day.dia.str[:7]
+    kpi_by_line_day["yr_mo"] = kpi_by_line_day.dia.str[:7]
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'yr_mo', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
 
@@ -1379,7 +1419,7 @@ def run_basic_kpi():
 
 
 def compute_basic_kpi_line_typeday():
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     print("Borrando datos desactualizados por tipo de dia")
 
@@ -1398,18 +1438,23 @@ def compute_basic_kpi_line_typeday():
     kpi_by_line_day = pd.read_sql(q, conn_data)
 
     # get day of the week
-    weekend = pd.to_datetime(kpi_by_line_day['dia'].copy()).dt.dayofweek > 4
-    kpi_by_line_day.loc[:, ['dia']] = 'weekday'
-    kpi_by_line_day.loc[weekend, ['dia']] = 'weekend'
+    weekend = pd.to_datetime(kpi_by_line_day["dia"].copy()).dt.dayofweek > 4
+    kpi_by_line_day.loc[:, ["dia"]] = "weekday"
+    kpi_by_line_day.loc[weekend, ["dia"]] = "weekend"
 
     # compute aggregated stats
-    kpi_by_line_typeday = kpi_by_line_day\
-        .groupby(['dia', 'yr_mo', 'id_linea',], as_index=False)\
-        .mean()
+    kpi_by_line_typeday = kpi_by_line_day.groupby(
+        [
+            "dia",
+            "yr_mo",
+            "id_linea",
+        ],
+        as_index=False,
+    ).mean()
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'yr_mo', 'id_linea', 'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
@@ -1424,7 +1469,7 @@ def compute_basic_kpi_line_typeday():
 
 
 def compute_basic_kpi_line_hr_typeday():
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     print("Borrando datos desactualizados por tipo de dia")
 
@@ -1444,19 +1489,18 @@ def compute_basic_kpi_line_hr_typeday():
     kpi_by_line_hr = pd.read_sql(q, conn_data)
 
     # get day of the week
-    weekend = pd.to_datetime(kpi_by_line_hr['dia'].copy()).dt.dayofweek > 4
-    kpi_by_line_hr.loc[:, ['dia']] = 'weekday'
-    kpi_by_line_hr.loc[weekend, ['dia']] = 'weekend'
+    weekend = pd.to_datetime(kpi_by_line_hr["dia"].copy()).dt.dayofweek > 4
+    kpi_by_line_hr.loc[:, ["dia"]] = "weekday"
+    kpi_by_line_hr.loc[weekend, ["dia"]] = "weekend"
 
     # compute aggregated stats
-    kpi_by_line_typeday = kpi_by_line_hr\
-        .groupby(['dia', 'yr_mo', 'id_linea', 'hora'], as_index=False)\
-        .mean()
+    kpi_by_line_typeday = kpi_by_line_hr.groupby(
+        ["dia", "yr_mo", "id_linea", "hora"], as_index=False
+    ).mean()
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
-    cols = ['dia', 'yr_mo', 'id_linea', 'hora',
-            'veh', 'pax', 'dmt', 'of', 'speed_kmh']
+    cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
@@ -1479,43 +1523,49 @@ def compute_speed_by_veh_hour(legs_vehicle):
     distance_between_hex = distance_between_hex * 2
 
     speed = legs_vehicle.reindex(
-        columns=['interno', 'hora', 'time', 'latitud', 'longitud'])
+        columns=["interno", "hora", "time", "latitud", "longitud"]
+    )
     speed["h3"] = speed.apply(
-        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
+        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
+    )
 
     # get only one h3 per vehicle hour
-    speed = speed.drop_duplicates(subset=['interno', 'hora', 'h3'])
+    speed = speed.drop_duplicates(subset=["interno", "hora", "h3"])
     if len(speed) < 2:
         return None
-    speed = speed.sort_values('time')
+    speed = speed.sort_values("time")
 
     # compute meters between h3
-    speed['h3_lag'] = speed['h3'].shift(1)
-    speed['time_lag'] = speed['time'].shift(1)
+    speed["h3_lag"] = speed["h3"].shift(1)
+    speed["time_lag"] = speed["time"].shift(1)
 
-    speed = speed.dropna(subset=['h3_lag', 'time_lag'])
+    speed = speed.dropna(subset=["h3_lag", "time_lag"])
 
-    speed['seconds'] = (speed['time'] - speed['time_lag']
-                        ).map(lambda x: x.total_seconds())
+    speed["seconds"] = (speed["time"] - speed["time_lag"]).map(
+        lambda x: x.total_seconds()
+    )
 
-    speed['meters'] = speed\
-        .apply(lambda row: h3.h3_distance(row['h3'], row['h3_lag']),
-               axis=1) * distance_between_hex
+    speed["meters"] = (
+        speed.apply(lambda row: h3.h3_distance(row["h3"], row["h3_lag"]), axis=1)
+        * distance_between_hex
+    )
 
-    speed_by_hour = speed\
-        .reindex(columns=['hora', 'seconds', 'meters'])\
-        .groupby('hora', as_index=False)\
+    speed_by_hour = (
+        speed.reindex(columns=["hora", "seconds", "meters"])
+        .groupby("hora", as_index=False)
         .agg(
-            meters=('meters', 'sum'),
-            seconds=('seconds', 'sum'),
-            n=('hora', 'count'),
+            meters=("meters", "sum"),
+            seconds=("seconds", "sum"),
+            n=("hora", "count"),
         )
+    )
     # remove vehicles with less than 2 pax
 
     speed_by_hour = speed_by_hour.loc[speed_by_hour.n > 2, :]
-    speed_by_hour['speed_kmh_veh_h'] = speed_by_hour.meters / \
-        speed_by_hour.seconds * 3.6
-    speed_by_hour = speed_by_hour.reindex(columns=['hora', 'speed_kmh_veh_h'])
+    speed_by_hour["speed_kmh_veh_h"] = (
+        speed_by_hour.meters / speed_by_hour.seconds * 3.6
+    )
+    speed_by_hour = speed_by_hour.reindex(columns=["hora", "speed_kmh_veh_h"])
 
     return speed_by_hour
 
@@ -1537,7 +1587,7 @@ def get_processed_days(table_name):
 
 
     """
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     # get processed days in basic data
     processed_days_q = f"""
@@ -1546,7 +1596,7 @@ def get_processed_days(table_name):
     """
     processed_days = pd.read_sql(processed_days_q, conn_data)
     processed_days = processed_days.dia
-    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+    processed_days = ", ".join([f"'{val}'" for val in processed_days])
 
     return processed_days
 
@@ -1578,7 +1628,7 @@ def compute_dispatched_services_by_line_hour_day():
     """
     processed_days = pd.read_sql(processed_days_q, conn_data)
     processed_days = processed_days.dia
-    processed_days = ', '.join([f"'{val}'" for val in processed_days])
+    processed_days = ", ".join([f"'{val}'" for val in processed_days])
 
     print("Leyendo datos de servicios")
 
@@ -1599,29 +1649,22 @@ def compute_dispatched_services_by_line_hour_day():
 
         print("Procesando servicios por hora")
 
-        daily_services['hora'] = daily_services.min_datetime.str[10:13].map(
-            int)
+        daily_services["hora"] = daily_services.min_datetime.str[10:13].map(int)
 
-        daily_services = daily_services.drop(['min_datetime'], axis=1)
+        daily_services = daily_services.drop(["min_datetime"], axis=1)
 
         # computing services by hour
-        dispatched_services_stats = daily_services\
-            .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
-            .agg(servicios=('hora', 'count'))
+        dispatched_services_stats = daily_services.groupby(
+            ["id_linea", "dia", "hora"], as_index=False
+        ).agg(servicios=("hora", "count"))
 
         print("Fin procesamiento servicios por hora")
 
         print("Subiendo datos a la DB")
 
-        cols = [
-            "id_linea",
-            "dia",
-            "hora",
-            "servicios"
-        ]
+        cols = ["id_linea", "dia", "hora", "servicios"]
 
-        dispatched_services_stats = dispatched_services_stats.reindex(
-            columns=cols)
+        dispatched_services_stats = dispatched_services_stats.reindex(columns=cols)
 
         dispatched_services_stats.to_sql(
             "services_by_line_hour",
@@ -1682,23 +1725,18 @@ def compute_dispatched_services_by_line_hour_typeday():
         print("Procesando servicios por tipo de dia")
 
         # get day of the week
-        weekend = pd.to_datetime(daily_data['dia'].copy()).dt.dayofweek > 4
-        daily_data.loc[:, ['dia']] = 'weekday'
-        daily_data.loc[weekend, ['dia']] = 'weekend'
+        weekend = pd.to_datetime(daily_data["dia"].copy()).dt.dayofweek > 4
+        daily_data.loc[:, ["dia"]] = "weekday"
+        daily_data.loc[weekend, ["dia"]] = "weekend"
 
         # compute aggregated stats
-        type_of_day_stats = daily_data\
-            .groupby(['id_linea', 'dia', 'hora'], as_index=False)\
-            .mean()
+        type_of_day_stats = daily_data.groupby(
+            ["id_linea", "dia", "hora"], as_index=False
+        ).mean()
 
         print("Subiendo datos a la DB")
 
-        cols = [
-            "id_linea",
-            "dia",
-            "hora",
-            "servicios"
-        ]
+        cols = ["id_linea", "dia", "hora", "servicios"]
 
         type_of_day_stats = type_of_day_stats.reindex(columns=cols)
 
@@ -1737,8 +1775,8 @@ def compute_dispatched_services_by_line_hour_typeday():
 
 def upload_route_section_points_table(route_geoms, delete_old_data=False):
     """
-    Uploads a table with route section points from a route geom row 
-    and returns a table with line_id, number of sections and the 
+    Uploads a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
     xy point for that section
 
     Parameters
@@ -1755,31 +1793,35 @@ def upload_route_section_points_table(route_geoms, delete_old_data=False):
 
     print("Creando tabla de secciones de recorrido")
     route_section_points = pd.concat(
-        [create_route_section_points(row) for _, row in route_geoms.iterrows()])
+        [create_route_section_points(row) for _, row in route_geoms.iterrows()]
+    )
 
     route_section_points.to_sql(
-        "routes_section_id_coords", conn_insumos, if_exists="append",
-        index=False,)
+        "routes_section_id_coords",
+        conn_insumos,
+        if_exists="append",
+        index=False,
+    )
     print("Fin creacion de tabla de secciones de recorrido")
     conn_insumos.close()
 
 
 def create_route_section_points(row):
     """
-    Creates a table with route section points from a route geom row 
-    and returns a table with line_id, number of sections and the 
+    Creates a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
     xy point for that section
 
     Parameters
     ----------
     row : GeoPandas GeoSeries
-        Row from route geom GeoDataFrame 
+        Row from route geom GeoDataFrame
         with geometry, n_sections and line id
 
     Returns
     ----------
     pandas.DataFrame
-        dataFrame with line id, number of sections and the 
+        dataFrame with line id, number of sections and the
         latlong for each section id
     """
 
@@ -1791,13 +1833,12 @@ def create_route_section_points(row):
     points = route_geom.interpolate(sections_lrs, normalized=True)
     route_section_points = pd.DataFrame(
         {
-            'id_linea': [line_id] * len(sections_id),
-            'n_sections': [n_sections] * len(sections_id),
-            'section_id': sections_id,
-            'section_lrs': sections_lrs,
-            'x': points.map(lambda p: p.x),
-            'y': points.map(lambda p: p.y)
-
+            "id_linea": [line_id] * len(sections_id),
+            "n_sections": [n_sections] * len(sections_id),
+            "section_id": sections_id,
+            "section_lrs": sections_lrs,
+            "x": points.map(lambda p: p.x),
+            "y": points.map(lambda p: p.y),
         }
     )
     return route_section_points
@@ -1810,7 +1851,7 @@ def delete_old_routes_section_id_coords_data_q(route_geoms):
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # create a df with n sections for each line
-    delete_df = route_geoms.reindex(columns=['id_linea', 'n_sections'])
+    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
     for _, row in delete_df.iterrows():
         # Delete old data for those parameters
 
@@ -1860,9 +1901,7 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     q_main_legs = q_main_legs + line_ids_where
 
     if hour_range:
-        hour_range_where = (
-            f" and hora >= {hour_range[0]} and hora <= {hour_range[1]}"
-        )
+        hour_range_where = f" and hora >= {hour_range[0]} and hora <= {hour_range[1]}"
         q_main_legs = q_main_legs + hour_range_where
 
     day_type_is_a_date = is_date_string(day_type)
@@ -1882,12 +1921,11 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     legs = pd.read_sql(q_legs, conn_data)
     conn_data.close()
 
-    legs['yr_mo'] = legs.dia.str[:7]
+    legs["yr_mo"] = legs.dia.str[:7]
 
     if not day_type_is_a_date:
         # create a weekday_filter
-        weekday_filter = pd.to_datetime(
-            legs.dia, format="%Y-%m-%d").dt.dayofweek < 5
+        weekday_filter = pd.to_datetime(legs.dia, format="%Y-%m-%d").dt.dayofweek < 5
 
         if day_type == "weekday":
             legs = legs.loc[weekday_filter, :]

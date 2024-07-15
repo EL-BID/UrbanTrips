@@ -7,7 +7,7 @@ from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.utils import (leer_configs_generales)
 from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
 from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
-
+from urbantrips.lineas_deseo.lineas_deseo import proceso_poligonos, proceso_lineas_deseo
 
 def main():
     check_config()
@@ -65,6 +65,9 @@ def main():
 
     # Produce ppt
     viz_ppt_utils.create_ppt()
+
+    proceso_poligonos()
+    proceso_lineas_deseo()
 
 
 if __name__ == "__main__":

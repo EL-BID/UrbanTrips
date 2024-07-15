@@ -1,29 +1,22 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from PIL import Image
-import requests
 import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as cx
-from mycolorpy import colorlist as mcp
-import os
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
-
-import yaml
-import sqlite3
-from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
-
-from dash_utils import levanto_tabla_sql, get_logo, create_linestring_od, create_squared_polygon, get_epsg_m
-
+from dash_utils import (
+    levanto_tabla_sql, get_logo, create_linestring_od,
+    create_squared_polygon, get_epsg_m,
+    extract_hex_colors_from_cmap
+)
 
 def crear_mapa_folium(df_agg,
                       cmap,
@@ -49,7 +42,7 @@ def crear_mapa_folium(df_agg,
 
     line_w = 0.5
 
-    colors = mcp.gen_color(cmap=cmap, n=k_jenks)
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
 
     n = 0
     for i in bins_labels:

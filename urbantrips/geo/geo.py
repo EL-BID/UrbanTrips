@@ -31,6 +31,17 @@ def h3_from_row(row, res, lat, lng):
     return h3.geo_to_h3(row[lat], row[lng], resolution=res)
 
 
+def convert_h3_to_resolution(h3_index, target_resolution):
+    try:
+        # Get the geographic center of the original H3 index
+        center_geo = h3.h3_to_geo(h3_index)
+        # Convert the geographic center to the target resolution H3 index
+        result = h3.geo_to_h3(center_geo[0], center_geo[1], target_resolution)
+    except:
+        result = np.nan
+    return result
+
+
 def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     """
     Esta funcion toma una resolucion h3 y una tolerancia en metros
@@ -71,16 +82,18 @@ def get_stop_hex_ring(h, ring_size):
 
 def h3togeo(x):
     try:
-        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])                    
+        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
     except (TypeError, ValueError):
-        result = ''        
+        result = ''
     return result
+
+
 def h3togeo_latlon(x, latlon='lat'):
     try:
-        if latlon=='lat':
+        if latlon == 'lat':
             result = h3.h3_to_geo(x)[1]
         else:
-            result = h3.h3_to_geo(x)[0]        
+            result = h3.h3_to_geo(x)[0]
     except (TypeError, ValueError):
         result = np.nan
     return result
@@ -255,6 +268,8 @@ def normalizo_lat_lon(df,
     return df
 
 # Convert H3 index to latitude and longitude, handling exceptions gracefully
+
+
 def h3_to_lat_lon(h3_hex):
     try:
         lat, lon = h3.h3_to_geo(h3_hex)
@@ -263,6 +278,8 @@ def h3_to_lat_lon(h3_hex):
     return pd.Series((lat, lon))
 
 # Convert H3 index to its parent at a specified resolution, with error handling
+
+
 def h3toparent(x, res=6):
     try:
         x = h3.h3_to_parent(x, res)
@@ -270,16 +287,17 @@ def h3toparent(x, res=6):
         x = ''
     return x
 
-def h3_to_geodataframe(h3_indexes, var_h3 = ''):
+
+def h3_to_geodataframe(h3_indexes, var_h3=''):
     '''
     h3_indexes es una lista de h3 (no pasar en formato DataFrame)
     '''
-    if len(var_h3)==0:
+    if len(var_h3) == 0:
         var_h3 = 'h3_index'
-        
+
     if isinstance(h3_indexes, pd.DataFrame):
         h3_indexes = h3_indexes[var_h3].unique()
-    
+
     # Convert H3 indexes to polygons
     polygons = []
     for index in h3_indexes:
@@ -287,24 +305,24 @@ def h3_to_geodataframe(h3_indexes, var_h3 = ''):
         # Swap lat-lon to lon-lat for each coordinate
         boundary_lon_lat = [(lon, lat) for lat, lon in boundary_lat_lng]
         polygons.append(Polygon(boundary_lon_lat))
-    
+
     # Create GeoDataFrame
     gdf = gpd.GeoDataFrame({
         var_h3: h3_indexes,
-        'geometry': polygons         
+        'geometry': polygons
     }, crs=4326)
 
-    
-        
-    
     return gdf
-    
+
+
 def point_to_h3(row, resolution):
     # Extract the latitude and longitude from the point
     x, y = row.geometry.x, row.geometry.y
     return h3.geo_to_h3(y, x, resolution)  # Note: lat, lon order
-    
+
 # Calculate weighted mean, handling division by zero or empty inputs
+
+
 def weighted_mean(series, weights):
     try:
         result = (series * weights).sum() / weights.sum()
@@ -313,6 +331,8 @@ def weighted_mean(series, weights):
     return result
 
 # Function to convert H3 hex id to a polygon
+
+
 def hex_to_polygon(hex_id):
     try:
         vertices = h3.h3_to_geo_boundary(hex_id, geo_json=True)
@@ -321,20 +341,23 @@ def hex_to_polygon(hex_id):
         print(f"Skipping invalid H3 ID: {hex_id}")
         return None
 
+
 def create_h3_gdf(hexagon_ids):
     # Convert H3 hexagons to polygons
     polygons = [hex_to_polygon(hex_id) for hex_id in hexagon_ids if hex_id]
-    
+
     # Filter out None values if any invalid hexagons were skipped
-    valid_data = [(hex_id, poly) for hex_id, poly in zip(hexagon_ids, polygons) if poly is not None]
-    
+    valid_data = [(hex_id, poly) for hex_id, poly in zip(
+        hexagon_ids, polygons) if poly is not None]
+
     # Create a GeoDataFrame
     gdf = gpd.GeoDataFrame({
-        'hexagon_id': [data[0] for data in valid_data], 
+        'hexagon_id': [data[0] for data in valid_data],
         'geometry': [data[1] for data in valid_data]
     }, crs="EPSG:4326")
 
     return gdf
+
 
 def create_point_from_h3(h):
     return Point(h3.h3_to_geo(h)[::-1])
@@ -474,3 +497,60 @@ def create_sections_geoms(sections_df, buffer_meters=False):
         gdf.geometry = gdf.geometry.buffer(buffer_meters)
 
     return gdf
+
+
+def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False):
+    """
+    Computes for a distance between a h3 point and its lag
+
+    Parameters
+    ----------
+    legs : pandas.DataFrame
+        df with legs info holding geocoding from a single line_id
+    stations : geopandas.GeoDataFrame
+        gdf with stations data and geoms
+        holding station id and line_id
+    leg_h3_field: str
+        column name holding the h3 to geocode into station
+
+    Returns
+    ----------
+    pandas.DataFrame
+        df with leg id and nearest station id  
+
+    """
+    configs = leer_configs_generales()
+    tolerancia_parada_destino = configs["tolerancia_parada_destino"]
+    epsg_m = get_epsg_m()
+
+    # Filter stations based on line and branch
+    if not stations.crs.is_projected:
+        stations = stations.to_crs(epsg=epsg_m)
+
+    legs_line_id = legs.id_linea.unique()[0]
+
+    stations = stations.loc[stations.id_linea == legs_line_id, :]
+
+    if join_branch_id:
+        legs_branch_id = legs.id_linea.unique()[0]
+        stations = stations.loc[stations.id_ramal == legs_branch_id, :]
+
+    # create legs geoms
+    lat, lon = zip(*legs[leg_h3_field].map(h3.h3_to_geo).tolist())
+
+    legs_geom = gpd.GeoDataFrame(legs.reindex(columns=['dia', 'id']),
+                                 geometry=gpd.GeoSeries.from_xy(
+                                     x=lon, y=lat, crs=4326, index=legs.index),
+                                 crs=4326).to_crs(epsg=epsg_m)
+
+    # join stations
+    legs_w_station = gpd.sjoin_nearest(
+        legs_geom, stations,    lsuffix='legs', rsuffix='station',
+        how='inner', max_distance=tolerancia_parada_destino,
+        distance_col='distancia', exclusive=True)
+    legs_w_station = legs_w_station\
+        .sort_values('distancia')\
+        .drop_duplicates(subset='id_legs')\
+        .reindex(columns=['dia', 'id_legs', 'id_station'])
+
+    return legs_w_station

@@ -3,22 +3,14 @@ import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-import folium
-from streamlit_folium import st_folium
-from streamlit_folium import folium_static
 from PIL import Image
 import requests
-import mapclassify
-import plotly.express as px
 import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as cx
-from mycolorpy import colorlist as mcp
 import os
-
 import yaml
 import sqlite3
 from shapely import wkt
+from matplotlib import colors as mcolors
 from folium import Figure
 from shapely.geometry import LineString, Point, Polygon
 
@@ -255,7 +247,8 @@ def calculate_weighted_means_ods(df,
 def agg_matriz(df,
                aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
                                'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-               weight_col=['factor_expansion_linea'],
+               weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+               weight_var='factor_expansion_linea',               
                agg_transferencias=False,
                agg_modo=False,
                agg_hora=False,
@@ -270,7 +263,16 @@ def agg_matriz(df,
             df['rango_hora'] = 99
         if agg_distancia:
             df['distancia'] = 99
-        df = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+        
+        df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
+
+        df2 = calculate_weighted_means(df,
+                              aggregate_cols=aggregate_cols,
+                              weighted_mean_cols=weight_col,
+                              weight_col=weight_var
+                              )
+        df = df1.merge(df2)
+
 
     return df
 
@@ -367,7 +369,8 @@ def create_data_folium(etapas,
     etapas = calculate_weighted_means_ods(etapas,
                                           agg_cols_etapas,
                                           ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm',
-                                              'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],
+                                           'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],
+
                                           'factor_expansion_linea',
                                           agg_transferencias=agg_transferencias,
                                           agg_modo=agg_modo,
@@ -418,7 +421,8 @@ def create_data_folium(etapas,
     matriz = agg_matriz(viajes_matrices,
                         aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
                                         'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-                        weight_col=['factor_expansion_linea'],
+                        weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                        weight_var='factor_expansion_linea',
                         agg_transferencias=agg_transferencias,
                         agg_modo=agg_modo,
                         agg_hora=agg_hora,
@@ -511,3 +515,16 @@ def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
     p = Polygon(square_bbox_coords)
     s = gpd.GeoSeries([p], crs=f'EPSG:{epsg}')
     return s
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors

@@ -1,16 +1,21 @@
 import h3
 import os
 import pandas as pd
+import geopandas as gpd
 import warnings
 import time
+
+from shapely.geometry import Point
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (leer_configs_generales,
                                     duracion,
                                     iniciar_conexion_db,
+                                    levanto_tabla_sql,
                                     agrego_indicador,
-                                    eliminar_tarjetas_trx_unica,
                                     crear_tablas_geolocalizacion)
 
+
+ 
 
 @duracion
 def create_transactions(geolocalizar_trx_config,
@@ -129,9 +134,13 @@ def create_transactions(geolocalizar_trx_config,
         trx["id"] = crear_id_interno(
             conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
 
-    # # Elminar transacciones unicas en el dia
-    # trx = eliminar_tarjetas_trx_unica(trx)  #### No borrar transacciones
-    # únicas (quedan en estas con fex=0)
+        # process gps table when no geocoding
+        if nombre_archivo_gps is not None:
+            print("Uploading GPS table without geocoding")
+            process_and_upload_gps_table(
+                nombre_archivo_gps=nombre_archivo_gps,
+                nombres_variables_gps=nombres_variables_gps,
+                formato_fecha=formato_fecha)
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
@@ -172,6 +181,10 @@ def create_transactions(geolocalizar_trx_config,
 
     # parse date into timestamp
     trx["fecha"] = trx["fecha"].map(lambda s: s.timestamp())
+
+    # if branches are not present, add branch id as the same as line
+    if not configs['lineas_contienen_ramales']:
+        trx.loc[:, 'id_ramal'] = trx['id_linea'].copy()
 
     print(f"Subiendo {len(trx)} registros a la db")
 
@@ -409,24 +422,39 @@ def eliminar_trx_fuera_bbox(trx):
 
     print("Eliminando trx con mal lat long")
 
-    configs = leer_configs_generales()
-    try:
-        configs = configs["filtro_latlong_bbox"]
-        print(configs)
+    original = len(trx)
 
-        filtro = (
-            (trx.longitud > configs["minx"])
-            & (trx.latitud > configs["miny"])
-            & (trx.longitud < configs["maxx"])
-            & (trx.latitud < configs["maxy"])
-        )
-
-        pre = len(trx)
-        trx = trx.loc[filtro, :]
-        post = len(trx)
-        print(pre - post, "casos elminados por latlong fuera del bbox")
-    except KeyError:
-        print("No se especificó una ventana para la bbox")
+    zonificaciones = levanto_tabla_sql('zonificaciones')
+    if len(zonificaciones) > 0:
+        trx['geometry'] = trx.apply(lambda row: Point(row['longitud'], row['latitud']), axis=1)
+        trx = gpd.GeoDataFrame(trx, geometry='geometry', crs=4326)
+    
+        zona = zonificaciones.zona.head().values[0]
+        zonificaciones = zonificaciones[zonificaciones.zona == zona]
+        zonificaciones = zonificaciones.dissolve(by='zona')
+    
+        trx = gpd.sjoin(zonificaciones[['geometry']], trx).drop(['geometry', 'index_right'], axis=1).drop_duplicates().sort_values('id').reset_index(drop=True)
+    else: 
+        configs = leer_configs_generales()
+        try:
+            configs = configs["filtro_latlong_bbox"]
+            print(configs)
+    
+            filtro = (
+                (trx.longitud > configs["minx"])
+                & (trx.latitud > configs["miny"])
+                & (trx.longitud < configs["maxx"])
+                & (trx.latitud < configs["maxy"])
+            )
+    
+            pre = len(trx)
+            trx = trx.loc[filtro, :]
+            post = len(trx)
+            print(pre - post, "casos elminados por latlong fuera del bbox")
+        except KeyError:
+            print("No se especificó una ventana para la bbox")
+    limpio = len(trx)
+    print(f'--Se borraron {original-limpio} registros')
     return trx
 
 
@@ -738,6 +766,10 @@ def process_and_upload_gps_table(nombre_archivo_gps,
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)
+
+    # if branches are not present, add branch id as the same as line
+    if not configs['lineas_contienen_ramales']:
+        gps.loc[:, 'id_ramal'] = gps['id_linea'].copy()
 
     cols = ['id',
             'id_original',
