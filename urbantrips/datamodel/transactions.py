@@ -451,10 +451,15 @@ def eliminar_trx_fuera_bbox(trx):
             trx = trx.loc[filtro, :]
             post = len(trx)
             print(pre - post, "casos elminados por latlong fuera del bbox")
+            
+        
         except KeyError:
             print("No se especificó una ventana para la bbox")
     limpio = len(trx)
     print(f'--Se borraron {original-limpio} registros')
+
+    assert len(trx)>0, "Se borraron todos los registros, verifique el 'filtro_latlong_bbox' en configuraciones_generales.yaml"
+    
     return trx
 
 
