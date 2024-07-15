@@ -1194,6 +1194,8 @@ def run_basic_kpi():
         speed_vehicle_hour.speed_kmh_veh_h > speed_max, "speed_kmh_veh_h"
     ] = speed_max
 
+    speed_vehicle_hour = speed_vehicle_hour.dropna()
+    
     print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
