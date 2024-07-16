@@ -145,3 +145,7 @@ dmypy.json
 .github/desktop.ini
 *.ini
 configs/configuraciones_generales.yaml
+*.csv
+*.yaml
+*.csv
+*.csv

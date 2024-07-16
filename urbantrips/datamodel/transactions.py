@@ -188,6 +188,9 @@ def create_transactions(geolocalizar_trx_config,
 
     print(f"Subiendo {len(trx)} registros a la db")
 
+    if not 'genero' in trx.columns: trx['genero'] = ''
+    if not 'tarifa' in trx.columns: trx['tarifa'] = ''
+
     lista_cols_db = [
         "id",
         "fecha",
@@ -201,6 +204,8 @@ def create_transactions(geolocalizar_trx_config,
         "id_ramal",
         "interno",
         "orden_trx",
+        "genero",
+        "tarifa", 
         "latitud",
         "longitud",
         "factor_expansion"
@@ -603,6 +608,8 @@ def geolocalizar_trx(
         cols = ["id_linea",  "interno"]
 
     trx_eco = trx_eco.dropna(subset=cols)
+    if not 'genero' in trx_eco.columns: trx_eco['genero'] = ''
+    if not 'tarifa' in trx_eco.columns: trx_eco['tarifa'] = ''
 
     cols = ['id',
             'id_original',
@@ -616,6 +623,8 @@ def geolocalizar_trx(
             'id_ramal',
             'interno',
             'orden',
+            'genero',
+            'tarifa',
             'factor_expansion']
     trx_eco = trx_eco.reindex(columns=cols)
 
@@ -638,7 +647,7 @@ def geolocalizar_trx(
             select t.id,t.id_original, t.id_tarjeta,
                     datetime(t.fecha, 'unixepoch') as fecha,
                     t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                    t.id_ramal, t.interno, t.orden as orden,
+                    t.id_ramal, t.interno, t.orden, t.genero, t.tarifa as orden,
                     g.latitud, g.longitud,
                     (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
                     t.factor_expansion,
@@ -662,7 +671,7 @@ def geolocalizar_trx(
             select t.id,t.id_original, t.id_tarjeta,
                     datetime(t.fecha, 'unixepoch') as fecha,
                     t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                    t.interno, t.orden as orden, g.latitud, g.longitud,
+                    t.interno, t.orden, t.genero, t.tarifa as orden, g.latitud, g.longitud,
                     (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
                     t.factor_expansion,
                 ROW_NUMBER() OVER(

@@ -583,6 +583,8 @@ def create_basic_data_model_tables():
             id_ramal int,
             interno int,
             orden_trx int,
+            genero text,
+            tarifa text,
             latitud float,
             longitud float,
             factor_expansion float
@@ -613,6 +615,8 @@ def create_basic_data_model_tables():
             id_linea int,
             id_ramal int,
             interno int,
+            genero text,
+            tarifa text,
             latitud float,
             longitud float,
             h3_o text,
@@ -645,6 +649,8 @@ def create_basic_data_model_tables():
             otros int,
             h3_o text,
             h3_d text,
+            genero text,
+            tarifa text,
             od_validado int,
             factor_expansion_linea,
             factor_expansion_tarjeta

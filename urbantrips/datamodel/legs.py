@@ -81,6 +81,8 @@ def create_legs_from_transactions(trx_order_params):
             "id_linea",
             "id_ramal",
             "interno",
+            "genero",
+            "tarifa",
             "latitud",
             "longitud",
             "h3_o",
@@ -552,7 +554,7 @@ def assign_gps_origin():
         # get legs data
         legs = pd.read_sql_query(
             """
-            SELECT e.dia,e.id_linea,e.id_ramal,e.interno,e.id, e.tiempo
+            SELECT e.dia,e.id_linea,e.id_ramal,e.interno,e.id, e.tiempo, e.genero, e.tarifa
             FROM etapas e
             JOIN dias_ultima_corrida d
             ON e.dia = d.dia
@@ -573,7 +575,7 @@ def assign_gps_origin():
         gps = pd.read_sql(q, conn_data)
         gps.loc[:, ['fecha']] = gps.fecha.map(
             lambda ts: pd.Timestamp(ts, unit='s'))
-        cols = ['dia', 'id_linea', 'id_ramal', 'interno', 'fecha', 'id']
+        cols = ['dia', 'id_linea', 'id_ramal', 'interno', 'fecha', 'id', 'genero', 'tarifa']
         legs_to_join = legs.reindex(columns=cols).sort_values('fecha')
         gps_to_join = gps.reindex(columns=cols).sort_values('fecha')
     
@@ -690,7 +692,7 @@ def assign_gps_destination():
         for hora in legs_hours:
             # Filtrar las etapas por la hora específica y eliminar valores nulos en 'h3_d'
             etapas_tx = legs.loc[legs['hora'] == hora, [
-                'dia', 'id', 'id_linea', 'id_ramal', 'interno',
+                'dia', 'id', 'id_linea', 'id_ramal', 'interno', 'genero', 'tarifa',
                 'h3_o', 'h3_d', 'h3_d_gps_res', 'distance_osm_drive', 'fecha']].copy()
     
             # Agregar anillos a las etapas
@@ -703,14 +705,14 @@ def assign_gps_destination():
     
             # Renombrar y seleccionar columnas relevantes en los datos GPS
             gps_tx = gps_tx.reindex(columns=['id', 'id_linea', 'id_ramal',
-                                             'interno', 'h3_legs_res',
+                                             'interno', 'genero', 'tarifa', 'h3_legs_res',
                                              'h3', 'fecha_gps']
                                     ).rename(columns={'h3_legs_res': 'area_influencia'})
     
             # Join gps to legs destination rings dataframe by the same resolution (legs resolution)
             etapas_tx = etapas_tx.merge(gps_tx, how='inner',
                                         on=['id_linea', 'id_ramal',
-                                            'interno', 'area_influencia'],
+                                            'interno', 'genero', 'tarifa', 'area_influencia'],
                                         suffixes=('_legs', '_gps'),)
     
             # Calcular la diferencia de tiempo entre cada punto de gps y cada etapa
