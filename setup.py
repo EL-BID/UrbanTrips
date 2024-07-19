@@ -22,6 +22,7 @@ setuptools.setup(
     ],
     python_requires='>=3.10',
     install_requires=[
+        'anyio<4',   
         'contextily==1.4.0',
         'folium==0.14.0',
         'fiona==1.9.6',
@@ -43,15 +44,17 @@ setuptools.setup(
         'pandana==0.7',
         'patsy==0.5.3',
         'Pillow==9.5.0',
+        'platformdirs==4.2.2',
         'plotly==5.17.0',
         'python-pptx==0.6.22',
         'PyYAML==6.0.1',
-        'pysal==24.1',
         'seaborn==0.13.0',
         'shapely==2.0.1',
         'statsmodels==0.14.0',
         'streamlit==1.27.2',
         'streamlit-folium==0.15.0',
+        'typing_extensions==4.12.2',
         'weightedstats==0.4.1',
-        'OSMnet==0.1.7']
+        'OSMnet==0.1.7'
+]
 )
