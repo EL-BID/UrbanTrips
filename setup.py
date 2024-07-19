@@ -46,6 +46,7 @@ setuptools.setup(
         'plotly==5.17.0',
         'python-pptx==0.6.22',
         'PyYAML==6.0.1',
+        'pysal==24.1',
         'seaborn==0.13.0',
         'shapely==2.0.1',
         'statsmodels==0.14.0',
