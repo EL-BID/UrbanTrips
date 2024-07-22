@@ -714,7 +714,7 @@ def assign_gps_destination():
                 # Filtrar las etapas por la hora específica y eliminar valores nulos en 'h3_d'
                 etapas_tx = legs.loc[
                     (legs["hora"] == hora) & (legs["dia"] == dia),
-                    :[
+                    [
                         "dia",
                         "id",
                         "id_linea",
