@@ -404,7 +404,10 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         df["d_proj"] = pd.cut(
             df.d_proj, bins=section_ids_LRS_cut, labels=section_ids, right=True
         )
-
+        
+        # remove legs with no origin or destination projected
+        df = df.dropna(subset=["o_proj", "d_proj"])
+        
         legs_dict = df.to_dict("records")
         leg_route_sections_df = pd.concat(map(build_leg_route_sections_df, legs_dict))
 
