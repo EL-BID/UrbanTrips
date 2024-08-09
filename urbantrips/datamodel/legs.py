@@ -712,7 +712,7 @@ def assign_gps_destination():
             # Join gps to legs destination rings dataframe by the same resolution (legs resolution)
             etapas_tx = etapas_tx.merge(gps_tx, how='inner',
                                         on=['id_linea', 'id_ramal',
-                                            'interno', 'genero', 'tarifa', 'area_influencia'],
+                                            'interno', 'area_influencia'],
                                         suffixes=('_legs', '_gps'),)
     
             # Calcular la diferencia de tiempo entre cada punto de gps y cada etapa
