@@ -21,7 +21,7 @@ def from_linestring_to_h3(linestring, h3_res=8):
 
 
 def create_coarse_h3_from_line(
-    linestring: LineString, h3_res: int, line_id: int
+    linestring: LineString, h3_res: int, route_id: int
 ) -> dict:
 
     # Reference to coarser H3 for those lines
@@ -31,7 +31,7 @@ def create_coarse_h3_from_line(
     gdf = gpd.GeoDataFrame(
         {"h3": linestring_h3}, geometry=linestring_h3.map(geo.add_geometry), crs=4326
     )
-    gdf["id_linea"] = line_id
+    gdf["route_id"] = route_id
 
     # Create LRS for each hex index
     gdf["h3_lrs"] = [
@@ -52,21 +52,19 @@ def create_coarse_h3_from_line(
     gdf["section_id"] = pd.cut(
         gdf.h3_lrs, bins=df_section_ids_LRS_cut, labels=df_section_ids, right=True
     )
-    return {
-        "gdf": gdf,
-        "section_ids": df_section_ids,
-        "section_ids_LRS_cut": df_section_ids_LRS_cut,
-    }
+
+    # ESTO REEMPLAZA PARA ATRAS
+    gdf = gdf.sort_values("h3_lrs")
+    gdf["section_id"] = range(len(gdf))
+
+    return gdf
 
 
-def get_demand_by_coarse_h3(
-    supply_data: dict, hour_range: list | None, day_type: str
+def get_demand_data(
+    supply_gdf: gpd.GeoDataFrame, hour_range: list | None, day_type: str
 ) -> pd.DataFrame:
 
-    supply_gdf = supply_data["gdf"]
     line_id = supply_gdf.id_linea.unique()[0]
-    section_ids_LRS_cut = supply_data["section_ids_LRS_cut"]
-    section_ids = supply_data["section_ids"]
 
     h3_res = h3.h3_get_resolution(supply_gdf.h3.iloc[0])
 
@@ -78,13 +76,33 @@ def get_demand_by_coarse_h3(
 
     # Add legs to same coarser H3 used in branch routes
     legs["h3_o"] = legs["h3_o"].map(lambda h: geo.h3toparent(h, h3_res))
+    legs["h3_d"] = legs["h3_d"].map(lambda h: geo.h3toparent(h, h3_res))
+
+    shared_h3 = supply_gdf.loc[supply_gdf.shared_h3, "h3"]
+    legs["leg_in_shared_h3"] = legs.h3_o.isin(shared_h3) & legs.h3_d.isin(shared_h3)
+
+    return legs
+
+
+def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> dict:
+
+    line_id = supply_gdf.id_linea.unique()[0]
 
     # Compute total legs by h3 origin and destination
     total_legs_by_h3_od = (
         legs.reindex(
-            columns=["dia", "id_linea", "h3_o", "h3_d", "factor_expansion_linea"]
+            columns=[
+                "dia",
+                "id_linea",
+                "h3_o",
+                "h3_d",
+                "leg_in_shared_h3",
+                "factor_expansion_linea",
+            ]
         )
-        .groupby(["dia", "id_linea", "h3_o", "h3_d"], as_index=False)
+        .groupby(
+            ["dia", "id_linea", "h3_o", "h3_d", "leg_in_shared_h3"], as_index=False
+        )
         .sum()
     )
 
@@ -108,27 +126,32 @@ def get_demand_by_coarse_h3(
                 "id_linea",
                 "h3_o",
                 "h3_d",
+                "leg_in_shared_h3",
                 "factor_expansion_linea",
                 "h3_lrs_x",
                 "h3_lrs_y",
+                "section_id_x",
+                "section_id_y",
             ]
         )
-        .rename(columns={"h3_lrs_x": "o_proj", "h3_lrs_y": "d_proj"})
+        .rename(columns={"section_id_x": "o_proj", "section_id_y": "d_proj"})
+    )  # cambie
+
+    total_demand = legs_within_branch.factor_expansion_linea.sum()
+    print(
+        f"La demanda total para el id linea {line_id} que podria recorrer este ramal en este horario es: {int(total_demand)} etapas"
     )
 
-    # Classify LRS in to sectin ids
-    legs_within_branch["o_proj"] = pd.cut(
-        legs_within_branch.o_proj,
-        bins=section_ids_LRS_cut,
-        labels=section_ids,
-        right=True,
+    shared_demand = round(
+        legs_within_branch.loc[
+            legs_within_branch.leg_in_shared_h3, "factor_expansion_linea"
+        ].sum()
+        / total_demand
+        * 100,
+        1,
     )
-    legs_within_branch["d_proj"] = pd.cut(
-        legs_within_branch.d_proj,
-        bins=section_ids_LRS_cut,
-        labels=section_ids,
-        right=True,
-    )
+    print(f"De las cuales el {shared_demand} % comparte OD con el ramal de comparacion")
+
     # Add direction to use for which sections id traversed
     legs_within_branch["sentido"] = [
         "ida" if row.o_proj <= row.d_proj else "vuelta"
@@ -147,4 +170,4 @@ def get_demand_by_coarse_h3(
         ["section_id"], as_index=False
     ).agg(total_legs=("factor_expansion_linea", "sum"))
 
-    return demand_by_section_id
+    return {"demand_by_section_id": demand_by_section_id, "total_demand": total_demand}
