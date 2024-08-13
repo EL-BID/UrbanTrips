@@ -4,6 +4,7 @@ from shapely.geometry import Point, LineString
 import h3
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
+from urbantrips.utils import utils
 
 
 def from_linestring_to_h3(linestring, h3_res=8):
@@ -61,10 +62,13 @@ def create_coarse_h3_from_line(
 
 
 def get_demand_data(
-    supply_gdf: gpd.GeoDataFrame, hour_range: list | None, day_type: str
+    supply_gdf: gpd.GeoDataFrame,
+    day_type: str,
+    line_id: int,
+    hour_range: (
+        list | None
+    ) = None,  # Not used as % of demand is not related to hour range
 ) -> pd.DataFrame:
-
-    line_id = supply_gdf.id_linea.unique()[0]
 
     h3_res = h3.h3_get_resolution(supply_gdf.h3.iloc[0])
 
@@ -84,9 +88,14 @@ def get_demand_data(
     return legs
 
 
-def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> dict:
-
-    line_id = supply_gdf.id_linea.unique()[0]
+def aggregate_demand_data(
+    legs: pd.DataFrame,
+    supply_gdf: gpd.GeoDataFrame,
+    base_line_id: int,
+    comp_line_id: int,
+    base_branch_id: int | str,
+    comp_branch_id: int | str,
+) -> dict:
 
     # Compute total legs by h3 origin and destination
     total_legs_by_h3_od = (
@@ -110,14 +119,14 @@ def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> d
     legs_within_branch = (
         total_legs_by_h3_od.merge(
             supply_gdf.drop("geometry", axis=1),
-            left_on=["id_linea", "h3_o"],
-            right_on=["id_linea", "h3"],
+            left_on=["h3_o"],
+            right_on=["h3"],
             how="inner",
         )
         .merge(
             supply_gdf.drop("geometry", axis=1),
-            left_on=["id_linea", "h3_d"],
-            right_on=["id_linea", "h3"],
+            left_on=["h3_d"],
+            right_on=["h3"],
             how="inner",
         )
         .reindex(
@@ -135,9 +144,12 @@ def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> d
             ]
         )
         .rename(columns={"section_id_x": "o_proj", "section_id_y": "d_proj"})
-    )  # cambie
+    )
 
     total_demand = legs_within_branch.factor_expansion_linea.sum()
+    line_id = legs_within_branch.id_linea.iloc[0]
+    day = legs_within_branch.dia.iloc[0]
+
     print(
         f"La demanda total para el id linea {line_id} que podria recorrer este ramal en este horario es: {int(total_demand)} etapas"
     )
@@ -151,6 +163,14 @@ def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> d
         1,
     )
     print(f"De las cuales el {shared_demand} % comparte OD con el ramal de comparacion")
+    update_overlapping_table_demand(
+        day,
+        base_line_id,
+        base_branch_id,
+        comp_line_id,
+        comp_branch_id,
+        base_v_comp=shared_demand,
+    )
 
     # Add direction to use for which sections id traversed
     legs_within_branch["sentido"] = [
@@ -171,3 +191,81 @@ def aggregate_demand_data(legs: pd.DataFrame, supply_gdf: gpd.GeoDataFrame) -> d
     ).agg(total_legs=("factor_expansion_linea", "sum"))
 
     return {"demand_by_section_id": demand_by_section_id, "total_demand": total_demand}
+
+
+def update_overlapping_table_supply(
+    day,
+    base_line_id,
+    base_branch_id,
+    comp_line_id,
+    comp_branch_id,
+    base_v_comp,
+    comp_v_base,
+):
+    conn_data = utils.iniciar_conexion_db(tipo="data")
+    # Update db
+    delete_q = f"""
+        delete from overlapping 
+        where dia = '{day}'
+        and base_line_id = {base_line_id}
+        and base_branch_id = {base_branch_id}
+        and comp_line_id = {comp_line_id}
+        and comp_branch_id = {comp_branch_id}
+        and type_overlap = "oferta"
+        ;
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    delete_q = f"""
+        delete from overlapping 
+        where dia = '{day}'
+        and base_line_id = {comp_line_id}
+        and base_branch_id = {comp_branch_id}
+        and comp_line_id = {base_line_id}
+        and comp_branch_id = {base_branch_id}
+        and type_overlap = "oferta"
+        ;
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    insert_q = f"""
+        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,overlap, type_overlap) 
+        values
+         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{base_v_comp},'oferta'),
+         ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{comp_v_base},'oferta')
+        ;
+    """
+    conn_data.execute(insert_q)
+    conn_data.commit()
+    conn_data.close()
+
+
+def update_overlapping_table_demand(
+    day, base_line_id, base_branch_id, comp_line_id, comp_branch_id, base_v_comp
+):
+    conn_data = utils.iniciar_conexion_db(tipo="data")
+    # Update db
+    delete_q = f"""
+        delete from overlapping 
+        where dia = '{day}'
+        and base_line_id = {base_line_id}
+        and base_branch_id = {base_branch_id}
+        and comp_line_id = {comp_line_id}
+        and comp_branch_id = {comp_branch_id}
+        and type_overlap = "demanda"
+        ;
+    """
+    conn_data.execute(delete_q)
+    conn_data.commit()
+
+    insert_q = f"""
+        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,overlap, type_overlap) 
+        values
+         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{base_v_comp},'demanda')
+        ;
+    """
+    conn_data.execute(insert_q)
+    conn_data.commit()
+    conn_data.close()
