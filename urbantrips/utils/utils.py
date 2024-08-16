@@ -1300,6 +1300,7 @@ def create_kpi_tables():
         base_branch_id int,
         comp_line_id int not null,
         comp_branch_id int,
+        res_h3 int,
         overlap float,
         type_overlap text
         )

@@ -1,5 +1,6 @@
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import Point, LineString
 import h3
 from urbantrips.geo import geo
@@ -12,10 +13,13 @@ def from_linestring_to_h3(linestring, h3_res=8):
     This function takes a shapely linestring and
     returns all h3 hecgrid cells that intersect that linestring
     """
+    lrs = np.arange(0, 1, 0.01)
+    points = [linestring.interpolate(i, normalized=True) for i in lrs]
+    coords = [(point.x, point.y) for point in points]
     linestring_h3 = pd.Series(
         [
             h3.geo_to_h3(lat=coord[1], lng=coord[0], resolution=h3_res)
-            for coord in linestring.coords
+            for coord in coords
         ]
     ).drop_duplicates()
     return linestring_h3
@@ -26,7 +30,7 @@ def create_coarse_h3_from_line(
 ) -> dict:
 
     # Reference to coarser H3 for those lines
-    linestring_h3 = from_linestring_to_h3(linestring, h3_res=8)
+    linestring_h3 = from_linestring_to_h3(linestring, h3_res=h3_res)
 
     # Creeate geodataframes with hex geoms and index and LRS
     gdf = gpd.GeoDataFrame(
@@ -169,8 +173,14 @@ def aggregate_demand_data(
         base_branch_id,
         comp_line_id,
         comp_branch_id,
+        res_h3=h3.h3_get_resolution(supply_gdf.h3.iloc[0]),
         base_v_comp=shared_demand,
     )
+    return legs_within_branch
+
+
+def demand_by_section_id(legs_within_branch):
+    total_demand = legs_within_branch.factor_expansion_linea.sum()
 
     # Add direction to use for which sections id traversed
     legs_within_branch["sentido"] = [
@@ -190,7 +200,11 @@ def aggregate_demand_data(
         ["section_id"], as_index=False
     ).agg(total_legs=("factor_expansion_linea", "sum"))
 
-    return {"demand_by_section_id": demand_by_section_id, "total_demand": total_demand}
+    demand_by_section_id["prop_demand"] = (
+        demand_by_section_id.total_legs / total_demand * 100
+    )
+
+    return demand_by_section_id
 
 
 def update_overlapping_table_supply(
@@ -199,6 +213,7 @@ def update_overlapping_table_supply(
     base_branch_id,
     comp_line_id,
     comp_branch_id,
+    res_h3,
     base_v_comp,
     comp_v_base,
 ):
@@ -211,6 +226,7 @@ def update_overlapping_table_supply(
         and base_branch_id = {base_branch_id}
         and comp_line_id = {comp_line_id}
         and comp_branch_id = {comp_branch_id}
+        and res_h3 = {res_h3}
         and type_overlap = "oferta"
         ;
     """
@@ -224,6 +240,7 @@ def update_overlapping_table_supply(
         and base_branch_id = {comp_branch_id}
         and comp_line_id = {base_line_id}
         and comp_branch_id = {base_branch_id}
+        and res_h3 = {res_h3}
         and type_overlap = "oferta"
         ;
     """
@@ -231,10 +248,10 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,overlap, type_overlap) 
+        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
         values
-         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{base_v_comp},'oferta'),
-         ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{comp_v_base},'oferta')
+         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'oferta'),
+         ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{res_h3},{comp_v_base},'oferta')
         ;
     """
     conn_data.execute(insert_q)
@@ -243,7 +260,7 @@ def update_overlapping_table_supply(
 
 
 def update_overlapping_table_demand(
-    day, base_line_id, base_branch_id, comp_line_id, comp_branch_id, base_v_comp
+    day, base_line_id, base_branch_id, comp_line_id, comp_branch_id, res_h3, base_v_comp
 ):
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
@@ -254,6 +271,7 @@ def update_overlapping_table_demand(
         and base_branch_id = {base_branch_id}
         and comp_line_id = {comp_line_id}
         and comp_branch_id = {comp_branch_id}
+        and res_h3 = {res_h3}
         and type_overlap = "demanda"
         ;
     """
@@ -261,9 +279,9 @@ def update_overlapping_table_demand(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,overlap, type_overlap) 
+        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
         values
-         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{base_v_comp},'demanda')
+         ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'demanda')
         ;
     """
     conn_data.execute(insert_q)
