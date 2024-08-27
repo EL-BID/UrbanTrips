@@ -6,6 +6,7 @@ import h3
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
+from urbantrips.carto.routes import read_routes
 
 
 def from_linestring_to_h3(linestring, h3_res=8):
@@ -254,6 +255,7 @@ def update_overlapping_table_supply(
          ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{res_h3},{comp_v_base},'oferta')
         ;
     """
+
     conn_data.execute(insert_q)
     conn_data.commit()
     conn_data.close()
@@ -287,3 +289,149 @@ def update_overlapping_table_demand(
     conn_data.execute(insert_q)
     conn_data.commit()
     conn_data.close()
+
+
+def normalize_total_legs_to_dot_size(series, min_dot_size, max_dot_size):
+    return min_dot_size + (max_dot_size - 1) * (series - series.min()) / (
+        series.max() - series.min()
+    )
+
+
+def compute_supply_overlapping(
+    day, base_route_id, comp_route_id, route_type, h3_res_comp
+):
+    # Get route geoms
+    route_geoms = read_routes(
+        route_ids=[base_route_id, comp_route_id], route_type=route_type
+    )
+
+    # Crate linestring for each branch
+    base_route_gdf = route_geoms.loc[route_geoms.route_id == base_route_id, "geometry"]
+    linestring_base = base_route_gdf.item()
+
+    # Crate linestring for each branch
+    comp_route_gdf = route_geoms.loc[route_geoms.route_id == comp_route_id, "geometry"]
+    linestring_comp = comp_route_gdf.item()
+
+    # Turn linestring into coarse h3 indexes
+    base_h3 = create_coarse_h3_from_line(
+        linestring=linestring_base, h3_res=h3_res_comp, route_id=base_route_id
+    )
+    comp_h3 = create_coarse_h3_from_line(
+        linestring=linestring_comp, h3_res=h3_res_comp, route_id=comp_route_id
+    )
+
+    # Compute overlapping between those h3 indexes
+    branch_overlapping = base_h3.reindex(
+        columns=["h3", "route_id", "section_id"]
+    ).merge(
+        comp_h3.reindex(columns=["h3", "route_id", "section_id"]),
+        on="h3",
+        how="outer",
+        suffixes=("_base", "_comp"),
+    )
+
+    # classify each h3 index as shared or not
+    overlapping_mask = (branch_overlapping.route_id_base.notna()) & (
+        branch_overlapping.route_id_comp.notna()
+    )
+    overlapping_indexes = overlapping_mask.sum()
+    overlapping_h3 = branch_overlapping.loc[overlapping_mask, "h3"]
+    base_h3["shared_h3"] = base_h3.h3.isin(overlapping_h3)
+    comp_h3["shared_h3"] = comp_h3.h3.isin(overlapping_h3)
+
+    # Compute % of shred h3
+    base_v_comp = round(overlapping_indexes / len(base_h3) * 100, 1)
+    comp_v_base = round(overlapping_indexes / len(comp_h3) * 100, 1)
+
+    print("Overlapping base vs comp: ", base_v_comp)
+    print("Overlapping comp vs base: ", comp_v_base)
+
+    configs = utils.leer_configs_generales()
+    use_branches = configs["lineas_contienen_ramales"]
+
+    if use_branches:
+        # get line id base on branch
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+        metadata = pd.read_sql(
+            f"select id_linea,id_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
+            conn_insumos,
+            dtype={"id_linea": int, "id_ramal": int},
+        )
+        conn_insumos.close()
+        base_line_id = metadata.loc[
+            metadata.id_ramal == base_route_id, "id_linea"
+        ].item()
+        comp_line_id = metadata.loc[
+            metadata.id_ramal == comp_route_id, "id_linea"
+        ].item()
+        base_branch_id = base_route_id
+        comp_branch_id = comp_route_id
+    else:
+        base_line_id = base_route_id
+        comp_line_id = comp_route_id
+        base_branch_id = "NULL"
+        comp_branch_id = "NULL"
+
+    update_overlapping_table_supply(
+        day=day,
+        base_line_id=base_line_id,
+        base_branch_id=base_branch_id,
+        comp_line_id=comp_line_id,
+        comp_branch_id=comp_branch_id,
+        res_h3=h3_res_comp,
+        base_v_comp=base_v_comp,
+        comp_v_base=comp_v_base,
+    )
+
+    return {
+        "base": {"line": base_route_gdf, "h3": base_h3},
+        "comp": {"line": comp_route_gdf, "h3": comp_h3},
+    }
+
+
+def compute_demand_overlapping(
+    base_line_id,
+    comp_line_id,
+    day_type,
+    base_route_id,
+    comp_route_id,
+    base_gdf,
+    comp_gdf,
+):
+    configs = utils.leer_configs_generales()
+
+    use_branches = configs["lineas_contienen_ramales"]
+
+    if use_branches:
+        base_branch_id = base_route_id  # esto esta en base_gdf
+        comp_branch_id = comp_route_id
+    else:
+        base_branch_id = "NULL"
+        comp_branch_id = "NULL"
+
+    base_legs = get_demand_data(
+        supply_gdf=base_gdf, day_type=day_type, line_id=base_line_id
+    )
+    comp_legs = get_demand_data(
+        supply_gdf=comp_gdf, day_type=day_type, line_id=comp_line_id
+    )
+
+    base_demand = aggregate_demand_data(
+        legs=base_legs,
+        supply_gdf=base_gdf,
+        base_line_id=base_line_id,
+        comp_line_id=comp_line_id,
+        base_branch_id=base_branch_id,
+        comp_branch_id=comp_branch_id,
+    )
+    comp_demand = aggregate_demand_data(
+        legs=comp_legs,
+        supply_gdf=comp_gdf,
+        base_line_id=comp_line_id,
+        comp_line_id=base_line_id,
+        base_branch_id=comp_branch_id,
+        comp_branch_id=base_branch_id,
+    )
+
+    return base_demand, comp_demand
