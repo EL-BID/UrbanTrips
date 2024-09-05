@@ -155,8 +155,49 @@ def aggregate_demand_data(
     line_id = legs_within_branch.id_linea.iloc[0]
     day = legs_within_branch.dia.iloc[0]
 
+    configs = utils.leer_configs_generales()
+    use_branches = configs["lineas_contienen_ramales"]
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    line_metadata = pd.read_sql(
+        f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_line_id},{comp_line_id})",
+        conn_insumos,
+        dtype={"id_linea": int},
+    )
+
+    base_line_name = line_metadata.loc[
+        line_metadata.id_linea == base_line_id, "nombre_linea"
+    ].item()
+    comp_line_name = line_metadata.loc[
+        line_metadata.id_linea == comp_line_id, "nombre_linea"
+    ].item()
+
+    if use_branches:
+        # get line id base on branch
+        metadata = pd.read_sql(
+            f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_branch_id},{comp_branch_id})",
+            conn_insumos,
+            dtype={"id_linea": int, "id_ramal": int},
+        )
+
+        base_branch_name = metadata.loc[
+            metadata.id_ramal == base_branch_id, "nombre_ramal"
+        ].item()
+        comp_branch_name = metadata.loc[
+            metadata.id_ramal == comp_branch_id, "nombre_ramal"
+        ].item()
+        demand_base_branch_str = (
+            f"que podria recorrer este ramal {base_branch_name} (id {base_branch_id}) "
+        )
+        demand_comp_branch_str = f"ramal {comp_branch_name} (id {comp_branch_id})"
+
+    else:
+        demand_base_branch_str = " "
+        demand_comp_branch_str = " "
+    conn_insumos.close()
+
     print(
-        f"La demanda total para el id linea {line_id} que podria recorrer este ramal en este horario es: {int(total_demand)} etapas"
+        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas"
     )
 
     shared_demand = round(
@@ -167,7 +208,9 @@ def aggregate_demand_data(
         * 100,
         1,
     )
-    print(f"De las cuales el {shared_demand} % comparte OD con el ramal de comparacion")
+    print(
+        f"De las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}"
+    )
     update_overlapping_table_demand(
         day,
         base_line_id,
@@ -344,9 +387,6 @@ def compute_supply_overlapping(
     base_v_comp = round(overlapping_indexes / len(base_h3) * 100, 1)
     comp_v_base = round(overlapping_indexes / len(comp_h3) * 100, 1)
 
-    print("Overlapping base vs comp: ", base_v_comp)
-    print("Overlapping comp vs base: ", comp_v_base)
-
     configs = utils.leer_configs_generales()
     use_branches = configs["lineas_contienen_ramales"]
 
@@ -354,7 +394,7 @@ def compute_supply_overlapping(
         # get line id base on branch
         conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
         metadata = pd.read_sql(
-            f"select id_linea,id_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
+            f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
             conn_insumos,
             dtype={"id_linea": int, "id_ramal": int},
         )
@@ -365,13 +405,53 @@ def compute_supply_overlapping(
         comp_line_id = metadata.loc[
             metadata.id_ramal == comp_route_id, "id_linea"
         ].item()
+
+        base_branch_name = metadata.loc[
+            metadata.id_ramal == base_route_id, "nombre_ramal"
+        ].item()
+        comp_branch_name = metadata.loc[
+            metadata.id_ramal == comp_route_id, "nombre_ramal"
+        ].item()
+
         base_branch_id = base_route_id
         comp_branch_id = comp_route_id
+
+        print(
+            f"El {base_v_comp} % del recorrido del ramal base {base_branch_name}"
+            f" se superpone con el del ramal de comparación {comp_branch_name}"
+        )
+        print(
+            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name}"
+            f" se superpone con el del ramal {base_branch_name}"
+        )
+
     else:
         base_line_id = base_route_id
         comp_line_id = comp_route_id
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
+
+        metadata = pd.read_sql(
+            f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
+            conn_insumos,
+            dtype={"id_linea": int},
+        )
+
+        base_line_name = metadata.loc[
+            metadata.id_linea == base_route_id, "nombre_linea"
+        ].item()
+        comp_line_name = metadata.loc[
+            metadata.id_linea == comp_route_id, "nombre_linea"
+        ].item()
+
+        print(
+            f"El {base_v_comp} % del recorrido de la linea base {base_line_name}"
+            " se superpone con el del ramal de comparación {comp_line_name}"
+        )
+        print(
+            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_line_name}"
+            " se superpone con el del ramal {base_line_name}"
+        )
 
     update_overlapping_table_supply(
         day=day,
@@ -404,7 +484,7 @@ def compute_demand_overlapping(
     use_branches = configs["lineas_contienen_ramales"]
 
     if use_branches:
-        base_branch_id = base_route_id  # esto esta en base_gdf
+        base_branch_id = base_route_id
         comp_branch_id = comp_route_id
     else:
         base_branch_id = "NULL"
