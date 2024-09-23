@@ -405,6 +405,9 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
             df.d_proj, bins=section_ids_LRS_cut, labels=section_ids, right=True
         )
 
+        # remove legs with no origin or destination projected
+        df = df.dropna(subset=["o_proj", "d_proj"])
+
         legs_dict = df.to_dict("records")
         leg_route_sections_df = pd.concat(map(build_leg_route_sections_df, legs_dict))
 
@@ -721,10 +724,10 @@ def compute_kpi_by_line_day(legs, gps):
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
     # demand data
-    day_demand_stats = legs\
-        .dropna(subset=["distance", "factor_expansion_linea"])\
-        .groupby(["id_linea", "dia"], as_index=False).apply(
-        demand_stats
+    day_demand_stats = (
+        legs.dropna(subset=["distance", "factor_expansion_linea"])
+        .groupby(["id_linea", "dia"], as_index=False)
+        .apply(demand_stats)
     )
 
     # supply data
@@ -1195,7 +1198,7 @@ def run_basic_kpi():
     ] = speed_max
 
     speed_vehicle_hour = speed_vehicle_hour.dropna()
-    
+
     print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
@@ -1517,59 +1520,62 @@ def compute_basic_kpi_line_hr_typeday():
 
 
 def compute_speed_by_veh_hour(legs_vehicle):
-    if len(legs_vehicle) < 2:
-        return None
+    try:
+        if len(legs_vehicle) < 2:
+            return None
 
-    res = 11
-    distance_between_hex = h3.edge_length(resolution=res, unit="m")
-    distance_between_hex = distance_between_hex * 2
+        res = 11
+        distance_between_hex = h3.edge_length(resolution=res, unit="m")
+        distance_between_hex = distance_between_hex * 2
 
-    speed = legs_vehicle.reindex(
-        columns=["interno", "hora", "time", "latitud", "longitud"]
-    )
-    speed["h3"] = speed.apply(
-        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
-    )
-
-    # get only one h3 per vehicle hour
-    speed = speed.drop_duplicates(subset=["interno", "hora", "h3"])
-    if len(speed) < 2:
-        return None
-    speed = speed.sort_values("time")
-
-    # compute meters between h3
-    speed["h3_lag"] = speed["h3"].shift(1)
-    speed["time_lag"] = speed["time"].shift(1)
-
-    speed = speed.dropna(subset=["h3_lag", "time_lag"])
-
-    speed["seconds"] = (speed["time"] - speed["time_lag"]).map(
-        lambda x: x.total_seconds()
-    )
-
-    speed["meters"] = (
-        speed.apply(lambda row: h3.h3_distance(row["h3"], row["h3_lag"]), axis=1)
-        * distance_between_hex
-    )
-
-    speed_by_hour = (
-        speed.reindex(columns=["hora", "seconds", "meters"])
-        .groupby("hora", as_index=False)
-        .agg(
-            meters=("meters", "sum"),
-            seconds=("seconds", "sum"),
-            n=("hora", "count"),
+        speed = legs_vehicle.reindex(
+            columns=["interno", "hora", "time", "latitud", "longitud"]
         )
-    )
-    # remove vehicles with less than 2 pax
+        speed["h3"] = speed.apply(
+            geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
+        )
 
-    speed_by_hour = speed_by_hour.loc[speed_by_hour.n > 2, :]
-    speed_by_hour["speed_kmh_veh_h"] = (
-        speed_by_hour.meters / speed_by_hour.seconds * 3.6
-    )
-    speed_by_hour = speed_by_hour.reindex(columns=["hora", "speed_kmh_veh_h"])
+        # get only one h3 per vehicle hour
+        speed = speed.drop_duplicates(subset=["interno", "hora", "h3"])
+        if len(speed) < 2:
+            return None
+        speed = speed.sort_values("time")
 
-    return speed_by_hour
+        # compute meters between h3
+        speed["h3_lag"] = speed["h3"].shift(1)
+        speed["time_lag"] = speed["time"].shift(1)
+
+        speed = speed.dropna(subset=["h3_lag", "time_lag"])
+
+        speed["seconds"] = (speed["time"] - speed["time_lag"]).map(
+            lambda x: x.total_seconds()
+        )
+
+        speed["meters"] = (
+            speed.apply(lambda row: h3.h3_distance(row["h3"], row["h3_lag"]), axis=1)
+            * distance_between_hex
+        )
+
+        speed_by_hour = (
+            speed.reindex(columns=["hora", "seconds", "meters"])
+            .groupby("hora", as_index=False)
+            .agg(
+                meters=("meters", "sum"),
+                seconds=("seconds", "sum"),
+                n=("hora", "count"),
+            )
+        )
+        # remove vehicles with less than 2 pax
+
+        speed_by_hour = speed_by_hour.loc[speed_by_hour.n > 2, :]
+        speed_by_hour["speed_kmh_veh_h"] = (
+            speed_by_hour.meters / speed_by_hour.seconds * 3.6
+        )
+        speed_by_hour = speed_by_hour.reindex(columns=["hora", "speed_kmh_veh_h"])
+
+        return speed_by_hour
+    except:
+        return None
 
 
 def get_processed_days(table_name):
