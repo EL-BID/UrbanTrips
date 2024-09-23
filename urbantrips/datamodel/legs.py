@@ -86,6 +86,8 @@ def create_legs_from_transactions(trx_order_params):
             "id_linea",
             "id_ramal",
             "interno",
+            "genero",
+            "tarifa",
             "latitud",
             "longitud",
             "h3_o",
@@ -561,7 +563,7 @@ def assign_gps_origin():
         # get legs data
         legs = pd.read_sql_query(
             """
-            SELECT e.dia,e.id_linea,e.id_ramal,e.interno,e.id, e.tiempo
+            SELECT e.dia,e.id_linea,e.id_ramal,e.interno,e.id, e.tiempo, e.genero, e.tarifa
             FROM etapas e
             JOIN dias_ultima_corrida d
             ON e.dia = d.dia
@@ -580,6 +582,7 @@ def assign_gps_origin():
         order by g.dia, id_linea,id_ramal,interno,fecha;
         """
         gps = pd.read_sql(q, conn_data)
+
         gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
         cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
         legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
@@ -708,6 +711,7 @@ def assign_gps_destination():
         legs_hours.sort()
 
         print("Imputando GPS de destino")
+
         for dia in legs_days:
             print(dia)
             for hora in legs_hours:
@@ -800,6 +804,7 @@ def assign_gps_destination():
 
                     # Agregar resultado a la lista
                     etapas_result_list.append(etapas_tx)
+
 
         # Concatenar todos los resultados acumulados
         etapas_result = pd.concat(etapas_result_list, ignore_index=True)

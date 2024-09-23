@@ -203,163 +203,163 @@ with st.expander('Viajes por hora'):
     col2.plotly_chart(fig_horas)
 
 
-with st.expander('Líneas de deseo'):
+# with st.expander('Líneas de deseo'):
 
-    col1, col2 = st.columns([1, 4])
+#     col1, col2 = st.columns([1, 4])
 
-    lineas_deseo = levanto_tabla_sql('lineas_deseo')
+#     lineas_deseo = levanto_tabla_sql('lineas_deseo')
 
-    if len(lineas_deseo) > 0:
+#     if len(lineas_deseo) > 0:
 
-        lineas_deseo = create_linestring_od(lineas_deseo)
+#         lineas_deseo = create_linestring_od(lineas_deseo)
 
-        desc_dia = col1.selectbox(
-            'Periodo', options=lineas_deseo.desc_dia.unique())
-        tipo_dia = col1.selectbox(
-            'Tipo de dia', options=lineas_deseo.tipo_dia.unique())
-        var_zona = col1.selectbox(
-            'Zonificación', options=lineas_deseo.var_zona.unique())
-        filtro1 = col1.selectbox(
-            'Filtro', options=lineas_deseo.filtro1.unique())
+#         desc_dia = col1.selectbox(
+#             'Periodo', options=lineas_deseo.desc_dia.unique())
+#         tipo_dia = col1.selectbox(
+#             'Tipo de dia', options=lineas_deseo.tipo_dia.unique())
+#         var_zona = col1.selectbox(
+#             'Zonificación', options=lineas_deseo.var_zona.unique())
+#         filtro1 = col1.selectbox(
+#             'Filtro', options=lineas_deseo.filtro1.unique())
 
-        df_agg = lineas_deseo[(
-            (lineas_deseo.desc_dia == desc_dia) &
-            (lineas_deseo.tipo_dia == tipo_dia) &
-            (lineas_deseo.var_zona == var_zona) &
-            (lineas_deseo.filtro1 == filtro1)
-        )].copy()
+#         df_agg = lineas_deseo[(
+#             (lineas_deseo.desc_dia == desc_dia) &
+#             (lineas_deseo.tipo_dia == tipo_dia) &
+#             (lineas_deseo.var_zona == var_zona) &
+#             (lineas_deseo.filtro1 == filtro1)
+#         )].copy()
 
-        if len(df_agg) > 0:
+#         if len(df_agg) > 0:
 
-            map = crear_mapa_folium(df_agg,
-                                    cmap='BuPu',
-                                    var_fex='Viajes',
-                                    k_jenks=5)
+#             map = crear_mapa_folium(df_agg,
+#                                     cmap='BuPu',
+#                                     var_fex='Viajes',
+#                                     k_jenks=5)
 
-            with col2:
-                st_map = st_folium(map, width=900, height=700)
-        else:
+#             with col2:
+#                 st_map = st_folium(map, width=900, height=700)
+#         else:
 
-            col2.markdown("""
-            <style>
-            .big-font {
-                font-size:40px !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+#             col2.markdown("""
+#             <style>
+#             .big-font {
+#                 font-size:40px !important;
+#             }
+#             </style>
+#             """, unsafe_allow_html=True)
 
-            col2.markdown(
-                '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
+#             col2.markdown(
+#                 '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
 
-    else:
-        # Usar HTML para personalizar el estilo del texto
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                No hay datos para mostrar            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                Verifique que los procesos se corrieron correctamente            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-with st.expander('Matrices OD'):
-    col1, col2 = st.columns([1, 4])
+#     else:
+#         # Usar HTML para personalizar el estilo del texto
+#         texto_html = """
+#             <style>
+#             .big-font {
+#                 font-size:30px !important;
+#                 font-weight:bold;
+#             }
+#             </style>
+#             <div class='big-font'>
+#                 No hay datos para mostrar            
+#             </div>
+#             """
+#         col2.markdown(texto_html, unsafe_allow_html=True)
+#         texto_html = """
+#             <style>
+#             .big-font {
+#                 font-size:30px !important;
+#                 font-weight:bold;
+#             }
+#             </style>
+#             <div class='big-font'>
+#                 Verifique que los procesos se corrieron correctamente            
+#             </div>
+#             """
+#         col2.markdown(texto_html, unsafe_allow_html=True)
+# with st.expander('Matrices OD'):
+#     col1, col2 = st.columns([1, 4])
 
-    matriz = levanto_tabla_sql('matrices')
+#     matriz = levanto_tabla_sql('matrices')
 
-    if len(matriz) > 0:
+#     if len(matriz) > 0:
 
-        if col1.checkbox('Normalizar', value=True):
-            normalize = True
-        else:
-            normalize = False
+#         if col1.checkbox('Normalizar', value=True):
+#             normalize = True
+#         else:
+#             normalize = False
 
-        desc_dia_ = col1.selectbox(
-            'Periodo ', options=matriz.desc_dia.unique())
-        tipo_dia_ = col1.selectbox(
-            'Tipo de dia ', options=matriz.tipo_dia.unique())
-        var_zona_ = col1.selectbox(
-            'Zonificación ', options=matriz.var_zona.unique())
-        filtro1_ = col1.selectbox('Filtro ', options=matriz.filtro1.unique())
+#         desc_dia_ = col1.selectbox(
+#             'Periodo ', options=matriz.desc_dia.unique())
+#         tipo_dia_ = col1.selectbox(
+#             'Tipo de dia ', options=matriz.tipo_dia.unique())
+#         var_zona_ = col1.selectbox(
+#             'Zonificación ', options=matriz.var_zona.unique())
+#         filtro1_ = col1.selectbox('Filtro ', options=matriz.filtro1.unique())
 
-        matriz = matriz[((matriz.desc_dia == desc_dia_) &
-                         (matriz.tipo_dia == tipo_dia_) &
-                         (matriz.var_zona == var_zona_) &
-                         (matriz.filtro1 == filtro1_)
-                         )].copy()
+#         matriz = matriz[((matriz.desc_dia == desc_dia_) &
+#                          (matriz.tipo_dia == tipo_dia_) &
+#                          (matriz.var_zona == var_zona_) &
+#                          (matriz.filtro1 == filtro1_)
+#                          )].copy()
 
-        od_heatmap = pd.crosstab(
-            index=matriz['Origen'],
-            columns=matriz['Destino'],
-            values=matriz['Viajes'],
-            aggfunc="sum",
-            normalize=normalize,
-        )
-        od_heatmap = (od_heatmap * 100).round(1)
+#         od_heatmap = pd.crosstab(
+#             index=matriz['Origen'],
+#             columns=matriz['Destino'],
+#             values=matriz['Viajes'],
+#             aggfunc="sum",
+#             normalize=normalize,
+#         )
+#         od_heatmap = (od_heatmap * 100).round(1)
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
-        od_heatmap = od_heatmap.set_index('Origen')
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+#         od_heatmap = od_heatmap.reset_index()
+#         od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
+#         od_heatmap = od_heatmap.set_index('Origen')
+#         od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
 
-        fig = px.imshow(od_heatmap, text_auto=True,
-                        color_continuous_scale='Blues',)
+#         fig = px.imshow(od_heatmap, text_auto=True,
+#                         color_continuous_scale='Blues',)
 
-        fig.update_coloraxes(showscale=False)
+#         fig.update_coloraxes(showscale=False)
 
-        if len(od_heatmap) <= 20:
-            fig.update_layout(width=800, height=800)
-        elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
-            fig.update_layout(width=1000, height=1000)
-        elif len(od_heatmap) > 40:
-            fig.update_layout(width=1200, height=1200)
+#         if len(od_heatmap) <= 20:
+#             fig.update_layout(width=800, height=800)
+#         elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
+#             fig.update_layout(width=1000, height=1000)
+#         elif len(od_heatmap) > 40:
+#             fig.update_layout(width=1200, height=1200)
 
-        col2.plotly_chart(fig)
+#         col2.plotly_chart(fig)
 
-    else:
-        st.write('No hay datos para mostrar')
+#     else:
+#         st.write('No hay datos para mostrar')
 
-    zonas = levanto_tabla_sql('zonas')
-    zonas = zonas[zonas.tipo_zona == var_zona_]
+#     zonas = levanto_tabla_sql('zonas')
+#     zonas = zonas[zonas.tipo_zona == var_zona_]
 
-    col1, col2 = st.columns([1, 4])
+#     col1, col2 = st.columns([1, 4])
 
-    if col1.checkbox('Mostrar zonificacion'):
+#     if col1.checkbox('Mostrar zonificacion'):
 
-        # Create a folium map centered on the data
-        map_center = [zonas.geometry.centroid.y.mean(
-        ), zonas.geometry.centroid.x.mean()]
+#         # Create a folium map centered on the data
+#         map_center = [zonas.geometry.centroid.y.mean(
+#         ), zonas.geometry.centroid.x.mean()]
 
-        fig = Figure(width=800, height=800)
-        m = folium.Map(location=map_center, zoom_start=10,
-                       tiles='cartodbpositron')
+#         fig = Figure(width=800, height=800)
+#         m = folium.Map(location=map_center, zoom_start=10,
+#                        tiles='cartodbpositron')
 
-        # Add GeoDataFrame to the map
-        folium.GeoJson(zonas).add_to(m)
+#         # Add GeoDataFrame to the map
+#         folium.GeoJson(zonas).add_to(m)
 
-        for idx, row in zonas.iterrows():
-            # Replace 'column_name' with the name of the column containing the detail
-            detail = row['Zona']
-            point = [row['geometry'].representative_point(
-            ).y, row['geometry'].representative_point().x]
-            marker = folium.Marker(location=point, popup=detail)
-            marker.add_to(m)
+#         for idx, row in zonas.iterrows():
+#             # Replace 'column_name' with the name of the column containing the detail
+#             detail = row['Zona']
+#             point = [row['geometry'].representative_point(
+#             ).y, row['geometry'].representative_point().x]
+#             marker = folium.Marker(location=point, popup=detail)
+#             marker.add_to(m)
 
-        # Display the map using folium_static
-        with col2:
-            folium_static(m)
+#         # Display the map using folium_static
+#         with col2:
+#             folium_static(m)

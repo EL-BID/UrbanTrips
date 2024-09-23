@@ -71,7 +71,7 @@ def cambia_id_viajes_etapas_tarjeta_dia(df):
                          'nuevo_id_etapa': 'id_etapa'})\
         .reindex(columns=['id', 'id_tarjeta', 'dia', 'id_viaje', 'id_etapa',
                           'tiempo', 'hora', 'modo', 'id_linea', 'id_ramal',
-                          'interno', 'latitud', 'longitud', 'h3_o', 'h3_d',
+                          'interno', 'genero', 'tarifa', 'latitud', 'longitud', 'h3_o', 'h3_d',
                           'od_validado', 'factor_expansion_original',
                           'factor_expansion_linea',
                           'factor_expansion_tarjeta'])
@@ -262,6 +262,7 @@ def create_trips_from_legs():
 
     conn.execute(query)
     conn.commit()
+
     etapas.to_sql("etapas", conn, if_exists="append", index=False)
 
     print(f'Creando tabla de viajes de {len(etapas)} etapas')
@@ -276,6 +277,8 @@ def create_trips_from_legs():
         "hora": "first",
         "h3_o": "first",
         "h3_d": "last",
+        "genero": "first",
+        "tarifa": "first",
         "od_validado": "min",
         "factor_expansion_linea": "mean",
         "factor_expansion_tarjeta": "mean"
@@ -334,6 +337,8 @@ def create_trips_from_legs():
                    'otros',
                    'h3_o',
                    'h3_d',
+                   'genero', 
+                   'tarifa',
                    'od_validado',
                    'factor_expansion_linea',
                    'factor_expansion_tarjeta']

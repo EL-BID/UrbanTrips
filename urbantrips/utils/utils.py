@@ -583,6 +583,8 @@ def create_basic_data_model_tables():
             id_ramal int,
             interno int,
             orden_trx int,
+            genero text,
+            tarifa text,
             latitud float,
             longitud float,
             factor_expansion float
@@ -613,6 +615,8 @@ def create_basic_data_model_tables():
             id_linea int,
             id_ramal int,
             interno int,
+            genero text,
+            tarifa text,
             latitud float,
             longitud float,
             h3_o text,
@@ -645,6 +649,8 @@ def create_basic_data_model_tables():
             otros int,
             h3_o text,
             h3_d text,
+            genero text,
+            tarifa text,
             od_validado int,
             factor_expansion_linea,
             factor_expansion_tarjeta
@@ -1410,12 +1416,13 @@ def levanto_tabla_sql(tabla_sql,
     return tabla
 
 
-def calculate_weighted_means(df,
+def calculate_weighted_means(df_,
                              aggregate_cols,
                              weighted_mean_cols,
                              weight_col,
-                             zero_to_nan=[]):
-
+                             zero_to_nan=[],
+                             var_fex_summed=True):
+    df = df_.copy()
     for i in zero_to_nan:
         df.loc[df[i] == 0, i] = np.nan
 
@@ -1438,8 +1445,13 @@ def calculate_weighted_means(df,
         else:
             result = result.merge(grouped, how='left', on=aggregate_cols)
 
-    fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
-    result = result.merge(fex_summed, how='left', on=aggregate_cols)
+    if var_fex_summed:
+        fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+        result = result.merge(fex_summed, how='left', on=aggregate_cols)
+    else:
+        fex_mean = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
+        result = result.merge(fex_mean, how='left', on=aggregate_cols)
+
 
     return result
 

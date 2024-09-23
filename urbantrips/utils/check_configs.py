@@ -50,7 +50,7 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, 'r') as file:
+    with open(file_path, 'r', encoding='utf-8') as file:
         content = file.read()
 
     # Check if the file contains tabs
@@ -82,23 +82,6 @@ def check_config_fecha(df, columns_with_date, date_format):
     if checkeo >= 0.8:
         result = string
     return result
-
-
-def replace_tabs_with_spaces(file_path, num_spaces=4):
-
-    if os.path.isfile(file_path):
-
-        # Open the file in read mode
-        with open(file_path, 'r') as file:
-            content = file.read()
-
-        # Check if the file contains tabs
-        if '\t' in content:
-            # Replace tabs with spaces
-            content = content.replace('\t', ' ' * num_spaces)
-            # Save the modified content to the same file
-            with open(file_path, 'w') as file:
-                file.write(content)
 
 
 def create_configuracion(configs):
@@ -345,6 +328,7 @@ def check_lineas(config_default):
             lineas[modo_trx] = autobus
             lineas = lineas.rename(
                 columns={id_linea_trx: 'id_linea', modo_trx: 'modo'})
+        lineas.columns=[ "id_linea", "modo"]
     else:
         lineas = pd.read_csv(path_archivo_lineas)
 
