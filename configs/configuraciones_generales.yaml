@@ -1,44 +1,44 @@
 # Archivo de configuración para urbantrips
 
 # Bases de datos
-nombre_archivo_trx: "sube_rosario.csv"                             # Especificar el archivo con las transacciones a consumir
-alias_db_data: "rosario"                                           # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "rosario"                                        # nombre del sqlite donde se guardan los insumos generales
+nombre_archivo_trx: "mexico_08mayo.csv"                            # Especificar el archivo con las transacciones a consumir
+alias_db_data: "mexico"                                            # nombre del sqlite donde se guardan los datos procesados
+alias_db_insumos: "mexico"                                         # nombre del sqlite donde se guardan los insumos generales
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
     id_trx: "id"                                                   # columna con id único del archivo de transacciones
-    fecha_trx: "fecha"                                             # columna con fecha de la transacción
-    id_tarjeta_trx: "nrotarjeta"                                   # columna con id de la tarjeta
+    fecha_trx: "fecha_hora_trx"                                    # columna con fecha de la transacción
+    id_tarjeta_trx: "id_tarjeta"                                   # columna con id de la tarjeta
     modo_trx: "modo"                                               # columna con modo de transporte
     hora_trx:                                                      # columna con hora de la transacción
-    id_linea_trx: "codigolinea"                                    # columna con el id de la línea
+    id_linea_trx: "id_linea"                                       # columna con el id de la línea
     id_ramal_trx:                                                  # columna con el ramal de la línea
-    interno_trx: "interno"                                         # columna con interno de la línea
+    interno_trx: "interno_bus"                                     # columna con interno de la línea
     orden_trx:                                                     # columna con el orden de la transacción (si falta hora/minuto en fecha_trx)
-    genero: "tratamientofinal"                                                       # Indica el género asignado a la tarjeta
-    tarifa: "momento"                                     # Indica el tipo de tarifa asignado a la transacción
-    latitud_trx: "latitud"                                         # columna con la latitud de la transacción
-    longitud_trx: "longitud"                                       # columna con longitud de la transacción
+    genero:                                                        # Indica el género asignado a la tarjeta
+    tarifa:                                                        # Indica el tipo de tarifa asignado a la transacción
+    latitud_trx: "lat"                                             # columna con la latitud de la transacción
+    longitud_trx: "lon"                                            # columna con longitud de la transacción
     factor_expansion:                                              # columna con el factor de expansión
 
 # Parámetros de transacciones
 ordenamiento_transacciones: "fecha_completa"                       # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
-ventana_viajes: 60                                                 # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
+ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
 
 # Elimina transacciones inválidas de la tabla de transacciones
 tipo_trx_invalidas:                                                # Lista con el contenido a eliminar de la variable seleccionada
 
 # Imputación de destino
-tolerancia_parada_destino: 2200                                    # Distancia para la validación de los destinos (metros)
+tolerancia_parada_destino: 1000                                    # Distancia para la validación de los destinos (metros)
 imputar_destinos_min_distancia: False                              # Busca la parada que minimiza la distancia con respecto a la siguiente trancción
 
 # Parámetros geográficos
 resolucion_h3: 8                                                   # Resolución de los hexágonos
-epsg_m: 9265                                                       # Parámetros geográficos: crs
+epsg_m: 32614                                                      # Parámetros geográficos: crs
 
-formato_fecha: "%Y-%m-%d %H:%M:%S"                                 # Configuración fecha y hora
+formato_fecha: "%d/%m/%Y %H:%M"                                    # Configuración fecha y hora
 columna_hora: False                                                
 
 geolocalizar_trx: False                                            
@@ -57,10 +57,10 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
-nombre_archivo_informacion_lineas: "rosario_lineas.csv"            # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
+nombre_archivo_informacion_lineas: "lineas_sitramytem.csv"         # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
-imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las líneas
+imprimir_lineas_principales: "All"                                 # Imprimir las lineas principales - "All" imprime todas las líneas
 
 # Servicios GPS
 utilizar_servicios_gps: False                                      # Especifica si ve van a utilizar los servicios GPS
@@ -68,20 +68,20 @@ valor_inicio_servicio:                                             # Valor de la
 valor_fin_servicio:                                                # Valor de la variable que marca el fin del servicio
 
 modos: 
-    autobus: "colectivo"                                           
+    autobus:                                                       
     tren:                                                          
     metro:                                                         
     tranvia:                                                       
-    brt:                                                           
+    brt: "COL"                                                     
 
 # Capas geográficas con recorridos de líneas
 recorridos_geojson:                                                # archivo geojson con el trazado de las líneas de transporte público
 
 filtro_latlong_bbox: 
-    minx: -73                                                      
-    miny: -55                                                      
-    maxx: -53                                                      
-    maxy: -21                                                      
+    minx: -99.2                                                    
+    miny: 19.3                                                     
+    maxx: -98.85                                                   
+    maxy: 19.9                                                     
 
 # Zonificaciones
 zonificaciones: 

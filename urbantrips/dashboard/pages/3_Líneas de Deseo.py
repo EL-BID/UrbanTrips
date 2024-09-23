@@ -479,6 +479,8 @@ with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
 
+    # col2.table(matriz)
+
     tipo_matriz = col1.selectbox(
             'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
         

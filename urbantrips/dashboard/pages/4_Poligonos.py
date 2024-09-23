@@ -424,12 +424,12 @@ with st.expander('Polígonos', expanded=True):
         texto_html = """
             <style>
             .big-font {
-                font-size:30px !important;
+                font-size:24px !important;
                 font-weight:bold;
             }
             </style>
             <div class='big-font'>
-                Verifique que los procesos se corrieron correctamente            
+                Verifique que existan alguna capa de polígonos o que los procesos se corrieron correctamente            
             </div>
             """
         col2.markdown(texto_html, unsafe_allow_html=True)

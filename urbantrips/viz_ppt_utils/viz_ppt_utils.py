@@ -662,63 +662,68 @@ def create_ppt():
             limit 1;
         """
         id_linea = pd.read_sql(q, conn_data)
-        id_linea = id_linea.id_linea.item()
+        
+        if len(id_linea) > 0:
 
-        if i.tipo_dia == 'Dia habil':
-            tdia = 'weekday'
-        else:
-            tdia = 'weekend'
+            id_linea = id_linea.id_linea.item()
 
-        # basic kpi plot
-        slide = get_new_slide(prs, desc_dia_titulo)
+            if i.tipo_dia == 'Dia habil':
+                tdia = 'weekday'
+            else:
+                tdia = 'weekend'
+    
+            # basic kpi plot
+            slide = get_new_slide(prs, desc_dia_titulo)
+    
+            file_graph = os.path.join(
+                "resultados",
+                "png",
+                f"{alias}_kpi_basicos_id_linea_{id_linea}_{tdia}.png")
+    
+            if os.path.isfile(file_graph):
+    
+                pptx_addpic(prs=prs,
+                            slide=slide,
+                            img_path=file_graph,
+                            left=1,
+                            top=2.5,
+                            width=10)
+                # query demand data
+                q = f"""
+                    select *
+                    from basic_kpi_by_line_day
+                    where id_linea = {id_linea}
+                    and dia = '{tdia}';
+                """
+                demand_data = pd.read_sql(q, conn_data)
+                pax = int(demand_data.pax.item())
+                veh = int(demand_data.veh.item())
+                dmt = int(demand_data.dmt.item())
+                speed = int(demand_data.speed_kmh.item())
+    
+                s = f"La linea id {id_linea} tiene en {i.tipo_dia} "
+                s = s + f"una demanda de {pax} pasajeros, con "
+                s = s + \
+                    f"{veh} vehiculos dia, una distancia media de {dmt} metros "
+                s = s + \
+                    f"y una velocidad comercial promedio de {speed} kmh"
+    
+                # create plot and text
+                slide = pptx_text(
+                    prs=prs, slide=slide,
+                    title=s,
+                    left=1, top=11, width=10, fontsize=20, bold=True)
 
-        file_graph = os.path.join(
-            "resultados",
-            "png",
-            f"{alias}_kpi_basicos_id_linea_{id_linea}_{tdia}.png")
-
-        if os.path.isfile(file_graph):
-
-            pptx_addpic(prs=prs,
-                        slide=slide,
-                        img_path=file_graph,
-                        left=1,
-                        top=2.5,
-                        width=10)
-            # query demand data
-            q = f"""
-                select *
-                from basic_kpi_by_line_day
-                where id_linea = {id_linea}
-                and dia = '{tdia}';
-            """
-            demand_data = pd.read_sql(q, conn_data)
-            pax = int(demand_data.pax.item())
-            veh = int(demand_data.veh.item())
-            dmt = int(demand_data.dmt.item())
-            speed = int(demand_data.speed_kmh.item())
-
-            s = f"La linea id {id_linea} tiene en {i.tipo_dia} "
-            s = s + f"una demanda de {pax} pasajeros, con "
-            s = s + \
-                f"{veh} vehiculos dia, una distancia media de {dmt} metros "
-            s = s + \
-                f"y una velocidad comercial promedio de {speed} kmh"
-
-            # create plot and text
-            slide = pptx_text(
-                prs=prs, slide=slide,
-                title=s,
-                left=1, top=11, width=10, fontsize=20, bold=True)
-
+            # section load plot
+            file_graph = os.path.join(
+                "resultados",
+                "png",
+                f"{alias}_{tdia}_segmentos_id_linea_{id_linea}_prop_etapas_ 7-10 hrs.png")
+        
         else:
             print("No existe el archivo", file_graph)
 
-        # section load plot
-        file_graph = os.path.join(
-            "resultados",
-            "png",
-            f"{alias}_{tdia}_segmentos_id_linea_{id_linea}_prop_etapas_ 7-10 hrs.png")
+
 
         if os.path.isfile(file_graph):
 
