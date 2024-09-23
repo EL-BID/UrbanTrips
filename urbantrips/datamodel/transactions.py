@@ -188,8 +188,10 @@ def create_transactions(geolocalizar_trx_config,
 
     print(f"Subiendo {len(trx)} registros a la db")
 
-    if not 'genero' in trx.columns: trx['genero'] = ''
-    if not 'tarifa' in trx.columns: trx['tarifa'] = ''
+    if not 'genero' in trx.columns: trx['genero'] = '-'
+    if not 'tarifa' in trx.columns: trx['tarifa'] = '-'
+    trx['genero'] = trx['genero'].fillna('-')
+    trx['tarifa'] = trx['tarifa'].fillna('-')
 
     lista_cols_db = [
         "id",

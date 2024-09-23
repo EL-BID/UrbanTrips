@@ -149,3 +149,5 @@ configs/configuraciones_generales.yaml
 *.yaml
 *.csv
 *.csv
+*.yaml
+configs/configuraciones_generales.yaml

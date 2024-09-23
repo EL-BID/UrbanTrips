@@ -64,6 +64,38 @@ def load_and_process_data():
         viajes['travel_time_min'] = np.nan
         viajes['travel_speed'] = np.nan
 
+    viajes['transferencia'] = 0
+    viajes.loc[viajes.cant_etapas > 1, 'transferencia'] = 1
+    viajes['rango_hora'] = '0-12'
+    viajes.loc[(viajes.hora >= 13) & (
+        viajes.hora <= 16), 'rango_hora'] = '13-16'
+    viajes.loc[(viajes.hora >= 17) & (
+        viajes.hora <= 24), 'rango_hora'] = '17-24'
+
+    viajes['distancia'] = 'Viajes cortos (<=5kms)'
+    viajes.loc[(viajes.distance_osm_drive > 5),
+               'distancia'] = 'Viajes largos (>5kms)'
+
+    viajes['tipo_dia_'] = pd.to_datetime(viajes.dia).dt.weekday.astype(str).copy()
+    viajes['tipo_dia'] = 'Hábil'
+    viajes.loc[viajes.tipo_dia_.astype(int)>=5, 'tipo_dia'] = 'Fin de Semana'
+    viajes = viajes.drop(['tipo_dia_'], axis=1)
+    
+    viajes['mes'] = viajes.dia.str[:7]
+
+    viajes['Fecha'] = viajes['dia'] + ' ' +viajes['tiempo']
+    viajes['Fecha'] = pd.to_datetime(viajes['Fecha'])
+    viajes['Fecha_next'] = viajes.groupby(['dia', 'id_tarjeta'])['Fecha'].shift(-1)
+    viajes['diff_time'] = viajes['Fecha_next'] - viajes['Fecha']
+    viajes['diff_time'] = (viajes.diff_time.dt.seconds / 60).round()
+
+    
+    etapas['tipo_dia_'] = pd.to_datetime(etapas.dia).dt.weekday.astype(str).copy()
+    etapas['tipo_dia'] = 'Hábil'
+    etapas.loc[etapas.tipo_dia_.astype(int)>=5, 'tipo_dia'] = 'Fin de Semana'
+    etapas = etapas.drop(['tipo_dia_'], axis=1)
+    etapas['mes'] = etapas.dia.str[:7]
+
     return etapas, viajes
 
 
@@ -88,17 +120,6 @@ def construyo_indicadores(viajes):
     if 'id_polygon' not in viajes.columns:
         viajes['id_polygon'] = 'NONE'
 
-    viajes['transferencia'] = 0
-    viajes.loc[viajes.cant_etapas > 1, 'transferencia'] = 1
-    viajes['rango_hora'] = '0-12'
-    viajes.loc[(viajes.hora >= 13) & (
-        viajes.hora <= 16), 'rango_hora'] = '13-16'
-    viajes.loc[(viajes.hora >= 17) & (
-        viajes.hora <= 24), 'rango_hora'] = '17-24'
-
-    viajes['distancia'] = 'Viajes cortos (<=5kms)'
-    viajes.loc[(viajes.distance_osm_drive > 5),
-               'distancia'] = 'Viajes largos (>5kms)'
 
     ind1 = viajes.groupby(['id_polygon'], as_index=False).factor_expansion_linea.sum(
     ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
@@ -289,7 +310,9 @@ def agrupar_viajes(etapas_agrupadas,
                    agg_transferencias=False,
                    agg_modo=False,
                    agg_hora=False,
-                   agg_distancia=False):
+                   agg_distancia=False,
+                   agg_genero=False,
+                   agg_tarifa=False):
 
     etapas_agrupadas_zon = etapas_agrupadas.copy()
 
@@ -301,6 +324,10 @@ def agrupar_viajes(etapas_agrupadas,
         etapas_agrupadas_zon['rango_hora'] = 99
     if agg_distancia:
         etapas_agrupadas_zon['distancia'] = 99
+    if agg_genero:
+        etapas_agrupadas_zon['genero'] = 99
+    if agg_tarifa:
+        etapas_agrupadas_zon['tarifa'] = 99
 
     etapas_agrupadas_zon = calculate_weighted_means(etapas_agrupadas_zon,
                                                     aggregate_cols=aggregate_cols,
@@ -318,6 +345,8 @@ def construyo_matrices(etapas_desagrupadas,
                        agg_modo=False,
                        agg_hora=False,
                        agg_distancia=False,
+                       agg_genero=False,
+                       agg_tarifa=False
                        ):
 
     matriz = etapas_desagrupadas.copy()
@@ -330,6 +359,10 @@ def construyo_matrices(etapas_desagrupadas,
         matriz['rango_hora'] = 99
     if agg_distancia:
         matriz['distancia'] = 99
+    if agg_genero:
+        matriz['genero'] = 99
+    if agg_tarifa:
+        matriz['tarifa'] = 99
 
     matriz = calculate_weighted_means(matriz,
                                       aggregate_cols=aggregate_cols,
@@ -518,6 +551,100 @@ def normalizo_zona(df, zonificaciones):
     return df
 
 
+def crea_socio_indicadores(etapas, viajes):
+    print('Creo indicadores de género y tarifa')
+
+    socio_indicadores = pd.DataFrame([])
+    
+    viajesx = calculate_weighted_means(viajes,
+                                aggregate_cols=['mes', 'dia', 'tipo_dia', 'genero', 'tarifa'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed', 'cant_etapas', 'diff_time'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=True)
+    
+    viajesx = calculate_weighted_means(viajesx,
+                                aggregate_cols=['mes', 'tipo_dia', 'genero', 'tarifa'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed', 'cant_etapas', 'diff_time'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=False).round(3)
+
+    
+    etapasx = calculate_weighted_means(etapas,
+                                aggregate_cols=['mes', 'dia', 'tipo_dia', 'genero', 'tarifa', 'modo'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=True)
+    
+    etapasx = calculate_weighted_means(etapasx,
+                                aggregate_cols=['mes', 'tipo_dia', 'genero', 'tarifa', 'modo'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=False).round(3)
+    
+    # calcular tabla de indicadores
+    etapasxx = calculate_weighted_means(etapasx,
+                                aggregate_cols=['mes', 'tipo_dia', 'genero', 'modo'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=True).round(3)
+    
+    etapasxx['tabla'] = 'etapas-genero-modo'
+    socio_indicadores = pd.concat([socio_indicadores, etapasxx], ignore_index=True)
+    
+    etapasxx = calculate_weighted_means(etapasx,
+                                aggregate_cols=['mes', 'tipo_dia', 'tarifa', 'modo'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=True).round(3)
+    
+    etapasxx['tabla'] = 'etapas-tarifa-modo'
+    socio_indicadores = pd.concat([socio_indicadores, etapasxx], ignore_index=True)
+    
+    
+    viajesxx = calculate_weighted_means(viajesx,
+                                aggregate_cols=['mes', 'tipo_dia', 'genero', 'tarifa'],
+                                weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed', 'cant_etapas', 'diff_time'],
+                                weight_col='factor_expansion_linea',                                
+                                var_fex_summed=True).round(3)
+    
+    viajesxx['tabla'] = 'viajes-genero-tarifa'
+    socio_indicadores = pd.concat([socio_indicadores, viajesxx], ignore_index=True)
+    
+    # Calculo viajes promedio por día por género y tarifa
+    userx = viajes.copy()
+    userx['tarifa'] = userx['tarifa'].str.replace('-', '')
+    userx = userx.groupby(['dia', 'id_tarjeta'])['tarifa'].apply(lambda x: '-'.join(x.unique())).reset_index()
+    userx.loc[userx.tarifa.str[-1] == '-', 'tarifa'] = userx.loc[userx.tarifa.str[-1] == '-', :].tarifa.str[:-1]
+    userx.loc[userx.tarifa.str[:1] == '-', 'tarifa'] = userx.loc[userx.tarifa.str[:1] == '-', :].tarifa.str[1:]
+    userx = userx.rename(columns={'tarifa': 'tarifa_agg'})
+    userx.loc[userx.tarifa_agg=='', 'tarifa_agg'] = '-'
+    userx = viajes.merge(userx, how='left')
+    userx = userx.groupby(['mes', 'dia', 'tipo_dia', 'id_tarjeta', 'genero', 'tarifa_agg'], as_index=False).agg({'factor_expansion_tarjeta':'count', 'factor_expansion_linea':'mean'}).rename(columns={'factor_expansion_tarjeta':'cant_viajes'}).rename(columns={'tarifa_agg':'tarifa'})
+    
+    userx = calculate_weighted_means(userx,
+                                    aggregate_cols=['dia', 'mes', 'tipo_dia', 'genero', 'tarifa'],
+                                    weighted_mean_cols=['cant_viajes'],
+                                    weight_col='factor_expansion_linea',                                
+                                    var_fex_summed=True).round(3)
+    
+    userx = calculate_weighted_means(userx,
+                                    aggregate_cols=['mes', 'tipo_dia', 'genero', 'tarifa'],
+                                    weighted_mean_cols=['cant_viajes'],
+                                    weight_col='factor_expansion_linea',                                
+                                    var_fex_summed=False).round(3)
+    
+    userx['tabla'] = 'usuario-genero-tarifa'
+    socio_indicadores = pd.concat([socio_indicadores, userx], ignore_index=True)
+    
+    
+    # Preparo socioindicadores final
+    socio_indicadores = socio_indicadores[['tabla', 'mes', 'tipo_dia', 'genero', 'tarifa', 'modo', 'distance_osm_drive', 'travel_time_min', 'travel_speed', 'cant_etapas', 'cant_viajes', 'diff_time', 'factor_expansion_linea']]
+    socio_indicadores.columns = ['tabla', 'mes', 'tipo_dia', 'Genero', 'Tarifa', 'Modo', 'Distancia', 'Tiempo de viaje', 'Velocidad', 'Etapas promedio', 'Viajes promedio', 'Tiempo entre viajes', 'factor_expansion_linea']
+
+
+    return socio_indicadores
+
+
 def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6):
 
     print('Preparo líneas de deseo')
@@ -598,6 +725,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                                 'h3_d',
                                                                                 'modo_agregado',
                                                                                 'rango_hora',
+                                                                                'genero',
+                                                                                'tarifa',
                                                                                 'factor_expansion_linea']]
         etapas_all['etapa_max'] = etapas_all.groupby(
             ['dia', 'id_tarjeta', 'id_viaje']).id_etapa.transform('max')
@@ -625,6 +754,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                  'h3',
                                  'modo_agregado',
                                  'rango_hora',
+                                 'genero', 
+                                 'tarifa',
                                  'factor_expansion_linea']]
         etapas_all['ultimo_viaje'] = 0
 
@@ -637,6 +768,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                      'h3',
                                      'modo_agregado',
                                      'rango_hora',
+                                     'genero', 
+                                     'tarifa',
                                      'factor_expansion_linea',
                                      'ultimo_viaje']]
 
@@ -667,6 +800,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                     'h3',
                                                                     'modo_agregado',
                                                                     'rango_hora',
+                                                                    'genero',
+                                                                    'tarifa',
                                                                     'factor_expansion_linea',
                                                                     'polygon']].rename(columns={'h3': 'h3_inicio',
                                                                                                 'polygon': 'poly_inicio'})
@@ -708,6 +843,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                              'poly_fin',
                                              'modo_agregado',
                                              'rango_hora',
+                                             'genero', 
+                                             'tarifa',
                                              'factor_expansion_linea']]
 
 
@@ -843,7 +980,13 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
     etapas_agrupadas_all = etapas_agrupadas_all.merge(
         distancias_all, how='left')
 
-    etapas_agrupadas_all = etapas_agrupadas_all[['id_polygon', 'zona', 'dia', 'id_tarjeta', 'id_viaje',
+    etapas_agrupadas_all['tipo_dia_'] = pd.to_datetime(etapas_agrupadas_all.dia).dt.weekday.astype(str).copy()
+    etapas_agrupadas_all['tipo_dia'] = 'Hábil'
+    etapas_agrupadas_all.loc[etapas_agrupadas_all.tipo_dia_.astype(int)>=5, 'tipo_dia'] = 'Fin de Semana'
+    etapas_agrupadas_all = etapas_agrupadas_all.drop(['tipo_dia_'], axis=1)
+    etapas_agrupadas_all['mes'] = etapas_agrupadas_all.dia.str[:7]
+
+    etapas_agrupadas_all = etapas_agrupadas_all[['id_polygon', 'zona', 'dia', 'mes', 'tipo_dia', 'id_tarjeta', 'id_viaje',
                                                  'h3_inicio', 'h3_transfer1', 'h3_transfer2', 'h3_fin',
                                                  'inicio', 'transfer1', 'transfer2', 'fin',
                                                  'poly_inicio', 'poly_transfer1', 'poly_transfer2', 'poly_fin',
@@ -851,15 +994,15 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                  'poly_inicio_norm', 'poly_transfer1_norm', 'poly_transfer2_norm', 'poly_fin_norm',
                                                  'lon1', 'lat1', 'lon2', 'lat2', 'lon3', 'lat3', 'lon4', 'lat4',
                                                  'lon1_norm', 'lat1_norm', 'lon2_norm', 'lat2_norm', 'lon3_norm', 'lat3_norm', 'lon4_norm', 'lat4_norm',
-                                                 'transferencia', 'modo_agregado', 'rango_hora', 'distancia', 
+                                                 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia', 
                                                  'distance_osm_drive', 'distance_osm_drive_etapas', 
                                                   'travel_time_min', 'travel_speed',
                                                  'factor_expansion_linea']]
 
     etapas_sin_agrupar = etapas_agrupadas_all.copy()
 
-    aggregate_cols = ['id_polygon', 'zona', 'inicio', 'fin', 'poly_inicio',
-                      'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
+    aggregate_cols = ['id_polygon', 'dia', 'mes', 'tipo_dia', 'zona', 'inicio', 'fin', 'poly_inicio',
+                      'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia']
     viajes_matrices = construyo_matrices(etapas_sin_agrupar,
                                          aggregate_cols,
                                          zonificaciones,
@@ -869,6 +1012,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
 
     # Agrupación de viajes
     aggregate_cols = ['id_polygon',
+                      'dia',
+                      'mes', 
+                      'tipo_dia',
                       'zona',
                       'inicio_norm',
                       'transfer1_norm',
@@ -881,6 +1027,8 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                       'transferencia',
                       'modo_agregado',
                       'rango_hora',
+                      'genero', 
+                      'tarifa',
                       'distancia']
 
     weighted_mean_cols = ['distance_osm_drive',
@@ -957,6 +1105,51 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
         viajes_matrices = viajes_matrices.drop(
             ['poly_inicio', 'poly_fin'], axis=1)
 
+    # # Agrupar a nivel de mes y corregir factor de expansión
+    sum_viajes = etapas_agrupadas_all.groupby(['dia', 'mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.mean().round()
+        
+    aggregate_cols = ['mes', 'tipo_dia', 'zona', 'inicio_norm', 'transfer1_norm','transfer2_norm', 'fin_norm', 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia', ]
+    weighted_mean_cols=['distance_osm_drive', 'distance_osm_drive_etapas', 'travel_time_min', 'travel_speed', 'lat1_norm', 'lon1_norm', 'lat2_norm', 'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm']
+    
+    etapas_agrupadas_all = calculate_weighted_means(etapas_agrupadas_all,
+                                aggregate_cols=aggregate_cols,
+                                weighted_mean_cols=weighted_mean_cols,
+                                weight_col='factor_expansion_linea',
+                                zero_to_nan=zero_to_nan,
+                                var_fex_summed=False)
+
+    sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / etapas_agrupadas_all.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
+    sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
+    
+    etapas_agrupadas_all = etapas_agrupadas_all.merge(sum_viajes)
+    etapas_agrupadas_all['factor_expansion_linea2'] = etapas_agrupadas_all['factor_expansion_linea'] * etapas_agrupadas_all['factor_correccion']
+    etapas_agrupadas_all['factor_expansion_linea2'] = etapas_agrupadas_all['factor_expansion_linea'] - etapas_agrupadas_all['factor_expansion_linea2']
+    etapas_agrupadas_all = etapas_agrupadas_all.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
+    etapas_agrupadas_all = etapas_agrupadas_all.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
+
+    # # Agrupar a nivel de mes y corregir factor de expansión
+    sum_viajes = viajes_matrices.groupby(['dia', 'mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.mean()
+    
+    aggregate_cols = ['id_polygon', 'mes', 'tipo_dia', 'zona', 'inicio', 'fin', 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia', 'orden_origen', 'orden_destino', 'Origen', 'Destino']
+    weighted_mean_cols = ['lat1', 'lon1', 'lat4', 'lon4', 'distance_osm_drive', 'travel_time_min', 'travel_speed',]
+    zero_to_nan = ['lat1', 'lon1', 'lat4', 'lon4']
+
+    viajes_matrices = calculate_weighted_means(viajes_matrices,
+                                aggregate_cols=aggregate_cols,
+                                weighted_mean_cols=weighted_mean_cols,
+                                weight_col='factor_expansion_linea',
+                                zero_to_nan=zero_to_nan,
+                                var_fex_summed=False)
+
+    sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / viajes_matrices.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
+    sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
+
+    viajes_matrices = viajes_matrices.merge(sum_viajes)
+    viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] * viajes_matrices['factor_correccion']
+    viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] - viajes_matrices['factor_expansion_linea2']
+    viajes_matrices = viajes_matrices.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
+    viajes_matrices = viajes_matrices.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
+
     return etapas_agrupadas_all, etapas_sin_agrupar, viajes_matrices, zonificaciones
 
 
@@ -1014,6 +1207,8 @@ def proceso_lineas_deseo():
 
     indicadores = construyo_indicadores(viajes)
 
+    socio_indicadores = crea_socio_indicadores(etapas, viajes)
+
     conn_dash = iniciar_conexion_db(tipo='dash')
 
     etapas_agrupadas = etapas_agrupadas.fillna(0)
@@ -1025,5 +1220,9 @@ def proceso_lineas_deseo():
 
     indicadores.to_sql("agg_indicadores",
                        conn_dash, if_exists="replace", index=False,)
+
+    socio_indicadores.to_sql("socio_indicadores",
+                       conn_dash, if_exists="replace", index=False,)
+
 
     conn_dash.close()

@@ -2886,8 +2886,9 @@ def indicadores_dash():
     indicadores.loc[indicadores.dow >= 5, "tipo_dia"] = "Fin de semana"
 
     indicadores = indicadores.groupby(
-        ["desc_dia", "tipo_dia", "detalle"], as_index=False
-    ).agg({"indicador": "mean", "porcentaje": "mean"})
+                ["desc_dia", "tipo_dia", "detalle"], as_index=False
+            ).agg({"indicador": "mean", "porcentaje": "mean"}).round(2)
+
     indicadores.loc[
         indicadores.detalle == "Cantidad de etapas con destinos validados", "detalle"
     ] = "Transacciones válidas \n(Etapas con destinos validados)"
