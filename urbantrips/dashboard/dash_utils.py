@@ -478,6 +478,7 @@ def traigo_indicadores(tipo='all'):
         indicadores_all = levanto_tabla_sql('agg_indicadores')
     else:
         indicadores_all = levanto_tabla_sql('poly_indicadores')
+
     general = indicadores_all[indicadores_all.Tipo == 'General']
     modal = indicadores_all[indicadores_all.Tipo == 'Modal']
     distancias = indicadores_all[indicadores_all.Tipo == 'Distancias']

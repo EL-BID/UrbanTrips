@@ -24,8 +24,15 @@ def crear_mapa_folium(df_agg,
                       savefile='',
                       k_jenks=5):
 
-    bins = [df_agg[var_fex].min()-1] + \
-        mapclassify.FisherJenks(df_agg[var_fex], k=k_jenks).bins.tolist()
+    try:
+        bins = [df_agg[var_fex].min()-1] + \
+            mapclassify.FisherJenks(df_agg[var_fex], k=k_jenks).bins.tolist()
+    except:
+        k_jenks = 3
+        bins = [df_agg[var_fex].min()-1] + \
+            mapclassify.FisherJenks(df_agg[var_fex], k=k_jenks).bins.tolist()
+
+    
     range_bins = range(0, len(bins)-1)
     bins_labels = [
         f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
@@ -289,78 +296,84 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
+id_linea = ''
+secciones_ = ''
 
 with st.expander('Cargas por horas'):
     col1, col2 = st.columns([1, 4])
 
     kpi_lineas = levanto_tabla_sql('basic_kpi_by_line_hr')
-    nl1 = traigo_nombre_lineas(kpi_lineas)
-
     if len(kpi_lineas) > 0:
-        if len(nl1) > 0:
-            nombre_linea_kpi = col1.selectbox('Línea  ', options=nl1)
-            id_linea_kpi = kpi_lineas[kpi_lineas.nombre_linea ==
-                                      nombre_linea_kpi].id_linea.values[0]
+        nl1 = traigo_nombre_lineas(kpi_lineas)
+    
+        if len(kpi_lineas) > 0:
+            if len(nl1) > 0:
+                nombre_linea_kpi = col1.selectbox('Línea  ', options=nl1)
+                id_linea_kpi = kpi_lineas[kpi_lineas.nombre_linea ==
+                                          nombre_linea_kpi].id_linea.values[0]
+            else:
+                nombre_linea_kpi = ''
+                id_linea_kpi = col1.selectbox(
+                    'Línea ', options=kpi_lineas.id_linea.unique())
+    
+        day_type_kpi = col1.selectbox(
+            'Tipo de dia  ', options=kpi_lineas.dia.unique())
+    
+        # add month and year
+        yr_mo_kpi = col1.selectbox(
+            'Periodo  ', options=kpi_lineas.yr_mo.unique(), key='year_month')
+    
+        
+        kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi) & (
+            kpi_lineas.dia == day_type_kpi) & (kpi_lineas.yr_mo == yr_mo_kpi)]
+    
+        # if col2.checkbox('Ver datos: cargas por hora'):
+        #     col2.write(kpi_stats_line_plot)
+    
+        if len(kpi_stats_line_plot) > 0:
+    
+            # Grafico Factor de Oocupación
+            f, ax = plt.subplots(figsize=(10, 4))
+            sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
+                        color='silver', ax=ax, label='Factor de ocupación')
+    
+            sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
+                         color='Purple', label='Oferta - veh/hr')
+            sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
+                         color='Orange', label='Demanda - pax/hr')
+    
+            ax.set_xlabel("Hora")
+            ax.set_ylabel("Factor de Ocupación (%)")
+    
+            ax.set_title(f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
+                         fontdict={'size': 12})
+    
+            # Add a footnote below and to the right side of the chart
+            note = """
+                *Los indicadores de Oferta y Demanda se estandarizaron para que
+                coincidan con el eje de Factor de Ocupación
+                """
+            ax_note = ax.annotate(note,
+                                  xy=(0, -.22),
+                                  xycoords='axes fraction',
+                                  ha='left',
+                                  va="center",
+                                  fontsize=7)
+            ax.spines.right.set_visible(False)
+            ax.spines.top.set_visible(False)
+            ax.spines.bottom.set_visible(False)
+            ax.spines.left.set_visible(False)
+            ax.spines.left.set_position(('outward', 10))
+            ax.spines.bottom.set_position(('outward', 10))
+    
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
+            # Put a legend to the right of the current axis
+            ax.tick_params(axis='both', which='major', labelsize=8)
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
+            col2.pyplot(f)
         else:
-            nombre_linea_kpi = ''
-            id_linea_kpi = col1.selectbox(
-                'Línea ', options=kpi_lineas.id_linea.unique())
-
-    day_type_kpi = col1.selectbox(
-        'Tipo de dia  ', options=kpi_lineas.dia.unique())
-
-    # add month and year
-    yr_mo_kpi = col1.selectbox(
-        'Periodo  ', options=kpi_lineas.yr_mo.unique(), key='year_month')
-
-    kpi_stats_line_plot = kpi_lineas[(kpi_lineas.id_linea == id_linea_kpi) & (
-        kpi_lineas.dia == day_type_kpi) & (kpi_lineas.yr_mo == yr_mo_kpi)]
-
-    # if col2.checkbox('Ver datos: cargas por hora'):
-    #     col2.write(kpi_stats_line_plot)
-
-    if len(kpi_stats_line_plot) > 0:
-
-        # Grafico Factor de Oocupación
-        f, ax = plt.subplots(figsize=(10, 4))
-        sns.barplot(data=kpi_stats_line_plot, x='hora', y='of',
-                    color='silver', ax=ax, label='Factor de ocupación')
-
-        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="veh", ax=ax,
-                     color='Purple', label='Oferta - veh/hr')
-        sns.lineplot(data=kpi_stats_line_plot, x="hora", y="pax", ax=ax,
-                     color='Orange', label='Demanda - pax/hr')
-
-        ax.set_xlabel("Hora")
-        ax.set_ylabel("Factor de Ocupación (%)")
-
-        ax.set_title(f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
-                     fontdict={'size': 12})
-
-        # Add a footnote below and to the right side of the chart
-        note = """
-            *Los indicadores de Oferta y Demanda se estandarizaron para que
-            coincidan con el eje de Factor de Ocupación
-            """
-        ax_note = ax.annotate(note,
-                              xy=(0, -.22),
-                              xycoords='axes fraction',
-                              ha='left',
-                              va="center",
-                              fontsize=7)
-        ax.spines.right.set_visible(False)
-        ax.spines.top.set_visible(False)
-        ax.spines.bottom.set_visible(False)
-        ax.spines.left.set_visible(False)
-        ax.spines.left.set_position(('outward', 10))
-        ax.spines.bottom.set_position(('outward', 10))
-
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
-        # Put a legend to the right of the current axis
-        ax.tick_params(axis='both', which='major', labelsize=8)
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
-        col2.pyplot(f)
+            st.write('No hay datos para mostrar')
     else:
         st.write('No hay datos para mostrar')
 
@@ -433,14 +446,14 @@ with st.expander('Matriz OD por linea'):
         else:
             nombre_linea = ''
             id_linea = col1.selectbox(
-                'Línea ', options=matriz.id_linea.unique())
+                'Línea  ', options=matriz.id_linea.unique(), key='id_linea_3')
 
         if col1.checkbox('Normalizar', value=True):
             values = 'prop'
         else:
             values = 'legs'
 
-        matriz = matriz[matriz.nombre_linea == nombre_linea_]
+        matriz = matriz[matriz.id_linea == id_linea]
 
         desc_dia_ = col1.selectbox(
             'Periodo ', options=matriz.yr_mo.unique())
@@ -484,41 +497,44 @@ with st.expander('Matriz OD por linea'):
         st.write('No hay datos para mostrar')
 
     zonas = levanto_tabla_sql('matrices_linea_carto')
+
     zonas = zonas.loc[
-        (zonas.nombre_linea == nombre_linea_) &
+        (zonas.id_linea == id_linea) &
         (zonas.n_sections == secciones_), :]
 
     col1, col2 = st.columns([1, 4])
 
     if col1.checkbox('Mostrar zonificacion'):
 
-        # Create a folium map centered on the data
-        map_center = [zonas.geometry.centroid.y.mean(
-        ), zonas.geometry.centroid.x.mean()]
+        if len(zonas) > 0:
 
-        fig = Figure(width=800, height=800)
-        m = folium.Map(location=map_center, zoom_start=10,
-                       tiles='cartodbpositron')
-
-        # Add GeoDataFrame to the map
-        folium.GeoJson(zonas).add_to(m)
-
-        for idx, row in zonas.iterrows():
-            # Replace 'column_name' with the name of the column containing the detail
-            detail = f"Sección {row['section_id']}"
-            point = [row['geometry'].representative_point(
-            ).y, row['geometry'].representative_point().x]
-            marker = folium.CircleMarker(
-                location=point, popup=detail,
-                color='black',    radius=2,
-                fill=True,
-                fill_color='black',
-                fill_opacity=1,)
-            marker.add_to(m)
-
-        # Display the map using folium_static
-        with col2:
-            folium_static(m)
+            # Create a folium map centered on the data
+            map_center = [zonas.geometry.centroid.y.mean(
+            ), zonas.geometry.centroid.x.mean()]
+    
+            fig = Figure(width=800, height=800)
+            m = folium.Map(location=map_center, zoom_start=10,
+                           tiles='cartodbpositron')
+    
+            # Add GeoDataFrame to the map
+            folium.GeoJson(zonas).add_to(m)
+    
+            for idx, row in zonas.iterrows():
+                # Replace 'column_name' with the name of the column containing the detail
+                detail = f"Sección {row['section_id']}"
+                point = [row['geometry'].representative_point(
+                ).y, row['geometry'].representative_point().x]
+                marker = folium.CircleMarker(
+                    location=point, popup=detail,
+                    color='black',    radius=2,
+                    fill=True,
+                    fill_color='black',
+                    fill_opacity=1,)
+                marker.add_to(m)
+    
+            # Display the map using folium_static
+            with col2:
+                folium_static(m)
 
 with st.expander('Líneas de deseo por linea'):
     col1, col2 = st.columns([1, 4])
@@ -560,9 +576,9 @@ with st.expander('Líneas de deseo por linea'):
         else:
             nombre_linea = ''
             id_linea = col1.selectbox(
-                'Línea ', options=matriz.id_linea.unique())
+                'Línea ', options=matriz.id_linea.unique(), key='linea_4')
 
-        matriz = matriz[matriz.nombre_linea == nombre_linea_]
+        matriz = matriz[matriz.id_linea == id_linea]
 
         desc_dia_ = col1.selectbox(
             'Periodo ', options=matriz.yr_mo.unique(), key='desc_deseo')
@@ -596,14 +612,14 @@ with st.expander('Líneas de deseo por linea'):
 
             st_map = st_folium(map, width=900, height=700)
     else:
+        col2.write('No hay datos para mostrar')
+        # col2.markdown("""
+        # <style>
+        # .big-font {
+        #     font-size:40px !important;
+        # }
+        # </style>
+        # """, unsafe_allow_html=True)
 
-        col2.markdown("""
-        <style>
-        .big-font {
-            font-size:40px !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        col2.markdown(
-            '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
+        # col2.markdown(
+        #     '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)

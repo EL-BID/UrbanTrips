@@ -151,3 +151,7 @@ configs/configuraciones_generales.yaml
 *.csv
 *.yaml
 configs/configuraciones_generales.yaml
+*.png
+etapas_nse
+configs/configuraciones_generales.yaml
+configs/configuraciones_generales.yaml
