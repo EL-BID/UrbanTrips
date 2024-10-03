@@ -121,88 +121,95 @@ def construyo_indicadores(viajes):
         viajes['id_polygon'] = 'NONE'
 
 
-    ind1 = viajes.groupby(['id_polygon'], as_index=False).factor_expansion_linea.sum(
-    ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind1 = viajes.groupby(['id_polygon', 'dia', 'mes'], as_index=False).factor_expansion_linea.sum(
+                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round()
     ind1['Indicador'] = 'Cantidad de Viajes'
     ind1['Valor'] = ind1.Valor.astype(int)
     ind1['Tipo'] = 'General'
     ind1['type_val'] = 'int'
 
-    ind2 = viajes[viajes.transferencia == 1].groupby(['id_polygon'], as_index=False).factor_expansion_linea.sum(
-    ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind2 = viajes[viajes.transferencia == 1].groupby(['id_polygon', 'dia', 'mes'], as_index=False).factor_expansion_linea.sum(
+                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round()
     ind2['Indicador'] = 'Cantidad de Viajes con Transferencia'
-    ind2 = ind2.merge(ind1[['id_polygon', 'Valor']].rename(
+    ind2 = ind2.merge(ind1[['id_polygon', 'mes', 'Valor']].rename(
         columns={'Valor': 'Tot'}), how='left')
     ind2['Valor'] = (ind2['Valor'] / ind2['Tot'] * 100).round(2)
     ind2['Tipo'] = 'General'
     ind2['type_val'] = 'percentage'
 
-    ind3 = viajes.groupby(['id_polygon', 'rango_hora'], as_index=False).factor_expansion_linea.sum(
-    ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind3 = viajes.groupby(['id_polygon', 'dia', 'mes', 'rango_hora'], as_index=False).factor_expansion_linea.sum(
+                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'rango_hora'], as_index=False).Valor.mean().round()
     ind3['Indicador'] = 'Cantidad de Según Rango Horas'
-    ind3['Tot'] = ind3.groupby(['id_polygon']).Valor.transform('sum')
+    ind3['Tot'] = ind3.groupby(['id_polygon', 'mes']).Valor.transform('sum')
     ind3['Valor'] = (ind3['Valor'] / ind3['Tot'] * 100).round(2)
     ind3['Indicador'] = 'Cantidad de Viajes de '+ind3['rango_hora']+'hs'
     ind3['Tipo'] = 'General'
     ind3['type_val'] = 'percentage'
 
-    ind4 = viajes.groupby(['id_polygon', 'modo'], as_index=False).factor_expansion_linea.sum(
-    ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind4 = viajes.groupby(['id_polygon', 'dia', 'mes', 'modo'], as_index=False).factor_expansion_linea.sum(
+                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'modo'], as_index=False).Valor.mean().round()
     ind4['Indicador'] = 'Partición Modal'
-    ind4['Tot'] = ind4.groupby(['id_polygon']).Valor.transform('sum')
+    ind4['Tot'] = ind4.groupby(['id_polygon', 'mes']).Valor.transform('sum')
     ind4['Valor'] = (ind4['Valor'] / ind4['Tot'] * 100).round(2)
     ind4 = ind4.sort_values(['id_polygon', 'Valor'], ascending=False)
     ind4['Indicador'] = ind4['modo']
     ind4['Tipo'] = 'Modal'
     ind4['type_val'] = 'percentage'
 
-    ind9 = viajes.groupby(['id_polygon', 'distancia'], as_index=False).factor_expansion_linea.sum(
-    ).round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind9 = viajes.groupby(['id_polygon', 'dia', 'mes', 'distancia'], as_index=False).factor_expansion_linea.sum(
+                        ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'distancia'], as_index=False).Valor.mean().round()
     ind9['Indicador'] = 'Partición Modal'
-    ind9['Tot'] = ind9.groupby(['id_polygon']).Valor.transform('sum')
+    ind9['Tot'] = ind9.groupby(['id_polygon', 'mes']).Valor.transform('sum')
     ind9['Valor'] = (ind9['Valor'] / ind9['Tot'] * 100).round(2)
     ind9 = ind9.sort_values(['id_polygon', 'Valor'], ascending=False)
     ind9['Indicador'] = 'Cantidad de '+ind9['distancia']
     ind9['Tipo'] = 'General'
     ind9['type_val'] = 'percentage'
 
-    ind5 = viajes.groupby(['id_polygon', 'id_tarjeta'], as_index=False).factor_expansion_linea.first().groupby(
-        ['id_polygon'], as_index=False).factor_expansion_linea.sum().round(0).rename(columns={'factor_expansion_linea': 'Valor'})
+    ind5 = viajes.groupby(['id_polygon', 'dia', 'mes', 'id_tarjeta'], 
+                          as_index=False).factor_expansion_linea.first().groupby(['id_polygon', 'dia', 'mes'], 
+                                                                                 as_index=False).factor_expansion_linea.sum().groupby(['id_polygon', 'mes'], 
+                                                                                                                                      as_index=False).factor_expansion_linea.mean().round().rename(columns={'factor_expansion_linea': 'Valor'})
     ind5['Indicador'] = 'Cantidad de Usuarios'
     ind5['Tipo'] = 'General'
     ind5['type_val'] = 'int'
 
     ind6 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').round(2).rename(columns={'distance_osm_drive': 'Valor'})
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round(2)
     ind6['Tipo'] = 'Distancias'
     ind6['Indicador'] = 'Distancia Promedio (kms)'
     ind6['type_val'] = 'float'
 
     ind7 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon', 'modo'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'modo'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').round(2).rename(columns={'distance_osm_drive': 'Valor'})
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'modo'], as_index=False).Valor.mean().round(2)
     ind7['Tipo'] = 'Distancias'
     ind7['Indicador'] = 'Distancia Promedio (' + ind7.modo + ') (kms)'
     ind7['type_val'] = 'float'
 
     ind8 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon', 'distancia'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'distancia'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').round(2).rename(columns={'distance_osm_drive': 'Valor'})
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'distancia'], as_index=False).Valor.mean().round(2)
     ind8['Tipo'] = 'Distancias'
     ind8['Indicador'] = 'Distancia Promedio ' + ind8.distancia
     ind8['type_val'] = 'float'
 
     indicadores = pd.concat(
         [ind1, ind5, ind2, ind3, ind6, ind9, ind7, ind8, ind4])
+
+    indicadores_todos = indicadores.groupby(['id_polygon', 'Tipo', 'Indicador', 'type_val'], as_index=False).Valor.mean().round(2)
+    indicadores_todos['mes'] = 'Todos'
+    indicadores = pd.concat([indicadores, indicadores_todos])
+    
     indicadores = format_dataframe(indicadores)
-    indicadores = indicadores[['id_polygon', 'Tipo', 'Indicador', 'Valor_str']].rename(
+    indicadores = indicadores[['id_polygon', 'mes', 'Tipo', 'Indicador', 'Valor_str']].rename(
         columns={'Valor_str': 'Valor'})
 
-    indicadores = indicadores.sort_values(['id_polygon', 'Tipo'])
+    indicadores = indicadores.sort_values(['id_polygon', 'mes', 'Tipo', 'Indicador'])
 
     return indicadores
 
@@ -640,7 +647,12 @@ def crea_socio_indicadores(etapas, viajes):
     # Preparo socioindicadores final
     socio_indicadores = socio_indicadores[['tabla', 'mes', 'tipo_dia', 'genero', 'tarifa', 'modo', 'distance_osm_drive', 'travel_time_min', 'travel_speed', 'cant_etapas', 'cant_viajes', 'diff_time', 'factor_expansion_linea']]
     socio_indicadores.columns = ['tabla', 'mes', 'tipo_dia', 'Genero', 'Tarifa', 'Modo', 'Distancia', 'Tiempo de viaje', 'Velocidad', 'Etapas promedio', 'Viajes promedio', 'Tiempo entre viajes', 'factor_expansion_linea']
+    
+    socio_indicadores['Genero'] = socio_indicadores['Genero'].fillna('')
+    socio_indicadores['Tarifa'] = socio_indicadores['Tarifa'].fillna('')
+    socio_indicadores['Modo'] = socio_indicadores['Modo'].fillna('')
 
+    socio_indicadores = socio_indicadores.sort_values(['tabla', 'mes', 'tipo_dia'])
 
     return socio_indicadores
 
