@@ -7,31 +7,32 @@ import time
 
 from shapely.geometry import Point
 from urbantrips.geo import geo
-from urbantrips.utils.utils import (leer_configs_generales,
-                                    duracion,
-                                    iniciar_conexion_db,
-                                    levanto_tabla_sql,
-                                    agrego_indicador,
-                                    crear_tablas_geolocalizacion)
+from urbantrips.utils.utils import (
+    leer_configs_generales,
+    duracion,
+    iniciar_conexion_db,
+    levanto_tabla_sql,
+    agrego_indicador,
+    crear_tablas_geolocalizacion,
+)
 
-
- 
 
 @duracion
-def create_transactions(geolocalizar_trx_config,
-                        nombre_archivo_trx,
-                        nombres_variables_trx,
-                        formato_fecha,
-                        col_hora,
-                        tipo_trx_invalidas,
-                        nombre_archivo_gps,
-                        nombres_variables_gps
-                        ):
+def create_transactions(
+    geolocalizar_trx_config,
+    nombre_archivo_trx,
+    nombres_variables_trx,
+    formato_fecha,
+    col_hora,
+    tipo_trx_invalidas,
+    nombre_archivo_gps,
+    nombres_variables_gps,
+):
     """
     Esta función toma las tablas originales y las convierte en el esquema
     que necesita el proceso
     """
-    conn = iniciar_conexion_db(tipo='data')
+    conn = iniciar_conexion_db(tipo="data")
 
     print("Abriendo archivos de configuracion")
     configs = leer_configs_generales()
@@ -40,7 +41,7 @@ def create_transactions(geolocalizar_trx_config,
         modos_homologados = configs["modos"]
         zipped = zip(modos_homologados.values(), modos_homologados.keys())
         modos_homologados = {k: v for k, v in zipped}
-        print('Utilizando los siguientes modos homologados')
+        print("Utilizando los siguientes modos homologados")
         print(modos_homologados)
     except KeyError:
         pass
@@ -60,7 +61,7 @@ def create_transactions(geolocalizar_trx_config,
 
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print('Levanta archivo de transacciones', ruta)
+        print("Levanta archivo de transacciones", ruta)
         trx = pd.read_csv(ruta)
 
         print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
@@ -90,15 +91,15 @@ def create_transactions(geolocalizar_trx_config,
         trx, tmp_trx_inicial = agrego_factor_expansion(trx, conn)
 
         # Guardo los días que se están analizando en la corrida actual
-        dias_ultima_corrida = pd.DataFrame(
-            trx.dia.unique(), columns=['dia'])
+        dias_ultima_corrida = pd.DataFrame(trx.dia.unique(), columns=["dia"])
 
-        conn = iniciar_conexion_db(tipo='data')
+        conn = iniciar_conexion_db(tipo="data")
         dias_ultima_corrida.to_sql(
-            "dias_ultima_corrida", conn, if_exists="replace", index=False)
+            "dias_ultima_corrida", conn, if_exists="replace", index=False
+        )
 
         # borro si ya existen transacciones de una corrida anterior
-        values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+        values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
         query = f"DELETE FROM transacciones WHERE dia IN ({values})"
         conn.execute(query)
         conn.commit()
@@ -107,17 +108,15 @@ def create_transactions(geolocalizar_trx_config,
         trx = eliminar_trx_fuera_bbox(trx)
         agrego_indicador(
             trx,
-            'Cantidad de transacciones latlon válidos',
-            'transacciones',
+            "Cantidad de transacciones latlon válidos",
+            "transacciones",
             1,
-            var_fex='factor_expansion')
+            var_fex="factor_expansion",
+        )
 
         agrego_indicador(
-            trx,
-            'Registros válidas en transacciones',
-            'transacciones',
-            1,
-            var_fex='')
+            trx, "Registros válidas en transacciones", "transacciones", 1, var_fex=""
+        )
 
         # chequear que no haya faltantes en id
         if trx["id"].isna().any():
@@ -132,7 +131,8 @@ def create_transactions(geolocalizar_trx_config,
         # crear un id interno de la transaccion
         n_rows_trx = len(trx)
         trx["id"] = crear_id_interno(
-            conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
+            conn, n_rows=n_rows_trx, tipo_tabla="transacciones"
+        )
 
         # process gps table when no geocoding
         if nombre_archivo_gps is not None:
@@ -140,17 +140,17 @@ def create_transactions(geolocalizar_trx_config,
             process_and_upload_gps_table(
                 nombre_archivo_gps=nombre_archivo_gps,
                 nombres_variables_gps=nombres_variables_gps,
-                formato_fecha=formato_fecha)
+                formato_fecha=formato_fecha,
+            )
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
-        print('No existe información sobre el modo en transaciones')
-        print('Se asume que se trata de autobus')
-        trx['modo'] = 'autobus'
+        print("No existe información sobre el modo en transaciones")
+        print("Se asume que se trata de autobus")
+        trx["modo"] = "autobus"
     else:
         # Estandariza los modos
-        modos_ausentes_configs = ~trx['modo'].isin(
-            modos_homologados.keys())
+        modos_ausentes_configs = ~trx["modo"].isin(modos_homologados.keys())
         prop_na = modos_ausentes_configs.sum() / len(trx)
 
         if prop_na > 0.15:
@@ -160,38 +160,38 @@ def create_transactions(geolocalizar_trx_config,
             w_str = w_str + "configuracion"
             warnings.warn(w_str)
 
-        trx.loc[modos_ausentes_configs, 'modo'] = 'otros'
-        trx['modo'] = trx['modo'].replace(modos_homologados)
+        trx.loc[modos_ausentes_configs, "modo"] = "otros"
+        trx["modo"] = trx["modo"].replace(modos_homologados)
 
     # Si la tarjeta venia con NaNs los numeros van a tener un .0
     # que se mantiene si se pasa a strs asi nomas
     # Si es float convierte a entero
-    if trx.id_tarjeta.dtype == 'float':
-        trx.id_tarjeta = pd.to_numeric(trx.id_tarjeta, downcast='integer')
+    if trx.id_tarjeta.dtype == "float":
+        trx.id_tarjeta = pd.to_numeric(trx.id_tarjeta, downcast="integer")
 
     # Asignar un largo fijo a las tarjetas
     trx.id_tarjeta = trx.id_tarjeta.map(lambda s: str(s))
-    tmp_trx_inicial.id_tarjeta = tmp_trx_inicial.id_tarjeta.map(
-        lambda s: str(s))
+    tmp_trx_inicial.id_tarjeta = tmp_trx_inicial.id_tarjeta.map(lambda s: str(s))
     zfill = trx.id_tarjeta.map(lambda s: len(s)).max()
 
-    trx['id_tarjeta'] = trx['id_tarjeta'].str.zfill(zfill)
-    tmp_trx_inicial['id_tarjeta'] = tmp_trx_inicial['id_tarjeta'].str.zfill(
-        zfill)
+    trx["id_tarjeta"] = trx["id_tarjeta"].str.zfill(zfill)
+    tmp_trx_inicial["id_tarjeta"] = tmp_trx_inicial["id_tarjeta"].str.zfill(zfill)
 
     # parse date into timestamp
     trx["fecha"] = trx["fecha"].map(lambda s: s.timestamp())
 
     # if branches are not present, add branch id as the same as line
-    if not configs['lineas_contienen_ramales']:
-        trx.loc[:, 'id_ramal'] = trx['id_linea'].copy()
+    if not configs["lineas_contienen_ramales"]:
+        trx.loc[:, "id_ramal"] = trx["id_linea"].copy()
 
     print(f"Subiendo {len(trx)} registros a la db")
 
-    if not 'genero' in trx.columns: trx['genero'] = '-'
-    if not 'tarifa' in trx.columns: trx['tarifa'] = '-'
-    trx['genero'] = trx['genero'].fillna('-')
-    trx['tarifa'] = trx['tarifa'].fillna('-')
+    if not "genero" in trx.columns:
+        trx["genero"] = "-"
+    if not "tarifa" in trx.columns:
+        trx["tarifa"] = "-"
+    trx["genero"] = trx["genero"].fillna("-")
+    trx["tarifa"] = trx["tarifa"].fillna("-")
 
     lista_cols_db = [
         "id",
@@ -207,39 +207,40 @@ def create_transactions(geolocalizar_trx_config,
         "interno",
         "orden_trx",
         "genero",
-        "tarifa", 
+        "tarifa",
         "latitud",
         "longitud",
-        "factor_expansion"
+        "factor_expansion",
     ]
 
     trx = trx.reindex(columns=lista_cols_db)
 
     # Borrar transacciones que tienen id_tarjetas no validos
     # Construir una tabla de las tarjetas dia con la cantidad de trx validas
-    tmp_trx_limpio = trx\
-        .groupby(['dia', 'id_tarjeta'], as_index=False)\
-        .agg(cant_trx_limpias=('id', 'count'))
+    tmp_trx_limpio = trx.groupby(["dia", "id_tarjeta"], as_index=False).agg(
+        cant_trx_limpias=("id", "count")
+    )
 
     # Comparar con las transacciones originales
-    tmp_trx_limpio = tmp_trx_inicial.merge(
-        tmp_trx_limpio, on=['dia', 'id_tarjeta'])
+    tmp_trx_limpio = tmp_trx_inicial.merge(tmp_trx_limpio, on=["dia", "id_tarjeta"])
 
-    tmp_trx_limpio = tmp_trx_limpio[tmp_trx_limpio.cant_trx ==
-                                    tmp_trx_limpio.cant_trx_limpias]
+    tmp_trx_limpio = tmp_trx_limpio[
+        tmp_trx_limpio.cant_trx == tmp_trx_limpio.cant_trx_limpias
+    ]
 
     # Mantener solo las trx de tarjeta con todas las transacciones validas
-    print('Borrar informacion de tarjetas con transacciones no validas')
+    print("Borrar informacion de tarjetas con transacciones no validas")
     trx = trx.loc[trx.id_tarjeta.isin(tmp_trx_limpio.id_tarjeta), :]
 
     agrego_indicador(
         trx,
-        'Cantidad de transacciones limpias',
-        'transacciones',
+        "Cantidad de transacciones limpias",
+        "transacciones",
         1,
-        var_fex='factor_expansion')
+        var_fex="factor_expansion",
+    )
 
-    trx = trx.sort_values('id')
+    trx = trx.sort_values("id")
 
     trx.to_sql("transacciones", conn, if_exists="append", index=False)
     print("Fin subir base")
@@ -269,34 +270,33 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
     """
 
     # if service id column provided in gps table:
-    if (
-        ('servicios_gps' in nombres_variables)
-        and (nombres_variables['servicios_gps'] is not None)
+    if ("servicios_gps" in nombres_variables) and (
+        nombres_variables["servicios_gps"] is not None
     ):
 
         # get the name in the original df holding service type data
-        service_id_col_name = nombres_variables.pop('servicios_gps')
+        service_id_col_name = nombres_variables.pop("servicios_gps")
 
         # get the values for services start and finish
         gps_config = leer_configs_generales()
-        start_service_value = gps_config['valor_inicio_servicio']
-        finish_service_value = gps_config['valor_fin_servicio']
+        start_service_value = gps_config["valor_inicio_servicio"]
+        finish_service_value = gps_config["valor_fin_servicio"]
 
         # create a replace values dict
         service_id_values = {
-            start_service_value: 'start_service',
-            finish_service_value: 'finish_service'
+            start_service_value: "start_service",
+            finish_service_value: "finish_service",
         }
 
-        df['service_type'] = df[service_id_col_name].replace(
-            service_id_values)
+        df["service_type"] = df[service_id_col_name].replace(service_id_values)
 
         # add to the naming dict the new service type attr
-        nombres_variables.update({'service_type': ''})
+        nombres_variables.update({"service_type": ""})
 
         # remove all values besides start and end of service
         not_service_id_values = ~df[service_id_col_name].isin(
-            service_id_values.values())
+            service_id_values.values()
+        )
 
         df.loc[not_service_id_values, service_id_col_name] = None
 
@@ -318,9 +318,7 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     """
     print("Convirtiendo fechas")
 
-    df["fecha"] = pd.to_datetime(
-        df["fecha"], format=formato_fecha, errors="coerce"
-    )
+    df["fecha"] = pd.to_datetime(df["fecha"], format=formato_fecha, errors="coerce")
     # Chequear si el formato funciona
     checkeo = df["fecha"].isna().sum() / len(df)
     if checkeo > 0.8:
@@ -331,27 +329,30 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
             + " Verifique el formato de fecha en configuración"
             + " puede haber un error que no permite la conversión"
         )
-        print("Convirtiendo fechas infiriendo el formato."
-              + "Esto hará el proceso más lento")
+        print(
+            "Convirtiendo fechas infiriendo el formato."
+            + "Esto hará el proceso más lento"
+        )
 
         df["fecha"] = pd.to_datetime(
-            df["fecha"], infer_datetime_format=True,
-            errors="coerce"
+            df["fecha"], infer_datetime_format=True, errors="coerce"
         )
         checkeo = df["fecha"].isna().sum() / len(df)
 
-        print(f"Infiriendo el formato se pierden {round((checkeo * 100),2)}"
-              + "por ciento de registros")
+        print(
+            f"Infiriendo el formato se pierden {round((checkeo * 100),2)}"
+            + "por ciento de registros"
+        )
 
     # Elminar errores en conversion de fechas
-    df = df.dropna(subset=['fecha'], axis=0)
+    df = df.dropna(subset=["fecha"], axis=0)
 
     df.loc[:, ["dia"]] = df.fecha.dt.strftime("%Y-%m-%d")
 
     # Si la hora esta en otra columna, usar esa
     if crear_hora:
-        df.loc[:, ["tiempo"]] = df['fecha'].dt.strftime("%H:%M:%S")
-        df.loc[:, ['hora']] = df['fecha'].dt.hour
+        df.loc[:, ["tiempo"]] = df["fecha"].dt.strftime("%H:%M:%S")
+        df.loc[:, ["hora"]] = df["fecha"].dt.hour
     else:
         df.loc[:, ["tiempo"]] = None
 
@@ -363,42 +364,50 @@ def agrego_factor_expansion(trx, conn):
     # Traigo var_fex si existe
     configs = leer_configs_generales()
     try:
-        var_fex = configs['nombres_variables_trx']['factor_expansion']
+        var_fex = configs["nombres_variables_trx"]["factor_expansion"]
     except KeyError:
-        var_fex = ''
+        var_fex = ""
 
     if not var_fex:
-        trx['factor_expansion'] = 1
+        trx["factor_expansion"] = 1
 
     agrego_indicador(
         trx,
-        'Cantidad de transacciones totales',
-        'transacciones',
+        "Cantidad de transacciones totales",
+        "transacciones",
         0,
-        var_fex='factor_expansion')
+        var_fex="factor_expansion",
+    )
 
-    agrego_indicador(trx[trx.id_tarjeta.notna()].groupby(
-        ['dia', 'id_tarjeta'], as_index=False).factor_expansion.min(),
-        'Cantidad de tarjetas únicas', 'tarjetas', 0,
-        var_fex='factor_expansion')
+    agrego_indicador(
+        trx[trx.id_tarjeta.notna()]
+        .groupby(["dia", "id_tarjeta"], as_index=False)
+        .factor_expansion.min(),
+        "Cantidad de tarjetas únicas",
+        "tarjetas",
+        0,
+        var_fex="factor_expansion",
+    )
 
-    tmp_trx_inicial = trx.dropna(subset=['id_tarjeta']).copy()
+    tmp_trx_inicial = trx.dropna(subset=["id_tarjeta"]).copy()
 
     # Si id_tarjeta tenía nan y eran float sacar el .0
-    if tmp_trx_inicial.id_tarjeta.dtype == 'float':
+    if tmp_trx_inicial.id_tarjeta.dtype == "float":
         tmp_trx_inicial.id_tarjeta = pd.to_numeric(
-            tmp_trx_inicial.id_tarjeta, downcast='integer')
+            tmp_trx_inicial.id_tarjeta, downcast="integer"
+        )
 
-    tmp_trx_inicial = tmp_trx_inicial\
-        .groupby(['dia', 'id_tarjeta'], as_index=False)\
-        .agg(cant_trx=('id', 'count'))
+    tmp_trx_inicial = tmp_trx_inicial.groupby(
+        ["dia", "id_tarjeta"], as_index=False
+    ).agg(cant_trx=("id", "count"))
 
     # Agrego viajes x id_linea para cálculo de factor de expansión
-    transacciones_linea = trx[trx.id_linea.notna()]\
-        .groupby(['dia', 'id_linea'],
-                 as_index=False
-                 ).factor_expansion.sum(
-    ).rename(columns={'factor_expansion': 'transacciones'})
+    transacciones_linea = (
+        trx[trx.id_linea.notna()]
+        .groupby(["dia", "id_linea"], as_index=False)
+        .factor_expansion.sum()
+        .rename(columns={"factor_expansion": "transacciones"})
+    )
 
     # borro si ya existen transacciones_linea de una corrida anterior
     dias_ultima_corrida = pd.read_sql_query(
@@ -409,13 +418,14 @@ def agrego_factor_expansion(trx, conn):
         conn,
     )
 
-    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
     query = f"DELETE FROM transacciones_linea WHERE dia IN ({values})"
     conn.execute(query)
     conn.commit()
 
     transacciones_linea.to_sql(
-        "transacciones_linea", conn, if_exists="append", index=False)
+        "transacciones_linea", conn, if_exists="append", index=False
+    )
 
     return trx, tmp_trx_inicial
 
@@ -431,42 +441,51 @@ def eliminar_trx_fuera_bbox(trx):
 
     original = len(trx)
 
-    zonificaciones = levanto_tabla_sql('zonificaciones')
+    zonificaciones = levanto_tabla_sql("zonificaciones")
     if len(zonificaciones) > 0:
-        trx['geometry'] = trx.apply(lambda row: Point(row['longitud'], row['latitud']), axis=1)
-        trx = gpd.GeoDataFrame(trx, geometry='geometry', crs=4326)
-    
+        trx["geometry"] = trx.apply(
+            lambda row: Point(row["longitud"], row["latitud"]), axis=1
+        )
+        trx = gpd.GeoDataFrame(trx, geometry="geometry", crs=4326)
+
         zona = zonificaciones.zona.head().values[0]
         zonificaciones = zonificaciones[zonificaciones.zona == zona]
-        zonificaciones = zonificaciones.dissolve(by='zona')
-    
-        trx = gpd.sjoin(zonificaciones[['geometry']], trx).drop(['geometry', 'index_right'], axis=1).drop_duplicates().sort_values('id').reset_index(drop=True)
-    else: 
+        zonificaciones = zonificaciones.dissolve(by="zona")
+
+        trx = (
+            gpd.sjoin(zonificaciones[["geometry"]], trx)
+            .drop(["geometry", "index_right"], axis=1)
+            .drop_duplicates()
+            .sort_values("id")
+            .reset_index(drop=True)
+        )
+    else:
         configs = leer_configs_generales()
         try:
             configs = configs["filtro_latlong_bbox"]
             print(configs)
-    
+
             filtro = (
                 (trx.longitud > configs["minx"])
                 & (trx.latitud > configs["miny"])
                 & (trx.longitud < configs["maxx"])
                 & (trx.latitud < configs["maxy"])
             )
-    
+
             pre = len(trx)
             trx = trx.loc[filtro, :]
             post = len(trx)
             print(pre - post, "casos elminados por latlong fuera del bbox")
-            
-        
+
         except KeyError:
             print("No se especificó una ventana para la bbox")
     limpio = len(trx)
-    print(f'--Se borraron {original-limpio} registros')
+    print(f"--Se borraron {original-limpio} registros")
 
-    assert len(trx)>0, "Se borraron todos los registros, verifique el 'filtro_latlong_bbox' en configuraciones_generales.yaml"
-    
+    assert (
+        len(trx) > 0
+    ), "Se borraron todos los registros, verifique el 'filtro_latlong_bbox' en configuraciones_generales.yaml"
+
     return trx
 
 
@@ -531,16 +550,16 @@ def geolocalizar_trx(
     # crear tablas de trx_eco y gps
     configs = leer_configs_generales()
 
-    conn = iniciar_conexion_db(tipo='data')
+    conn = iniciar_conexion_db(tipo="data")
     print("Creando tablas de trx_eco y gps para geolocalizacion")
     crear_tablas_geolocalizacion()
     print("Fin crear tablas de trx_eco y gps para geolocalizacion")
     # Leer archivos de trx_eco
-    id_tarjeta_trx = nombres_variables_trx['id_tarjeta_trx']
+    id_tarjeta_trx = nombres_variables_trx["id_tarjeta_trx"]
 
     ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
-    print('Levanta archivo de transacciones', ruta_trx_eco)
-    trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: 'str'})
+    print("Levanta archivo de transacciones", ruta_trx_eco)
+    trx_eco = pd.read_csv(ruta_trx_eco, dtype={id_tarjeta_trx: "str"})
 
     print("Filtrando transacciones invalidas:", tipo_trx_invalidas)
     # Filtrar transacciones invalidas
@@ -565,26 +584,27 @@ def geolocalizar_trx(
     trx_eco["id_original"] = trx_eco["id"].copy()
     n_rows_trx = len(trx_eco)
     trx_eco["id"] = crear_id_interno(
-        conn, n_rows=n_rows_trx, tipo_tabla='transacciones')
+        conn, n_rows=n_rows_trx, tipo_tabla="transacciones"
+    )
 
     # Agregar factor de expansion
     trx_eco, tmp_trx_inicial = agrego_factor_expansion(trx_eco, conn)
 
     # Guardo los días que se están analizando en la corrida actual
-    dias_ultima_corrida = pd.DataFrame(
-        trx_eco.dia.unique(), columns=['dia'])
-    conn = iniciar_conexion_db(tipo='data')
+    dias_ultima_corrida = pd.DataFrame(trx_eco.dia.unique(), columns=["dia"])
+    conn = iniciar_conexion_db(tipo="data")
     dias_ultima_corrida.to_sql(
-        "dias_ultima_corrida", conn, if_exists="replace", index=False)
+        "dias_ultima_corrida", conn, if_exists="replace", index=False
+    )
 
     # borro si ya existen transacciones de una corrida anterior
-    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
     query = f"DELETE FROM transacciones WHERE dia IN ({values})"
     conn.execute(query)
     conn.commit()
 
     # Eliminar datos con faltantes en variables fundamentales
-    if configs['lineas_contienen_ramales']:
+    if configs["lineas_contienen_ramales"]:
         subset = ["id_tarjeta", "fecha", "id_linea", "id_ramal"]
     else:
         subset = ["id_tarjeta", "fecha", "id_linea"]
@@ -592,42 +612,46 @@ def geolocalizar_trx(
     trx_eco = eliminar_NAs_variables_fundamentales(trx_eco, subset)
 
     # Convertir id tarjeta en int si son float y tienen .0
-    if trx_eco.id_tarjeta.dtype == 'float':
-        trx_eco.id_tarjeta = pd.to_numeric(
-            trx_eco.id_tarjeta, downcast='integer')
+    if trx_eco.id_tarjeta.dtype == "float":
+        trx_eco.id_tarjeta = pd.to_numeric(trx_eco.id_tarjeta, downcast="integer")
 
-    if tmp_trx_inicial.id_tarjeta.dtype == 'float':
+    if tmp_trx_inicial.id_tarjeta.dtype == "float":
         tmp_trx_inicial.id_tarjeta = pd.to_numeric(
-            tmp_trx_inicial.id_tarjeta, downcast='integer')
+            tmp_trx_inicial.id_tarjeta, downcast="integer"
+        )
 
     print("Parseando fechas trx_eco")
 
     trx_eco["fecha"] = trx_eco["fecha"].map(lambda s: s.timestamp())
 
-    if configs['lineas_contienen_ramales']:
+    if configs["lineas_contienen_ramales"]:
         cols = ["id_linea", "id_ramal", "interno"]
     else:
-        cols = ["id_linea",  "interno"]
+        cols = ["id_linea", "interno"]
 
     trx_eco = trx_eco.dropna(subset=cols)
-    if not 'genero' in trx_eco.columns: trx_eco['genero'] = ''
-    if not 'tarifa' in trx_eco.columns: trx_eco['tarifa'] = ''
+    if not "genero" in trx_eco.columns:
+        trx_eco["genero"] = ""
+    if not "tarifa" in trx_eco.columns:
+        trx_eco["tarifa"] = ""
 
-    cols = ['id',
-            'id_original',
-            'id_tarjeta',
-            'fecha',
-            'dia',
-            'tiempo',
-            'hora',
-            'modo',
-            'id_linea',
-            'id_ramal',
-            'interno',
-            'orden',
-            'genero',
-            'tarifa',
-            'factor_expansion']
+    cols = [
+        "id",
+        "id_original",
+        "id_tarjeta",
+        "fecha",
+        "dia",
+        "tiempo",
+        "hora",
+        "modo",
+        "id_linea",
+        "id_ramal",
+        "interno",
+        "orden",
+        "genero",
+        "tarifa",
+        "factor_expansion",
+    ]
     trx_eco = trx_eco.reindex(columns=cols)
 
     print("Subiendo datos a tablas temporales")
@@ -638,18 +662,19 @@ def geolocalizar_trx(
     process_and_upload_gps_table(
         nombre_archivo_gps=nombre_archivo_gps,
         nombres_variables_gps=nombres_variables_gps,
-        formato_fecha=formato_fecha)
+        formato_fecha=formato_fecha,
+    )
 
     # hacer el join por fecha
     print("Geolocalizando datos")
 
-    if configs['lineas_contienen_ramales']:
+    if configs["lineas_contienen_ramales"]:
         query = """
             WITH trx AS (
             select t.id,t.id_original, t.id_tarjeta,
                     datetime(t.fecha, 'unixepoch') as fecha,
                     t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                    t.id_ramal, t.interno, t.orden, t.genero, t.tarifa as orden,
+                    t.id_ramal, t.interno, t.orden, t.genero, t.tarifa as tarifa,
                     g.latitud, g.longitud,
                     (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
                     t.factor_expansion,
@@ -673,7 +698,7 @@ def geolocalizar_trx(
             select t.id,t.id_original, t.id_tarjeta,
                     datetime(t.fecha, 'unixepoch') as fecha,
                     t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                    t.interno, t.orden, t.genero, t.tarifa as orden, g.latitud, g.longitud,
+                    t.interno, t.orden, t.genero, t.tarifa as tarifa, g.latitud, g.longitud,
                     (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
                     t.factor_expansion,
                 ROW_NUMBER() OVER(
@@ -710,8 +735,9 @@ def geolocalizar_trx(
     return trx, tmp_trx_inicial
 
 
-def process_and_upload_gps_table(nombre_archivo_gps,
-                                 nombres_variables_gps, formato_fecha):
+def process_and_upload_gps_table(
+    nombre_archivo_gps, nombres_variables_gps, formato_fecha
+):
     """
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
@@ -719,7 +745,7 @@ def process_and_upload_gps_table(nombre_archivo_gps,
     configs = leer_configs_generales()
 
     print("Procesando tabla gps")
-    conn = iniciar_conexion_db(tipo='data')
+    conn = iniciar_conexion_db(tipo="data")
 
     # crear tabla gps en la db
     crear_tablas_geolocalizacion()
@@ -740,13 +766,12 @@ def process_and_upload_gps_table(nombre_archivo_gps,
 
     # compute expansion factors for gps
     veh_exp = get_veh_expansion_from_gps(gps)
-    veh_exp.to_sql("vehicle_expansion_factors", conn,
-                   if_exists="append", index=False)
+    veh_exp.to_sql("vehicle_expansion_factors", conn, if_exists="append", index=False)
 
     # parsear fechas
     gps = eliminar_trx_fuera_bbox(gps)
 
-    if configs['lineas_contienen_ramales']:
+    if configs["lineas_contienen_ramales"]:
         subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
     else:
         subset = ["interno", "id_linea", "latitud", "longitud"]
@@ -756,12 +781,18 @@ def process_and_upload_gps_table(nombre_archivo_gps,
     # Convertir fecha en segundos desde 1970
     gps["fecha"] = gps["fecha"].map(lambda s: s.timestamp())
 
-    if configs['lineas_contienen_ramales']:
-        subset = ['dia', 'id_linea', 'id_ramal', 'interno',
-                  'fecha', 'latitud', 'longitud']
+    if configs["lineas_contienen_ramales"]:
+        subset = [
+            "dia",
+            "id_linea",
+            "id_ramal",
+            "interno",
+            "fecha",
+            "latitud",
+            "longitud",
+        ]
     else:
-        subset = ['dia', 'id_linea', 'interno',
-                  'fecha', 'latitud', 'longitud']
+        subset = ["dia", "id_linea", "interno", "fecha", "latitud", "longitud"]
 
     gps = gps.drop_duplicates(subset=subset)
 
@@ -770,37 +801,38 @@ def process_and_upload_gps_table(nombre_archivo_gps,
 
     # crear un id interno de la transaccion
     n_rows_gps = len(gps)
-    gps["id"] = crear_id_interno(
-        conn, n_rows=n_rows_gps, tipo_tabla='gps')
+    gps["id"] = crear_id_interno(conn, n_rows=n_rows_gps, tipo_tabla="gps")
 
     # si se informa un service type que el start_service exista
-    if 'service_type' in gps.columns:
-        if not (gps.service_type == 'start_service').any():
+    if "service_type" in gps.columns:
+        if not (gps.service_type == "start_service").any():
             raise Exception(
                 "No hay valores que indiquen el inicio de un servicio. "
-                "Revisar el configs para servicios_gps")
+                "Revisar el configs para servicios_gps"
+            )
 
     # compute distance between gps points
     gps = compute_distance_km_gps(gps)
 
     # if branches are not present, add branch id as the same as line
-    if not configs['lineas_contienen_ramales']:
-        gps.loc[:, 'id_ramal'] = gps['id_linea'].copy()
+    if not configs["lineas_contienen_ramales"]:
+        gps.loc[:, "id_ramal"] = gps["id_linea"].copy()
 
-    cols = ['id',
-            'id_original',
-            'dia',
-            'id_linea',
-            'id_ramal',
-            'interno',
-            'fecha',
-            'latitud',
-            'longitud',
-            'velocity',
-            'service_type',
-            'distance_km',
-            'h3'
-            ]
+    cols = [
+        "id",
+        "id_original",
+        "dia",
+        "id_linea",
+        "id_ramal",
+        "interno",
+        "fecha",
+        "latitud",
+        "longitud",
+        "velocity",
+        "service_type",
+        "distance_km",
+        "h3",
+    ]
 
     gps = gps.reindex(columns=cols)
 
@@ -823,30 +855,28 @@ def all_gps_broken(s):
 def get_veh_expansion_from_gps(gps):
     """
     This function takes a gps table
-    and computes average speed in kmr by 
+    and computes average speed in kmr by
     vehicle line and day
     """
-    vehicles_with_gps_broken = gps\
-        .reindex(columns=['id_linea', 'dia', 'interno', 'latitud', 'longitud'])\
-        .groupby(['id_linea', 'dia', 'interno'], as_index=False)\
-        .agg(
-            vehicles_no_gps_lon=('longitud', all_gps_broken)
+    vehicles_with_gps_broken = (
+        gps.reindex(columns=["id_linea", "dia", "interno", "latitud", "longitud"])
+        .groupby(["id_linea", "dia", "interno"], as_index=False)
+        .agg(vehicles_no_gps_lon=("longitud", all_gps_broken))
+    )
+    vehicles_with_gps_broken = vehicles_with_gps_broken.groupby(
+        ["id_linea", "dia"], as_index=False
+    ).agg(
+        unique_vehicles=("interno", "count"),
+        broken_gps_veh=("vehicles_no_gps_lon", "sum"),
+    )
 
-        )
-    vehicles_with_gps_broken = vehicles_with_gps_broken\
-        .groupby(['id_linea', 'dia'], as_index=False)\
-        .agg(
-            unique_vehicles=('interno', 'count'),
-            broken_gps_veh=('vehicles_no_gps_lon', 'sum')
-        )
-
-    vehicles_with_gps_broken['veh_exp'] = vehicles_with_gps_broken.unique_vehicles / \
-        (vehicles_with_gps_broken.unique_vehicles -
-         vehicles_with_gps_broken.broken_gps_veh)
+    vehicles_with_gps_broken["veh_exp"] = vehicles_with_gps_broken.unique_vehicles / (
+        vehicles_with_gps_broken.unique_vehicles
+        - vehicles_with_gps_broken.broken_gps_veh
+    )
 
     # cap  veh_exp
-    vehicles_with_gps_broken.loc[vehicles_with_gps_broken.veh_exp >
-                                 2, 'veh_exp'] = 2
+    vehicles_with_gps_broken.loc[vehicles_with_gps_broken.veh_exp > 2, "veh_exp"] = 2
 
     return vehicles_with_gps_broken
 
@@ -859,10 +889,11 @@ def compute_distance_km_gps(gps_df):
     distancia_entre_hex = distancia_entre_hex * 2
 
     # Georeferenciar con h3
-    gps_df["h3"] = gps_df.apply(geo.h3_from_row, axis=1,
-                                args=(res, "latitud", "longitud"))
+    gps_df["h3"] = gps_df.apply(
+        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
+    )
 
-    gps_df = gps_df.sort_values(['dia', 'id_linea', 'interno', 'fecha'])
+    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"])
 
     # Producir un lag con respecto al siguiente posicionamiento gps
     gps_df["h3_lag"] = (
@@ -875,7 +906,6 @@ def compute_distance_km_gps(gps_df):
     gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
     gps_dict = gps_df.to_dict("records")
     gps_df.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
-    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * \
-        distancia_entre_hex
-    gps_df = gps_df.drop(['h3_lag'], axis=1)
+    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * distancia_entre_hex
+    gps_df = gps_df.drop(["h3_lag"], axis=1)
     return gps_df

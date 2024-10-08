@@ -14,25 +14,25 @@ from shapely import wkt
 
 
 def duracion(f):
-    @ wraps(f)
+    @wraps(f)
     def wrap(*args, **kw):
-        print('')
+        print("")
         print(
-            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="",
-            flush=True)
-        print('-' * (len(f.__name__)+22))
+            f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True
+        )
+        print("-" * (len(f.__name__) + 22))
 
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
         print(f"Finalizado {f.__name__}. Tardo {te - ts:.2f} segundos")
-        print('')
+        print("")
         return result
 
     return wrap
 
 
-@ duracion
+@duracion
 def create_directories():
     """
     This function creates the basic directory structure
@@ -76,36 +76,36 @@ def create_directories():
     os.makedirs(db_path, exist_ok=True)
 
 
-def leer_alias(tipo='data'):
+def leer_alias(tipo="data"):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el alias seteado en el archivo de congifuracion
     """
     configs = leer_configs_generales()
     # Setear el tipo de key en base al tipo de datos
-    if tipo == 'data':
-        key = 'alias_db_data'
-    elif tipo == 'insumos':
-        key = 'alias_db_insumos'
-    elif tipo == 'dash':
-        key = 'alias_db_data'
+    if tipo == "data":
+        key = "alias_db_data"
+    elif tipo == "insumos":
+        key = "alias_db_insumos"
+    elif tipo == "dash":
+        key = "alias_db_data"
     else:
-        raise ValueError('tipo invalido: %s' % tipo)
+        raise ValueError("tipo invalido: %s" % tipo)
     # Leer el alias
     try:
-        alias = configs[key] + '_'
+        alias = configs[key] + "_"
     except KeyError:
-        alias = ''
+        alias = ""
     return alias
 
 
-def traigo_db_path(tipo='data'):
+def traigo_db_path(tipo="data"):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ('data', 'insumos', 'dash'):
-        raise ValueError('tipo invalido: %s' % tipo)
+    if tipo not in ("data", "insumos", "dash"):
+        raise ValueError("tipo invalido: %s" % tipo)
 
     alias = leer_alias(tipo)
     db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
@@ -113,8 +113,8 @@ def traigo_db_path(tipo='data'):
     return db_path
 
 
-def iniciar_conexion_db(tipo='data'):
-    """"
+def iniciar_conexion_db(tipo="data"):
+    """ "
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
@@ -123,7 +123,7 @@ def iniciar_conexion_db(tipo='data'):
     return conn
 
 
-@ duracion
+@duracion
 def create_db():
     print("Creando bases de datos")
 
@@ -150,7 +150,7 @@ def create_db():
 
 
 def create_other_inputs_tables():
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS distancias
@@ -273,7 +273,7 @@ def create_other_inputs_tables():
 
 
 def create_dash_tables():
-    conn_dash = iniciar_conexion_db(tipo='dash')
+    conn_dash = iniciar_conexion_db(tipo="dash")
 
     conn_dash.execute(
         """
@@ -492,7 +492,7 @@ def create_dash_tables():
 
 
 def create_stops_and_routes_carto_tables():
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms
@@ -567,7 +567,7 @@ def create_stops_and_routes_carto_tables():
 
 
 def create_basic_data_model_tables():
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
@@ -842,10 +842,10 @@ def leer_configs_generales():
     path = os.path.join("configs", "configuraciones_generales.yaml")
 
     try:
-        with open(path, 'r', encoding="utf8") as file:
+        with open(path, "r", encoding="utf8") as file:
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
-        print(f'Error al leer el archivo de configuracion: {error}')
+        print(f"Error al leer el archivo de configuracion: {error}")
         config = {}
 
     return config
@@ -855,7 +855,7 @@ def crear_tablas_geolocalizacion():
     """Esta funcion crea la tablas en la db para albergar los datos de
     gps y transacciones economicas sin latlong"""
 
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     conn_data.execute(
         """
@@ -873,6 +873,8 @@ def crear_tablas_geolocalizacion():
                 id_ramal int,
                 interno int,
                 orden int,
+                genero text,
+                tarifa text,
                 factor_expansion float
                 )
             ;
@@ -915,7 +917,7 @@ def crear_tablas_geolocalizacion():
 
 def create_gps_table():
 
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     conn_data.execute(
         """
@@ -1017,20 +1019,22 @@ def create_gps_table():
     conn_data.close()
 
 
-def agrego_indicador(df_indicador,
-                     detalle,
-                     tabla,
-                     nivel=0,
-                     var='indicador',
-                     var_fex='factor_expansion_linea',
-                     aggfunc='sum'):
-    '''
+def agrego_indicador(
+    df_indicador,
+    detalle,
+    tabla,
+    nivel=0,
+    var="indicador",
+    var_fex="factor_expansion_linea",
+    aggfunc="sum",
+):
+    """
     Agrego indicadores de tablas utilizadas
-    '''
+    """
 
     df = df_indicador.copy()
 
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     try:
         indicadores = pd.read_sql_query(
@@ -1050,77 +1054,95 @@ def agrego_indicador(df_indicador,
         else:
             df[var] = df[var_fex]
 
-    if var != 'indicador':
-        df = df.rename(columns={var: 'indicador'})
+    if var != "indicador":
+        df = df.rename(columns={var: "indicador"})
 
     df = df[(df.indicador.notna())].copy()
 
-    if (not var_fex) | (aggfunc == 'sum'):
-        resultado = df.groupby('dia', as_index=False).agg(
-            {'indicador': aggfunc}).round(2)
+    if (not var_fex) | (aggfunc == "sum"):
+        resultado = (
+            df.groupby("dia", as_index=False).agg({"indicador": aggfunc}).round(2)
+        )
 
-    elif aggfunc == 'mean':
-        resultado = df.groupby('dia')\
-            .apply(lambda x: np.average(x['indicador'], weights=x[var_fex]))\
-            .reset_index()\
-            .rename(columns={0: 'indicador'})\
+    elif aggfunc == "mean":
+        resultado = (
+            df.groupby("dia")
+            .apply(lambda x: np.average(x["indicador"], weights=x[var_fex]))
+            .reset_index()
+            .rename(columns={0: "indicador"})
             .round(2)
+        )
 
-    elif aggfunc == 'median':
-        resultado = df.groupby('dia')\
+    elif aggfunc == "median":
+        resultado = (
+            df.groupby("dia")
             .apply(
-            lambda x: ws.weighted_median(
-                x['indicador'].tolist(),
-                weights=x[var_fex].tolist()))\
-            .reset_index()\
-            .rename(columns={0: 'indicador'})\
+                lambda x: ws.weighted_median(
+                    x["indicador"].tolist(), weights=x[var_fex].tolist()
+                )
+            )
+            .reset_index()
+            .rename(columns={0: "indicador"})
             .round(2)
+        )
 
-    resultado['detalle'] = detalle
-    resultado = resultado[['dia', 'detalle', 'indicador']]
-    resultado['tabla'] = tabla
-    resultado['nivel'] = nivel
+    resultado["detalle"] = detalle
+    resultado = resultado[["dia", "detalle", "indicador"]]
+    resultado["tabla"] = tabla
+    resultado["nivel"] = nivel
 
     if len(indicadores) > 0:
-        indicadores = indicadores[~(
-            (indicadores.dia.isin(resultado.dia.unique())) &
-            (indicadores.detalle == detalle) &
-            (indicadores.tabla == tabla)
-        )]
+        indicadores = indicadores[
+            ~(
+                (indicadores.dia.isin(resultado.dia.unique()))
+                & (indicadores.detalle == detalle)
+                & (indicadores.tabla == tabla)
+            )
+        ]
 
-    indicadores = pd.concat([indicadores,
-                             resultado],
-                            ignore_index=True)
+    indicadores = pd.concat([indicadores, resultado], ignore_index=True)
     if nivel > 0:
-        for i in indicadores[(indicadores.tabla == tabla) &
-                             (indicadores.nivel == nivel)].dia.unique():
-            for x in indicadores.loc[(indicadores.tabla == tabla) &
-                                     (indicadores.nivel == nivel) &
-                                     (indicadores.dia == i), 'detalle']:
+        for i in indicadores[
+            (indicadores.tabla == tabla) & (indicadores.nivel == nivel)
+        ].dia.unique():
+            for x in indicadores.loc[
+                (indicadores.tabla == tabla)
+                & (indicadores.nivel == nivel)
+                & (indicadores.dia == i),
+                "detalle",
+            ]:
                 valores = round(
-                    indicadores.loc[(indicadores.tabla == tabla) &
-                                    (indicadores.nivel == nivel) &
-                                    (indicadores.dia == i) &
-                                    (indicadores.detalle == x),
-                                    'indicador'].values[0] / indicadores.loc[
-                        (indicadores.tabla == tabla) &
-                                        (indicadores.nivel == nivel-1) &
-                                        (indicadores.dia == i),
-                        'indicador'].values[0] * 100, 1)
-                indicadores.loc[(indicadores.tabla == tabla) &
-                                (indicadores.nivel == nivel) &
-                                (indicadores.dia == i) &
-                                (indicadores.detalle == x),
-                                'porcentaje'] = valores
+                    indicadores.loc[
+                        (indicadores.tabla == tabla)
+                        & (indicadores.nivel == nivel)
+                        & (indicadores.dia == i)
+                        & (indicadores.detalle == x),
+                        "indicador",
+                    ].values[0]
+                    / indicadores.loc[
+                        (indicadores.tabla == tabla)
+                        & (indicadores.nivel == nivel - 1)
+                        & (indicadores.dia == i),
+                        "indicador",
+                    ].values[0]
+                    * 100,
+                    1,
+                )
+                indicadores.loc[
+                    (indicadores.tabla == tabla)
+                    & (indicadores.nivel == nivel)
+                    & (indicadores.dia == i)
+                    & (indicadores.detalle == x),
+                    "porcentaje",
+                ] = valores
 
     indicadores.fillna(0, inplace=True)
 
-    indicadores.to_sql("indicadores", conn_data,
-                       if_exists="replace", index=False)
+    indicadores.to_sql("indicadores", conn_data, if_exists="replace", index=False)
     conn_data.close()
 
 
-@ duracion
+@duracion
 def eliminar_tarjetas_trx_unica(trx):
     """
     Esta funcion toma el DF de trx y elimina las trx de una tarjeta con
@@ -1135,9 +1157,9 @@ def eliminar_tarjetas_trx_unica(trx):
     )
 
     pre = len(trx)
-    trx = trx.merge(tarjetas_dia_multiples,
-                    on=['dia', 'id_tarjeta'],
-                    how='inner').drop('size', axis=1)
+    trx = trx.merge(tarjetas_dia_multiples, on=["dia", "id_tarjeta"], how="inner").drop(
+        "size", axis=1
+    )
     post = len(trx)
     print(pre - post, "casos elminados por trx unicas en el dia")
     return trx
@@ -1148,7 +1170,7 @@ def create_kpi_tables():
     Creates KPI tables in the data db
     """
 
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     conn_data.execute(
         """
@@ -1326,13 +1348,10 @@ def check_date_type(day_type):
     day_type_is_a_date = is_date_string(day_type)
 
     # check day type format
-    day_type_format_ok = (
-        day_type in ["weekday", "weekend"]) or day_type_is_a_date
+    day_type_format_ok = (day_type in ["weekday", "weekend"]) or day_type_is_a_date
 
     if not day_type_format_ok:
-        raise Exception(
-            "dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'"
-        )
+        raise Exception("dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'")
 
 
 def create_line_ids_sql_filter(line_ids):
@@ -1347,14 +1366,14 @@ def create_line_ids_sql_filter(line_ids):
         line_ids_where = f" where id_linea in ({lines_str})"
 
     else:
-        lines_str = ''
+        lines_str = ""
         line_ids_where = " where id_linea is not NULL"
     return line_ids_where
 
 
 def traigo_tabla_zonas():
 
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     zonas = pd.read_sql_query(
         """
@@ -1362,30 +1381,30 @@ def traigo_tabla_zonas():
         """,
         conn_insumos,
     )
-    zonas_cols = [i for i in zonas.columns if i not in [
-        'h3', 'fex', 'latitud', 'longitud']]
+    zonas_cols = [
+        i for i in zonas.columns if i not in ["h3", "fex", "latitud", "longitud"]
+    ]
     return zonas, zonas_cols
 
 
 def normalize_vars(tabla):
-    if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
-        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
-    if 'day_type' in tabla.columns:
-        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
-        tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
+    if "dia" in tabla.columns:
+        tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
+        tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
+    if "day_type" in tabla.columns:
+        tabla.loc[tabla.day_type == "weekday", "day_type"] = "Día hábil"
+        tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"
 
-    if 'nombre_linea' in tabla.columns:
-        tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
-    if 'Modo' in tabla.columns:
-        tabla['Modo'] = tabla['Modo'].str.capitalize()
-    if 'modo' in tabla.columns:
-        tabla['modo'] = tabla['modo'].str.capitalize()
+    if "nombre_linea" in tabla.columns:
+        tabla["nombre_linea"] = tabla["nombre_linea"].str.replace(" -", "")
+    if "Modo" in tabla.columns:
+        tabla["Modo"] = tabla["Modo"].str.capitalize()
+    if "modo" in tabla.columns:
+        tabla["modo"] = tabla["modo"].str.capitalize()
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql,
-                      tabla_tipo='dash'):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash"):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
@@ -1398,67 +1417,70 @@ def levanto_tabla_sql(tabla_sql,
             conn,
         )
     except:
-        print(f'{tabla_sql} no existe')
+        print(f"{tabla_sql} no existe")
         tabla = pd.DataFrame([])
 
     conn.close()
 
     if len(tabla) > 0:
 
-        if 'wkt' in tabla.columns:
+        if "wkt" in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla,
-                                     crs=4326)
-            tabla = tabla.drop(['wkt'], axis=1)
+            tabla = gpd.GeoDataFrame(tabla, crs=4326)
+            tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
     return tabla
 
 
-def calculate_weighted_means(df_,
-                             aggregate_cols,
-                             weighted_mean_cols,
-                             weight_col,
-                             zero_to_nan=[],
-                             var_fex_summed=True):
+def calculate_weighted_means(
+    df_,
+    aggregate_cols,
+    weighted_mean_cols,
+    weight_col,
+    zero_to_nan=[],
+    var_fex_summed=True,
+):
     df = df_.copy()
     for i in zero_to_nan:
         df.loc[df[i] == 0, i] = np.nan
 
-    calculate_weighted_means    # Validate inputs
+    calculate_weighted_means  # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError(
-            "One or more columns specified do not exist in the DataFrame.")
+        raise ValueError("One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])
     # Calculate the product of the value and its weight for weighted mean calculation
     for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(
-        ), col] * df.loc[df[col].notna(), weight_col]
-        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[
-            [f'{col}_weighted', weight_col]].sum()
-        grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
-        grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
+        df.loc[df[col].notna(), f"{col}_weighted"] = (
+            df.loc[df[col].notna(), col] * df.loc[df[col].notna(), weight_col]
+        )
+        grouped = (
+            df.loc[df[col].notna()]
+            .groupby(aggregate_cols, as_index=False)[[f"{col}_weighted", weight_col]]
+            .sum()
+        )
+        grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
+        grouped = grouped.drop([f"{col}_weighted", weight_col], axis=1)
 
         if len(result) == 0:
             result = grouped.copy()
         else:
-            result = result.merge(grouped, how='left', on=aggregate_cols)
+            result = result.merge(grouped, how="left", on=aggregate_cols)
 
     if var_fex_summed:
         fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
-        result = result.merge(fex_summed, how='left', on=aggregate_cols)
+        result = result.merge(fex_summed, how="left", on=aggregate_cols)
     else:
         fex_mean = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
-        result = result.merge(fex_mean, how='left', on=aggregate_cols)
-
+        result = result.merge(fex_mean, how="left", on=aggregate_cols)
 
     return result
 
 
 def delete_data_from_table_run_days(table_name):
 
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_data = iniciar_conexion_db(tipo="data")
 
     dias_ultima_corrida = pd.read_sql_query(
         """
@@ -1468,7 +1490,7 @@ def delete_data_from_table_run_days(table_name):
         conn_data,
     )
     # delete data from same day if exists
-    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
     query = f"DELETE FROM {table_name} WHERE dia IN ({values})"
     conn_data.execute(query)
     conn_data.commit()
