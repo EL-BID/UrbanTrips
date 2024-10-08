@@ -1,4 +1,5 @@
 import pandas as pd
+import geopandas as gpd
 import sqlite3
 import os
 import yaml
@@ -49,7 +50,7 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, 'r') as file:
+    with open(file_path, 'r', encoding='utf-8') as file:
         content = file.read()
 
     # Check if the file contains tabs
@@ -81,23 +82,6 @@ def check_config_fecha(df, columns_with_date, date_format):
     if checkeo >= 0.8:
         result = string
     return result
-
-
-def replace_tabs_with_spaces(file_path, num_spaces=4):
-
-    if os.path.isfile(file_path):
-
-        # Open the file in read mode
-        with open(file_path, 'r') as file:
-            content = file.read()
-
-        # Check if the file contains tabs
-        if '\t' in content:
-            # Replace tabs with spaces
-            content = content.replace('\t', ' ' * num_spaces)
-            # Save the modified content to the same file
-            with open(file_path, 'w') as file:
-                file.write(content)
 
 
 def create_configuracion(configs):
@@ -344,6 +328,7 @@ def check_lineas(config_default):
             lineas[modo_trx] = autobus
             lineas = lineas.rename(
                 columns={id_linea_trx: 'id_linea', modo_trx: 'modo'})
+        lineas.columns=[ "id_linea", "modo"]
     else:
         lineas = pd.read_csv(path_archivo_lineas)
 
@@ -389,6 +374,7 @@ def check_config_errors(config_default):
             f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}']
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+        print(f'--Archivo de transacciones en proceso: {ruta}')
         if not os.path.isfile(ruta):
             errores += [f'No se encuentra el archivo de transacciones {ruta}']
         else:
@@ -621,7 +607,95 @@ def check_configs_file():
 
             print(f"Se creo el archivo '{file_name}' en '{directory}'")
 
+def guardo_zonificaciones():
+    configs = leer_configs_generales()
+    alias = leer_alias()
+    matriz_zonas = []
+    vars_zona = []
+    
+    if configs["zonificaciones"]:
+        zonificaciones = pd.DataFrame([])
+        for n in range(0, 5):
+            try:
+                file_zona = configs["zonificaciones"][f"geo{n+1}"]
+                var_zona = configs["zonificaciones"][f"var{n+1}"]
+    
+                try:
+                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
+                except KeyError:
+                    matriz_order = ""
+    
+                if matriz_order is None:
+                    matriz_order = ""
+    
+                if file_zona:
+                    db_path = os.path.join("data", "data_ciudad", file_zona)
+                    if os.path.exists(db_path):
+                        zonif = gpd.read_file(db_path)
+                        zonif = zonif[[var_zona, 'geometry']]
+                        zonif.columns = ['id', 'geometry']
+                        zonif['zona'] = var_zona
+                        zonif = zonif[['zona', 'id', 'geometry']]
+                        
+                        if len(matriz_order) > 0:
+                            order = pd.DataFrame(matriz_order, columns=['id']).reset_index().rename(columns={'index':'orden'})
+                            zonif = zonif.merge(order, how='left')    
+                        else:
+                            zonif['orden'] = 0
+                        zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)    
+    
+            except KeyError:
+                pass
+    
+        db_path = os.path.join("resultados", f'{alias}Zona_voi.geojson')
+        if os.path.exists(db_path):
+            zonif = gpd.read_file(db_path)
+            zonif = zonif[['Zona_voi', 'geometry']]
+            zonif.columns = ['id', 'geometry']
+            zonif['zona'] = 'Zona_voi'
+            zonif['orden'] = 0
+            zonif = zonif[['zona', 'orden', 'id', 'geometry']]        
+            zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
+        
+        if len(zonificaciones) > 0:
+            conn_dash = iniciar_conexion_db(tipo='dash')
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
+            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
+            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
+            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+    
+            zonificaciones.to_sql("zonificaciones",
+                                 conn_insumos, if_exists="replace", index=False,)
+            zonificaciones.to_sql("zonificaciones",
+                         conn_dash, if_exists="replace", index=False,)
+    
+        
+            conn_insumos.close()
+            conn_dash.close()
+            
+    if configs['poligonos']:
+        
+        poly_file = configs['poligonos']
 
+        db_path = os.path.join("data", "data_ciudad", poly_file)
+
+        if os.path.exists(db_path):
+            poly = gpd.read_file(db_path)
+            conn_dash = iniciar_conexion_db(tipo='dash')
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+            poly['wkt'] = poly.geometry.to_wkt()
+            poly = poly.drop(['geometry'], axis=1)
+        
+            poly.to_sql("poligonos",
+                                 conn_insumos, if_exists="replace", index=False,)
+            poly.to_sql("poligonos",
+                         conn_dash, if_exists="replace", index=False,)
+        
+        
+            conn_insumos.close()
+            conn_dash.close()
+        
 @ duracion
 def check_config():
     """
@@ -643,3 +717,4 @@ def check_config():
     config_default = check_lineas(config_default)
     write_config(config_default)
     check_config_errors(config_default)
+    guardo_zonificaciones()

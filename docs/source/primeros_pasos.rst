@@ -148,7 +148,13 @@ Esta es la estructura de directorios de UrbanTrips. ``configs/`` guarda el archi
 Correr Urbantrips
 -----------------
 
-Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar UrbanTrips. En primer lugar es necesario inicializar los directorios y la base de datos necesarios. Este paso solo se corre una vez.
+Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede simplemente correr el comando copiado debajo. Puede reemplazar el archivo de configuración que viene por el que dice `configuraciones_generales_2019_m1.yaml` y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.
+
+.. code:: sh
+
+   $ python urbantrips/run_all_urbantrips.py
+
+También puede correr los siguientes procesos de manera independiente. En primer lugar es necesario inicializar los directorios y la base de datos necesarios. Este paso solo se corre una vez.
 
 .. code:: sh
 
@@ -160,11 +166,19 @@ Luego, se puede procesar la información de transacciones. Este archivo de trans
 
    $ python urbantrips/process_transactions.py
 
-Por último, una vez procesadas todas las transacciones que sean de interés y cargadas en la base de datos de la libería, es posible correr los pasos de post procesamiento sobre esa información, como los KPI, visualizaciones y exportación de resultados. 
+Una vez procesadas todas las transacciones que sean de interés y cargadas en la base de datos de la libería, es posible correr los pasos de post procesamiento sobre esa información, como los KPI, visualizaciones y exportación de resultados. 
 
 .. code:: sh
 
    $ python urbantrips/run_postprocessing.py
+
+
+Por último, todos estos estadísticos pueden expresarse en diferente tipo de visualizaciones estáticas y dinámicas, como así también un dashboard interactivo. 
+
+.. code:: sh
+
+   $ python urbantrips/create_viz.main()
+   $ python urbantrips/run_dashboard.main()
 
 
 Resultados finales

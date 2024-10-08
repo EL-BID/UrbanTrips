@@ -4,6 +4,7 @@ from pandas.io.sql import DatabaseError
 from urbantrips.utils.utils import (iniciar_conexion_db,
                                     leer_alias, agrego_indicador, duracion)
 
+
 @duracion
 def persist_datamodel_tables():
     """
@@ -12,7 +13,6 @@ def persist_datamodel_tables():
     y las guarda en csv
     """
 
-    
     alias = leer_alias()
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
@@ -50,6 +50,7 @@ def persist_datamodel_tables():
     viajes = pd.read_sql_query("""
                                 select *
                                 from viajes
+                                where od_validado==1
                                """, conn_data)
     viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
     viajes = viajes.merge(distancias, how='left')
@@ -58,6 +59,7 @@ def persist_datamodel_tables():
     usuarios = pd.read_sql_query("""
                                 SELECT *
                                 from usuarios
+                                where od_validado==1
                                 """, conn_data)
 
     # Grabo resultados en tablas .csv
@@ -78,15 +80,14 @@ def persist_datamodel_tables():
         index=False,
     )
 
-    agrego_indicador(etapas[etapas.od_validado == 1],
+    agrego_indicador(etapas,
                      'Cantidad total de etapas',
                      'etapas_expandidas',
                      0)
 
-    for i in etapas[etapas.od_validado == 1].modo.unique():
+    for i in etapas.modo.unique():
         agrego_indicador(
-            etapas.loc[(etapas.od_validado == 1) &
-                       (etapas.modo == i)],
+            etapas.loc[etapas.modo == i],
             f'Etapas {i}', 'etapas_expandidas', 1)
 
     agrego_indicador(viajes,
@@ -95,47 +96,45 @@ def persist_datamodel_tables():
                      0,
                      var_fex='')
 
-    agrego_indicador(viajes[viajes.od_validado == 1],
+    agrego_indicador(viajes,
                      'Cantidad total de viajes expandidos',
                      'viajes expandidos',
                      0)
-    agrego_indicador(viajes[(viajes.od_validado == 1) &
-                            (viajes.distance_osm_drive <= 5)],
+    agrego_indicador(viajes[(viajes.distance_osm_drive <= 5)],
                      'Cantidad de viajes cortos (<5kms)',
                      'viajes expandidos',
                      1)
-    agrego_indicador(viajes[(viajes.od_validado == 1) &
-                            (viajes.cant_etapas > 1)],
+    agrego_indicador(viajes[(viajes.cant_etapas > 1)],
                      'Cantidad de viajes con transferencia',
                      'viajes expandidos',
                      1)
 
-    agrego_indicador(viajes[viajes.od_validado == 1],
+    agrego_indicador(viajes,
                      'Cantidad total de viajes expandidos',
                      'modos viajes',
                      0)
 
-    for i in viajes[viajes.od_validado == 1].modo.unique():
+    for i in viajes.modo.unique():
         agrego_indicador(
             viajes.loc[(viajes.od_validado == 1) &
                        (viajes.modo == i)],
             f'Viajes {i}', 'modos viajes', 1)
 
-    agrego_indicador(viajes[viajes.od_validado == 1],
+    agrego_indicador(viajes,
                      'Distancia de los viajes (promedio en kms)',
                      'avg',
                      0,
                      var='distance_osm_drive',
                      aggfunc='mean')
 
-    agrego_indicador(viajes[viajes.od_validado == 1],
+    agrego_indicador(viajes,
                      'Distancia de los viajes (mediana en kms)',
                      'avg',
                      0,
                      var='distance_osm_drive',
                      aggfunc='median')
 
-    for i in viajes[viajes.od_validado == 1].modo.unique():
+    for i in viajes.modo.unique():
         agrego_indicador(
             viajes.loc[(viajes.od_validado == 1) &
                        (viajes.modo == i)],
@@ -144,16 +143,15 @@ def persist_datamodel_tables():
             var='distance_osm_drive',
             aggfunc='mean')
 
-    for i in viajes[viajes.od_validado == 1].modo.unique():
+    for i in viajes.modo.unique():
         agrego_indicador(
-            viajes.loc[(viajes.od_validado == 1) &
-                       (viajes.modo == i)],
+            viajes.loc[(viajes.modo == i)],
             f'Distancia de los viajes (mediana en kms) - {i}',
             'avg', 0,
             var='distance_osm_drive',
             aggfunc='median')
 
-    agrego_indicador(viajes[viajes.od_validado == 1],
+    agrego_indicador(viajes,
                      'Etapas promedio de los viajes',
                      'avg',
                      0,
@@ -175,7 +173,7 @@ def persist_datamodel_tables():
                      0,
                      var_fex='')
 
-    agrego_indicador(etapas[etapas.od_validado == 1].groupby(
+    agrego_indicador(etapas.groupby(
         ['dia', 'id_tarjeta'],
         as_index=False).factor_expansion_linea.min(),
         'Cantidad total de usuarios',
@@ -194,29 +192,29 @@ def persist_datamodel_tables():
 
     print(
         "Validados :",
-        "{:,}".format(len(etapas[etapas.od_validado == 1])).replace(",", "."),
+        "{:,}".format(len(etapas)).replace(",", "."),
         "(etapas)",
-        "{:,}".format(len(viajes[viajes.od_validado == 1])).replace(",", "."),
+        "{:,}".format(len(viajes)).replace(",", "."),
         "(viajes)",
         "{:,}".format(
-            len(usuarios[usuarios.od_validado == 1])).replace(",", "."),
+            len(usuarios)).replace(",", "."),
         "(usuarios)",
     )
 
     print(
         "    %     :",
         "{:,}".format(
-            round(len(etapas[etapas.od_validado == 1]) / len(etapas) * 100)
+            round(len(etapas) / len(etapas) * 100)
         ).replace(",", ".")
         + "%",
         "(etapas)",
         "{:,}".format(
-            round(len(viajes[viajes.od_validado == 1]) / len(viajes) * 100)
+            round(len(viajes) / len(viajes) * 100)
         ).replace(",", ".")
         + "%",
         "(viajes)",
         "{:,}".format(
-            round(len(usuarios[usuarios.od_validado == 1]) /
+            round(len(usuarios) /
                   len(usuarios) * 100)
         ).replace(",", ".")
         + "%",
@@ -240,7 +238,7 @@ def tabla_indicadores():
             """,
             conn_data,
         )
-    except DatabaseError as e:
+    except DatabaseError:
         indicadores = pd.DataFrame([])
 
     db_path = os.path.join("resultados", "tablas",
