@@ -84,7 +84,7 @@ El siguiente conjunto de parámetros de configuración definen el procesamiento 
 - `ventana_viajes`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que las etapas se agrupan en un mismo viaje.  
 - `ventana_duplicado`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un `id_tarjeta` ad hoc a cada una.
 - `tipo_trx_invalidas`: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
-- `modos`: urbantrips estandariza en 5 categorias (`autobus`,`tren`,`metro`,`tranvia` y `brt`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
+- `modos`: urbantrips estandariza en categorias (`autobus`,`tren`,`metro`,`tranvia`, `brt`, `cable`, `lancha` y , `otros`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
 - `filtro_latlong_bbox`: Establece un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.
 
 - `fecha_formato`: specifies the format in which the fecha_trx field is in (e.g. `"%d/%m/%Y"`, `"%d/%m/%Y %H:%M:%S"`)
@@ -93,7 +93,7 @@ El siguiente conjunto de parámetros de configuración definen el procesamiento 
 - `viajes_ventana`: when you have a complete timestamp, indicates the time window in minutes to consider that stages are grouped into the same trip.
 - `duplicado_ventana`: when you have a complete timestamp, indicates the time window in minutes to consider that two transactions are simultaneous, so an ad hoc `id_tarjeta` will be created for each one.
 - `tipo_trx_invalidas`: specifies the name of the attribute as it appears in the csv and then the values that should be eliminated as they do not represent transactions related to trips (e.g. balance recharge, system errors). You can specify several attributes and several values per attribute.
-- `modos`: urbantrips standardizes into 5 categories (`autobus`,`tren`,`metro`,`tranvia`, and `brt`) the modes. You must pass the equivalent of how each mode is categorized in the csv.
+- `modos`: urbantrips standardizes into categories (`autobus`,`tren`,`metro`,`tranvia`, `brt`, `cable`, `lancha` y , `otros`) the modes. You must pass the equivalent of how each mode is categorized in the csv.
 - `filtro_latlong_bbox`: sets a box to quickly eliminate transactions that are geolocated outside of a logical area of public transportation coverage.
     
 ```
@@ -123,7 +123,7 @@ filtro_latlong_bbox:
 
 ```
 
-The following group of configurations names the two databases used by `urbantrips`. `alias_db_data` will store all the information related to stages, trips, and any other information that is updated with each run. Thus, there can be a data database for each week or month as it reaches a certain volume (`amba_2023_week1`, `amba_2023_week2`, etc.). On the other hand, `alias_db_insumos` is a database that will store information constantly and will serve both for `week 1` and `week 2` data.
+The following group of configurations names the three databases used by `urbantrips`. `alias_db_data` will store all the information related to stages, trips, and any other information that is updated with each run. Thus, there can be a data database for each week or month as it reaches a certain volume (`amba_2023_week1`, `amba_2023_week2`, etc.). On the other hand, `alias_db_insumos` is a database that will store information constantly and will serve both for `week 1` and `week 2`. Data in `alias_db_dashboard` saves data that is used in the dashboard.
 
 ```
 alias_db_data: amba_2023_semana1
@@ -331,6 +331,8 @@ nombre_archivo_trx: transacciones.csv
 alias_db_data: amba
 
 alias_db_insumos: amba
+
+alias_df_dashboard: amba
 
 lineas_contienen_ramales: True
 nombre_archivo_informacion_lineas: lineas_amba.csv

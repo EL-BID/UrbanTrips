@@ -42,7 +42,7 @@ def leer_alias(tipo='data'):
     elif tipo == 'insumos':
         key = 'alias_db_insumos'
     elif tipo == 'dash':
-        key = 'alias_db_data'
+        key = 'alias_db_dashboard'
     else:
         raise ValueError('tipo invalido: %s' % tipo)
     # Leer el alias

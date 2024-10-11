@@ -69,7 +69,7 @@ El siguiente conjunto de parámetros de configuración definen el procesamiento 
 * ``ventana_viajes``: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos o más etapas que sucedan en esa ventana de tiempo con respecto a la primera etapa se agrupan en un mismo viaje.  
 * ``ventana_duplicado``: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un ``id_tarjeta`` ad hoc a cada una, asumiendo que se trata de usuarios diferentes que utilizan una misma tarjeta.
 * ``tipo_trx_invalidas``: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo en la tarjeta, errores del sistema, check outs de modos que los posean). Se pueden especificar varios atributos y varios valores por cada atributo.
-* ``modos``: UrbanTrips estandariza los modos en 5 categorias (``autobus``, ``tren``, ``metro``, ``tranvia`` y ``brt``). Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
+* ``modos``: UrbanTrips estandariza los modos en 5 categorias (``autobus``, ``tren``, ``metro``, ``tranvia``, ``brt``, ``cable``, ``lancha`` y , ``otros``). Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
 
 
 .. code:: 
