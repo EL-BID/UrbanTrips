@@ -88,7 +88,7 @@ def leer_alias(tipo="data"):
     elif tipo == "insumos":
         key = "alias_db_insumos"
     elif tipo == "dash":
-        key = "alias_db_data"
+        key = "alias_db_dashboard"
     else:
         raise ValueError("tipo invalido: %s" % tipo)
     # Leer el alias
@@ -646,6 +646,8 @@ def create_basic_data_model_tables():
             metro int,
             tranvia int,
             brt int,
+            cable int,
+            lancha int,
             otros int,
             h3_o text,
             h3_d text,
