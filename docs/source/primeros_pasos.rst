@@ -47,6 +47,8 @@ A modo de ejemplo se puede descargar el `dataset abierto de transacciones SUBE d
 
    alias_db_insumos: amba
 
+   alias_db_dashboard: amba
+
    lineas_contienen_ramales: True
    nombre_archivo_informacion_lineas: lineas_amba.csv
 
@@ -73,6 +75,9 @@ A modo de ejemplo se puede descargar el `dataset abierto de transacciones SUBE d
       metro: SUB
       tranvia:
       brt:
+      cable:
+      lancha:
+      otros:
 	 
    recorridos_geojson:
 

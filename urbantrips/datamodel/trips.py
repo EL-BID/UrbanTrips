@@ -334,6 +334,8 @@ def create_trips_from_legs():
                    'metro',
                    'tranvia',
                    'brt',
+                   'cable', 
+                   'lancha', 
                    'otros',
                    'h3_o',
                    'h3_d',
