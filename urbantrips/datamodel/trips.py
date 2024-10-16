@@ -263,7 +263,13 @@ def create_trips_from_legs():
     conn.execute(query)
     conn.commit()
 
-    etapas.to_sql("etapas", conn, if_exists="append", index=False)
+    # etapas.to_sql("etapas", conn, if_exists="append", index=False)
+    chunk_size = 400000  # Número de registros por chunk
+
+    # Subir los datos por partes
+    for i in range(0, len(etapas), chunk_size):
+        etapas_chunk = etapas.iloc[i:i + chunk_size]
+        etapas_chunk.to_sql("etapas", conn, if_exists="append", index=False)
 
     print(f'Creando tabla de viajes de {len(etapas)} etapas')
     # Crear tabla viajes
@@ -355,8 +361,15 @@ def create_trips_from_legs():
 
     conn.execute(query)
     conn.commit()
-    viajes.to_sql("viajes", conn, if_exists="append", index=False)
+    # viajes.to_sql("viajes", conn, if_exists="append", index=False)
 
+    chunk_size = 400000  # Número de registros por chunk
+
+    # Subir los datos por partes
+    for i in range(0, len(viajes), chunk_size):
+        viajes_chunk = viajes.iloc[i:i + chunk_size]
+        viajes_chunk.to_sql("viajes", conn, if_exists="append", index=False)
+    
     print('Creando tabla de usuarios...')
     usuarios = viajes.groupby(["dia", "id_tarjeta"], as_index=False).agg(
         {"od_validado": "min",
@@ -438,10 +451,15 @@ def rearrange_trip_id_same_od():
     conn_data.execute(query)
     conn_data.commit()
 
-    etapas.to_sql("etapas", conn_data,
-                  if_exists="append", index=False)
+    # etapas.to_sql("etapas", conn_data,
+    #               if_exists="append", index=False)
 
+    chunk_size = 400000  # Número de registros por chunk
 
+    # Subir los datos por partes
+    for i in range(0, len(etapas), chunk_size):
+        etapas_chunk = etapas.iloc[i:i + chunk_size]
+        etapas_chunk.to_sql("etapas", conn_data, if_exists="append", index=False)
 
     conn_data.close()
 

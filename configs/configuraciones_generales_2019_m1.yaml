@@ -1,9 +1,10 @@
 # Archivo de configuración para urbantrips
 
 # Bases de datos
-nombre_archivo_trx: "transacciones_amba_2019_muestra1.csv"        # Especificar el archivo con las transacciones a consumir
-alias_db_data: "amba_2019_muestra1"                               # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "amba"                                           # nombre del sqlite donde se guardan los insumos generales
+nombre_archivo_trx: "transacciones_amba_2019_muestra1.csv"         # Especificar el archivo con las transacciones a consumir
+alias_db_data: "amba_2019_muestra1"                                # nombre del sqlite donde se guardan los datos procesados
+alias_db_insumos: "amba_2019_muestra1"                                           # nombre del sqlite donde se guardan los insumos generales
+alias_db_dashboard: "amba_2019_muestra1"                                      # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
@@ -16,17 +17,20 @@ nombres_variables_trx:
     id_ramal_trx:                                                  # columna con el ramal de la línea
     interno_trx: "interno_bus"                                     # columna con interno de la línea
     orden_trx: "etapa_red_sube"                                    # columna con el orden de la transacción (si falta hora/minuto en fecha_trx)
+    genero:                                                        # Indica el género asignado a la tarjeta
+    tarifa:                                                        # Indica el tipo de tarifa asignado a la transacción
     latitud_trx: "lat"                                             # columna con la latitud de la transacción
     longitud_trx: "lon"                                            # columna con longitud de la transacción
     factor_expansion: "fex_linea"                                  # columna con el factor de expansión
 
 # Parámetros de transacciones
-ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha o por variable orden_trx
+ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
 ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
 
+# Elimina transacciones inválidas de la tabla de transacciones
 tipo_trx_invalidas: 
-    tipo_trx_tren: [                                                   # lista con el contenido a eliminar de la variable seleccionada
+    tipo_trx_tren: [                                                   # Lista con el contenido a eliminar de la variable seleccionada
                 "CHECK OUT SIN CHECKIN",
                 "CHECK OUT",
                       ]
@@ -55,12 +59,11 @@ nombres_variables_gps:
     fecha_gps:                                                     
     latitud_gps:                                                   
     longitud_gps:                                                  
-    id_gps:                                                        
     velocity_gps:                                                  
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
-nombre_archivo_informacion_lineas: "lineas.csv"                                               
+nombre_archivo_informacion_lineas: "lineas.csv"                    # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
 imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las líneas
@@ -76,7 +79,12 @@ modos:
     metro: "SUB"                                                   
     tranvia:                                                       
     brt:                                                           
+    cable:                                                         
+    lancha:                                                        
+    otros:                                                         
 
+# Capas geográficas con recorridos de líneas
+recorridos_geojson:                                                # archivo geojson con el trazado de las líneas de transporte público
 
 filtro_latlong_bbox: 
     minx: -59.3                                                    
@@ -182,5 +190,7 @@ zonificaciones:
     var5:                                                          
     orden5:                                                        
 
+poligonos:                                                         # Especificar una capa geográfica de polígonos en formato .geojson. El archivo requiere las siguientes columnas: ['id', 'tipo', 'geometry']. 'id' es el id o nombre del polígono, tipo puede ser 'poligono' o 'cuenca'.
 
-tiempos_viaje_estaciones:
+tiempos_viaje_estaciones:                                          # Especificar una tabla de tiempo de viaje en minutos entre estaciones para modos sin gps
+

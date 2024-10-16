@@ -214,7 +214,7 @@ poligonos = levanto_tabla_sql('poligonos')
 etapas_all = levanto_tabla_sql('poly_etapas')
 matrices_all = levanto_tabla_sql('poly_matrices')
 zonificaciones = levanto_tabla_sql('zonificaciones')
-
+general_ = ''
 with st.expander('Polígonos', expanded=True):
 
     col1, col2 = st.columns([1, 4])
@@ -394,101 +394,74 @@ with st.expander('Polígonos', expanded=True):
 
         else:
             matriz = pd.DataFrame([])
-            col2.markdown("""
-            <style>
-            .big-font {
-                font-size:40px !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-
-            col2.markdown(
-                '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
+            col2.text('No hay datos para mostrar')
 
     else:
         matriz = pd.DataFrame([])
 
-        # Usar HTML para personalizar el estilo del texto
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                No hay datos para mostrar            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:24px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                Verifique que existan alguna capa de polígonos o que los procesos se corrieron correctamente            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
+        col2.text('No hay datos para mostrar')
 
 
 with st.expander('Indicadores'):
     col1, col2, col3 = st.columns([2, 2, 2])
-    if len(etapas_all) > 0:
+    if len(general_) > 0:
         col1.table(general_)
         col2.table(modal_)
         col3.table(distancias_)
+    else:
+        col2.text('No hay datos para mostrar')
 
 with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
 
-    tipo_matriz = col1.selectbox(
-            'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
-        
-    normalize = False
-    if tipo_matriz == 'Viajes':
-        var_matriz = 'factor_expansion_linea'
-        normalize = col1.checkbox('Normalizar', value=True)
-    if tipo_matriz == 'Distancia promedio (kms)':
-        var_matriz = 'distance_osm_drive'
-    if tipo_matriz == 'Tiempo promedio (min)':
-        var_matriz = 'travel_time_min'
-    if tipo_matriz == 'Velocidad promedio (km/h)':
-        var_matriz = 'travel_speed'
-
-
     if len(matriz) > 0:
-        od_heatmap = pd.crosstab(
-            index=matriz['Origen'],
-            columns=matriz['Destino'],
-            values=matriz['factor_expansion_linea'],
-            aggfunc="sum",
-            normalize=normalize,
-        )
-        if normalize:
-            od_heatmap = (od_heatmap * 100).round(1)
-        else:
-            od_heatmap = od_heatmap.round(0)
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
-        od_heatmap = od_heatmap.set_index('Origen')
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
-
-        fig = px.imshow(od_heatmap, text_auto=True,
-                        color_continuous_scale='Blues',)
-
-        fig.update_coloraxes(showscale=False)
-
-        if len(matriz) <= 20:
-            fig.update_layout(width=800, height=800)
-        elif (len(matriz) > 20) & (len(od_heatmap) <= 40):
-            fig.update_layout(width=1000, height=1000)
-        elif len(matriz) > 40:
-            fig.update_layout(width=1400, height=800)
-
-        col2.plotly_chart(fig)
+        tipo_matriz = col1.selectbox(
+                'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
+            
+        normalize = False
+        if tipo_matriz == 'Viajes':
+            var_matriz = 'factor_expansion_linea'
+            normalize = col1.checkbox('Normalizar', value=True)
+        if tipo_matriz == 'Distancia promedio (kms)':
+            var_matriz = 'distance_osm_drive'
+        if tipo_matriz == 'Tiempo promedio (min)':
+            var_matriz = 'travel_time_min'
+        if tipo_matriz == 'Velocidad promedio (km/h)':
+            var_matriz = 'travel_speed'
+    
+    
+        if len(matriz) > 0:
+            od_heatmap = pd.crosstab(
+                index=matriz['Origen'],
+                columns=matriz['Destino'],
+                values=matriz['factor_expansion_linea'],
+                aggfunc="sum",
+                normalize=normalize,
+            )
+            if normalize:
+                od_heatmap = (od_heatmap * 100).round(1)
+            else:
+                od_heatmap = od_heatmap.round(0)
+    
+            od_heatmap = od_heatmap.reset_index()
+            od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
+            od_heatmap = od_heatmap.set_index('Origen')
+            od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+    
+            fig = px.imshow(od_heatmap, text_auto=True,
+                            color_continuous_scale='Blues',)
+    
+            fig.update_coloraxes(showscale=False)
+    
+            if len(matriz) <= 20:
+                fig.update_layout(width=800, height=800)
+            elif (len(matriz) > 20) & (len(od_heatmap) <= 40):
+                fig.update_layout(width=1000, height=1000)
+            elif len(matriz) > 40:
+                fig.update_layout(width=1400, height=800)
+    
+            col2.plotly_chart(fig)
+    else:
+        col2.text('No hay datos para mostrar')
