@@ -38,6 +38,7 @@ from urbantrips.utils.utils import (
 )
 import warnings
 
+
 warnings.filterwarnings("ignore")
 
 
