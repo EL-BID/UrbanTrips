@@ -3,8 +3,8 @@
 # Bases de datos
 nombre_archivo_trx: "transacciones_amba_2019_muestra1.csv"         # Especificar el archivo con las transacciones a consumir
 alias_db_data: "amba_2019_muestra1"                                # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "amba_2019_muestra1"                                           # nombre del sqlite donde se guardan los insumos generales
-alias_db_dashboard: "amba_2019_muestra1"                                      # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
+alias_db_insumos: "amba_2019_muestra1"                             # nombre del sqlite donde se guardan los insumos generales
+alias_db_dashboard: "amba_2019_muestra1"                           # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
