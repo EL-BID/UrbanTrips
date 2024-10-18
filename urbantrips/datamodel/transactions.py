@@ -448,9 +448,11 @@ def eliminar_trx_fuera_bbox(trx):
         )
         trx = gpd.GeoDataFrame(trx, geometry="geometry", crs=4326)
 
-        zona = zonificaciones.zona.head().values[0]
-        zonificaciones = zonificaciones[zonificaciones.zona == zona]
-        zonificaciones = zonificaciones.dissolve(by="zona")
+        # zona = zonificaciones.zona.head().values[0]
+        # zonificaciones = zonificaciones[zonificaciones.zona == zona]
+        # zonificaciones = zonificaciones.dissolve(by="zona")
+        zonificaciones['dissolve_column'] = 1
+        zonificaciones = zonificaciones.dissolve(by='dissolve_column')
 
         trx = (
             gpd.sjoin(zonificaciones[["geometry"]], trx)

@@ -438,59 +438,13 @@ with st.expander('Líneas de Deseo', expanded=True):
 
         else:
             matriz = pd.DataFrame([])
-            # Usar HTML para personalizar el estilo del texto
-            texto_html = """
-                <style>
-                .big-font {
-                    font-size:30px !important;
-                    font-weight:bold;
-                }
-                </style>
-                <div class='big-font'>
-                    No hay datos para mostrar            
-                </div>
-                """
-            col2.markdown(texto_html, unsafe_allow_html=True)
-            texto_html = """
-                <style>
-                .big-font {
-                    font-size:30px !important;
-                    font-weight:bold;
-                }
-                </style>
-                <div class='big-font'>
-                    Verifique que los procesos se corrieron correctamente            
-                </div>
-                """
-            col2.markdown(texto_html, unsafe_allow_html=True)
+            col2.text('No hay datos para mostrar')
+            col2.text('Verifique que los procesos se corrieron correctamente')
+            
 
     else:
         matriz = pd.DataFrame([])
-        # Usar HTML para personalizar el estilo del texto
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                No hay datos para mostrar            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                Verifique que los procesos se corrieron correctamente            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
+        col2.text('No hay datos para mostrar')
 
 with st.expander('Indicadores'):
     col1, col2, col3 = st.columns([2, 2, 2])
@@ -503,55 +457,58 @@ with st.expander('Indicadores'):
 with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
-
-    # col2.table(matriz)
-
-    tipo_matriz = col1.selectbox(
-            'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
-        
-    normalize = False
-    if tipo_matriz == 'Viajes':
-        var_matriz = 'factor_expansion_linea'
-        normalize = col1.checkbox('Normalizar', value=True)
-    if tipo_matriz == 'Distancia promedio (kms)':
-        var_matriz = 'distance_osm_drive'
-    if tipo_matriz == 'Tiempo promedio (min)':
-        var_matriz = 'travel_time_min'
-    if tipo_matriz == 'Velocidad promedio (km/h)':
-        var_matriz = 'travel_speed'
-
     if len(matriz) > 0:
-        od_heatmap = pd.crosstab(
-            index=matriz['Origen'],
-            columns=matriz['Destino'],
-            values=matriz[var_matriz],
-            aggfunc="sum",
-            normalize=normalize,
-        )
-        
-        if normalize:
-            od_heatmap = (od_heatmap * 100).round(2)
-        else:
-            od_heatmap = od_heatmap.round(0)
-        
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
-        od_heatmap = od_heatmap.set_index('Origen')
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
 
-        fig = px.imshow(od_heatmap, text_auto=True,
-                        color_continuous_scale='Blues',)
-
-        fig.update_coloraxes(showscale=False)
-
-        if len(od_heatmap) <= 20:
-            fig.update_layout(width=800, height=800)
-        elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
-            fig.update_layout(width=1100, height=1100)
-        elif len(od_heatmap) > 40:
-            fig.update_layout(width=1400, height=1400)
-
-        col2.plotly_chart(fig)
+        # col2.table(matriz)
+    
+        tipo_matriz = col1.selectbox(
+                'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
+            
+        normalize = False
+        if tipo_matriz == 'Viajes':
+            var_matriz = 'factor_expansion_linea'
+            normalize = col1.checkbox('Normalizar', value=True)
+        if tipo_matriz == 'Distancia promedio (kms)':
+            var_matriz = 'distance_osm_drive'
+        if tipo_matriz == 'Tiempo promedio (min)':
+            var_matriz = 'travel_time_min'
+        if tipo_matriz == 'Velocidad promedio (km/h)':
+            var_matriz = 'travel_speed'
+    
+        if len(matriz) > 0:
+            od_heatmap = pd.crosstab(
+                index=matriz['Origen'],
+                columns=matriz['Destino'],
+                values=matriz[var_matriz],
+                aggfunc="sum",
+                normalize=normalize,
+            )
+            
+            if normalize:
+                od_heatmap = (od_heatmap * 100).round(2)
+            else:
+                od_heatmap = od_heatmap.round(0)
+            
+            od_heatmap = od_heatmap.reset_index()
+            od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
+            od_heatmap = od_heatmap.set_index('Origen')
+            od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+    
+            fig = px.imshow(od_heatmap, text_auto=True,
+                            color_continuous_scale='Blues',)
+    
+            fig.update_coloraxes(showscale=False)
+    
+            if len(od_heatmap) <= 20:
+                fig.update_layout(width=800, height=800)
+            elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
+                fig.update_layout(width=1100, height=1100)
+            elif len(od_heatmap) > 40:
+                fig.update_layout(width=1400, height=1400)
+    
+            col2.plotly_chart(fig)
+    else:
+        col2.text('No hay datos para mostrar')
 
 with st.expander('Género y tarifas'):
     col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
