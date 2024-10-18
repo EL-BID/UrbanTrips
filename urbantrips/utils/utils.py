@@ -1301,6 +1301,23 @@ def create_kpi_tables():
         """
     )
 
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS overlapping
+        (
+        dia text not null,
+        base_line_id int not null,
+        base_branch_id int,
+        comp_line_id int not null,
+        comp_branch_id int,
+        res_h3 int,
+        overlap float,
+        type_overlap text
+        )
+        ;
+        """
+    )
+
     conn_data.close()
 
 
@@ -1371,6 +1388,23 @@ def create_line_ids_sql_filter(line_ids):
         lines_str = ""
         line_ids_where = " where id_linea is not NULL"
     return line_ids_where
+
+
+def create_branch_ids_sql_filter(branch_ids):
+    """
+    Takes a set of branch ids and returns a where clause
+    to filter in sqlite
+    """
+    if branch_ids is not None:
+        if isinstance(branch_ids, int):
+            branch_ids = [branch_ids]
+        branches_str = ",".join(map(str, branch_ids))
+        branch_ids_where = f" where id_ramal in ({branches_str})"
+
+    else:
+        branches_str = ""
+        branch_ids_where = " where id_ramal is not NULL"
+    return branch_ids_where
 
 
 def traigo_tabla_zonas():
