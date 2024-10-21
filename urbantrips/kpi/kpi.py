@@ -99,7 +99,7 @@ def compute_route_section_load(
         route id or list of route ids present in the legs dataset. Route
         section load will be computed for that subset of lines. If False, it
         will run with all routes.
-    rango_hrs : tuple or bool
+    hour_range : tuple or bool
         tuple holding hourly range (from,to) and from 0 to 24. Route section
         load will be computed for legs happening within tat time range.
         If False it won't filter by hour.
