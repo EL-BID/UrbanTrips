@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html class="writer-html5" lang="es" data-content_root="./">
 <head>
@@ -6,19 +8,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Seteo del archivo de configuración &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
-  <!--[if lt IE 9]>
-    <script src="_static/js/html5shiv.min.js"></script>
-  <![endif]-->
-  
-        <script src="_static/jquery.js?v=5d32c60e"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-        <script src="_static/doctools.js?v=888ff710"></script>
-        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-        <script src="_static/translations.js?v=efdbd0b9"></script>
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -54,6 +52,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#parametros-de-transacciones">Parámetros de transacciones</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#parametros-de-posicionamiento-gps">Parámetros de posicionamiento GPS</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#parametro-de-lineas-ramales-y-paradas">Parámetro de lineas, ramales y paradas</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parametros-de-zonificaciones-y-poligonos-de-interes">Parámetros de zonificaciones y polígonos de interés</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
@@ -143,7 +142,7 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">ventana_viajes</span></code>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos o más etapas que sucedan en esa ventana de tiempo con respecto a la primera etapa se agrupan en un mismo viaje.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ventana_duplicado</span></code>: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un <code class="docutils literal notranslate"><span class="pre">id_tarjeta</span></code> ad hoc a cada una, asumiendo que se trata de usuarios diferentes que utilizan una misma tarjeta.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">tipo_trx_invalidas</span></code>: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo en la tarjeta, errores del sistema, check outs de modos que los posean). Se pueden especificar varios atributos y varios valores por cada atributo.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">modos</span></code>: UrbanTrips estandariza los modos en 5 categorias (<code class="docutils literal notranslate"><span class="pre">autobus</span></code>, <code class="docutils literal notranslate"><span class="pre">tren</span></code>, <code class="docutils literal notranslate"><span class="pre">metro</span></code>, <code class="docutils literal notranslate"><span class="pre">tranvia</span></code> y <code class="docutils literal notranslate"><span class="pre">brt</span></code>). Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">modos</span></code>: UrbanTrips estandariza los modos en 5 categorias (<code class="docutils literal notranslate"><span class="pre">autobus</span></code>, <code class="docutils literal notranslate"><span class="pre">tren</span></code>, <code class="docutils literal notranslate"><span class="pre">metro</span></code>, <code class="docutils literal notranslate"><span class="pre">tranvia</span></code>, <code class="docutils literal notranslate"><span class="pre">brt</span></code>, <code class="docutils literal notranslate"><span class="pre">cable</span></code>, <code class="docutils literal notranslate"><span class="pre">lancha</span></code> y , <code class="docutils literal notranslate"><span class="pre">otros</span></code>). Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.</p></li>
 </ul>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">nombre_archivo_trx</span><span class="p">:</span> <span class="n">semana1</span><span class="o">.</span><span class="n">csv</span>
 
@@ -233,13 +232,23 @@
 <span class="n">nombre_archivo_paradas</span><span class="p">:</span>
 </pre></div>
 </div>
-<p>Finalmente se pueden suministrar diferentes archivos con unidades espaciales para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/</span></code>.</p>
+</section>
+<section id="parametros-de-zonificaciones-y-poligonos-de-interes">
+<h2>Parámetros de zonificaciones y polígonos de interés<a class="headerlink" href="#parametros-de-zonificaciones-y-poligonos-de-interes" title="Link to this heading"></a></h2>
+<p>Se pueden suministrar diferentes archivos con unidades espaciales o zonas de análisis de tránsito para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo geojson a consumir, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips.</p>
+<p>Puede haber tantos archivos como lo desee. Si existen estructuras anidadas (por ejemplo unidades censales de diferente nivel de agregación) se puede usar el mismo archivo, con diferentes atributos o columnas indicando los diferentes ids o valores para cada nivel de agregación. Luego se para el mismo archivo indicando en <cite>var</cite> qué atributo o columna tomar.</p>
+<p>Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/</span></code>.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">zonificaciones</span><span class="p">:</span>
    <span class="n">geo1</span><span class="p">:</span> <span class="n">hexs_amba</span><span class="o">.</span><span class="n">geojson</span>
    <span class="n">var1</span><span class="p">:</span> <span class="n">Corona</span>
    <span class="n">orden1</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;CABA&#39;</span><span class="p">,</span> <span class="s1">&#39;Primer cordón&#39;</span><span class="p">,</span> <span class="s1">&#39;Segundo cordón&#39;</span><span class="p">,</span> <span class="s1">&#39;Tercer cordón&#39;</span><span class="p">,</span> <span class="s1">&#39;RMBA&#39;</span><span class="p">]</span>
    <span class="n">geo2</span><span class="p">:</span> <span class="n">hexs_amba</span><span class="o">.</span><span class="n">geojson</span>
    <span class="n">var2</span><span class="p">:</span> <span class="n">Partido</span>
+</pre></div>
+</div>
+<p>Al mismo tiempo, si se quiere realizar un análisis de patrones de orígenes y destinos para una determinada zona de interés, se puede suministrar otro archivo geojson donde se especifique una capa geográfica de polígonos en formato con las siguientes columnas <cite>“id”, “tipo”, “geometry”</cite>. <cite>id</cite> debe ser un texto con el nombre del polígono  de interés y <cite>tipo</cite> puede ser <cite>poligono</cite> o <cite>cuenca</cite>. El primero hace referencia a una zona particular de interés como un centro de transbordo o un barrio-localidad. El segundo hace referencia a una zona de mayor tamaño que puede agrupar el recorrido de un grupo de líneas o ser el área de influencia de una línea en particular.</p>
+<p>El archivo puede contener la cantidad de polígonos (o cuencas) que se desee (ya sena polígnos o multi-polígonos), el proceso corre en forma independiente para cada poligoo o cuenca. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/</span></code>. Estos archivos deben informarse en el archivo de configuraciones del siguiente modo. Los resultados se verán en el Dashboard.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">poligonos</span><span class="p">:</span> <span class="s2">&quot;[NOMBRE_DEL_ARCHIVO].geojson&quot;</span>
 </pre></div>
 </div>
 </section>

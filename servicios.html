@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html class="writer-html5" lang="es" data-content_root="./">
 <head>
@@ -6,19 +8,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clasificación de servicios &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
-  <!--[if lt IE 9]>
-    <script src="_static/js/html5shiv.min.js"></script>
-  <![endif]-->
-  
-        <script src="_static/jquery.js?v=5d32c60e"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-        <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-        <script src="_static/doctools.js?v=888ff710"></script>
-        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-        <script src="_static/translations.js?v=efdbd0b9"></script>
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
     <link rel="search" title="Búsqueda" href="search.html" />
@@ -129,20 +127,26 @@
 </div>
 <p>El proceso se puede resumir del siguiente modo: cada punto gps se asignará a la parada más cercana de esa linea, con su correspondiente orden de paso. Cuando se registra una inversión en el orden de paso por parada, es decir pase de un orden ascendente a descendente o viceversa, se abrira un nuevo servicio.</p>
 <p>En el ejemplo del caso más sencillo, se puede ver que el punto con <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">10</span></code> es donde el orden de paso de paradas se invierte, por lo tanto, es a partir de ese punto que UrbanTrips regista un nuevo servicio.</p>
-<a class="reference internal image-reference" href="_images/servicios_caso_simple.png"><img alt="Clasificacion servicios linea" src="_images/servicios_caso_simple.png" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_simple.png"><img alt="Clasificacion servicios linea" src="_images/servicios_caso_simple.png" style="width: 800px;" />
+</a>
 <p>Puede suceder que una línea tenga más de un ramal. En ese caso, se evaluará el punto gps en todos los ramales de esa linea, siempre que estén dentro de una distancia razonable. Los nodos de los ramales lejanos no serán evaluados como posible orden de paso de parada. Luego se evaluará si se registra una inversión en el sentido del orden de paso por paradas. En este caso es en el <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">7</span></code> en ambos ramales.</p>
-<a class="reference internal image-reference" href="_images/servicios_caso_ramal.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal.png" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal.png" style="width: 800px;" />
+</a>
 </section>
 <section id="posibles-problemas-y-soluciones-propuestas">
 <h2>Posibles problemas y soluciones propuestas<a class="headerlink" href="#posibles-problemas-y-soluciones-propuestas" title="Link to this heading"></a></h2>
 <p>En el ejemplo anterior, no había ambiguedad posible dado que la inversión de sentido sucede sobre un nodo que pertenece al troncal compartido por ambos ramales. Es decir, el mismo punto gps evalúa una inversión del sentido de paso por parada en ambos ramales al mismo tiempo. Pero esto no siempre puede ser así. Puede suceder que haya inversiones en diferentes momentos para los diferentes ramales.  Un caso típico es la existencia de un ramal que un fraccionado de un ramal más largo.</p>
 <p>En este caso se registran dos inversiones de sentido. Por un lado en <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">7</span></code> al dar la vuelta sobre el ramal más extenso. Pero también se registra una inversión en <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">=</span> <span class="pre">9</span></code>, dado que todos los puntos gps que iban más alla del ramal corto o fraccionado fueron evaluados como <code class="docutils literal notranslate"><span class="pre">NaN</span></code> o en el nodo 3 y recién percibe una inversión en el sentido del orden de paso de parada en el nodo 2. La forma que tiene UrbanTripos de resolver esto es la siguiente. Para cambiar de servicio se debe registar una inversión en todos los ramales a los cuales pertenece ese nodo. En este caso, como el nodo 5 solo pertenece al ramal A, es suficiente con que se register una sola inversión de sentido para que asigne un nuevo servicio. Pero como en el nodo 3 participan ambos ramales, a menos que esa inversión se registre en los dos, Urbantrips no abrirá un nuevo servicio.</p>
-<a class="reference internal image-reference" href="_images/servicios_caso_ramal_fraccionado.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_fraccionado.png" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_fraccionado.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_fraccionado.png" style="width: 800px;" />
+</a>
 <p>Otro caso particular se da cuando existe una configuración de ramales en una linea donde hay una inversión de sentido legítima que no implica un cambio de servicio. Un ramal puede ir y venir sobre sus propios pasos, teniendo paradas a lo largo de ese recorrido. Esto puede inducir un problema en este algoritmo de clasificación de servicios. Tomemos el siguiente ejemplo:</p>
-<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_1.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_1.png" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_1.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_1.png" style="width: 800px;" />
+</a>
 <p>Para resolverlo, dichas paradas pueden agregarse en un único nodo mediante el campo <code class="docutils literal notranslate"><span class="pre">node_id</span></code>. El proceso de clasificación de paradas en realidad utilizará los nodos. Con lo cual, si todas las paradas que puedan implicar una legitima inversión del sentido de paso quedan agrupadas en un único nodo, el algoritmo no registrará ese cambio.</p>
-<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_2.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_2.png" style="width: 800px;" /></a>
-<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion.gif"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion.gif" style="width: 800px;" /></a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion_2.png"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion_2.png" style="width: 800px;" />
+</a>
+<a class="reference internal image-reference" href="_images/servicios_caso_ramal_inversion.gif"><img alt="Clasificacion servicios ramal" src="_images/servicios_caso_ramal_inversion.gif" style="width: 800px;" />
+</a>
 </section>
 <section id="resultados">
 <h2>Resultados<a class="headerlink" href="#resultados" title="Link to this heading"></a></h2>
