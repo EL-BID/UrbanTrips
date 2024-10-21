@@ -28,8 +28,6 @@ from urbantrips.utils.utils import (
     iniciar_conexion_db,
     leer_configs_generales,
     leer_alias,
-    create_branch_ids_sql_filter,
-    create_line_ids_sql_filter,
 )
 
 import subprocess
@@ -760,53 +758,3 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     except NetworkXNoPath:
         out = np.nan
     return out
-
-
-def read_branch_routes(branch_ids):
-    """
-    This function take a list of branch ids and returns a geodataframe
-    with route geoms
-    """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    line_ids_where = create_branch_ids_sql_filter(branch_ids)
-    q_route_geoms = "select * from branches_geoms" + line_ids_where
-    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
-    route_geoms = gpd.GeoDataFrame(
-        route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
-    )
-    return route_geoms
-
-
-def read_routes(route_ids, route_type):
-    """
-    This function take a list of branches or lines ids and returns a geodataframe
-    with route geoms
-
-    Parameters
-    ----------
-    route_ids : list
-        list of branches or lines ids
-    route_type : str
-        branches or lines
-
-    Returns
-    -------
-    geopandas.GeoDataFrame
-        GeoDataFrame with route geoms
-    """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    if route_type == "branches":
-        ids_where = create_branch_ids_sql_filter(route_ids)
-    else:
-        ids_where = create_line_ids_sql_filter(route_ids)
-
-    q_route_geoms = f"select * from {route_type}_geoms" + ids_where
-
-    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    route_geoms.columns = ["route_id", "wkt"]
-    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
-    route_geoms = gpd.GeoDataFrame(
-        route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
-    )
-    return route_geoms

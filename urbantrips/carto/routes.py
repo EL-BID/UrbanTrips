@@ -16,6 +16,8 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_alias,
+    create_branch_ids_sql_filter,
+    create_line_ids_sql_filter,
 )
 
 
