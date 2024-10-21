@@ -11,11 +11,12 @@ import numpy as np
 
 from urbantrips.geo import geo
 from urbantrips.carto import carto
-from urbantrips.utils.utils import (leer_configs_generales,
-                                    duracion,
-                                    iniciar_conexion_db,
-                                    leer_alias
-                                    )
+from urbantrips.utils.utils import (
+    leer_configs_generales,
+    duracion,
+    iniciar_conexion_db,
+    leer_alias,
+)
 
 
 @duracion
@@ -31,8 +32,9 @@ def process_routes_geoms():
     configs = leer_configs_generales()
 
     if route_geoms_not_present(configs):
-        print("No hay recorridos en el archivo de config\n"
-              "No se procesaran recorridos")
+        print(
+            "No hay recorridos en el archivo de config\n" "No se procesaran recorridos"
+        )
         return None
 
     geojson_name = configs["recorridos_geojson"]
@@ -44,40 +46,44 @@ def process_routes_geoms():
     # Checl columns
     check_route_geoms_columns(geojson_data, branches_present)
 
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # if data has lines and branches, split them
     if branches_present:
-        branches_routes = geojson_data\
-            .reindex(columns=['id_ramal', 'geometry'])
+        branches_routes = geojson_data.reindex(columns=["id_ramal", "geometry"])
 
-        branches_routes['wkt'] = branches_routes.geometry.to_wkt()
-        branches_routes = branches_routes\
-            .reindex(columns=['id_ramal', 'wkt'])
+        branches_routes["wkt"] = branches_routes.geometry.to_wkt()
+        branches_routes = branches_routes.reindex(columns=["id_ramal", "wkt"])
 
         branches_routes.to_sql(
-            "official_branches_geoms", conn_insumos, if_exists="replace",
-            index=False,)
+            "official_branches_geoms",
+            conn_insumos,
+            if_exists="replace",
+            index=False,
+        )
 
         # produce a line from branches with lowess
         lines_routes = create_line_geom_from_branches(geojson_data)
 
     else:
-        lines_routes = geojson_data\
-            .reindex(columns=['id_linea', 'geometry'])
+        lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
 
-    assert not lines_routes.id_linea.duplicated().any(
+    assert (
+        not lines_routes.id_linea.duplicated().any()
     ), "id_linea duplicados en geojson de recorridos"
 
-    lines_routes['wkt'] = lines_routes.geometry.to_wkt()
+    lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 
-    lines_routes = lines_routes.reindex(columns=['id_linea', 'wkt'])
-    print('Subiendo tabla de recorridos')
+    lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
+    print("Subiendo tabla de recorridos")
 
     # Upload geoms
     lines_routes.to_sql(
-        "official_lines_geoms", conn_insumos, if_exists="replace",
-        index=False,)
+        "official_lines_geoms",
+        conn_insumos,
+        if_exists="replace",
+        index=False,
+    )
 
     conn_insumos.close()
 
@@ -89,8 +95,8 @@ def infer_routes_geoms(plotear_lineas):
     de las lineas y lo guarda en la db
     """
 
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_data = iniciar_conexion_db(tipo="data")
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
     # traer la coordenadas de las etapas con suficientes datos
     q = """
     select e.id_linea,e.longitud,e.latitud
@@ -98,26 +104,31 @@ def infer_routes_geoms(plotear_lineas):
     """
     etapas = pd.read_sql(q, conn_data)
 
-    recorridos_lowess = etapas.groupby(
-        'id_linea').apply(geo.lowess_linea).reset_index()
+    recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
 
     if plotear_lineas:
-        print('Imprimiento bosquejos de lineas')
+        print("Imprimiento bosquejos de lineas")
         alias = leer_alias()
-        [plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-         for id_linea in recorridos_lowess.id_linea]
+        [
+            plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
+            for id_linea in recorridos_lowess.id_linea
+        ]
 
     print("Subiendo recorridos a la db...")
-    recorridos_lowess['wkt'] = recorridos_lowess.geometry.to_wkt()
+    recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
 
     # Elminar geometrias invalidas
     validas = recorridos_lowess.geometry.map(lambda g: g.is_valid)
 
     recorridos_lowess = recorridos_lowess.loc[validas, :]
-    recorridos_lowess = recorridos_lowess.reindex(columns=['id_linea', 'wkt'])
+    recorridos_lowess = recorridos_lowess.reindex(columns=["id_linea", "wkt"])
 
-    recorridos_lowess.to_sql("inferred_lines_geoms",
-                             conn_insumos, if_exists="replace", index=False,)
+    recorridos_lowess.to_sql(
+        "inferred_lines_geoms",
+        conn_insumos,
+        if_exists="replace",
+        index=False,
+    )
 
     conn_insumos.close()
     conn_data.close()
@@ -126,7 +137,7 @@ def infer_routes_geoms(plotear_lineas):
 @duracion
 def build_routes_from_official_inferred():
 
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # Delete old data
     conn_insumos.execute("DELETE FROM lines_geoms;")
@@ -179,12 +190,11 @@ def create_line_geom_from_branches(geojson_data):
     epsg_m = geo.get_epsg_m()
     geojson_data = geojson_data.to_crs(epsg=epsg_m)
 
-    lines_routes = geojson_data\
-        .groupby('id_linea', as_index=False)\
-        .apply(get_line_lowess_from_branch_routes)
-    lines_routes.columns = ['id_linea', 'geometry']
-    lines_routes = gpd.GeoDataFrame(
-        lines_routes, geometry='geometry', crs=epsg_m)
+    lines_routes = geojson_data.groupby("id_linea", as_index=False).apply(
+        get_line_lowess_from_branch_routes
+    )
+    lines_routes.columns = ["id_linea", "geometry"]
+    lines_routes = gpd.GeoDataFrame(lines_routes, geometry="geometry", crs=epsg_m)
 
     lines_routes = lines_routes.to_crs(epsg=4326)
 
@@ -214,19 +224,22 @@ def get_line_lowess_from_branch_routes(gdf):
 
 def check_route_geoms_columns(geojson_data, branches_present):
     # Check all columns are present
-    cols = ['id_linea', 'geometry']
+    cols = ["id_linea", "geometry"]
 
-    assert not geojson_data.id_linea.isna().any(),\
-        "id_linea vacios en geojson recorridos"
+    assert (
+        not geojson_data.id_linea.isna().any()
+    ), "id_linea vacios en geojson recorridos"
     # assert geojson_data.dtypes['id_linea'] == int,\
     #     "id_linea deben ser int en geojson recorridos"
 
     if branches_present:
-        cols.append('id_ramal')
-        assert not geojson_data.id_ramal.isna().any(),\
-            "id_ramal vacios en geojson recorridos"
-        assert not geojson_data.id_ramal.duplicated().any(),\
-            "id_ramal duplicados en geojson recorridos"
+        cols.append("id_ramal")
+        assert (
+            not geojson_data.id_ramal.isna().any()
+        ), "id_ramal vacios en geojson recorridos"
+        assert (
+            not geojson_data.id_ramal.duplicated().any()
+        ), "id_ramal duplicados en geojson recorridos"
         # assert geojson_data.dtypes['id_ramal'] == int,\
         #     "id_ramal deben ser int en geojson recorridos"
 
@@ -234,17 +247,16 @@ def check_route_geoms_columns(geojson_data, branches_present):
     columns_ok = cols.isin(geojson_data.columns)
 
     if not columns_ok.all():
-        cols_not_ok = ','.join(cols[~columns_ok].values)
+        cols_not_ok = ",".join(cols[~columns_ok].values)
 
-        raise ValueError(
-            f'Faltan columnas en el dataset: {cols_not_ok}')
+        raise ValueError(f"Faltan columnas en el dataset: {cols_not_ok}")
 
     # Check geometry type
     geo.check_all_geoms_linestring(geojson_data)
 
 
 def delete_old_route_geoms_data():
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     conn_insumos.execute("DELETE FROM lines_geoms;")
     conn_insumos.execute("DELETE FROM branches_geoms;")
@@ -277,7 +289,7 @@ def process_routes_metadata():
     and uploads metadata to the db
     """
 
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # Deletes old data
     conn_insumos.execute("DELETE FROM metadata_lineas;")
@@ -297,8 +309,7 @@ def process_routes_metadata():
     # Check modes matches config standarized modes
     try:
         modos_homologados = configs["modos"]
-        zipped = zip(modos_homologados.values(),
-                     modos_homologados.keys())
+        zipped = zip(modos_homologados.values(), modos_homologados.keys())
         modos_homologados = {k: v for k, v in zipped}
 
     except KeyError:
@@ -306,58 +317,67 @@ def process_routes_metadata():
 
     # Line metadata is mandatory
 
-    print('Leyendo tabla con informacion de lineas')
+    print("Leyendo tabla con informacion de lineas")
     ruta = os.path.join("data", "data_ciudad", tabla_lineas)
     info = pd.read_csv(ruta)
 
     # Check all columns are present
     if branches_present:
-        cols = ['id_linea', 'nombre_linea',
-                            'id_ramal', 'nombre_ramal', 'modo']
+        cols = ["id_linea", "nombre_linea", "id_ramal", "nombre_ramal", "modo"]
     else:
-        cols = ['id_linea', 'nombre_linea', 'modo']
+        cols = ["id_linea", "nombre_linea", "modo"]
 
-    assert pd.Series(cols).isin(info.columns).all(
+    assert (
+        pd.Series(cols).isin(info.columns).all()
     ), f"La tabla {ruta} debe tener los campos: {cols}"
 
     # check no missing data in line id
     assert not info.id_linea.isna().any(), "id_linea no debe ser NULL"
 
-    if 'id_linea_agg' not in info.columns:
-        info['id_linea_agg'] = info['id_linea']
-        info['nombre_linea_agg'] = info['nombre_linea']
+    if "id_linea_agg" not in info.columns:
+        info["id_linea_agg"] = info["id_linea"]
+        info["nombre_linea_agg"] = info["nombre_linea"]
 
-    line_cols = ["id_linea",
-                 "nombre_linea",
-                 "id_linea_agg",
-                 "nombre_linea_agg",
-                 "modo",
-                 "empresa",
-                 "descripcion"]
+    line_cols = [
+        "id_linea",
+        "nombre_linea",
+        "id_linea_agg",
+        "nombre_linea_agg",
+        "modo",
+        "empresa",
+        "descripcion",
+    ]
 
-    assert pd.Series(info.modo.unique()).isin(
-        modos_homologados.keys()).all()
+    assert pd.Series(info.modo.unique()).isin(modos_homologados.keys()).all()
 
-    info['modo'] = info['modo'].replace(modos_homologados)
+    info["modo"] = info["modo"].replace(modos_homologados)
 
     # fill missing line agg
-    info.loc[info.id_linea_agg.isna(
-    ), 'nombre_linea_agg'] = info.loc[info.id_linea_agg.isna(), 'nombre_linea']
-    info.loc[info.id_linea_agg.isna(
-    ), 'id_linea_agg'] = info.loc[info.id_linea_agg.isna(), 'id_linea']
+    info.loc[info.id_linea_agg.isna(), "nombre_linea_agg"] = info.loc[
+        info.id_linea_agg.isna(), "nombre_linea"
+    ]
+    info.loc[info.id_linea_agg.isna(), "id_linea_agg"] = info.loc[
+        info.id_linea_agg.isna(), "id_linea"
+    ]
 
     # keep only line data
     info_lineas = info.reindex(columns=line_cols)
-    info_lineas = info_lineas.drop_duplicates(subset='id_linea')
+    info_lineas = info_lineas.drop_duplicates(subset="id_linea")
 
     # upload to db
     info_lineas.to_sql(
-        "metadata_lineas", conn_insumos, if_exists="replace",
-        index=False)
+        "metadata_lineas", conn_insumos, if_exists="replace", index=False
+    )
 
     if branches_present:
-        ramales_cols = ['id_ramal', 'id_linea',
-                        'nombre_ramal', 'modo', 'empresa', 'descripcion']
+        ramales_cols = [
+            "id_ramal",
+            "id_linea",
+            "nombre_ramal",
+            "modo",
+            "empresa",
+            "descripcion",
+        ]
 
         info_ramales = info.reindex(columns=ramales_cols)
 
@@ -365,12 +385,13 @@ def process_routes_metadata():
         s = "Existen nulos en el campo id_ramal"
         assert not info_ramales.id_ramal.isna().any(), s
 
-        assert not info_ramales.id_ramal.duplicated(
-        ).any(), "Existen duplicados en id_ramal"
+        assert (
+            not info_ramales.id_ramal.duplicated().any()
+        ), "Existen duplicados en id_ramal"
 
         info_ramales.to_sql(
-            "metadata_ramales", conn_insumos, if_exists="replace",
-            index=False)
+            "metadata_ramales", conn_insumos, if_exists="replace", index=False
+        )
 
     conn_insumos.close()
 
@@ -391,14 +412,18 @@ def create_line_g(line_id):
         Graph with the branch route id by node_id and ordered
         by stops order
     """
-    conn = iniciar_conexion_db(tipo='insumos')
+    conn = iniciar_conexion_db(tipo="insumos")
     query = f"select * from stops where id_linea = {line_id}"
     line_stops = pd.read_sql(query, conn)
 
     branches_id = line_stops.id_ramal.unique()
 
-    G_line = nx.compose_all([create_branch_g_from_stops_df(
-        line_stops, branch_id) for branch_id in branches_id])
+    G_line = nx.compose_all(
+        [
+            create_branch_g_from_stops_df(line_stops, branch_id)
+            for branch_id in branches_id
+        ]
+    )
 
     return G_line
 
@@ -423,7 +448,7 @@ def create_branch_g_from_stops_df(line_stops, id_ramal):
     branch_stops = line_stops.loc[line_stops.id_ramal == id_ramal, :]
 
     # remove duplicated stops with same node_id
-    branch_stops = branch_stops.drop_duplicates(subset='node_id')
+    branch_stops = branch_stops.drop_duplicates(subset="node_id")
 
     G = create_branch_graph(branch_stops)
     return G
@@ -448,19 +473,22 @@ def create_branch_graph(branch_stops):
     """
     metadata = {
         "crs": "epsg:4326",
-        "id_linea": branch_stops['id_linea'].unique().item(),
-        "id_ramal": branch_stops['id_ramal'].unique().item()
+        "id_linea": branch_stops["id_linea"].unique().item(),
+        "id_ramal": branch_stops["id_ramal"].unique().item(),
     }
     G = nx.MultiGraph(**metadata)
 
-    branch_stops = branch_stops.sort_values(
-        'branch_stop_order').reindex(columns=['node_id', 'node_x', 'node_y'])
-    nodes = [(int(row['node_id']), {'x': row['node_x'], 'y':row['node_y']})
-             for _, row in branch_stops.iterrows()]
+    branch_stops = branch_stops.sort_values("branch_stop_order").reindex(
+        columns=["node_id", "node_x", "node_y"]
+    )
+    nodes = [
+        (int(row["node_id"]), {"x": row["node_x"], "y": row["node_y"]})
+        for _, row in branch_stops.iterrows()
+    ]
     G.add_nodes_from(nodes)
 
-    edges_from = branch_stops['node_id'].iloc[:-1].map(int)
-    edges_to = branch_stops['node_id'].shift(-1).iloc[:-1].map(int)
+    edges_from = branch_stops["node_id"].iloc[:-1].map(int)
+    edges_to = branch_stops["node_id"].shift(-1).iloc[:-1].map(int)
     edges = [(i, j, 0) for i, j in zip(edges_from, edges_to)]
     G.add_edges_from(edges)
 
@@ -468,3 +496,53 @@ def create_branch_graph(branch_stops):
     G = distance.add_edge_lengths(G)
 
     return G
+
+
+def read_branch_routes(branch_ids):
+    """
+    This function take a list of branch ids and returns a geodataframe
+    with route geoms
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    line_ids_where = create_branch_ids_sql_filter(branch_ids)
+    q_route_geoms = "select * from branches_geoms" + line_ids_where
+    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
+    route_geoms = gpd.GeoDataFrame(
+        route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
+    )
+    return route_geoms
+
+
+def read_routes(route_ids, route_type):
+    """
+    This function take a list of branches or lines ids and returns a geodataframe
+    with route geoms
+
+    Parameters
+    ----------
+    route_ids : list
+        list of branches or lines ids
+    route_type : str
+        branches or lines
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        GeoDataFrame with route geoms
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    if route_type == "branches":
+        ids_where = create_branch_ids_sql_filter(route_ids)
+    else:
+        ids_where = create_line_ids_sql_filter(route_ids)
+
+    q_route_geoms = f"select * from {route_type}_geoms" + ids_where
+
+    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms.columns = ["route_id", "wkt"]
+    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
+    route_geoms = gpd.GeoDataFrame(
+        route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
+    )
+    return route_geoms
