@@ -1,11 +1,38 @@
 import numpy as np
 import geopandas as gpd
 import folium
+import pandas as pd
 from urbantrips.geo import geo
 from urbantrips.kpi import overlapping as ovl
+from urbantrips.utils.utils import leer_configs_generales, iniciar_conexion_db
+
+
+def get_route_metadata(route_id):
+    configs = leer_configs_generales()
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    use_branches = configs["lineas_contienen_ramales"]
+    if use_branches:
+        metadata = pd.read_sql(
+            f"select nombre_ramal from metadata_ramales where id_ramal  == {route_id}",
+            conn_insumos,
+        )
+        metadata = metadata.nombre_ramal.iloc[0]
+    else:
+        metadata = pd.read_sql(
+            f"select nombre_linea from metadata_lineas where id_linea  == {route_id}",
+            conn_insumos,
+        )
+        metadata = metadata.nombre_linea.iloc[0]
+    return metadata
 
 
 def plot_interactive_supply_overlapping(overlapping_dict):
+
+    base_route_id = overlapping_dict["base"]["h3"].route_id.unique()[0]
+    comp_route_id = overlapping_dict["comp"]["h3"].route_id.unique()[0]
+    base_route_metadata = get_route_metadata(base_route_id)
+    comp_route_metadata = get_route_metadata(comp_route_id)
+
     # extract data from overlapping dict
     base_gdf = overlapping_dict["base"]["h3"]
     base_route_gdf = overlapping_dict["base"]["line"]
@@ -19,14 +46,30 @@ def plot_interactive_supply_overlapping(overlapping_dict):
     fig = folium.Figure(width=1000, height=600)
     m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
 
-    base_gdf.explore(color="black", tiles="CartoDB positron", m=m, name="Base H3")
+    base_gdf.explore(
+        color="black",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Base H3 {base_route_metadata}",
+    )
     base_route_gdf.explore(
-        color="black", tiles="CartoDB positron", m=m, name="Base route"
+        color="black",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Base route {base_route_metadata}",
     )
 
-    comp_gdf.explore(color="red", tiles="CartoDB positron", m=m, name="Comp")
+    comp_gdf.explore(
+        color="red",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Comp H3 {comp_route_metadata}",
+    )
     comp_route_gdf.explore(
-        color="red", tiles="CartoDB positron", m=m, name="Comp route"
+        color="red",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Comp route {comp_route_metadata}",
     )
 
     folium.LayerControl(name="Legs").add_to(m)
@@ -40,6 +83,12 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     base_route_gdf = overlapping_dict["base"]["line"]
     comp_gdf = overlapping_dict["comp"]["h3"]
     comp_route_gdf = overlapping_dict["comp"]["line"]
+
+    base_route_id = base_gdf.route_id.unique()[0]
+    comp_route_id = comp_gdf.route_id.unique()[0]
+
+    base_route_metadata = get_route_metadata(base_route_id)
+    comp_route_metadata = get_route_metadata(comp_route_id)
 
     # Points for O and D
     base_origins = (
@@ -116,7 +165,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
         column="total_legs",
         tiles="CartoDB positron",
         m=m,
-        name="Base",
+        name=f"Demanda ruta base - {base_route_metadata}",
         cmap="Blues",
         scheme="equalinterval",
     )
@@ -127,7 +176,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
                 "radius": x["properties"]["total_legs_normalized"]
             }
         },
-        name="Base Destinations",
+        name=f"Destinos ruta base - {base_route_metadata}",
         m=m,
     )
     base_origins.explore(
@@ -137,18 +186,21 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
                 "radius": x["properties"]["total_legs_normalized"]
             }
         },
-        name="Base Origins",
+        name=f"Origenes ruta base - {base_route_metadata}",
         m=m,
     )
     base_route_gdf.explore(
-        color="midnightblue", tiles="CartoDB positron", m=m, name="Base route"
+        color="midnightblue",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Ruta base - {comp_route_metadata}",
     )
 
     comp_gdf.explore(
         column="total_legs",
         tiles="CartoDB positron",
         m=m,
-        name="Comp",
+        name=f"Demanda ruta comp - {comp_route_metadata}",
         cmap="Greens",
         scheme="equalinterval",
     )
@@ -159,7 +211,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
                 "radius": x["properties"]["total_legs_normalized"]
             }
         },
-        name="Comp Destinations",
+        name=f"Destinos ruta comp - {comp_route_metadata}",
         m=m,
     )
     comp_origins.explore(
@@ -169,11 +221,14 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
                 "radius": x["properties"]["total_legs_normalized"]
             }
         },
-        name="Comp Origins",
+        name="Origenes ruta comp - {comp_route_metadata}",
         m=m,
     )
     comp_route_gdf.explore(
-        color="darkgreen", tiles="CartoDB positron", m=m, name="Comp route"
+        color="darkgreen",
+        tiles="CartoDB positron",
+        m=m,
+        name=f"Ruta comparacion - {comp_route_metadata}",
     )
 
     folium.LayerControl(name="Leyenda").add_to(m)
