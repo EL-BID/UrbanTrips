@@ -6,7 +6,7 @@ from urbantrips.utils import utils
 def main():
     # Create basic dir structure:
     utils.create_directories()
-
+   
     # Check config file consistency
     check_config()
 

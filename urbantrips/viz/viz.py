@@ -3010,6 +3010,69 @@ def indicadores_dash():
     conn_dash.close()
 
 
+
+
+
+def extract_hex_colors_from_cmap(cmap, n=5):
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap)
+
+    # Extract colors from the colormap
+    colors = cmap(np.linspace(0, 1, n))
+
+    # Convert the colors to hex format
+    hex_colors = [mcolors.rgb2hex(color) for color in colors]
+
+    return hex_colors
+
+
+def viz_travel_times_poly(polygon):
+    """
+    This function takes a shapely polygon as destination
+    fills it with h3 indexes in config resolution
+    and produces a coropleth
+    """
+    configs = leer_configs_generales()
+    h3_res = configs["resolucion_h3"]
+
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    poly_geojson = shapely.to_geojson(polygon)
+    poly_geojson = json.loads(poly_geojson)
+    poly_h3 = h3.polyfill(poly_geojson, res=h3_res, geo_json_conformant=True)
+
+    if len(poly_h3) == 0:
+        poly_h3 = h3.polyfill(poly_geojson, res=h3_res + 1, geo_json_conformant=True)
+        poly_h3 = set(map(h3.h3_to_parent, poly_h3))
+
+    poly_str = "','".join(poly_h3)
+
+    q = f"""
+    select h3_o,factor_expansion_linea,travel_time_min 
+    from viajes v
+    join travel_times_trips tt
+    on  v.dia = tt.dia
+    and v.id_tarjeta = tt.id_tarjeta
+    and v. id_viaje = tt.id_viaje
+    where od_validado = 1
+    and h3_d in ('{poly_str}')
+    """
+    v = pd.read_sql(q, conn_data)
+
+    travel_time_choro = (
+        v.groupby("h3_o")
+        .apply(
+            lambda x: np.average(
+                x["travel_time_min"], weights=x["factor_expansion_linea"]
+            )
+        )
+        .reset_index()
+        .rename(columns={0: "travel_time_min"})
+    )
+    gdf = geo.h3_to_geodataframe(h3_indexes=travel_time_choro.h3_o, var_h3="h3_o")
+    gdf = gdf.merge(travel_time_choro, on="h3_o")
+
+    return gdf
 @duracion
 def create_visualizations():
     """
@@ -3087,32 +3150,33 @@ def create_visualizations():
             (etapas.yr == i.yr) & (etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)
         ]
 
+
+        # print("Imprimiendo tabla de matrices OD")
+        # # Impirmir tablas con matrices OD
+        # imprimir_matrices_od(
+        #     viajes=viajes_dia,
+        #     var_fex="factor_expansion_linea",
+        #     title=f"Matriz OD {desc_dia}",
+        #     savefile=f"{desc_dia_file}",
+        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
+        #     tipo_dia=i.tipo_dia,
+        # )
+
+        # print("Imprimiendo mapas de lí­neas de deseo")
+        # # Imprimir lineas de deseo
+        # imprime_lineas_deseo(
+        #     df=viajes_dia,
+        #     h3_o="",
+        #     h3_d="",
+        #     var_fex="factor_expansion_linea",
+        #     title=f"Lí­neas de deseo {desc_dia}",
+        #     savefile=f"{desc_dia_file}",
+        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
+        #     tipo_dia=i.tipo_dia,
+        # )
+
         # partición modal
         particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
-
-        print("Imprimiendo tabla de matrices OD")
-        # Impirmir tablas con matrices OD
-        imprimir_matrices_od(
-            viajes=viajes_dia,
-            var_fex="factor_expansion_linea",
-            title=f"Matriz OD {desc_dia}",
-            savefile=f"{desc_dia_file}",
-            desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-            tipo_dia=i.tipo_dia,
-        )
-
-        print("Imprimiendo mapas de lí­neas de deseo")
-        # Imprimir lineas de deseo
-        imprime_lineas_deseo(
-            df=viajes_dia,
-            h3_o="",
-            h3_d="",
-            var_fex="factor_expansion_linea",
-            title=f"Lí­neas de deseo {desc_dia}",
-            savefile=f"{desc_dia_file}",
-            desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-            tipo_dia=i.tipo_dia,
-        )
 
         print("Imprimiendo gráficos")
         titulo = f"Cantidad de viajes en transporte público {desc_dia}"
@@ -3125,36 +3189,36 @@ def create_visualizations():
             tipo_dia=i.tipo_dia,
         )
 
-        print("Imprimiendo mapas de burbujas")
-        viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-        imprime_burbujas(
-            viajes_n,
-            res=7,
-            h3_o="h3_o",
-            alpha=0.4,
-            cmap="rocket_r",
-            var_fex="factor_expansion_linea",
-            porc_viajes=100,
-            title=f"Destinos de los viajes {desc_dia}",
-            savefile=f"{desc_dia_file}_burb_destinos",
-            show_fig=False,
-            k_jenks=5,
-        )
+        # print("Imprimiendo mapas de burbujas")
+        # viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
+        # imprime_burbujas(
+        #     viajes_n,
+        #     res=7,
+        #     h3_o="h3_o",
+        #     alpha=0.4,
+        #     cmap="rocket_r",
+        #     var_fex="factor_expansion_linea",
+        #     porc_viajes=100,
+        #     title=f"Destinos de los viajes {desc_dia}",
+        #     savefile=f"{desc_dia_file}_burb_destinos",
+        #     show_fig=False,
+        #     k_jenks=5,
+        # )
 
-        viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-        imprime_burbujas(
-            viajes_n,
-            res=7,
-            h3_o="h3_o",
-            alpha=0.4,
-            cmap="flare",
-            var_fex="factor_expansion_linea",
-            porc_viajes=100,
-            title=f"Hogares {desc_dia}",
-            savefile=f"{desc_dia_file}_burb_hogares",
-            show_fig=False,
-            k_jenks=5,
-        )
+        # viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
+        # imprime_burbujas(
+        #     viajes_n,
+        #     res=7,
+        #     h3_o="h3_o",
+        #     alpha=0.4,
+        #     cmap="flare",
+        #     var_fex="factor_expansion_linea",
+        #     porc_viajes=100,
+        #     title=f"Hogares {desc_dia}",
+        #     savefile=f"{desc_dia_file}_burb_hogares",
+        #     show_fig=False,
+        #     k_jenks=5,
+        # )
 
     save_zones()
 
@@ -3166,65 +3230,3 @@ def create_visualizations():
 
     # plot basic kpi if exists
     plot_basic_kpi_wrapper()
-
-
-def extract_hex_colors_from_cmap(cmap, n=5):
-    # Choose a colormap
-    cmap = plt.get_cmap(cmap)
-
-    # Extract colors from the colormap
-    colors = cmap(np.linspace(0, 1, n))
-
-    # Convert the colors to hex format
-    hex_colors = [mcolors.rgb2hex(color) for color in colors]
-
-    return hex_colors
-
-
-def viz_travel_times_poly(polygon):
-    """
-    This function takes a shapely polygon as destination
-    fills it with h3 indexes in config resolution
-    and produces a coropleth
-    """
-    configs = leer_configs_generales()
-    h3_res = configs["resolucion_h3"]
-
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    poly_geojson = shapely.to_geojson(polygon)
-    poly_geojson = json.loads(poly_geojson)
-    poly_h3 = h3.polyfill(poly_geojson, res=h3_res, geo_json_conformant=True)
-
-    if len(poly_h3) == 0:
-        poly_h3 = h3.polyfill(poly_geojson, res=h3_res + 1, geo_json_conformant=True)
-        poly_h3 = set(map(h3.h3_to_parent, poly_h3))
-
-    poly_str = "','".join(poly_h3)
-
-    q = f"""
-    select h3_o,factor_expansion_linea,travel_time_min 
-    from viajes v
-    join travel_times_trips tt
-    on  v.dia = tt.dia
-    and v.id_tarjeta = tt.id_tarjeta
-    and v. id_viaje = tt.id_viaje
-    where od_validado = 1
-    and h3_d in ('{poly_str}')
-    """
-    v = pd.read_sql(q, conn_data)
-
-    travel_time_choro = (
-        v.groupby("h3_o")
-        .apply(
-            lambda x: np.average(
-                x["travel_time_min"], weights=x["factor_expansion_linea"]
-            )
-        )
-        .reset_index()
-        .rename(columns={0: "travel_time_min"})
-    )
-    gdf = geo.h3_to_geodataframe(h3_indexes=travel_time_choro.h3_o, var_h3="h3_o")
-    gdf = gdf.merge(travel_time_choro, on="h3_o")
-
-    return gdf

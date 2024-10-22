@@ -102,8 +102,100 @@ def update_stations_catchment_area(ring_size):
               " en base a la informacion existente en la tabla de etapas")
     return None
 
+def guardo_zonificaciones():
+    configs = leer_configs_generales()
+    alias = leer_alias()
+    matriz_zonas = []
+    vars_zona = []
+    
+    if configs["zonificaciones"]:
+        zonificaciones = pd.DataFrame([])
+        for n in range(0, 5):
+            try:
+                file_zona = configs["zonificaciones"][f"geo{n+1}"]
+                var_zona = configs["zonificaciones"][f"var{n+1}"]
+    
+                try:
+                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
+                except KeyError:
+                    matriz_order = ""
+    
+                if matriz_order is None:
+                    matriz_order = ""
+    
+                if file_zona:
+                    db_path = os.path.join("data", "data_ciudad", file_zona)
+                    if os.path.exists(db_path):
+                        zonif = gpd.read_file(db_path)
+                        zonif = zonif[[var_zona, 'geometry']]
+                        zonif.columns = ['id', 'geometry']
+                        zonif['zona'] = var_zona
+                        zonif = zonif[['zona', 'id', 'geometry']]
+                        
+                        if len(matriz_order) > 0:
+                            order = pd.DataFrame(matriz_order, columns=['id']).reset_index().rename(columns={'index':'orden'})
+                            zonif = zonif.merge(order, how='left')    
+                        else:
+                            zonif['orden'] = 0
 
-@duracion
+                        zonif['id'] = zonif['id'].astype(str)    
+                        zonif.loc[zonif['id'].str[-2:] == '.0', 'id'] = zonif.loc[zonif['id'].str[-2:] == '.0', 'id'].str[:-2]    
+
+                        zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)    
+    
+            except KeyError:
+                pass
+    
+        db_path = os.path.join("resultados", f'{alias}Zona_voi.geojson')
+        if os.path.exists(db_path):
+            zonif = gpd.read_file(db_path)
+            zonif = zonif[['Zona_voi', 'geometry']]
+            zonif.columns = ['id', 'geometry']
+            zonif['zona'] = 'Zona_voi'
+            zonif['orden'] = 0
+            zonif = zonif[['zona', 'orden', 'id', 'geometry']]        
+            zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
+        
+        if len(zonificaciones) > 0:
+            conn_dash = iniciar_conexion_db(tipo='dash')
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
+            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
+            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
+            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+    
+            zonificaciones.to_sql("zonificaciones",
+                                 conn_insumos, if_exists="replace", index=False,)
+            zonificaciones.to_sql("zonificaciones",
+                         conn_dash, if_exists="replace", index=False,)
+    
+        
+            conn_insumos.close()
+            conn_dash.close()
+            
+    if configs['poligonos']:
+        
+        poly_file = configs['poligonos']
+
+        db_path = os.path.join("data", "data_ciudad", poly_file)
+
+        if os.path.exists(db_path):
+            poly = gpd.read_file(db_path)
+            conn_dash = iniciar_conexion_db(tipo='dash')
+            conn_insumos = iniciar_conexion_db(tipo='insumos')
+            poly['wkt'] = poly.geometry.to_wkt()
+            poly = poly.drop(['geometry'], axis=1)
+        
+            poly.to_sql("poligonos",
+                                 conn_insumos, if_exists="replace", index=False,)
+            poly.to_sql("poligonos",
+                         conn_dash, if_exists="replace", index=False,)
+        
+        
+            conn_insumos.close()
+            conn_dash.close()
+        
+
 def create_zones_table():
     """
     This function takes orign geo data from etapas and geoms from zones
@@ -182,6 +274,9 @@ def create_zones_table():
                 zn = gpd.read_file(zn_path)
                 zn = zn.drop_duplicates()
                 zn = zn[[var_geo, "geometry"]]
+                if zn[var_geo].dtype != 'O':
+                    zn.loc[zn[var_geo].notna(), var_geo] = zn.loc[zn[var_geo].notna(), var_geo].astype(int).astype(str)                   
+
                 zonas = gpd.sjoin(zonas, zn, how="left")
                 zonas = zonas.drop(["index_right"], axis=1)
 
