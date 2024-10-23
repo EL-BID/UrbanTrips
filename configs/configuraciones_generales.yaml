@@ -183,8 +183,8 @@ zonificaciones:
                 "Gran La Plata",
                       ]
 
-    geo4: "zonatc.geojson"                                         
-    var4: "ZONATC"                                                 
+    geo4:                                                          
+    var4:                                                          
     orden4:                                                        
     geo5:                                                          
     var5:                                                          

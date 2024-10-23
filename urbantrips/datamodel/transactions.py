@@ -444,6 +444,11 @@ def eliminar_trx_fuera_bbox(trx):
     zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo='insumos')
     zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
     if len(zonificaciones) > 0:
+        trx["geometry"] = trx.apply(
+            lambda row: Point(row["longitud"], row["latitud"]), axis=1
+        )
+        trx = gpd.GeoDataFrame(trx, geometry="geometry", crs=4326)
+
         zonificaciones['dissolve_column'] = 1
         zonificaciones = zonificaciones.dissolve(by='dissolve_column')
 
