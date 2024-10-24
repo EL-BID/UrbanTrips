@@ -79,8 +79,8 @@ def visualize_route_section_load(
     n_sections=10,
     section_meters=None,
     stat="totals",
-    factor=1,
-    factor_min=50,
+    factor=500,
+    factor_min=1,
     save_gdf=False,
 ):
     """
@@ -265,12 +265,14 @@ def load_route_section_load_data_q(
     return q_main_data
 
 def standarize_size(series, min_size, max_size):
-    return min_size + (max_size - 1) * (series - series.min()) / (
+    if series.min() == series.max():
+        return pd.Series([min_size] * len(series))
+    return min_size + (max_size - min_size) * (series - series.min()) / (
         series.max() - series.min()
     )
 
 def viz_etapas_x_tramo_recorrido(
-    df, stat="totals", factor=1, factor_min=50, return_gdfs=False, save_gdf=False
+    df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
 ):
     """
     Plots and saves a section load viz for a given route
