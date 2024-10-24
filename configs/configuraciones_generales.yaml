@@ -1,10 +1,10 @@
 # Archivo de configuración para urbantrips
 
 # Bases de datos
-nombre_archivo_trx: "UT_AMBA-2024-5-14-AP.csv"                     # Especificar el archivo con las transacciones a consumir
-alias_db_data: "amba_2024"                                         # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "amba_2024"                                      # nombre del sqlite donde se guardan los insumos generales
-alias_db_dashboard: "amba_2024"                                    # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
+nombre_archivo_trx: "UT_AMBA-2024-5-14-AP_m10.csv"                 # Especificar el archivo con las transacciones a consumir
+alias_db_data: "amba_2024_m10"                                     # nombre del sqlite donde se guardan los datos procesados
+alias_db_insumos: "amba_2024_m10"                                  # nombre del sqlite donde se guardan los insumos generales
+alias_db_dashboard: "amba"                                         # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
@@ -21,7 +21,7 @@ nombres_variables_trx:
     tarifa: "ats"                                                  # Indica el tipo de tarifa asignado a la transacción
     latitud_trx: "latitude"                                        # columna con la latitud de la transacción
     longitud_trx: "longitude"                                      # columna con longitud de la transacción
-    factor_expansion:                                              # columna con el factor de expansión
+    factor_expansion: "fex_linea"                                  # columna con el factor de expansión
 
 # Parámetros de transacciones
 ordenamiento_transacciones: "fecha_completa"                       # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
@@ -60,6 +60,7 @@ nombres_variables_gps:
     latitud_gps: "lat_gps"                                         
     longitud_gps: "lon_gps"                                        
     velocity_gps: "vel_gps"                                        
+    distance_gps: "distance"                                       
     servicios_gps: "serv_val"                                      # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
@@ -183,8 +184,8 @@ zonificaciones:
                 "Gran La Plata",
                       ]
 
-    geo4:                                                          
-    var4:                                                          
+    geo4: "zonatc.geojson"                                         
+    var4: "ZONATC"                                                 
     orden4:                                                        
     geo5:                                                          
     var5:                                                          

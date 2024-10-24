@@ -829,6 +829,7 @@ def process_and_upload_gps_table(
         "latitud",
         "longitud",
         "velocity",
+        "distance",
         "service_type",
         "distance_km",
         "h3",
@@ -893,7 +894,7 @@ def compute_distance_km_gps(gps_df):
         geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
     )
 
-    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"])
+    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"]).reset_index(drop=True)
 
     # Producir un lag con respecto al siguiente posicionamiento gps
     gps_df["h3_lag"] = (
