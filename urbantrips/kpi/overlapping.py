@@ -480,6 +480,17 @@ def compute_demand_overlapping(
     comp_gdf,
 ):
     configs = utils.leer_configs_generales()
+    comp_h3_resolution = h3.h3_get_resolution(comp_gdf.h3.iloc[0])
+    configs_resolution = configs["resolucion_h3"]
+
+    if comp_h3_resolution > configs_resolution:
+        print(
+            "No puede procesarse la demanda con resolución de H3 mayor a la configurada"
+        )
+        print("Se recomienda bajar la resolución de H3 de la línea de comparación")
+        print(f"Resolucion para solapamiento de demanda {comp_h3_resolution}")
+        print(f"Resolucion configurada {configs_resolution}")
+        return None, None
 
     use_branches = configs["lineas_contienen_ramales"]
 

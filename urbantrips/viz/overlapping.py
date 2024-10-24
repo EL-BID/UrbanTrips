@@ -221,7 +221,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
                 "radius": x["properties"]["total_legs_normalized"]
             }
         },
-        name="Origenes ruta comp - {comp_route_metadata}",
+        name=f"Origenes ruta comp - {comp_route_metadata}",
         m=m,
     )
     comp_route_gdf.explore(
