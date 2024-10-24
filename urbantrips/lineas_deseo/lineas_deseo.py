@@ -1,12 +1,15 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+import os
 from urbantrips.utils.utils import iniciar_conexion_db, levanto_tabla_sql
 from urbantrips.geo.geo import normalizo_lat_lon
 from urbantrips.utils.utils import traigo_tabla_zonas, calculate_weighted_means
 from urbantrips.geo.geo import h3_to_lat_lon, h3toparent, h3_to_geodataframe, point_to_h3, create_h3_gdf
 from urbantrips.utils.check_configs import check_config
 from shapely.geometry import Point
+from urbantrips.utils.utils import leer_alias
+from urbantrips.carto import carto
 
 
 def load_and_process_data():
@@ -557,6 +560,108 @@ def normalizo_zona(df, zonificaciones):
         df = pd.concat([tmp1, tmp2_a, tmp2_b], ignore_index=True)
     return df
 
+def agg_matriz(df,
+               aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
+                               'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+               weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+               weight_var='factor_expansion_linea',               
+               agg_transferencias=False,
+               agg_modo=False,
+               agg_hora=False,
+               agg_distancia=False):
+
+    if len(df) > 0:
+        if agg_transferencias:
+            df['transferencia'] = 99
+        if agg_modo:
+            df['modo_agregado'] = 99
+        if agg_hora:
+            df['rango_hora'] = 99
+        if agg_distancia:
+            df['distancia'] = 99
+        
+        df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
+
+        df2 = calculate_weighted_means(df,
+                              aggregate_cols=aggregate_cols,
+                              weighted_mean_cols=weight_col,
+                              weight_col=weight_var
+                              )
+        df = df1.merge(df2)
+
+
+    return df
+
+def imprimo_matrices_od():
+    print('Imprimo matrices OD')
+    alias = leer_alias()
+    
+    matrices_all = levanto_tabla_sql('agg_matrices')
+    
+    agg_transferencias=True
+    agg_modo=True
+    agg_hora=True
+    agg_distancia=True
+    
+    matrices = matrices_all.groupby(["id_polygon", "tipo_dia", "zona", "inicio", "fin", "transferencia", "modo_agregado", "rango_hora", "genero", "tarifa", "distancia", "orden_origen", "orden_destino", "Origen", "Destino", ], as_index=False)[[
+                        "lat1", "lon1", "lat4", "lon4", "distance_osm_drive", "travel_time_min", "travel_speed", "factor_expansion_linea"
+                        ]] .mean().round(2)
+    
+    matriz_ = agg_matriz(matrices,
+                        aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
+                                        'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
+                        weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                        weight_var='factor_expansion_linea',
+                        agg_transferencias=agg_transferencias,
+                        agg_modo=agg_modo,
+                        agg_hora=agg_hora,
+                        agg_distancia=agg_distancia)
+    
+    for var_zona in matriz_.zona.unique():
+    
+        savefile=f"{alias}matriz_{var_zona}"
+                
+        matriz = matriz_[matriz_.zona==var_zona]
+        var_matriz = 'factor_expansion_linea'
+        normalize=False
+        
+        # var_matriz = 'distance_osm_drive'
+        # var_matriz = 'travel_time_min'
+        # var_matriz = 'travel_speed'
+        
+        od_heatmap = pd.crosstab(
+                    index=matriz['Origen'],
+                    columns=matriz['Destino'],
+                    values=matriz[var_matriz],
+                    aggfunc="sum",
+                    normalize=False,
+                )
+        
+        od_heatmap = od_heatmap.reset_index()
+        od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
+        od_heatmap = od_heatmap.set_index('Origen')
+        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+                
+        db_path = os.path.join("resultados", "matrices", f"{savefile}.xlsx")
+        od_heatmap.reset_index().fillna('').to_excel(db_path, index=False)
+
+        od_heatmap = pd.crosstab(
+            index=matriz['Origen'],
+            columns=matriz['Destino'],
+            values=matriz[var_matriz],
+            aggfunc="sum",
+            normalize=True,
+        )
+        
+        od_heatmap = od_heatmap.reset_index()
+        od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
+        od_heatmap = od_heatmap.set_index('Origen')
+        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+                
+        db_path2 = os.path.join("resultados", "matrices", f"{savefile}_normalizada.xlsx")
+        od_heatmap.reset_index().fillna('').to_excel(db_path2, index=False)
+
+        print(db_path, '---', db_path2)
 
 def crea_socio_indicadores(etapas, viajes):
     print('Creo indicadores de género y tarifa')
@@ -1234,6 +1339,8 @@ def proceso_poligonos():
     print('Procesa polígonos')
 
     check_config()
+    carto.guardo_zonificaciones()
+    carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
 
@@ -1271,6 +1378,8 @@ def proceso_lineas_deseo():
     print('Procesa etapas')
 
     check_config()
+    carto.guardo_zonificaciones()
+    carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
     zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
@@ -1284,7 +1393,7 @@ def proceso_lineas_deseo():
     indicadores = construyo_indicadores(viajes)
 
     socio_indicadores = crea_socio_indicadores(etapas, viajes)
-
+    
     print('Guardo datos para dashboard')
     conn_dash = iniciar_conexion_db(tipo='dash')
 
@@ -1303,3 +1412,5 @@ def proceso_lineas_deseo():
 
 
     conn_dash.close()
+
+    imprimo_matrices_od()

@@ -688,7 +688,7 @@ def test_viz(matriz_validacion_test_amba):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    carto.create_zones_table()
+    # carto.create_zones_table()
 
     carto.create_voronoi_zones()
 

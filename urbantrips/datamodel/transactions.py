@@ -441,16 +441,14 @@ def eliminar_trx_fuera_bbox(trx):
 
     original = len(trx)
 
-    zonificaciones = levanto_tabla_sql("zonificaciones")
+    zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo='insumos')
+    zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
     if len(zonificaciones) > 0:
         trx["geometry"] = trx.apply(
             lambda row: Point(row["longitud"], row["latitud"]), axis=1
         )
         trx = gpd.GeoDataFrame(trx, geometry="geometry", crs=4326)
 
-        # zona = zonificaciones.zona.head().values[0]
-        # zonificaciones = zonificaciones[zonificaciones.zona == zona]
-        # zonificaciones = zonificaciones.dissolve(by="zona")
         zonificaciones['dissolve_column'] = 1
         zonificaciones = zonificaciones.dissolve(by='dissolve_column')
 
@@ -831,6 +829,7 @@ def process_and_upload_gps_table(
         "latitud",
         "longitud",
         "velocity",
+        "distance",
         "service_type",
         "distance_km",
         "h3",
@@ -895,7 +894,7 @@ def compute_distance_km_gps(gps_df):
         geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
     )
 
-    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"])
+    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"]).reset_index(drop=True)
 
     # Producir un lag con respecto al siguiente posicionamiento gps
     gps_df["h3_lag"] = (

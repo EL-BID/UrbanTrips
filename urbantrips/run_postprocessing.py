@@ -7,9 +7,12 @@ from urbantrips.utils.check_configs import check_config
 def main():
     check_config()
 
-    # Create TAZs
-    carto.create_zones_table()
+    # Save zonification cartography in db
+    carto.guardo_zonificaciones()    
 
+    # Create zones_table
+    carto.create_zones_table()
+    
     # Create voronoi TAZs
     carto.create_voronoi_zones()
 

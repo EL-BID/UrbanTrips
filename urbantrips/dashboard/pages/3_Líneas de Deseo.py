@@ -434,7 +434,7 @@ with st.expander('Líneas de Deseo', expanded=True):
 
             with col2:
                 # st_map = st_folium(map, width=1200, height=1000) #
-                folium_static(map, width=1200, height=600)
+                folium_static(map, width=1500, height=1000)
 
         else:
             matriz = pd.DataFrame([])
