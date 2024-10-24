@@ -79,8 +79,8 @@ def visualize_route_section_load(
     n_sections=10,
     section_meters=None,
     stat="totals",
-    factor=1,
-    factor_min=50,
+    factor=500,
+    factor_min=1,
     save_gdf=False,
 ):
     """
@@ -264,9 +264,15 @@ def load_route_section_load_data_q(
     q_main_data = q_main_data + ";"
     return q_main_data
 
+def standarize_size(series, min_size, max_size):
+    if series.min() == series.max():
+        return pd.Series([min_size] * len(series))
+    return min_size + (max_size - min_size) * (series - series.min()) / (
+        series.max() - series.min()
+    )
 
 def viz_etapas_x_tramo_recorrido(
-    df, stat="totals", factor=1, factor_min=50, return_gdfs=False, save_gdf=False
+    df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
 ):
     """
     Plots and saves a section load viz for a given route
@@ -337,12 +343,13 @@ def viz_etapas_x_tramo_recorrido(
     print("Produciendo grafico de ocupacion por tramos", line_id)
 
     # set a expansion factor for viz purposes
-    df["buff_factor"] = df[indicator_col] * factor
-
+    #df["buff_factor"] = df[indicator_col] * factor
     # Set a minimum for each section to be displated in map
-    df["buff_factor"] = np.where(
-        df["buff_factor"] <= factor_min, factor_min, df["buff_factor"]
-    )
+    #df["buff_factor"] = np.where(df["buff_factor"] <= factor_min, factor_min, df["buff_factor"])
+
+    df['buff_factor'] = standarize_size(
+        series=df[indicator_col], min_size=factor_min, max_size=factor
+        )
 
     cols = [
         "id_linea",
