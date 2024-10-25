@@ -968,6 +968,7 @@ def create_gps_table():
             CREATE TABLE IF NOT EXISTS services
                 (
                 id_linea int,
+                id_ramal int,
                 dia text,
                 interno int,
                 original_service_id int,
@@ -990,6 +991,7 @@ def create_gps_table():
             CREATE TABLE IF NOT EXISTS services_stats
                 (
                 id_linea int,
+                id_ramal int,
                 dia text,
                 cant_servicios_originales int,
                 cant_servicios_nuevos int,
