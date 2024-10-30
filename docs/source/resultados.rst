@@ -343,9 +343,78 @@ La tabla ``services`` agrupa los servicios ofertados por las diferentes lineas, 
    * - *node_od*
      - int
      - node_id del ramal más cercano.
-     
+    
+Las tablas a continuación indican el origen y el destino de cada etapa con respecto a cada gps o estación.
+
+.. list-table:: legs_to_gps_origin
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_legs*
+     - int
+     - id de la tabla etapas
+   * - *id_gps*
+     - int
+     - id de la tabla gps 
 
 
+.. list-table:: legs_to_gps_destination
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_legs*
+     - int
+     - id de la tabla etapas
+   * - *id_gps*
+     - int
+     - id de la tabla gps 
+
+
+.. list-table:: legs_to_station_origin
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_legs*
+     - int
+     - id de la tabla etapas
+   * - *id_station*
+     - int
+     - id de la tabla travel_times_stations 
+
+.. list-table:: legs_to_station_destination
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *id_legs*
+     - int
+     - id de la tabla etapas
+   * - *id_station*
+     - int
+     - id de la tabla travel_times_stations 
 
 
 **Tablas de estadisticos**
@@ -420,6 +489,25 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
      - proporción de servicios originales dentro de los cuales hay uno y solo un servicio valido inferio por UrbanTrips.
       
 
+.. list-table:: services_by_line_hour
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - id de la linea de los servicios.
+   * - *dia*
+     - text
+     - dia de los datos sobre los cuales se calculan los estadísticos.
+   * - *hora*
+     - int
+     - hora del dia sobre la cual se calculan los estadísticos.
+   * - *servicios*
+     - int
+     - cantidad de servicios por dia y hora.
 
 
 .. list-table:: ocupacion_por_linea_tramo
@@ -432,6 +520,9 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *id_linea*
      - int
      - id de la linea sobre el que se calculan los estadísticos.
+   * - *yr_mo*
+     - text
+     - mes y anio sobre el que se calculan los estadísticos.
    * - *day_type*
      - text
      - dia o tipo de día sobre el cual se calcula los estadísticos.
@@ -446,23 +537,17 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
      - sentido de las etapas utilizadas para calcular los estadísticos de ocupación.
    * - *section_id*
      - float
-     - id de la sección para la que se calcula los estadísticos. Tambíén el % del LRS del inicio de la sección sobre el recorrido representativo de la linea.
-   * - *X*
-     - float
-     - coordenada del inicio de la sección.
-   * - *y*
-     - float
-     - coordenada del inicio de la sección.
-   * - *hora_min*
+     - id de la sección para la que se calcula los estadísticos. Se une con routes_section_id_coords.
+   * - *hour_min*
      - int
      - hora mínima de las etapas a utilizar para calcular los estadísticos.
-   * - *hora_max*
+   * - *hour_max*
      - int
      - hora máxima de las etapas a utilizar para calcular los estadísticos.
-   * - *cantidad_etapas*
+   * - *legs*
      - int
      - cantidad de etapas en esa sección para ese día y horas.
-   * - *prop_etapas*
+   * - *prop*
      - float
      - proporción de etapas de esa sección sobre el total de etapas para ese día y horas.
 
@@ -664,6 +749,81 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
      - Velocidad comercial promedio de esa línea para ese día.
 
 
+
+.. list-table:: overlapping
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *dia*
+     - text
+     - Fecha del día para el cual fue computado el estadístico
+   * - *base_line_id*
+     - int
+     - id identificando la linea de base
+   * - *base_branch_id*
+     - int
+     - id identificando el ramal de base
+   * - *comp_line_id*
+     - int
+     - id identificando la linea de comparacion	
+   * - *comp_branch_id*
+     - int
+     - id identificando el ramal de comparacion
+   * - *res_h3*
+     - int
+     - resolucion h3 utilizada en el computo del estadistico
+   * - *overlap*
+     - float
+     - estadistico de solapamiento
+   * - *type_overlap*
+     - text
+     - tipo de estadistico de solapamiento (oferta o demanda)    
+
+
+
+
+.. list-table:: lines_od_matrix_by_section
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - id de la linea sobre el que se calculan los estadísticos.
+   * - *yr_mo*
+     - text
+     - mes y anio sobre el que se calculan los estadísticos.
+   * - *day_type*
+     - text
+     - dia o tipo de día sobre el cual se calcula los estadísticos.
+   * - *n_sections*
+     - int
+     - cantidad de secciones en las que se segmentó el recorrido representativo de la linea.
+   * - *section_id_o*
+     - float
+     - id de la sección de origen para la que se calcula los estadísticos. Se une con routes_section_id_coords.
+   * - *section_id_d*
+     - float
+     - id de la sección de destino para la que se calcula los estadísticos. Se une con routes_section_id_coords.
+   * - *hour_min*
+     - int
+     - hora mínima de las etapas a utilizar para calcular los estadísticos.
+   * - *hour_max*
+     - int
+     - hora máxima de las etapas a utilizar para calcular los estadísticos.
+   * - *legs*
+     - int
+     - cantidad de etapas en esa sección para ese día y horas.
+   * - *prop*
+     - float
+     - proporción de etapas de esa sección sobre el total de etapas para ese día y horas.
+
+
 Modelo de datos de base ``insumos``
 -----------------------------------
 
@@ -823,7 +983,7 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - *Zona_voi*
      - int
      - id de la zona voronoi al que pertenece el indice h3.     
-
+     
      
 
 .. list-table:: distancias
@@ -857,3 +1017,28 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
 
 
 
+.. list-table:: routes_section_id_coords
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_linea*
+     - int
+     - id de la linea del tramo del recorrido.
+   * - *n_sections*
+     - int
+     - cantidad de secciones en el que se fragmento el recorrido de la linea.
+   * - *section*
+     - int
+     - id del segmento del recorrido
+   * - *section_lrs*
+     - float
+     - proporcion del recorrido en el que se encuentra el inicio del tramo
+   * - *x*
+     - float
+     - longitud del inicio del tramo     
+   * - *y*
+     - float
+     - latitud del inicio del tramo
