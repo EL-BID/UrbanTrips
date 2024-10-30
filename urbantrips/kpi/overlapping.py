@@ -197,7 +197,7 @@ def aggregate_demand_data(
     conn_insumos.close()
 
     print(
-        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas"
+        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas "
     )
 
     shared_demand = round(
@@ -209,7 +209,7 @@ def aggregate_demand_data(
         1,
     )
     print(
-        f"De las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}"
+        f"de las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}\n\n"
     )
     update_overlapping_table_demand(
         day,
@@ -417,12 +417,12 @@ def compute_supply_overlapping(
         comp_branch_id = comp_route_id
 
         print(
-            f"El {base_v_comp} % del recorrido del ramal base {base_branch_name}"
-            f" se superpone con el del ramal de comparación {comp_branch_name}"
+            f"El {base_v_comp} % del recorrido del ramal base {base_branch_name} "
+            f" se superpone con el del ramal de comparación {comp_branch_name}\n\n"
         )
         print(
-            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name}"
-            f" se superpone con el del ramal {base_branch_name}"
+            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name} "
+            f" se superpone con el del ramal {base_branch_name}\n\n"
         )
 
     else:
@@ -446,11 +446,11 @@ def compute_supply_overlapping(
 
         print(
             f"El {base_v_comp} % del recorrido de la linea base {base_line_name}"
-            " se superpone con el del ramal de comparación {comp_line_name}"
+            " se superpone con el del ramal de comparación {comp_line_name}\n\n"
         )
         print(
             f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_line_name}"
-            " se superpone con el del ramal {base_line_name}"
+            " se superpone con el del ramal {base_line_name}\n\n"
         )
 
     update_overlapping_table_supply(
