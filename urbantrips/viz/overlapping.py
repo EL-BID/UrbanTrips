@@ -43,7 +43,7 @@ def plot_interactive_supply_overlapping(overlapping_dict):
     mean_x = np.mean(base_route_gdf.item().coords.xy[0])
     mean_y = np.mean(base_route_gdf.item().coords.xy[1])
 
-    fig = folium.Figure(width=1000, height=600)
+    fig = folium.Figure(width=800, height=600)
     m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
 
     base_gdf.explore(
@@ -158,8 +158,12 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
         comp_origins["total_legs"], min_dot_size, max_dot_size
     )
 
-    fig = folium.Figure(width=1000, height=600)
-    m = folium.Map(location=(-34.606, -58.436), zoom_start=11, tiles="cartodbpositron")
+    # get mean coords to center map
+    mean_x = np.mean(base_route_gdf.item().coords.xy[0])
+    mean_y = np.mean(base_route_gdf.item().coords.xy[1])
+
+    fig = folium.Figure(width=800, height=600)
+    m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
 
     base_gdf.explore(
         column="total_legs",

@@ -196,7 +196,7 @@ with st.expander("Comparación de líneas", expanded=True):
         # Renderiza el primer mapa
         f = ovl_viz.plot_interactive_supply_overlapping(overlapping_dict)
         with col1:
-            st_folium(f, width=1000, height=800)
+            st_folium(f, width=800, height=600)
         col1.write(
             st.session_state[f"output_text_{base_route_id}_{comp_route_id}"]
         )  # Muestra la salida solo en col1
@@ -230,7 +230,7 @@ with st.expander("Comparación de líneas", expanded=True):
             base_demand, comp_demand, overlapping_dict
         )
         with col2:
-            st_folium(fig, width=1000, height=800)
+            st_folium(fig, width=800, height=600)
             col2.write(
                 st.session_state[f"output_text2_{base_route_id}_{comp_route_id}"]
             )  # Muestra la segunda salida justo después del mapa
