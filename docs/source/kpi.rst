@@ -28,7 +28,7 @@ Por ejemplo, un usuario que inicia una etapa en el punto equiparable al 10% del 
 Para computar esta demanda por tramo se puede utilizar la siguiente función:
 
 * ``id_linea``: id de línea o lista de ids de líneas a procesar
-* ``rango_hrs``: define el rango horario del origen de las etapas a utilizar
+* ``hour_range``: define el rango horario del origen de las etapas a utilizar
 * ``n_sections``: cantidad de segmentos a dividir el recorrido
 * ``section_meters``: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará ``n_sections``.
 * ``day_type``: fecha de los datos a procesar o tipo de día (``weekday`` o ``weekend``).
@@ -37,7 +37,7 @@ Para computar esta demanda por tramo se puede utilizar la siguiente función:
 
    kpi.compute_route_section_load(
     	id_linea=False,
-   		rango_hrs=False,
+   		hour_range=False,
    		n_sections=10,
    		section_meters=None,
    		day_type="weekday"
@@ -52,11 +52,11 @@ Urbantrips también permite construir una visualización exploratoria en base a 
 
    viz.visualize_route_section_load(
        id_linea=False,
-       rango_hrs=False,
+       hour_range=False,
        day_type='weekday',
        n_sections=10,
        section_meters=None,
-       indicador='cantidad_etapas',
+       stat='cantidad_etapas',
        factor=1,
        factor_min=50,
        save_gdf=False
@@ -64,14 +64,62 @@ Urbantrips también permite construir una visualización exploratoria en base a 
 
 
 * ``id_linea``: id de línea o lista de ids de líneas a procesar
-* ``rango_hrs``: define el rango horario del origen de las etapas a utilizar
+* ``hour_range``: define el rango horario del origen de las etapas a utilizar
 * ``day_type``: fecha de los datos a procesar o tipo de día (``weekday`` o ``weekend``).
 * ``n_sections``: cantidad de segmentos a dividir el recorrido
 * ``section_meters``: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará ``n_sections``.
-* ``indicador``: indicador a utilizar ``‘prop_etapas’`` o ``'cantidad_etapas'``.
-* ``factor``: factor de escalado que el el tramo tendrá en la visualización en base al indicador utilizado. 
+* ``stat``: indicador a utilizar ``proportion`` o ``'totals'``.
+* ``factor``: factor de escalado en metros que el tramo tendrá en la visualización en base al indicador utilizado. 
 * ``factor_min``: ancho mínimo en metros que el tramo tendrá en la visualización.
 * ``save_gdf``: guardar los resultados de la visualización en un archivo geojson.
+
+
+
+**Matriz OD de la línea**
+
+De modo similar, Urbantrips puede calcular para cada línea una Matriz OD tomando esos segmentos como unidades espaciales de análisis.
+
+
+.. code:: python
+
+   kpi.compute_lines_od_matrix(
+      line_ids=[1], 
+      hour_range=[7,8],
+      n_sections=10,
+      section_meters=None,
+      day_type='weekday,
+      save_csv=True
+)
+
+
+* ``line_ids``: id de línea o lista de ids de líneas a procesar
+* ``hour_range``: define el rango horario del origen de las etapas a utilizar
+* ``day_type``: fecha de los datos a procesar o tipo de día (``weekday`` o ``weekend``) o una fecha en particular.
+* ``n_sections``: cantidad de segmentos a dividir el recorrido
+* ``section_meters``: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará ``n_sections``.
+* ``save_csv``: guardar los resultados de la matriz OD en un archivo csv.
+
+
+Este producto es una matriz de origen destino que se puede visualizar en un mapa o utilizar para otros análisis.
+
+.. code:: python
+
+   viz.visualize_lines_od_matrix(
+       line_ids=[1],
+       hour_range=[7,8],
+       day_type='weekday',
+       n_sections=10,
+       section_meters=None,
+      stat='totals'
+   )
+
+* ``id_linea``: id de línea o lista de ids de líneas a procesar
+* ``hour_range``: define el rango horario del origen de las etapas a utilizar
+* ``day_type``: fecha de los datos a procesar o tipo de día (``weekday`` o ``weekend``).
+* ``n_sections``: cantidad de segmentos a dividir el recorrido
+* ``section_meters``: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará ``n_sections``.
+* ``stat``: indicador a utilizar ``proportion`` o ``'totals'``.
+
 
 
 En base a GPS
