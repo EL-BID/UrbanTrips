@@ -188,6 +188,7 @@ def aggregate_demand_data(
         comp_branch_name = metadata.loc[
             metadata.id_ramal == comp_branch_id, "nombre_ramal"
         ].item()
+
         demand_base_branch_str = (
             f"que podria recorrer este ramal {base_branch_name} (id {base_branch_id}) "
         )
@@ -198,10 +199,6 @@ def aggregate_demand_data(
         demand_comp_branch_str = " "
     conn_insumos.close()
 
-    print(
-        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas "
-    )
-
     shared_demand = round(
         legs_within_branch.loc[
             legs_within_branch.leg_in_shared_h3, "factor_expansion_linea"
@@ -210,7 +207,8 @@ def aggregate_demand_data(
         * 100,
         1,
     )
-    print(
+    output_text = (
+        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas "
         f"de las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}\n\n"
     )
     update_overlapping_table_demand(
@@ -222,7 +220,7 @@ def aggregate_demand_data(
         res_h3=h3.h3_get_resolution(supply_gdf.h3.iloc[0]),
         base_v_comp=shared_demand,
     )
-    return legs_within_branch
+    return {"data": legs_within_branch, "output_text": output_text}
 
 
 def demand_by_section_id(legs_within_branch):
@@ -418,11 +416,11 @@ def compute_supply_overlapping(
         base_branch_id = base_route_id
         comp_branch_id = comp_route_id
 
-        print(
+        output_text_base_v_comp = (
             f"El {base_v_comp} % del recorrido del ramal base {base_branch_name} "
             f" se superpone con el del ramal de comparación {comp_branch_name}\n\n"
         )
-        print(
+        output_text_comp_v_base = (
             f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name} "
             f" se superpone con el del ramal {base_branch_name}\n\n"
         )
@@ -446,11 +444,11 @@ def compute_supply_overlapping(
             metadata.id_linea == comp_route_id, "nombre_linea"
         ].item()
 
-        print(
+        output_text_base_v_comp = (
             f"El {base_v_comp} % del recorrido de la linea base {base_line_name}"
             " se superpone con el del ramal de comparación {comp_line_name}\n\n"
         )
-        print(
+        output_text_comp_v_base = (
             f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_line_name}"
             " se superpone con el del ramal {base_line_name}\n\n"
         )
@@ -469,6 +467,8 @@ def compute_supply_overlapping(
     return {
         "base": {"line": base_route_gdf, "h3": base_h3},
         "comp": {"line": comp_route_gdf, "h3": comp_h3},
+        "text_base_v_comp": output_text_base_v_comp,
+        "text_comp_v_base": output_text_comp_v_base,
     }
 
 
@@ -510,7 +510,7 @@ def compute_demand_overlapping(
         supply_gdf=comp_gdf, day_type=day_type, line_id=comp_line_id
     )
 
-    base_demand = aggregate_demand_data(
+    base_demand_dict = aggregate_demand_data(
         legs=base_legs,
         supply_gdf=base_gdf,
         base_line_id=base_line_id,
@@ -518,7 +518,7 @@ def compute_demand_overlapping(
         base_branch_id=base_branch_id,
         comp_branch_id=comp_branch_id,
     )
-    comp_demand = aggregate_demand_data(
+    comp_demand_dict = aggregate_demand_data(
         legs=comp_legs,
         supply_gdf=comp_gdf,
         base_line_id=comp_line_id,
@@ -527,7 +527,7 @@ def compute_demand_overlapping(
         comp_branch_id=base_branch_id,
     )
 
-    return base_demand, comp_demand
+    return {"base": base_demand_dict, "comp": comp_demand_dict}
 
 
 def get_route_combinations(base_line_id, comp_line_id):
