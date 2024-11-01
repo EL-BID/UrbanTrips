@@ -104,14 +104,14 @@
 <p>Para computar esta demanda por tramo se puede utilizar la siguiente función:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">id_linea</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">rango_hrs</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hour_range</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>).</p></li>
 </ul>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kpi</span><span class="o">.</span><span class="n">compute_route_section_load</span><span class="p">(</span>
      <span class="n">id_linea</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-             <span class="n">rango_hrs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+             <span class="n">hour_range</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
              <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
              <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
              <span class="n">day_type</span><span class="o">=</span><span class="s2">&quot;weekday&quot;</span>
@@ -121,11 +121,11 @@
 <p>Urbantrips también permite construir una visualización exploratoria en base a los datos computados previamente. La misma conformará a partir de los <em>x</em> puntos <em>x-1</em> segmentos donde el tamaño y color del mismo indicará la demanda, ya sea en cantidad total de etapas (<code class="docutils literal notranslate"><span class="pre">indicador='cantidad_etapas'</span></code>) o proporcional (<code class="docutils literal notranslate"><span class="pre">indicador</span> <span class="pre">=</span> <span class="pre">‘prop_etapas’</span></code>). La función toma un parámetro de ancho mínimo en metros que dichos segmentos van a tomar (para los segmentos con mínima o nula demanda) y un factor de expansión también en metros. Por ejemplo, si se utiliza el indicador <code class="docutils literal notranslate"><span class="pre">prop_etapas</span></code> y <code class="docutils literal notranslate"><span class="pre">factor</span> <span class="pre">=</span> <span class="pre">500</span></code> aquel segmento que tenga una demanda igual al máximo de la demanda de esa línea en ese sentido para ese rango horario, el buffer del recorrido a visualizar tendrá un ancho de 500 m (<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">*</span> <span class="pre">500</span></code>) y aquel que tenga una demanda equivalente a la mitad de esa demanda total, tendrá un ancho de 250 m en la visualización (<code class="docutils literal notranslate"><span class="pre">0,5</span> <span class="pre">*</span> <span class="pre">500</span></code>). Por otro lado, si se toma como indicador de la visualización la cantidad total de etapas y el mismo parámetro <code class="docutils literal notranslate"><span class="pre">factor</span></code>, un segmento con demanda equivalente a 100 etapas tendrá un ancho de 50.000 m  (<code class="docutils literal notranslate"><span class="pre">100</span> <span class="pre">*</span> <span class="pre">500</span></code>). Esta visualización permite guardar el geojson producto de la misma <code class="docutils literal notranslate"><span class="pre">save_gdf=True</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">viz</span><span class="o">.</span><span class="n">visualize_route_section_load</span><span class="p">(</span>
     <span class="n">id_linea</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-    <span class="n">rango_hrs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">hour_range</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">day_type</span><span class="o">=</span><span class="s1">&#39;weekday&#39;</span><span class="p">,</span>
     <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
     <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">indicador</span><span class="o">=</span><span class="s1">&#39;cantidad_etapas&#39;</span><span class="p">,</span>
+    <span class="n">stat</span><span class="o">=</span><span class="s1">&#39;cantidad_etapas&#39;</span><span class="p">,</span>
     <span class="n">factor</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
     <span class="n">factor_min</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
     <span class="n">save_gdf</span><span class="o">=</span><span class="kc">False</span>
@@ -134,14 +134,53 @@
 </div>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">id_linea</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">rango_hrs</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hour_range</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">indicador</span></code>: indicador a utilizar <code class="docutils literal notranslate"><span class="pre">‘prop_etapas’</span></code> o <code class="docutils literal notranslate"><span class="pre">'cantidad_etapas'</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">factor</span></code>: factor de escalado que el el tramo tendrá en la visualización en base al indicador utilizado.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stat</span></code>: indicador a utilizar <code class="docutils literal notranslate"><span class="pre">proportion</span></code> o <code class="docutils literal notranslate"><span class="pre">'totals'</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">factor</span></code>: factor de escalado en metros que el tramo tendrá en la visualización en base al indicador utilizado.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">factor_min</span></code>: ancho mínimo en metros que el tramo tendrá en la visualización.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">save_gdf</span></code>: guardar los resultados de la visualización en un archivo geojson.</p></li>
+</ul>
+<p><strong>Matriz OD de la línea</strong></p>
+<p>De modo similar, Urbantrips puede calcular para cada línea una Matriz OD tomando esos segmentos como unidades espaciales de análisis.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kpi</span><span class="o">.</span><span class="n">compute_lines_od_matrix</span><span class="p">(</span>
+   <span class="n">line_ids</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+   <span class="n">hour_range</span><span class="o">=</span><span class="p">[</span><span class="mi">7</span><span class="p">,</span><span class="mi">8</span><span class="p">],</span>
+   <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+   <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+   <span class="n">day_type</span><span class="o">=</span><span class="s1">&#39;weekday,</span>
+   <span class="n">save_csv</span><span class="o">=</span><span class="kc">True</span>
+</pre></div>
+</div>
+<p>)</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">line_ids</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hour_range</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>) o una fecha en particular.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">save_csv</span></code>: guardar los resultados de la matriz OD en un archivo csv.</p></li>
+</ul>
+<p>Este producto es una matriz de origen destino que se puede visualizar en un mapa o utilizar para otros análisis.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">viz</span><span class="o">.</span><span class="n">visualize_lines_od_matrix</span><span class="p">(</span>
+    <span class="n">line_ids</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+    <span class="n">hour_range</span><span class="o">=</span><span class="p">[</span><span class="mi">7</span><span class="p">,</span><span class="mi">8</span><span class="p">],</span>
+    <span class="n">day_type</span><span class="o">=</span><span class="s1">&#39;weekday&#39;</span><span class="p">,</span>
+    <span class="n">n_sections</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">section_meters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+   <span class="n">stat</span><span class="o">=</span><span class="s1">&#39;totals&#39;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">id_linea</span></code>: id de línea o lista de ids de líneas a procesar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hour_range</span></code>: define el rango horario del origen de las etapas a utilizar</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">day_type</span></code>: fecha de los datos a procesar o tipo de día (<code class="docutils literal notranslate"><span class="pre">weekday</span></code> o <code class="docutils literal notranslate"><span class="pre">weekend</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">n_sections</span></code>: cantidad de segmentos a dividir el recorrido</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_meters</span></code>: cantidad de metros de largo del segmento. Si se especifica este parámetro no se considerará <code class="docutils literal notranslate"><span class="pre">n_sections</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stat</span></code>: indicador a utilizar <code class="docutils literal notranslate"><span class="pre">proportion</span></code> o <code class="docutils literal notranslate"><span class="pre">'totals'</span></code>.</p></li>
 </ul>
 </section>
 <section id="en-base-a-gps">

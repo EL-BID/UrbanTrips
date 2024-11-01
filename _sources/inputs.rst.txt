@@ -159,7 +159,12 @@ Tabla con el posicionamiento de cada interno con información de linea y ramal. 
    * - *longitud_gps*
      - float
      - **Obligatorio**. Longitud.
-     
+   * - *servicios_gps*
+     - int | str
+     - **Obligatorio si se quiere procesar serviciobs**. Columna que contiene la apertura y cierre de un servicio.
+   * - *velocity_gps*
+     - float
+     - **Opcional**. Velocidad del vehíuclo en km/h.
 
 Paradas
 -------
@@ -218,3 +223,48 @@ Polígonos de interés
      - Polygon o MultiPolygon
      - Polígono de la zona de interés. 
 
+
+
+Tiempos de viaje entre estaciones
+---------------------------------
+
+.. list-table:: 
+   :widths: 25 25 50
+   :header-rows: 1
+
+   * - Campo
+     - Tipo de dato
+     - Descripción
+   * - *id_o*
+     - int
+     - **Obligatorio**. id de la estación de origen.
+   * - *id_linea_o*
+     - int
+     - **Obligatorio**. id de la línea de origen.
+   * - *id_ramal_o*
+     - int
+     - id del ramal de origen en caso de que existan ramales.
+   * - *lat_o*
+     - float
+     - **Obligatorio**. Latitud de la estación de origen.
+   * - *lon_o*
+     - float
+     - **Obligatorio**. Longitud de la estación de origen. 
+   * - *id_d*
+     - int
+     - **Obligatorio**. id de la estación de destino.
+   * - *id_linea_d*
+     - int
+     - **Obligatorio**. id de la línea de destino.
+   * - *id_ramal_d*
+     - int
+     - id del ramal de destino en caso de que existan ramales.
+   * - *lat_d*
+     - float
+     - **Obligatorio**. Latitud de la estación de destino.
+   * - *lon_d*
+     - float
+     - **Obligatorio**. Longitud de la estación de destino.
+   * - *travel_time_min*
+     - float
+     - **Obligatorio**. Tiempo de viaje en minutos entre las dos estaciones.

@@ -555,10 +555,123 @@
 </tr>
 </tbody>
 </table>
+<p>Las tablas a continuación indican el origen y el destino de cada etapa con respecto a cada gps o estación.</p>
+<table class="docutils align-default" id="id8">
+<caption><span class="caption-text">legs_to_gps_origin</span><a class="headerlink" href="#id8" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_legs</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_gps</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla gps</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id9">
+<caption><span class="caption-text">legs_to_gps_destination</span><a class="headerlink" href="#id9" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_legs</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_gps</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla gps</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id10">
+<caption><span class="caption-text">legs_to_station_origin</span><a class="headerlink" href="#id10" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_legs</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_station</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla travel_times_stations</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id11">
+<caption><span class="caption-text">legs_to_station_destination</span><a class="headerlink" href="#id11" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_legs</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_station</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la tabla travel_times_stations</p></td>
+</tr>
+</tbody>
+</table>
 <p><strong>Tablas de estadisticos</strong></p>
 <p>Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.</p>
-<table class="docutils align-default" id="id8">
-<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id8" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id12">
+<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id12" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -597,8 +710,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id9">
-<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id9" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id13">
+<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id13" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -653,8 +766,40 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id10">
-<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id10" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id14">
+<caption><span class="caption-text">services_by_line_hour</span><a class="headerlink" href="#id14" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea de los servicios.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de los datos sobre los cuales se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hora</em></p></td>
+<td><p>int</p></td>
+<td><p>hora del dia sobre la cual se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>servicios</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios por dia y hora.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id15">
+<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id15" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -671,54 +816,50 @@
 <td><p>int</p></td>
 <td><p>id de la linea sobre el que se calculan los estadísticos.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>day_type</em></p></td>
+<tr class="row-odd"><td><p><em>yr_mo</em></p></td>
+<td><p>text</p></td>
+<td><p>mes y anio sobre el que se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>day_type</em></p></td>
 <td><p>text</p></td>
 <td><p>dia o tipo de día sobre el cual se calcula los estadísticos.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>n_sections</em></p></td>
+<tr class="row-odd"><td><p><em>n_sections</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de secciones en las que se segmentó el recorrido representativo de la linea.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>section_meters</em></p></td>
+<tr class="row-even"><td><p><em>section_meters</em></p></td>
 <td><p>int</p></td>
 <td><p>largo en metros de la sección sobre la que se computa los estadísticos de ocupación.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>sentido</em></p></td>
+<tr class="row-odd"><td><p><em>sentido</em></p></td>
 <td><p>text</p></td>
 <td><p>sentido de las etapas utilizadas para calcular los estadísticos de ocupación.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>section_id</em></p></td>
+<tr class="row-even"><td><p><em>section_id</em></p></td>
 <td><p>float</p></td>
-<td><p>id de la sección para la que se calcula los estadísticos. Tambíén el % del LRS del inicio de la sección sobre el recorrido representativo de la linea.</p></td>
+<td><p>id de la sección para la que se calcula los estadísticos. Se une con routes_section_id_coords.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>X</em></p></td>
-<td><p>float</p></td>
-<td><p>coordenada del inicio de la sección.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>y</em></p></td>
-<td><p>float</p></td>
-<td><p>coordenada del inicio de la sección.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>hora_min</em></p></td>
+<tr class="row-odd"><td><p><em>hour_min</em></p></td>
 <td><p>int</p></td>
 <td><p>hora mínima de las etapas a utilizar para calcular los estadísticos.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>hora_max</em></p></td>
+<tr class="row-even"><td><p><em>hour_max</em></p></td>
 <td><p>int</p></td>
 <td><p>hora máxima de las etapas a utilizar para calcular los estadísticos.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>cantidad_etapas</em></p></td>
+<tr class="row-odd"><td><p><em>legs</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas en esa sección para ese día y horas.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>prop_etapas</em></p></td>
+<tr class="row-even"><td><p><em>prop</em></p></td>
 <td><p>float</p></td>
 <td><p>proporción de etapas de esa sección sobre el total de etapas para ese día y horas.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id11">
-<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id11" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id16">
+<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id16" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -781,8 +922,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id12">
-<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id12" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id17">
+<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id17" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -849,8 +990,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id13">
-<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id13" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id18">
+<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id18" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -901,8 +1042,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id14">
-<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id14" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id19">
+<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id19" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -949,8 +1090,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id15">
-<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id15" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id20">
+<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id20" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -993,12 +1134,116 @@
 </tr>
 </tbody>
 </table>
+<table class="docutils align-default" id="id21">
+<caption><span class="caption-text">overlapping</span><a class="headerlink" href="#id21" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>base_line_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea de base</p></td>
+</tr>
+<tr class="row-even"><td><p><em>base_branch_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando el ramal de base</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>comp_line_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando la linea de comparacion</p></td>
+</tr>
+<tr class="row-even"><td><p><em>comp_branch_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id identificando el ramal de comparacion</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>res_h3</em></p></td>
+<td><p>int</p></td>
+<td><p>resolucion h3 utilizada en el computo del estadistico</p></td>
+</tr>
+<tr class="row-even"><td><p><em>overlap</em></p></td>
+<td><p>float</p></td>
+<td><p>estadistico de solapamiento</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>type_overlap</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de estadistico de solapamiento (oferta o demanda)</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id22">
+<caption><span class="caption-text">lines_od_matrix_by_section</span><a class="headerlink" href="#id22" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea sobre el que se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>yr_mo</em></p></td>
+<td><p>text</p></td>
+<td><p>mes y anio sobre el que se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>day_type</em></p></td>
+<td><p>text</p></td>
+<td><p>dia o tipo de día sobre el cual se calcula los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones en las que se segmentó el recorrido representativo de la linea.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>section_id_o</em></p></td>
+<td><p>float</p></td>
+<td><p>id de la sección de origen para la que se calcula los estadísticos. Se une con routes_section_id_coords.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_id_d</em></p></td>
+<td><p>float</p></td>
+<td><p>id de la sección de destino para la que se calcula los estadísticos. Se une con routes_section_id_coords.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hour_min</em></p></td>
+<td><p>int</p></td>
+<td><p>hora mínima de las etapas a utilizar para calcular los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hour_max</em></p></td>
+<td><p>int</p></td>
+<td><p>hora máxima de las etapas a utilizar para calcular los estadísticos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>legs</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas en esa sección para ese día y horas.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de etapas de esa sección sobre el total de etapas para ese día y horas.</p></td>
+</tr>
+</tbody>
+</table>
 </section>
 <section id="modelo-de-datos-de-base-insumos">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Link to this heading"></a></h2>
 <p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
-<table class="docutils align-default" id="id16">
-<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id16" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id23">
+<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id23" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1033,8 +1278,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id17">
-<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id17" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id24">
+<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id24" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1073,8 +1318,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id18">
-<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id18" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id25">
+<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id25" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1101,8 +1346,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id19">
-<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id19" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id26">
+<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id26" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1125,8 +1370,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id20">
-<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id20" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id27">
+<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id27" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1149,8 +1394,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id21">
-<caption><span class="caption-text">stops</span><a class="headerlink" href="#id21" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id28">
+<caption><span class="caption-text">stops</span><a class="headerlink" href="#id28" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1197,8 +1442,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id22">
-<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id22" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id29">
+<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id29" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1233,8 +1478,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id23">
-<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id23" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id30">
+<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id30" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1274,6 +1519,46 @@
 <tr class="row-even"><td><p><em>distance_h3</em></p></td>
 <td><p>float</p></td>
 <td><p>distancia euclidiana en km.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id31">
+<caption><span class="caption-text">routes_section_id_coords</span><a class="headerlink" href="#id31" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la linea del tramo del recorrido.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones en el que se fragmento el recorrido de la linea.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>section</em></p></td>
+<td><p>int</p></td>
+<td><p>id del segmento del recorrido</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_lrs</em></p></td>
+<td><p>float</p></td>
+<td><p>proporcion del recorrido en el que se encuentra el inicio del tramo</p></td>
+</tr>
+<tr class="row-even"><td><p><em>x</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud del inicio del tramo</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>y</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud del inicio del tramo</p></td>
 </tr>
 </tbody>
 </table>

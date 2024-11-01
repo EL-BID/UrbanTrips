@@ -53,6 +53,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#parametros-de-posicionamiento-gps">Parámetros de posicionamiento GPS</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#parametro-de-lineas-ramales-y-paradas">Parámetro de lineas, ramales y paradas</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#parametros-de-zonificaciones-y-poligonos-de-interes">Parámetros de zonificaciones y polígonos de interés</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parametros-de-estaciones-para-tiempos-de-viaje">Parámetros de estaciones para tiempos de viaje</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="inputs.html">Input de datos</a></li>
@@ -249,6 +250,13 @@
 <p>Al mismo tiempo, si se quiere realizar un análisis de patrones de orígenes y destinos para una determinada zona de interés, se puede suministrar otro archivo geojson donde se especifique una capa geográfica de polígonos en formato con las siguientes columnas <cite>“id”, “tipo”, “geometry”</cite>. <cite>id</cite> debe ser un texto con el nombre del polígono  de interés y <cite>tipo</cite> puede ser <cite>poligono</cite> o <cite>cuenca</cite>. El primero hace referencia a una zona particular de interés como un centro de transbordo o un barrio-localidad. El segundo hace referencia a una zona de mayor tamaño que puede agrupar el recorrido de un grupo de líneas o ser el área de influencia de una línea en particular.</p>
 <p>El archivo puede contener la cantidad de polígonos (o cuencas) que se desee (ya sena polígnos o multi-polígonos), el proceso corre en forma independiente para cada poligoo o cuenca. Estos archivos deben estar ubicados con el resto de los insumos de la ciudad en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/</span></code>. Estos archivos deben informarse en el archivo de configuraciones del siguiente modo. Los resultados se verán en el Dashboard.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">poligonos</span><span class="p">:</span> <span class="s2">&quot;[NOMBRE_DEL_ARCHIVO].geojson&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="parametros-de-estaciones-para-tiempos-de-viaje">
+<h2>Parámetros de estaciones para tiempos de viaje<a class="headerlink" href="#parametros-de-estaciones-para-tiempos-de-viaje" title="Link to this heading"></a></h2>
+<p>Urbantrips puede computar tiempos de viaje. En caso de las líneas que tengan GPS, se clasifica el GPS de origen y de destino calculando el tiempo de viaje entre ambos. Pero para aquellas líneas sin GPS en sus vehículos es necesario contar con un tabla que indique el tiempo de viaje en minutos entre cada par de estaciones de todas las líneas. Para más detalles consultar el apartado de Inputs de datos (<a class="reference internal" href="inputs.html"><span class="doc">Input de datos</span></a>)</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tiempos_viaje_estaciones</span><span class="p">:</span> <span class="s2">&quot;[NOMBRE_DEL_ARCHIVO].csv&quot;</span>
 </pre></div>
 </div>
 </section>

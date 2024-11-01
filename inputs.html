@@ -55,6 +55,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#paradas">Paradas</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#zonificaciones">Zonificaciones</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#poligonos-de-interes">Polígonos de interés</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tiempos-de-viaje-entre-estaciones">Tiempos de viaje entre estaciones</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="factores_expansion.html">Factores de expansión</a></li>
@@ -296,6 +297,14 @@
 <td><p>float</p></td>
 <td><p><strong>Obligatorio</strong>. Longitud.</p></td>
 </tr>
+<tr class="row-odd"><td><p><em>servicios_gps</em></p></td>
+<td><p>int | str</p></td>
+<td><p><strong>Obligatorio si se quiere procesar serviciobs</strong>. Columna que contiene la apertura y cierre de un servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>velocity_gps</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Opcional</strong>. Velocidad del vehíuclo en km/h.</p></td>
+</tr>
 </tbody>
 </table>
 </section>
@@ -372,6 +381,68 @@
 <tr class="row-even"><td><p><em>geometry</em></p></td>
 <td><p>Polygon o MultiPolygon</p></td>
 <td><p>Polígono de la zona de interés.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="tiempos-de-viaje-entre-estaciones">
+<h2>Tiempos de viaje entre estaciones<a class="headerlink" href="#tiempos-de-viaje-entre-estaciones" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_o</em></p></td>
+<td><p>int</p></td>
+<td><p><strong>Obligatorio</strong>. id de la estación de origen.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea_o</em></p></td>
+<td><p>int</p></td>
+<td><p><strong>Obligatorio</strong>. id de la línea de origen.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_ramal_o</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal de origen en caso de que existan ramales.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lat_o</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Obligatorio</strong>. Latitud de la estación de origen.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lon_o</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Obligatorio</strong>. Longitud de la estación de origen.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_d</em></p></td>
+<td><p>int</p></td>
+<td><p><strong>Obligatorio</strong>. id de la estación de destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea_d</em></p></td>
+<td><p>int</p></td>
+<td><p><strong>Obligatorio</strong>. id de la línea de destino.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal_d</em></p></td>
+<td><p>int</p></td>
+<td><p>id del ramal de destino en caso de que existan ramales.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lat_d</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Obligatorio</strong>. Latitud de la estación de destino.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lon_d</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Obligatorio</strong>. Longitud de la estación de destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p><strong>Obligatorio</strong>. Tiempo de viaje en minutos entre las dos estaciones.</p></td>
 </tr>
 </tbody>
 </table>
