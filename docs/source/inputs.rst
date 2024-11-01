@@ -226,23 +226,15 @@ Polígonos de interés
 
 
 Tiempos de viaje entre estaciones
---------------------
+---------------------------------
 
 .. list-table:: 
    :widths: 25 25 50
    :header-rows: 1
 
-   * - id_o
-     - id_linea_o
-     - id_ramal_o
-     - lat_o
-     - lon_o
-     - id_d
-     - id_linea_d
-     - id_ramal_d
-     - lat_d
-     - lon_d
-     - travel_time_min
+   * - Campo
+     - Tipo de dato
+     - Descripción
    * - *id_o*
      - int
      - **Obligatorio**. id de la estación de origen.
