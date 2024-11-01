@@ -202,3 +202,16 @@ El archivo puede contener la cantidad de polígonos (o cuencas) que se desee (ya
 
    poligonos: "[NOMBRE_DEL_ARCHIVO].geojson"  
 
+
+
+
+
+Parámetros de estaciones para tiempos de viaje
+---------------------------------------------------
+
+Urbantrips puede computar tiempos de viaje. En caso de las líneas que tengan GPS, se clasifica el GPS de origen y de destino calculando el tiempo de viaje entre ambos. Pero para aquellas líneas sin GPS en sus vehículos es necesario contar con un tabla que indique el tiempo de viaje en minutos entre cada par de estaciones de todas las líneas. Para más detalles consultar el apartado de Inputs de datos (:doc:`inputs`)
+
+.. code:: 
+
+   tiempos_viaje_estaciones: "[NOMBRE_DEL_ARCHIVO].csv"  
+
