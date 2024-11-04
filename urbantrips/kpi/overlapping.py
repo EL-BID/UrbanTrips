@@ -431,12 +431,18 @@ def compute_supply_overlapping(
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
 
+
+
+
+
+        
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
         metadata = pd.read_sql(
             f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
             conn_insumos,
             dtype={"id_linea": int},
         )
-
+        conn_insumos.close()
         base_line_name = metadata.loc[
             metadata.id_linea == base_route_id, "nombre_linea"
         ].item()

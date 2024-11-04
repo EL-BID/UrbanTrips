@@ -163,12 +163,17 @@ with st.expander("Seleccionar líneas", expanded=True):
 # --- Comparación de líneas ---
 with st.expander("Comparación de líneas", expanded=True):
     col1, col2 = st.columns([2, 2])
-
+    
     if st.session_state.id_linea_1 and st.session_state.id_linea_2:
-        base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
-            st.session_state.branch_id_2
-        )
-
+        if use_branches:
+            base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
+                st.session_state.branch_id_2
+            )
+        else:
+            base_route_id, comp_route_id = int(st.session_state.id_linea_1), int(
+                st.session_state.id_linea_2
+            )
+        
         # Evita cálculos repetidos si ya se han realizado para las mismas líneas
         if f"overlapping_dict_{base_route_id}_{comp_route_id}" not in st.session_state:
 
