@@ -115,7 +115,7 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
         else:
             st.warning("No se encontró ninguna coincidencia.")
 
-
+# st.set_page_config(layout="wide")
 # --- Selección de líneas y ramales con almacenamiento en session_state ---
 with st.expander("Seleccionar líneas", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
