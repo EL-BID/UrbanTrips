@@ -94,15 +94,8 @@ filtro_latlong_bbox:
 
 # Zonificaciones
 zonificaciones: 
-    geo1: "coronas.geojson"                                        
-    var1: "Corona"                                                 
-    orden1:    [                                                   
-                "CABA",
-                "Primer cordón",
-                "Segundo cordón",
-                "Tercer cordón",
-                "RMBA",
-                      ]
+    geo1: "zonas.geojson"                                       
+    var1: "Zona"                                                   
 
     geo2: "partidos.geojson"                                       
     var2: "Partido"                                                
@@ -171,26 +164,17 @@ zonificaciones:
                 "Vicente López",
                 "Zárate",
                       ]
-
-    geo3: "partidos.geojson"                                       
-    var3: "Zona"                                                   
-    orden3:    [                                                   
-                "CABA",
-                "Sur",
-                "Oeste",
-                "Norte",
-                "Zarate - Campana",
-                "Gran La Plata",
-                      ]
-
-    geo4:                                                          
-    var4:                                                          
+    geo3:                                        
+    var3:                                             
+    orden3:   
+    geo4:                                        
+    var4:                                             
     orden4:                                                        
     geo5:                                                          
     var5:                                                          
     orden5:                                                        
 
-poligonos:                                                         # Especificar una capa geográfica de polígonos en formato .geojson. El archivo requiere las siguientes columnas: ['id', 'tipo', 'geometry']. 'id' es el id o nombre del polígono, tipo puede ser 'poligono' o 'cuenca'.
+poligonos: "poligonos.geojson"      
 
 tiempos_viaje_estaciones:                                          # Especificar una tabla de tiempo de viaje en minutos entre estaciones para modos sin gps
 

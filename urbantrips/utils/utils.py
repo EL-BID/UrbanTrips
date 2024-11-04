@@ -12,7 +12,6 @@ from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
 
-
 def duracion(f):
     @wraps(f)
     def wrap(*args, **kw):
@@ -1428,6 +1427,7 @@ def traigo_tabla_zonas():
 
 def normalize_vars(tabla):
     if "dia" in tabla.columns:
+        tabla['dia'] = ''
         tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
         tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
     if "day_type" in tabla.columns:
@@ -1443,26 +1443,29 @@ def normalize_vars(tabla):
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash"):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
-    try:
-        tabla = pd.read_sql_query(
-            f"""
-            SELECT *
-            FROM {tabla_sql}
-            """,
-            conn,
-        )
-    except:
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tabla_sql}'")
+    table_exists = cursor.fetchone() is not None
+
+    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
+    if not table_exists:
         print(f"{tabla_sql} no existe")
         tabla = pd.DataFrame([])
+    else:
+        if len(query) == 0:
+            query = f"""
+            SELECT *
+            FROM {tabla_sql}
+            """    
+        tabla = pd.read_sql_query( query, conn )
 
     conn.close()
 
     if len(tabla) > 0:
-
         if "wkt" in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla, crs=4326)
@@ -1534,3 +1537,52 @@ def delete_data_from_table_run_days(table_name):
     conn_data.execute(query)
     conn_data.commit()
     conn_data.close()
+
+
+
+
+def guardar_tabla_sql(df, table_name, tabla_tipo='dash', filtros=None):
+    """
+    Guarda un DataFrame en una base de datos SQLite.
+
+    Parámetros:
+    df (pd.DataFrame): DataFrame que se desea guardar.
+    conn (sqlite3.Connection): Conexión a la base de datos SQLite.
+    table_name (str): Nombre de la tabla en la base de datos.
+    filtros (dict, optional): Diccionario de filtros para eliminar registros. Las claves son los nombres
+                              de los campos y los valores pueden ser un valor único o una lista de valores.
+    """
+    # Verifica si la tabla existe en la base de datos
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+    table_exists = cursor.fetchone() is not None
+
+    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
+    if table_exists and filtros:
+        condiciones = []
+        valores = []
+
+        # Construir las condiciones y los valores para cada filtro
+        for campo, valor in filtros.items():
+            if isinstance(valor, list):
+                # Si el valor es una lista, usamos la cláusula IN
+                condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                valores.extend(valor)
+            else:
+                # Si el valor es único, usamos una condición simple
+                condiciones.append(f"{campo} = ?")
+                valores.append(valor)
+
+        # Ejecutar la eliminación con las condiciones construidas
+        where_clause = " AND ".join(condiciones)
+        cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+        conn.commit()
+    
+    
+    # Guarda el DataFrame en la base de datos, crea la tabla si no existe
+    df.to_sql(table_name, conn, if_exists='append', index=False)
+    conn.close()
+    print(f"Datos guardados exitosamente {table_name}.")

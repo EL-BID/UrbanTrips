@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium
 import mapclassify
 import plotly.express as px
 from folium import Figure
@@ -223,6 +223,14 @@ with st.expander('Polígonos', expanded=True):
 
         general, modal, distancias = traigo_indicadores('poligonos')
 
+        # etapas_lst = ['Todos'] + etapas_all.mes.unique().tolist()        
+        etapas_lst = etapas_all.mes.unique().tolist()    
+        desc_mes = col1.selectbox(
+            'Mes', options=etapas_lst)
+        
+        desc_tipo_dia = col1.selectbox(
+            'Tipo día', options=etapas_all.tipo_dia.unique())
+
         desc_poly = col1.selectbox(
             'Polígono', options=etapas_all.id_polygon.unique())
         desc_zona = col1.selectbox(
@@ -262,16 +270,21 @@ with st.expander('Polígonos', expanded=True):
         distancia = col1.selectbox(
             'Distancia', options=distancia_all)
 
-        etapas_ = etapas_all[(etapas_all.id_polygon == desc_poly) &
+        etapas_ = etapas_all[(etapas_all.mes==desc_mes)&(etapas_all.tipo_dia==desc_tipo_dia)&
+                            (etapas_all.id_polygon == desc_poly) &
                              (etapas_all.zona == desc_zona)].copy()
-        matrices_ = matrices_all[(matrices_all.id_polygon == desc_poly) &
-                                 (matrices_all.zona == desc_zona)].copy()
+        matrices_ = matrices_all[(matrices_all.mes==desc_mes)&(matrices_all.tipo_dia==desc_tipo_dia)&
+                                (matrices_all.id_polygon == desc_poly) &
+                                (matrices_all.zona == desc_zona)].copy()
 
-        general_ = general.loc[general.id_polygon == desc_poly, [
+        general_ = general.loc[ (general.mes==desc_mes)&(general.tipo_dia==desc_tipo_dia)&
+                               ( general.id_polygon == desc_poly), [
             'Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-        modal_ = modal.loc[modal.id_polygon == desc_poly, [
+        modal_ = modal.loc[ (modal.mes==desc_mes)&(modal.tipo_dia==desc_tipo_dia)&
+                            (modal.id_polygon == desc_poly), [
             'Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-        distancias_ = distancias.loc[distancias.id_polygon == desc_poly, [
+        distancias_ = distancias.loc[(distancias.mes==desc_mes)&(distancias.tipo_dia==desc_tipo_dia)&
+                                    (distancias.id_polygon == desc_poly), [
             'Tipo', 'Indicador', 'Valor']].set_index('Tipo')
 
         if transf_list == 'Todos':
@@ -365,7 +378,7 @@ with st.expander('Polígonos', expanded=True):
         show_poly = col1.checkbox(
             'Mostrar polígono', value=True)
 
-        poly = poligonos[poligonos.id == desc_poly]
+        poly = poligonos[(poligonos.id == desc_poly)]
 
         if not desc_origenes:
             origenes = ''
@@ -390,7 +403,7 @@ with st.expander('Polígonos', expanded=True):
 
             with col2:
                 # st_map = st_folium(map, width=1200, height=1000) #
-                folium_static(map, width=1500, height=1000)
+                st_folium(map, width=1500, height=1000)
 
         else:
             matriz = pd.DataFrame([])

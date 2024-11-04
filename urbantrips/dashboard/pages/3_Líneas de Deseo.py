@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium
 import mapclassify
 import plotly.express as px
 from folium import Figure
@@ -434,7 +434,7 @@ with st.expander('Líneas de Deseo', expanded=True):
 
             with col2:
                 # st_map = st_folium(map, width=1200, height=1000) #
-                folium_static(map, width=1500, height=1000)
+                st_folium(map, width=1500, height=1000)
 
         else:
             matriz = pd.DataFrame([])

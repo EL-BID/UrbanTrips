@@ -553,7 +553,7 @@ with st.expander('Líneas de deseo por linea'):
     and lat_o is not NULL ;
     """
     matriz = levanto_tabla_sql(tabla_sql='matrices_linea',
-                               custom_query=custom_query,
+                               query=custom_query,
                                )
 
     matriz = create_linestring_od(matriz)

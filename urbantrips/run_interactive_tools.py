@@ -198,12 +198,12 @@ with st.expander("Comparación de líneas", expanded=True):
         # Muestra la salida solo en col1
         with col1:
             st_folium(f, width=800, height=600)
-        col1.write(
+            st.write(
             st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
-        )
-        col1.write(
+            )
+            st.write(
             st.session_state[f"supply_overlapping_{comp_route_id}_{base_route_id}"]
-        )
+            )
 
         # Cálculo y visualización de la demanda, si no se ha realizado previamente
         if (
@@ -242,9 +242,9 @@ with st.expander("Comparación de líneas", expanded=True):
         )
         with col2:
             st_folium(fig, width=800, height=600)
-            col2.write(
+            st.write(
                 st.session_state[f"demand_overlapping_{base_route_id}_{comp_route_id}"]
             )  # Muestra la segunda salida justo después del mapa
-            col2.write(
+            st.write(
                 st.session_state[f"demand_overlapping_{comp_route_id}_{base_route_id}"]
             )  # Muestra la segunda salida justo después del mapa

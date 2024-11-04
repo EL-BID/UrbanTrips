@@ -488,7 +488,7 @@ def viz_etapas_x_tramo_recorrido(
         + "-"
         + f" {id_linea_str} (id_linea: {line_id})"
     )
-    f.suptitle(title, fontsize=18)
+    f.suptitle(title)
 
     # Matching bar plot with route direction
     flecha_eo_xy = (0.4, 1.1)
@@ -2574,37 +2574,43 @@ def plot_dispatched_services_by_line_day(df):
 
     print("Creando plot de servicios despachados por linea", "id linea:", line_id)
 
-    f, ax = plt.subplots(figsize=(8, 6))
-    sns.barplot(data=df, x="hora", y="servicios", hue="id_linea", ax=ax)
+    try:
 
-    ax.get_legend().remove()
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Cantidad de servicios despachados")
-
-    f.suptitle(
-        f"Cantidad de servicios despachados por hora y dí­a",
-        fontdict={"size": 18, "weight": "bold"},
-    )
-    ax.set_title(
-        f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
-        fontdict={"fontsize": 11},
-    )
-
-    ax.spines.right.set_visible(False)
-    ax.spines.top.set_visible(False)
-    ax.spines.bottom.set_visible(False)
-    ax.spines.left.set_visible(False)
-    ax.spines.left.set_position(("outward", 10))
-    ax.spines.bottom.set_position(("outward", 10))
-
-    ax.grid(axis="y")
-
-    for frm in ["png", "pdf"]:
-        archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
-        f.savefig(db_path, dpi=300)
-        plt.close()
-
+        f, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(data=df, x="hora", y="servicios", hue="id_linea", ax=ax)
+    
+        ax.get_legend().remove()
+        ax.set_xlabel("Hora")
+        ax.set_ylabel("Cantidad de servicios despachados")
+    
+        f.suptitle(
+            f"Cantidad de servicios despachados por hora y día"    )
+        
+        ax.set_title(
+            f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+            fontdict={"fontsize": 11},
+        )
+        # ax.set_title(
+        #     f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+        #     fontdict={"fontsize": 11},
+        # )
+    
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.spines.bottom.set_visible(False)
+        ax.spines.left.set_visible(False)
+        ax.spines.left.set_position(("outward", 10))
+        ax.spines.bottom.set_position(("outward", 10))
+    
+        ax.grid(axis="y")
+    
+        for frm in ["png", "pdf"]:
+            archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
+            db_path = os.path.join("resultados", frm, archivo)
+            f.savefig(db_path, dpi=300)
+            plt.close()
+    except:
+        print('ERROR')
 
 def plot_basic_kpi_wrapper():
     sns.set_style("whitegrid")
@@ -2733,14 +2739,13 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         ax.set_ylabel(ylabel_str)
 
         f.suptitle(
-            f"Indicadores de oferta y demanda estadarizados",
-            fontdict={"size": 18, "weight": "bold"},
-        )
-
+            f"Indicadores de oferta y demanda estadarizados")
+        
         ax.set_title(
-            f"{id_linea_str} id linea: {line_id} - Dia: {day_str} - Mes: {mes}",
+            f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
             fontdict={"fontsize": 11},
         )
+
         # Add a footnote below and to the right side of the chart
 
         ax_note = ax.annotate(
@@ -3232,8 +3237,8 @@ def create_visualizations():
     print("Indicadores para dash")
     indicadores_dash()
 
-    # plor dispatched services
-    plot_dispatched_services_wrapper()
+    # # plor dispatched services
+    # plot_dispatched_services_wrapper()
 
-    # plot basic kpi if exists
-    plot_basic_kpi_wrapper()
+    # # plot basic kpi if exists
+    # plot_basic_kpi_wrapper()
