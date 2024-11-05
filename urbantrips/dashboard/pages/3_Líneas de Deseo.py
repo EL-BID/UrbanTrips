@@ -40,7 +40,7 @@ def crear_mapa_lineas_deseo(df_viajes,
             y_val = destinos.geometry.representative_point().y.mean()
             x_val = destinos.geometry.representative_point().x.mean()
 
-        fig = Figure(width=2000, height=2000)
+        fig = Figure(width=800, height=600)
         m = folium.Map(location=[y_val, x_val],
                        zoom_start=10, tiles='cartodbpositron')
 

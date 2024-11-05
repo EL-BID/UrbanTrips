@@ -29,7 +29,7 @@ def crear_mapa_poligonos(df_viajes,
     m = ''
     if (len(df_viajes) > 0) | (len(df_etapas) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
 
-        fig = Figure(width=2000, height=2000)
+        fig = Figure(width=800, height=600)
         m = folium.Map(location=[poly.geometry.representative_point().y.mean(
         ), poly.geometry.representative_point().x.mean()], zoom_start=10, tiles='cartodbpositron')
 

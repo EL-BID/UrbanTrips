@@ -8,7 +8,9 @@ from streamlit_folium import st_folium
 import folium
 import json
 from folium import plugins
-from urbantrips.utils.utils import iniciar_conexion_db
+from dash_utils import (
+    iniciar_conexion_db
+)
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
