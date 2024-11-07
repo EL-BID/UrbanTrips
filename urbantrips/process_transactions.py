@@ -38,19 +38,19 @@ def main():
     }
 
     # Compute tolerance in h3 ring
-    ring_size = geo.get_h3_buffer_ring_size(
-        resolucion_h3, tolerancia_parada_destino
-    )
+    ring_size = geo.get_h3_buffer_ring_size(resolucion_h3, tolerancia_parada_destino)
 
     # Produce transaction table
-    trx.create_transactions(geolocalizar_trx_config,
-                            nombre_archivo_trx,
-                            nombres_variables_trx,
-                            formato_fecha,
-                            col_hora,
-                            tipo_trx_invalidas,
-                            nombre_archivo_gps,
-                            nombres_variables_gps)
+    trx.create_transactions(
+        geolocalizar_trx_config,
+        nombre_archivo_trx,
+        nombres_variables_trx,
+        formato_fecha,
+        col_hora,
+        tipo_trx_invalidas,
+        nombre_archivo_gps,
+        nombres_variables_gps,
+    )
 
     # Turn transactions into legs
     legs.create_legs_from_transactions(trx_order_params)
