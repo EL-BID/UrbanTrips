@@ -5,6 +5,7 @@ from urbantrips.utils.utils import iniciar_conexion_db
 from urbantrips.utils import utils
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
+from streamlit_folium import folium_static
 
 st.set_page_config(layout="wide")
 
@@ -202,7 +203,7 @@ with st.expander("Comparación de líneas", expanded=True):
         f = ovl_viz.plot_interactive_supply_overlapping(overlapping_dict)
         # Muestra la salida solo en col1
         with col1:
-            st_folium(f, width=800, height=600)
+            folium_static(f, width=800, height=600)
             st.write(
             st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
             )
@@ -246,7 +247,7 @@ with st.expander("Comparación de líneas", expanded=True):
             base_demand, comp_demand, overlapping_dict
         )
         with col2:
-            st_folium(fig, width=800, height=600)
+            folium_static(fig, width=800, height=600)
             st.write(
                 st.session_state[f"demand_overlapping_{base_route_id}_{comp_route_id}"]
             )  # Muestra la segunda salida justo después del mapa

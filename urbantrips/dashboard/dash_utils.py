@@ -201,7 +201,7 @@ def create_linestring_od(df,
                 for _, row in df.iterrows()]
 
     # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+    gdf = gpd.GeoDataFrame(df, geometry=geometry, crs=4326)
 
     return gdf
 
@@ -309,7 +309,7 @@ def creo_bubble_od(df,
                                     'rango_hora',
                                     'distancia']).factor_expansion_linea.transform('sum')
         geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
-        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs="EPSG:4326")
+        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs=4326)
         orig['viajes_porc'] = (
             orig.factor_expansion_linea / orig.tot * 100).round(1)
         orig = orig.rename(columns={od: 'od', lat: 'lat', lon: 'lon'})
@@ -342,7 +342,7 @@ def df_to_linestrings(df, lat_cols, lon_cols):
     df['geometry'] = df.apply(create_linestring, axis=1)
 
     # Convert DataFrame to GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs=4326)
 
     return gdf
 

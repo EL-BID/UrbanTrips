@@ -3237,8 +3237,8 @@ def create_visualizations():
     print("Indicadores para dash")
     indicadores_dash()
 
-    # # plor dispatched services
-    # plot_dispatched_services_wrapper()
+    # plor dispatched services
+    plot_dispatched_services_wrapper()
 
-    # # plot basic kpi if exists
-    # plot_basic_kpi_wrapper()
+    # plot basic kpi if exists
+    plot_basic_kpi_wrapper()

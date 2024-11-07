@@ -1,10 +1,10 @@
 # Archivo de configuración para urbantrips
 
 # Bases de datos
-nombre_archivo_trx: "UT_AMBA-2024-5-14-AP.csv"                     # Especificar el archivo con las transacciones a consumir
-alias_db_data: "amba_2024"                                         # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "amba_2024"                                      # nombre del sqlite donde se guardan los insumos generales
-alias_db_dashboard: "amba_2024"                                    # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
+nombre_archivo_trx: "UT_AMBA-2024-5-14-AP_m40.csv"                 # Especificar el archivo con las transacciones a consumir
+alias_db_data: "amba_2024_m40"                                     # nombre del sqlite donde se guardan los datos procesados
+alias_db_insumos: "amba_2024_m40"                                  # nombre del sqlite donde se guardan los insumos generales
+alias_db_dashboard: "amba_2024_m40"                                # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
@@ -21,7 +21,7 @@ nombres_variables_trx:
     tarifa: "ats"                                                  # Indica el tipo de tarifa asignado a la transacción
     latitud_trx: "latitude"                                        # columna con la latitud de la transacción
     longitud_trx: "longitude"                                      # columna con longitud de la transacción
-    factor_expansion:                                              # columna con el factor de expansión
+    factor_expansion: "fex_linea"                                  # columna con el factor de expansión
 
 # Parámetros de transacciones
 ordenamiento_transacciones: "fecha_completa"                       # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
@@ -60,6 +60,7 @@ nombres_variables_gps:
     latitud_gps: "lat_gps"                                         
     longitud_gps: "lon_gps"                                        
     velocity_gps: "vel_gps"                                        
+    distance_gps:                                                  
     servicios_gps: "serv_val"                                      # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
@@ -94,16 +95,9 @@ filtro_latlong_bbox:
 
 # Zonificaciones
 zonificaciones: 
-    geo1: "coronas.geojson"                                        
-    var1: "Corona"                                                 
-    orden1:    [                                                   
-                "CABA",
-                "Primer cordón",
-                "Segundo cordón",
-                "Tercer cordón",
-                "RMBA",
-                      ]
-
+    geo1: "zonas.geojson"                                          
+    var1: "Zona"                                                   
+    orden1:                                                        
     geo2: "partidos.geojson"                                       
     var2: "Partido"                                                
     orden2:    [                                                   
@@ -172,19 +166,11 @@ zonificaciones:
                 "Zárate",
                       ]
 
-    geo3: "partidos.geojson"                                       
-    var3: "Zona"                                                   
-    orden3:    [                                                   
-                "CABA",
-                "Sur",
-                "Oeste",
-                "Norte",
-                "Zarate - Campana",
-                "Gran La Plata",
-                      ]
-
-    geo4:                                          
-    var4: 
+    geo3:                                                          
+    var3:                                                          
+    orden3:                                                        
+    geo4:                                                          
+    var4:                                                          
     orden4:                                                        
     geo5:                                                          
     var5:                                                          
