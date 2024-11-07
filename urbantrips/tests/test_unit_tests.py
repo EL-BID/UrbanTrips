@@ -767,6 +767,7 @@ def test_gps(matriz_validacion_test_amba):
         "fecha_gps": "fecha_gps",
         "latitud_gps": "latitud_gps",
         "longitud_gps": "longitud_gps",
+        "distance_gps": None,
     }
     trx_order_params = {
         "criterio": "fecha_completa",
@@ -807,7 +808,7 @@ def test_gps(matriz_validacion_test_amba):
     assert gps_latlong.latitud.item() == trx_latlong.latitud.item()
     assert gps_latlong.longitud.item() == trx_latlong.longitud.item()
 
-    gps_latlong = gps.loc[gps.id_original == 13, ["latitud", "longitud"]]
+    gps_latlong = gps.loc[gps.id_original == 14, ["latitud", "longitud"]]
     trx_latlong = trx.loc[trx.id_original == "2189304", ["latitud", "longitud"]]
 
     assert gps_latlong.latitud.item() == trx_latlong.latitud.item()
@@ -845,7 +846,7 @@ def test_gps(matriz_validacion_test_amba):
 
     kpi_df = pd.read_sql("select * from kpi_by_day_line;", conn_data)
 
-    assert round(kpi_df.tot_km.iloc[0]) == 16
+    assert round(kpi_df.tot_km.iloc[0]) == 13
     assert kpi_df.tot_veh.iloc[0] == 2
     assert kpi_df.dmt_mean.iloc[0] == mean_distances
     assert kpi_df.tot_pax.iloc[0] == tot_pax

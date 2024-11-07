@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import geopandas as gpd
 import warnings
-import time
+from urbantrips.carto.carto import compute_distances_osm
 
 from shapely.geometry import Point
 from urbantrips.geo import geo
@@ -154,7 +154,7 @@ def create_transactions(
         prop_na = modos_ausentes_configs.sum() / len(trx)
 
         if prop_na > 0.15:
-            w_str = f" {round(prop_na * 100,1)} por ciento las transacciones"
+            w_str = f" {round(prop_na * 100, 1)} por ciento las transacciones"
             w_str = w_str + " tienen un modo que no coincide con "
             w_str = w_str + " los modos estandarizados en el archivo de "
             w_str = w_str + "configuracion"
@@ -186,9 +186,9 @@ def create_transactions(
 
     print(f"Subiendo {len(trx)} registros a la db")
 
-    if not "genero" in trx.columns:
+    if "genero" not in trx.columns:
         trx["genero"] = "-"
-    if not "tarifa" in trx.columns:
+    if "tarifa" not in trx.columns:
         trx["tarifa"] = "-"
     trx["genero"] = trx["genero"].fillna("-")
     trx["tarifa"] = trx["tarifa"].fillna("-")
@@ -323,7 +323,7 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     checkeo = df["fecha"].isna().sum() / len(df)
     if checkeo > 0.8:
         warnings.warn(
-            f"Eliminando {round((checkeo * 100),2)} por ciento de registros"
+            f"Eliminando {round((checkeo * 100), 2)} por ciento de registros"
             + " por mala conversion de fechas de acuerdo"
             + " al formato provisto en configs"
             + " Verifique el formato de fecha en configuración"
@@ -340,7 +340,7 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
         checkeo = df["fecha"].isna().sum() / len(df)
 
         print(
-            f"Infiriendo el formato se pierden {round((checkeo * 100),2)}"
+            f"Infiriendo el formato se pierden {round((checkeo * 100), 2)}"
             + "por ciento de registros"
         )
 
@@ -441,16 +441,16 @@ def eliminar_trx_fuera_bbox(trx):
 
     original = len(trx)
 
-    zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo='insumos')
-    zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
+    zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo="insumos")
+    zonificaciones = zonificaciones[zonificaciones.zona != "Zona_voi"]
     if len(zonificaciones) > 0:
         trx["geometry"] = trx.apply(
             lambda row: Point(row["longitud"], row["latitud"]), axis=1
         )
         trx = gpd.GeoDataFrame(trx, geometry="geometry", crs=4326)
 
-        zonificaciones['dissolve_column'] = 1
-        zonificaciones = zonificaciones.dissolve(by='dissolve_column')
+        zonificaciones["dissolve_column"] = 1
+        zonificaciones = zonificaciones.dissolve(by="dissolve_column")
 
         trx = (
             gpd.sjoin(zonificaciones[["geometry"]], trx)
@@ -482,9 +482,10 @@ def eliminar_trx_fuera_bbox(trx):
     limpio = len(trx)
     print(f"--Se borraron {original-limpio} registros")
 
-    assert (
-        len(trx) > 0
-    ), "Se borraron todos los registros, verifique el 'filtro_latlong_bbox' en configuraciones_generales.yaml"
+    assert len(trx) > 0, (
+        "Se borraron todos los registros, verifique el 'filtro_latlong_bbox' en "
+        + "configuraciones_generales.yaml"
+    )
 
     return trx
 
@@ -630,9 +631,9 @@ def geolocalizar_trx(
         cols = ["id_linea", "interno"]
 
     trx_eco = trx_eco.dropna(subset=cols)
-    if not "genero" in trx_eco.columns:
+    if "genero" not in trx_eco.columns:
         trx_eco["genero"] = ""
-    if not "tarifa" in trx_eco.columns:
+    if "tarifa" not in trx_eco.columns:
         trx_eco["tarifa"] = ""
 
     cols = [
@@ -698,8 +699,8 @@ def geolocalizar_trx(
             select t.id,t.id_original, t.id_tarjeta,
                     datetime(t.fecha, 'unixepoch') as fecha,
                     t.dia,t.tiempo,t.hora, t.modo, t.id_linea,
-                    t.interno, t.orden, t.genero, t.tarifa as tarifa, g.latitud, g.longitud,
-                    (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
+                    t.interno, t.orden, t.genero, t.tarifa as tarifa, g.latitud,
+                    g.longitud, (t.fecha - g.fecha) / 60 as delta_trx_gps_min,
                     t.factor_expansion,
                 ROW_NUMBER() OVER(
                     PARTITION BY t."id"
@@ -811,8 +812,11 @@ def process_and_upload_gps_table(
                 "Revisar el configs para servicios_gps"
             )
 
-    # compute distance between gps points
-    gps = compute_distance_km_gps(gps)
+    # compute distance between gps points if there is no distance provided
+    if gps["distance"].isna().all():
+        gps = compute_distance_km_gps(gps, use_pandana=True)
+    else:
+        gps = gps.rename(columns={"distance": "distance_km"})
 
     # if branches are not present, add branch id as the same as line
     if not configs["lineas_contienen_ramales"]:
@@ -829,7 +833,6 @@ def process_and_upload_gps_table(
         "latitud",
         "longitud",
         "velocity",
-        "distance",
         "service_type",
         "distance_km",
         "h3",
@@ -883,30 +886,79 @@ def get_veh_expansion_from_gps(gps):
 
 
 @duracion
-def compute_distance_km_gps(gps_df):
+def compute_distance_km_gps(gps, use_pandana=False):
+    """
+    Computes the distance in kilometers between GPS points using either H3 hexagons
+    or Pandana.
 
+    Parameters:
+    gps (pd.DataFrame): A DataFrame containing GPS data with columns 'latitud',
+    longitud', 'dia', 'id_linea', 'interno', and 'fecha'.
+    use_pandana (bool): If True, computes distances using Pandana and OpenStreetMap
+    data. If False, computes distances using H3 hexagons. Default is False.
+
+    Returns:
+    pd.DataFrame: The input DataFrame with an additional column 'distance_km'
+    representing the computed distances between GPS points.
+    """
+
+    # Assign h3 to gps
+    print("Computing distances for gps")
     res = 11
-    distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
-    distancia_entre_hex = distancia_entre_hex * 2
+    configs = leer_configs_generales()
+    if configs["lineas_contienen_ramales"]:
+        order_cols = ["dia", "id_linea", "id_ramal", "interno", "fecha"]
+        reindex_cols = ["dia", "id_linea", "id_ramal", "interno", "h3"]
+    else:
+        order_cols = ["dia", "id_linea", "interno", "fecha"]
+        reindex_cols = ["dia", "id_linea", "interno", "h3"]
 
-    # Georeferenciar con h3
-    gps_df["h3"] = gps_df.apply(
-        geo.h3_from_row, axis=1, args=(res, "latitud", "longitud")
+    gps["h3"] = gps.apply(geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
+
+    # order by day, line, vehicle and date
+    gps = gps.sort_values(order_cols).reset_index(drop=True)
+
+    # Assign to each gps point the h3 of the following gps point
+    gps["h3_lag"] = (
+        gps.reindex(columns=reindex_cols).groupby(reindex_cols[:-1]).shift(1)
+    )
+    gps = gps.dropna(subset=["h3", "h3_lag"])
+    gps["delta_fecha"] = (
+        gps.reindex(columns=order_cols).groupby(order_cols[:-1]).diff().fillna(0)
     )
 
-    gps_df = gps_df.sort_values(["dia", "id_linea", "interno", "fecha"]).reset_index(drop=True)
+    if use_pandana:
+        # compute distances with pandana
+        temp_df = gps.reindex(columns=["h3", "h3_lag"]).drop_duplicates().dropna()
+        temp_df = temp_df[temp_df.h3 != temp_df.h3_lag].reset_index(drop=True)
 
-    # Producir un lag con respecto al siguiente posicionamiento gps
-    gps_df["h3_lag"] = (
-        gps_df.reindex(columns=["dia", "id_linea", "interno", "h3"])
-        .groupby(["dia", "id_linea", "interno"])
-        .shift(-1)
-    )
+        distances = compute_distances_osm(
+            temp_df,
+            h3_o="h3",
+            h3_d="h3_lag",
+            processing="pandana",
+            modes=["drive"],
+            use_parallel=True,
+        )
 
-    # Calcular distancia h3
-    gps_df = gps_df.dropna(subset=["h3", "h3_lag"])
-    gps_dict = gps_df.to_dict("records")
-    gps_df.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
-    gps_df.loc[:, ["distance_km"]] = gps_df["distance_km"] * distancia_entre_hex
-    gps_df = gps_df.drop(["h3_lag"], axis=1)
-    return gps_df
+        distances = distances.rename(
+            columns={"distance_osm_drive": "distance_km"}
+        ).reindex(columns=["h3", "h3_lag", "distance_km"])
+        gps = gps.merge(distances, on=["h3", "h3_lag"], how="left")
+        gps["distance_km"] = gps["distance_km"].fillna(0)
+
+    else:
+        # compute h3 distance
+        distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+        distancia_entre_hex = distancia_entre_hex * 2
+        gps_dict = gps.to_dict("records")
+        gps.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
+        gps.loc[:, ["distance_km"]] = gps["distance_km"] * distancia_entre_hex
+
+    percentile_99 = gps["delta_fecha"].quantile(0.995)
+    gps.loc[gps.delta_fecha > percentile_99, "distance_km"] = 0
+
+    # remove h3_lag
+    gps = gps.drop(["h3_lag", "delta_fecha"], axis=1)
+
+    return gps
