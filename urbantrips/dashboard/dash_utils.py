@@ -141,39 +141,29 @@ def normalize_vars(tabla):
 
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql,
-                      custom_query=False,
-                      tabla_tipo='dash'):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
-        if not custom_query:
-            tabla = pd.read_sql_query(
-                f"""
-                SELECT *
-                FROM {tabla_sql}
-                """,
-                conn,
-            )
-        else:
-            tabla = pd.read_sql_query(
-                custom_query,
-                conn,
-            )
+        if len(query) == 0:
+            query = f"""
+            SELECT *
+            FROM {tabla_sql}
+            """
 
+        tabla = pd.read_sql_query( query, conn )
     except:
-        print(f'{tabla_sql} no existe')
+        print(f"{tabla_sql} no existe")
         tabla = pd.DataFrame([])
 
     conn.close()
 
     if len(tabla) > 0:
-        if 'wkt' in tabla.columns:
+        if "wkt" in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla,
-                                     crs=4326)
-            tabla = tabla.drop(['wkt'], axis=1)
+            tabla = gpd.GeoDataFrame(tabla, crs=4326)
+            tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -211,7 +201,7 @@ def create_linestring_od(df,
                 for _, row in df.iterrows()]
 
     # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+    gdf = gpd.GeoDataFrame(df, geometry=geometry, crs=4326)
 
     return gdf
 
@@ -319,7 +309,7 @@ def creo_bubble_od(df,
                                     'rango_hora',
                                     'distancia']).factor_expansion_linea.transform('sum')
         geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
-        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs="EPSG:4326")
+        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs=4326)
         orig['viajes_porc'] = (
             orig.factor_expansion_linea / orig.tot * 100).round(1)
         orig = orig.rename(columns={od: 'od', lat: 'lat', lon: 'lon'})
@@ -352,7 +342,7 @@ def df_to_linestrings(df, lat_cols, lon_cols):
     df['geometry'] = df.apply(create_linestring, axis=1)
 
     # Convert DataFrame to GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs=4326)
 
     return gdf
 

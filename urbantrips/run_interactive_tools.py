@@ -5,6 +5,7 @@ from urbantrips.utils.utils import iniciar_conexion_db
 from urbantrips.utils import utils
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
+from streamlit_folium import folium_static
 
 st.set_page_config(layout="wide")
 
@@ -115,7 +116,7 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
         else:
             st.warning("No se encontró ninguna coincidencia.")
 
-
+# st.set_page_config(layout="wide")
 # --- Selección de líneas y ramales con almacenamiento en session_state ---
 with st.expander("Seleccionar líneas", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
@@ -163,12 +164,17 @@ with st.expander("Seleccionar líneas", expanded=True):
 # --- Comparación de líneas ---
 with st.expander("Comparación de líneas", expanded=True):
     col1, col2 = st.columns([2, 2])
-
+    
     if st.session_state.id_linea_1 and st.session_state.id_linea_2:
-        base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
-            st.session_state.branch_id_2
-        )
-
+        if use_branches:
+            base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
+                st.session_state.branch_id_2
+            )
+        else:
+            base_route_id, comp_route_id = int(st.session_state.id_linea_1), int(
+                st.session_state.id_linea_2
+            )
+        
         # Evita cálculos repetidos si ya se han realizado para las mismas líneas
         if f"overlapping_dict_{base_route_id}_{comp_route_id}" not in st.session_state:
 
@@ -197,13 +203,13 @@ with st.expander("Comparación de líneas", expanded=True):
         f = ovl_viz.plot_interactive_supply_overlapping(overlapping_dict)
         # Muestra la salida solo en col1
         with col1:
-            st_folium(f, width=800, height=600)
-        col1.write(
+            folium_static(f, width=800, height=600)
+            st.write(
             st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
-        )
-        col1.write(
+            )
+            st.write(
             st.session_state[f"supply_overlapping_{comp_route_id}_{base_route_id}"]
-        )
+            )
 
         # Cálculo y visualización de la demanda, si no se ha realizado previamente
         if (
@@ -241,10 +247,10 @@ with st.expander("Comparación de líneas", expanded=True):
             base_demand, comp_demand, overlapping_dict
         )
         with col2:
-            st_folium(fig, width=800, height=600)
-            col2.write(
+            folium_static(fig, width=800, height=600)
+            st.write(
                 st.session_state[f"demand_overlapping_{base_route_id}_{comp_route_id}"]
             )  # Muestra la segunda salida justo después del mapa
-            col2.write(
+            st.write(
                 st.session_state[f"demand_overlapping_{comp_route_id}_{base_route_id}"]
             )  # Muestra la segunda salida justo después del mapa
