@@ -9,8 +9,9 @@ import folium
 import json
 from folium import plugins
 from dash_utils import (
-    iniciar_conexion_db
+    iniciar_conexion_db, get_logo
 )
+from streamlit_folium import folium_static
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
@@ -67,6 +68,8 @@ def main():
 
     
     st.set_page_config(layout="wide")
+    logo = get_logo()
+    st.image(logo)
 
     mes_lst, tipo_dia_lst = traigo_mes_dia()
     
@@ -88,7 +91,7 @@ def main():
         
         # Display map with drawing tools
         with col2:
-            output = st_folium(m, width=1100, height=700, key='map')
+            output = st_folium(m, width=700, height=700, key='map')
 
         # Handle user drawing
         if output.get('last_active_drawing'):
@@ -102,11 +105,10 @@ def main():
             if col1.button("Guardar en Zona 2"):
                 st.session_state['zona_2'].extend(h3_indices)
 
-    # with st.expander('Hexágonos guardados', expanded=False):
-    #     col1, col2 = st.columns([1, 4])
-
         zona1 = st.session_state['zona_1']
         zona2 = st.session_state['zona_2']
+
+
 
         # Convertir la lista de índices H3 a una cadena en formato de lista de Python
         zona1_str = json.dumps(zona1)        
@@ -116,7 +118,7 @@ def main():
         col2.code(zona2_str, language='python')
 
     with st.expander('Resultados', expanded=True):
-        col1, col2, col3 = st.columns([1, 3, 3])
+        col1, col2, col3, col4 = st.columns([1, 2, 2, 3])
         zona1 = st.session_state['zona_1']
         zona2 = st.session_state['zona_2']
 
@@ -130,8 +132,8 @@ def main():
         
         if len(zona1) > 0 and len(zona2) > 0:
             h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
+            ## Etapas
             query = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-
             etapas = levanto_tabla_sql('etapas_agregadas', tabla_tipo='dash', query=query)
             
             etapas['Zona_1'] = ''
@@ -140,18 +142,47 @@ def main():
             etapas.loc[etapas.h3_o.isin(zona2), 'Zona_1'] = 'Zona 2'
             etapas.loc[etapas.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
             etapas.loc[etapas.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
-            etapas = etapas[(etapas.Zona_1 != '') & (etapas.Zona_2 != '') & (etapas.Zona_1 != etapas.Zona_2)]
-
-            zonasod = etapas.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes'})
-            zonasod['Viajes'] = zonasod['Viajes'].astype(int)
+            etapas = etapas[(etapas.Zona_1 != '') & (etapas.Zona_2 != '') & (etapas.Zona_1 != etapas.Zona_2) & (etapas.Zona_1 != etapas.Zona_2)]
             
-            modos = etapas.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes', 
+
+            zonasod_e = etapas.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes'})
+            zonasod_e['Viajes'] = zonasod_e['Viajes'].astype(int)
+
+
+            modos_e = etapas.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes', 
                                                                                                                                   'nombre_linea': 'Línea', 
                                                                                                                                   'modo': 'Modo'})
-            modos['Viajes'] = modos['Viajes'].astype(int)
+            modos_e['Viajes'] = modos_e['Viajes'].astype(int)
+            col2.write('Etapas')
+            col2.markdown(zonasod_e.to_html(index=False), unsafe_allow_html=True)
+            col2.markdown(modos_e.to_html(index=False), unsafe_allow_html=True)
+            
 
-            col2.markdown(zonasod.to_html(index=False), unsafe_allow_html=True)
-            col2.markdown(modos.to_html(index=False), unsafe_allow_html=True)
+            ## Viajes
+            query = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
+            viajes = levanto_tabla_sql('viajes_agregados', tabla_tipo='dash', query=query)
+            
+            viajes['Zona_1'] = ''
+            viajes['Zona_2'] = ''
+            viajes.loc[viajes.h3_o.isin(zona1), 'Zona_1'] = 'Zona 1'
+            viajes.loc[viajes.h3_o.isin(zona2), 'Zona_1'] = 'Zona 2'
+            viajes.loc[viajes.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
+            viajes.loc[viajes.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
+            viajes = viajes[(viajes.Zona_1 != '') & (viajes.Zona_2 != '') & (viajes.Zona_1 != viajes.Zona_2) & (viajes.Zona_1 != viajes.Zona_2)]
+            
+
+            zonasod_e = viajes.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes'})
+            zonasod_e['Viajes'] = zonasod_e['Viajes'].astype(int)
+
+            modos_v = viajes.groupby(['modo'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                   'modo': 'Modo'})
+
+            modos_v['Viajes'] = modos_v['Viajes'].astype(int)
+            col3.write('Viajes')
+            col3.markdown(zonasod_e.to_html(index=False), unsafe_allow_html=True)
+            col3.markdown(modos_v.to_html(index=False), unsafe_allow_html=True)
+
+            ## Mapa
 
             # Create unified geometry for each zone
             def zona_to_geometry(h3_list):
@@ -169,8 +200,8 @@ def main():
             m2 = folium.Map(location=[gdf.geometry.centroid.y.mean(), gdf.geometry.centroid.x.mean()], zoom_start=10)
             folium.GeoJson(gdf, name="GeoData").add_to(m2)
 
-            with col3:
-                st_folium(m2, width=800, height=500)
+            with col4:
+                st_folium(m2, width=700, height=700)
 
 if __name__ == '__main__':
     main()
