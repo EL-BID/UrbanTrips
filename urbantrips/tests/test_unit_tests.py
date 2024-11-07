@@ -767,6 +767,7 @@ def test_gps(matriz_validacion_test_amba):
         "fecha_gps": "fecha_gps",
         "latitud_gps": "latitud_gps",
         "longitud_gps": "longitud_gps",
+        "distance_gps": None,
     }
     trx_order_params = {
         "criterio": "fecha_completa",
