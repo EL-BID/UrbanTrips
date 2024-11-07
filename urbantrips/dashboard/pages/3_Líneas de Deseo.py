@@ -6,6 +6,7 @@ from streamlit_folium import st_folium
 import mapclassify
 import plotly.express as px
 from folium import Figure
+from shapely import wkt
 from dash_utils import (
     levanto_tabla_sql, get_logo,
     create_data_folium, traigo_indicadores,

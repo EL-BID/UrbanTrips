@@ -8,6 +8,7 @@ from streamlit_folium import st_folium
 import folium
 import json
 from folium import plugins
+from shapely import wkt
 from dash_utils import (
     iniciar_conexion_db, get_logo
 )
