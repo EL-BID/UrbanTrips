@@ -935,7 +935,6 @@ def create_gps_table():
                 latitud FLOAT,
                 longitud FLOAT,
                 velocity float,
-                distance float,
                 service_type text,
                 distance_km float,
                 h3 text
