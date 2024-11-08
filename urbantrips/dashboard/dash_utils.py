@@ -519,3 +519,15 @@ def extract_hex_colors_from_cmap(cmap, n=5):
     hex_colors = [mcolors.rgb2hex(color) for color in colors]
 
     return hex_colors
+    
+@st.cache_data
+def bring_latlon():
+    try:
+        latlon = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY RANDOM() LIMIT 100;')
+        lat = latlon['lat1_norm'].mean()
+        lon = latlon['lon1_norm'].mean()
+        latlon = [lat, lon]
+    except: 
+        print('error')
+        latlon = [-34.593, -58.451]
+    return latlon
