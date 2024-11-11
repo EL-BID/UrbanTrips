@@ -35,8 +35,8 @@ def crear_mapa_poligonos(df_viajes,
     if (len(df_viajes) > 0) | (len(df_etapas) > 0) | (len(origenes) > 0) | (len(destinos) > 0):
 
         fig = Figure(width=800, height=600)
-        m = folium.Map(location=[poly.sample(100, replace=True).geometry.representative_point().y.mean(
-        ), poly.sample(100, replace=True).geometry.representative_point().x.mean()], zoom_start=9, tiles='cartodbpositron')
+        m = folium.Map(location=[poly.geometry.representative_point().y.mean(
+        ), poly.geometry.representative_point().x.mean()], zoom_start=9, tiles='cartodbpositron')
 
         colors_viajes = extract_hex_colors_from_cmap(
             cmap='viridis_r', n=k_jenks)
@@ -347,11 +347,16 @@ with st.expander('Líneas de Deseo', expanded=True):
         distancia_all = ['Todas'] + distancia_all_[distancia_all_.distancia != '99'].distancia.unique().tolist()
         distancia = col1.selectbox('Distancia', options=distancia_all)
 
-        desc_etapas = col1.checkbox(
-            'Etapas', value=False)
-
-        desc_viajes = col1.checkbox(
-            'Viajes', value=True)
+        desc_et_vi = col1.selectbox('Datos de', options=['Etapas', 'Viajes', 'Ninguno'], index=1)
+        if desc_et_vi == 'Viajes':
+            desc_viajes = True
+            desc_etapas = False
+        elif desc_et_vi == 'Etapas':
+            desc_viajes = False
+            desc_etapas = True
+        else:
+            desc_viajes = False
+            desc_etapas = False
 
         desc_origenes = col1.checkbox(
             ':blue[Origenes]', value=False)
@@ -398,7 +403,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                             'desc_destinos': desc_destinos,
                             'desc_zonif': desc_zonif,                             
                             'show_poly' : st.session_state.show_poly,
-                            'desc_cuenca': desc_cuenca
+                            'desc_cuenca': desc_cuenca,
+                            'desc_et_vi': desc_et_vi
                             }
         
 
@@ -484,40 +490,34 @@ with st.expander('Líneas de Deseo', expanded=True):
                 st.session_state.data_cargada = True
     
                 
-                st.session_state.etapas, st.session_state.viajes, st.session_state.matriz, st.session_state.origenes, st.session_state.destinos = create_data_folium(st.session_state.etapas_,
-                                                                                                                                                                    st.session_state.matrices_,
-                                                                                                                                                                    agg_transferencias=st.session_state.desc_transfers,
-                                                                                                                                                                    agg_modo=st.session_state.desc_modos,
-                                                                                                                                                                    agg_hora=st.session_state.desc_horas,
-                                                                                                                                                                    agg_distancia=st.session_state.desc_distancia,
-                                                                                                                                                                    agg_cols_etapas=st.session_state.agg_cols_etapas,
-                                                                                                                                                                    agg_cols_viajes=st.session_state.agg_cols_viajes)
-    
-    
-    
-                st.session_state.etapas = st.session_state.etapas[st.session_state.etapas.inicio_norm != st.session_state.etapas.fin_norm].copy()
-                st.session_state.viajes = st.session_state.viajes[st.session_state.viajes.inicio_norm != st.session_state.viajes.fin_norm].copy()
-        
-                if not desc_etapas:
-                    st.session_state.etapas = pd.DataFrame([])
-        
-                if not desc_viajes:
-                    st.session_state.viajes = pd.DataFrame([])
-        
-                if not desc_origenes:
-                    st.session_state.origenes = pd.DataFrame([])
-        
-                if not desc_destinos:
-                    st.session_state.destinos = pd.DataFrame([])
+                st.session_state.etapas,    \
+                st.session_state.viajes,    \
+                st.session_state.matriz,    \
+                st.session_state.origenes,  \
+                st.session_state.destinos,   \
+                st.session_state.transferencias = create_data_folium(st.session_state.etapas_,
+                                                                    st.session_state.matrices_,
+                                                                    agg_transferencias=st.session_state.desc_transfers,
+                                                                    agg_modo=st.session_state.desc_modos,
+                                                                    agg_hora=st.session_state.desc_horas,
+                                                                    agg_distancia=st.session_state.desc_distancia,
+                                                                    agg_cols_etapas=st.session_state.agg_cols_etapas,
+                                                                    agg_cols_viajes=st.session_state.agg_cols_viajes,
+                                                                    desc_etapas=desc_etapas,
+                                                                    desc_viajes=desc_viajes,
+                                                                    desc_origenes=desc_origenes,
+                                                                    desc_destinos=desc_destinos,
+                                                                    desc_transferencias=False
+                                                                    )
             
-                if (len(st.session_state.etapas) > 0) | (len(st.session_state.viajes) > 0) | (len(st.session_state.origenes) > 0) | (len(st.session_state.destinos) > 0):
+                if (len(st.session_state.etapas) > 0) | (len(st.session_state.viajes) > 0) | (len(st.session_state.origenes) > 0) | (len(st.session_state.destinos) > 0) | (len(st.session_state.transferencias) > 0) | (desc_zonif):
                     
                     m = crear_mapa_poligonos(df_viajes=st.session_state.viajes,
                                                df_etapas=st.session_state.etapas,
                                                poly=st.session_state.poly,
                                                zonif=st.session_state.zonif,
                                                origenes=st.session_state.origenes,
-                                               destinos=st.session_state.destinos,
+                                               destinos=st.session_state.destinos,                                               
                                                var_fex='factor_expansion_linea',
                                                cmap_viajes='Blues',
                                                cmap_etapas='Greens',
@@ -534,9 +534,6 @@ with st.expander('Líneas de Deseo', expanded=True):
                     else:
                         col2.text("No hay datos suficientes para mostrar el mapa.")
     
-    
-
-
 with st.expander('Indicadores'):
     col1, col2, col3 = st.columns([2, 2, 2])
 
