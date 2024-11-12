@@ -123,6 +123,8 @@ with st.expander("Seleccionar líneas", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
 
     with col1:
+        h3_res_comp = st.slider("Resolución H3", min_value=7, max_value=9, value=8)
+
         if st.button("Comparar líneas"):
             for i in [1, 2]:
                 if f"seleccion_{i}" in st.session_state:
@@ -177,18 +179,21 @@ with st.expander("Comparación de líneas", expanded=True):
             )
 
         # Evita cálculos repetidos si ya se han realizado para las mismas líneas
-        if f"overlapping_dict_{base_route_id}_{comp_route_id}" not in st.session_state:
+        if (
+            f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
+            not in st.session_state
+        ):
 
             overlapping_dict = ovl.compute_supply_overlapping(
                 "weekday",
                 base_route_id,
                 comp_route_id,
                 "branches" if use_branches else "lines",
-                8,
+                h3_res_comp,
             )
-            st.session_state[f"overlapping_dict_{base_route_id}_{comp_route_id}"] = (
-                overlapping_dict
-            )
+            st.session_state[
+                f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
+            ] = overlapping_dict
             st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"] = (
                 overlapping_dict["text_base_v_comp"]
             )
@@ -197,7 +202,7 @@ with st.expander("Comparación de líneas", expanded=True):
             )
 
         overlapping_dict = st.session_state[
-            f"overlapping_dict_{base_route_id}_{comp_route_id}"
+            f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
         ]
 
         # Renderiza el primer mapa
