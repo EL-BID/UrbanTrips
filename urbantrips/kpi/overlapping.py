@@ -261,7 +261,7 @@ def update_overlapping_table_supply(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -275,7 +275,7 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {comp_line_id}
         and base_branch_id = {comp_branch_id}
@@ -289,7 +289,8 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap)
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'oferta'),
          ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{res_h3},{comp_v_base},'oferta')
@@ -307,7 +308,7 @@ def update_overlapping_table_demand(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -321,7 +322,8 @@ def update_overlapping_table_demand(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap) 
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'demanda')
         ;

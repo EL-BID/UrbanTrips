@@ -116,6 +116,7 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
         else:
             st.warning("No se encontró ninguna coincidencia.")
 
+
 # st.set_page_config(layout="wide")
 # --- Selección de líneas y ramales con almacenamiento en session_state ---
 with st.expander("Seleccionar líneas", expanded=True):
@@ -164,7 +165,7 @@ with st.expander("Seleccionar líneas", expanded=True):
 # --- Comparación de líneas ---
 with st.expander("Comparación de líneas", expanded=True):
     col1, col2 = st.columns([2, 2])
-    
+
     if st.session_state.id_linea_1 and st.session_state.id_linea_2:
         if use_branches:
             base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
@@ -174,7 +175,7 @@ with st.expander("Comparación de líneas", expanded=True):
             base_route_id, comp_route_id = int(st.session_state.id_linea_1), int(
                 st.session_state.id_linea_2
             )
-        
+
         # Evita cálculos repetidos si ya se han realizado para las mismas líneas
         if f"overlapping_dict_{base_route_id}_{comp_route_id}" not in st.session_state:
 
@@ -205,10 +206,10 @@ with st.expander("Comparación de líneas", expanded=True):
         with col1:
             folium_static(f, width=800, height=600)
             st.write(
-            st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
+                st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
             )
             st.write(
-            st.session_state[f"supply_overlapping_{comp_route_id}_{base_route_id}"]
+                st.session_state[f"supply_overlapping_{comp_route_id}_{base_route_id}"]
             )
 
         # Cálculo y visualización de la demanda, si no se ha realizado previamente
@@ -243,9 +244,13 @@ with st.expander("Comparación de líneas", expanded=True):
         comp_demand = demand_overlapping["comp"]["data"]
 
         # Renderiza el segundo mapa y muestra el texto justo después del mapa en col2
-        fig = ovl_viz.plot_interactive_demand_overlapping(
+        demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
             base_demand, comp_demand, overlapping_dict
         )
+        fig = demand_overlapping_fig["fig"]
+        base_gdf_to_db = demand_overlapping_fig["base_gdf_to_db"]
+        comp_gdf_to_db = demand_overlapping_fig["comp_gdf_to_db"]
+
         with col2:
             folium_static(fig, width=800, height=600)
             st.write(
@@ -254,3 +259,10 @@ with st.expander("Comparación de líneas", expanded=True):
             st.write(
                 st.session_state[f"demand_overlapping_{comp_route_id}_{base_route_id}"]
             )  # Muestra la segunda salida justo después del mapa
+
+with st.expander("Exportar datos", expanded=True):
+    col1_db, col2_db = st.columns([2, 2])
+    if col1_db.checkbox("Ver datos recorrido base"):
+        col1_db.write(base_gdf_to_db)
+    if col2_db.checkbox("Ver datos recorrido comparacion"):
+        col2_db.write(comp_gdf_to_db)
