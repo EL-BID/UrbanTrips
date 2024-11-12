@@ -5,6 +5,8 @@ import pandas as pd
 from urbantrips.geo import geo
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.utils.utils import leer_configs_generales, iniciar_conexion_db
+from shapely import wkt
+import h3
 
 
 def get_route_metadata(route_id):
@@ -96,11 +98,13 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
         .groupby("h3_o", as_index=False)
         .agg(total_legs=("factor_expansion_linea", "sum"))
     )
+
     base_destinations = (
         base_demand.reindex(columns=["h3_d", "factor_expansion_linea"])
         .groupby("h3_d", as_index=False)
         .agg(total_legs=("factor_expansion_linea", "sum"))
     )
+
     base_origins = gpd.GeoDataFrame(
         base_origins, geometry=base_origins.h3_o.map(geo.create_point_from_h3), crs=4326
     )
@@ -109,6 +113,8 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
         geometry=base_destinations.h3_d.map(geo.create_point_from_h3),
         crs=4326,
     )
+    base_origins["total_legs"] = base_origins["total_legs"].astype(int)
+    base_destinations["total_legs"] = base_destinations["total_legs"].astype(int)
 
     comp_origins = (
         comp_demand.reindex(columns=["h3_o", "factor_expansion_linea"])
@@ -128,6 +134,9 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
         geometry=comp_destinations.h3_d.map(geo.create_point_from_h3),
         crs=4326,
     )
+
+    comp_origins["total_legs"] = comp_origins["total_legs"].astype(int)
+    comp_destinations["total_legs"] = comp_destinations["total_legs"].astype(int)
 
     # compute demand by section id
     base_demand_by_section = ovl.demand_by_section_id(base_demand)
@@ -157,6 +166,90 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     comp_origins["total_legs_normalized"] = ovl.normalize_total_legs_to_dot_size(
         comp_origins["total_legs"], min_dot_size, max_dot_size
     )
+    base_gdf["demand_total"] = base_gdf["total_legs"].astype(int).copy()
+    base_gdf["demand_prop"] = base_gdf["prop_demand"].round(1).copy()
+    comp_gdf["demand_total"] = comp_gdf["total_legs"].astype(int).copy()
+    comp_gdf["demand_prop"] = comp_gdf["prop_demand"].round(1).copy()
+    base_gdf = base_gdf.drop(columns=["total_legs", "prop_demand"])
+    comp_gdf = comp_gdf.drop(columns=["total_legs", "prop_demand"])
+
+    # export data
+    base_gdf_to_db = base_gdf.copy()
+
+    base_gdf_to_db["h3_res"] = h3.h3_get_resolution(base_gdf_to_db["h3"].iloc[0])
+    base_gdf_to_db["x"] = base_gdf_to_db.geometry.centroid.x
+    base_gdf_to_db["y"] = base_gdf_to_db.geometry.centroid.y
+    base_gdf_to_db["type_route"] = "base"
+    base_gdf_to_db["wkt"] = base_gdf_to_db["geometry"].apply(lambda geom: geom.wkt)
+    base_gdf_to_db = base_gdf_to_db.reindex(
+        columns=[
+            "route_id",
+            "type_route",
+            "h3",
+            "h3_res",
+            "wkt",
+            "x",
+            "y",
+            "demand_total",
+            "demand_prop",
+        ]
+    )
+    base_gdf_to_db = base_gdf_to_db.merge(
+        base_origins.reindex(columns=["h3_o", "total_legs"]),
+        left_on="h3",
+        right_on="h3_o",
+        how="left",
+    )
+    base_gdf_to_db = base_gdf_to_db.rename(columns={"total_legs": "origins"}).drop(
+        columns=["h3_o"]
+    )
+    base_gdf_to_db = base_gdf_to_db.merge(
+        base_destinations.reindex(columns=["h3_d", "total_legs"]),
+        left_on="h3",
+        right_on="h3_d",
+        how="left",
+    )
+    base_gdf_to_db = base_gdf_to_db.rename(columns={"total_legs": "destinations"}).drop(
+        columns=["h3_d"]
+    )
+
+    comp_gdf_to_db = comp_gdf.copy()
+    comp_gdf_to_db["h3_res"] = h3.h3_get_resolution(comp_gdf_to_db["h3"].iloc[0])
+    comp_gdf_to_db["x"] = comp_gdf_to_db.geometry.centroid.x
+    comp_gdf_to_db["y"] = comp_gdf_to_db.geometry.centroid.y
+    comp_gdf_to_db["type_route"] = "comp"
+    comp_gdf_to_db["wkt"] = comp_gdf_to_db["geometry"].apply(lambda geom: geom.wkt)
+    comp_gdf_to_db = comp_gdf_to_db.reindex(
+        columns=[
+            "route_id",
+            "type_route",
+            "h3",
+            "h3_res",
+            "wkt",
+            "x",
+            "y",
+            "demand_total",
+            "demand_prop",
+        ]
+    )
+    comp_gdf_to_db = comp_gdf_to_db.merge(
+        comp_origins.reindex(columns=["h3_o", "total_legs"]),
+        left_on="h3",
+        right_on="h3_o",
+        how="left",
+    )
+    comp_gdf_to_db = comp_gdf_to_db.rename(columns={"total_legs": "origins"}).drop(
+        columns=["h3_o"]
+    )
+    comp_gdf_to_db = comp_gdf_to_db.merge(
+        comp_destinations.reindex(columns=["h3_d", "total_legs"]),
+        left_on="h3",
+        right_on="h3_d",
+        how="left",
+    )
+    comp_gdf_to_db = comp_gdf_to_db.rename(columns={"total_legs": "destinations"}).drop(
+        columns=["h3_d"]
+    )
 
     # get mean coords to center map
     mean_x = np.mean(base_route_gdf.item().coords.xy[0])
@@ -166,7 +259,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
 
     base_gdf.explore(
-        column="total_legs",
+        column="demand_total",
         tiles="CartoDB positron",
         m=m,
         name=f"Demanda ruta base - {base_route_metadata}",
@@ -201,7 +294,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     )
 
     comp_gdf.explore(
-        column="total_legs",
+        column="demand_total",
         tiles="CartoDB positron",
         m=m,
         name=f"Demanda ruta comp - {comp_route_metadata}",
@@ -238,4 +331,8 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     folium.LayerControl(name="Leyenda").add_to(m)
 
     fig.add_child(m)
-    return fig
+    return {
+        "fig": fig,
+        "base_gdf_to_db": base_gdf_to_db,
+        "comp_gdf_to_db": comp_gdf_to_db,
+    }

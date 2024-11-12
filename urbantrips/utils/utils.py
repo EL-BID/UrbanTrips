@@ -12,6 +12,7 @@ from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
 
+
 def duracion(f):
     @wraps(f)
     def wrap(*args, **kw):
@@ -1304,7 +1305,7 @@ def create_kpi_tables():
 
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS overlapping
+        CREATE TABLE IF NOT EXISTS overlapping_by_route
         (
         dia text not null,
         base_line_id int not null,
@@ -1426,7 +1427,7 @@ def traigo_tabla_zonas():
 
 def normalize_vars(tabla):
     if "dia" in tabla.columns:
-        tabla['dia'] = ''
+        tabla["dia"] = ""
         tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
         tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
     if "day_type" in tabla.columns:
@@ -1442,12 +1443,14 @@ def normalize_vars(tabla):
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     cursor = conn.cursor()
-    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tabla_sql}'")
+    cursor.execute(
+        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tabla_sql}'"
+    )
     table_exists = cursor.fetchone() is not None
 
     # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
@@ -1459,8 +1462,8 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
             query = f"""
             SELECT *
             FROM {tabla_sql}
-            """    
-        tabla = pd.read_sql_query( query, conn )
+            """
+        tabla = pd.read_sql_query(query, conn)
 
     conn.close()
 
@@ -1538,9 +1541,7 @@ def delete_data_from_table_run_days(table_name):
     conn_data.close()
 
 
-
-
-def guardar_tabla_sql(df, table_name, tabla_tipo='dash', filtros=None):
+def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     """
     Guarda un DataFrame en una base de datos SQLite.
 
@@ -1554,9 +1555,11 @@ def guardar_tabla_sql(df, table_name, tabla_tipo='dash', filtros=None):
     # Verifica si la tabla existe en la base de datos
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
-    
+
     cursor = conn.cursor()
-    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+    cursor.execute(
+        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+    )
     table_exists = cursor.fetchone() is not None
 
     # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
@@ -1579,9 +1582,8 @@ def guardar_tabla_sql(df, table_name, tabla_tipo='dash', filtros=None):
         where_clause = " AND ".join(condiciones)
         cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
         conn.commit()
-    
-    
+
     # Guarda el DataFrame en la base de datos, crea la tabla si no existe
-    df.to_sql(table_name, conn, if_exists='append', index=False)
+    df.to_sql(table_name, conn, if_exists="append", index=False)
     conn.close()
     print(f"Datos guardados exitosamente {table_name}.")

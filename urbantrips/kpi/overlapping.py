@@ -4,7 +4,7 @@ import numpy as np
 from shapely.geometry import Point, LineString
 import h3
 import itertools
-
+import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
@@ -16,16 +16,13 @@ def from_linestring_to_h3(linestring, h3_res=8):
     This function takes a shapely linestring and
     returns all h3 hecgrid cells that intersect that linestring
     """
-    lrs = np.arange(0, 1, 0.01)
-    points = [linestring.interpolate(i, normalized=True) for i in lrs]
-    coords = [(point.x, point.y) for point in points]
-    linestring_h3 = pd.Series(
-        [
-            h3.geo_to_h3(lat=coord[1], lng=coord[0], resolution=h3_res)
-            for coord in coords
-        ]
-    ).drop_duplicates()
-    return linestring_h3
+    linestring_buffer = linestring.buffer(0.002)
+    linestring_buffer_geojson = eval(shapely.to_geojson(linestring_buffer))
+
+    linestring_h3 = h3.polyfill(linestring_buffer_geojson, 10, geo_json_conformant=True)
+
+    linestring_h3 = {h3.h3_to_parent(h, h3_res) for h in linestring_h3}
+    return pd.Series(list(linestring_h3)).drop_duplicates()
 
 
 def create_coarse_h3_from_line(
@@ -264,7 +261,7 @@ def update_overlapping_table_supply(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -278,7 +275,7 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {comp_line_id}
         and base_branch_id = {comp_branch_id}
@@ -292,7 +289,8 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap)
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'oferta'),
          ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{res_h3},{comp_v_base},'oferta')
@@ -310,7 +308,7 @@ def update_overlapping_table_demand(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -324,7 +322,8 @@ def update_overlapping_table_demand(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap) 
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'demanda')
         ;
@@ -431,11 +430,6 @@ def compute_supply_overlapping(
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
 
-
-
-
-
-        
         conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
         metadata = pd.read_sql(
             f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
