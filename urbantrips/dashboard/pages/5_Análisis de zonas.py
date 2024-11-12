@@ -10,12 +10,12 @@ import json
 from folium import plugins
 from shapely import wkt
 from dash_utils import (
-    iniciar_conexion_db, get_logo
+    iniciar_conexion_db, get_logo, bring_latlon
 )
 from streamlit_folium import folium_static
+pd.options.display.float_format = '{:,.0f}'.format
 
-
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
+def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=''):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
@@ -43,7 +43,7 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
     
 @st.cache_data
 def traigo_mes_dia():
-    mes_dia = levanto_tabla_sql('etapas_agregadas', 'dash', 'SELECT DISTINCT mes, tipo_dia FROM etapas_agregadas;')
+    mes_dia = levanto_tabla_sql_local('etapas_agregadas', 'dash', 'SELECT DISTINCT mes, tipo_dia FROM etapas_agregadas;')
     mes = mes_dia.mes.values.tolist()
     tipo_dia = mes_dia.tipo_dia.values.tolist()
     return mes, tipo_dia
@@ -72,6 +72,7 @@ def main():
     logo = get_logo()
     st.image(logo)
 
+    latlon = bring_latlon()
     mes_lst, tipo_dia_lst = traigo_mes_dia()
     
     with st.expander('Selecciono zonas', expanded=True):
@@ -82,7 +83,7 @@ def main():
         resolution = 8
         
         # Initialize Folium map
-        m = folium.Map(location=[-34.593, -58.451], zoom_start=10)
+        m = folium.Map(location=latlon, zoom_start=10)
         draw = plugins.Draw(
             export=False,
             draw_options={'polygon': True, 'rectangle': True},
@@ -118,8 +119,8 @@ def main():
         zona2_str = json.dumps(zona2)        
         col2.code(zona2_str, language='python')
 
-    with st.expander('Resultados', expanded=True):
-        col1, col2, col3, col4 = st.columns([1, 2, 2, 3])
+    with st.expander('Zonas', expanded=False):
+        col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 2])
         zona1 = st.session_state['zona_1']
         zona2 = st.session_state['zona_2']
 
@@ -130,12 +131,100 @@ def main():
         desc_tipo_dia = col1.selectbox(
                         'Tipo dia', options=tipo_dia_lst)
 
+        if len(zona1) > 0:
+            h3_values1 = ", ".join(f"'{item}'" for item in zona1)
+            ## Etapas
+            query1 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values1}));"
+            etapas1 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query1)
+            etapas1['Zona_1'] = 'Zona 1'
+
+            ## Viajes
+            query1 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values1}) );"
+            viajes1 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query1)
+            viajes1['Zona_1'] = 'Zona 1'
+            
+            modos_e1 = etapas1.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas', 
+                                                                                                                      'nombre_linea': 'Línea', 'modo': 'Modo'})
+
+            modos_v1 = viajes1.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                      'modo': 'Modo'})
+
+            # Calculate the total and append as a new row
+            total_row1e = pd.DataFrame({
+                'Modo': ['Total'],
+                'Línea': ['-'],
+                'Etapas': [modos_e1['Etapas'].sum()]
+            })                        
+            modos_e1 = pd.concat([modos_e1, total_row1e], ignore_index=True)
+
+            
+            # Calculate the total and append as a new row
+            total_row1 = pd.DataFrame({
+                'Modo': ['Total'],                
+                'Viajes': [modos_v1['Viajes'].sum()]
+            })                        
+            modos_v1 = pd.concat([modos_v1, total_row1], ignore_index=True)
+            
+            col2.title('Zona 1')                                                                                                  
+            col2.write('Etapas')        
+            modos_e1['Etapas'] = modos_e1['Etapas'].round()            
+            col2.dataframe(modos_e1.set_index('Modo'), height=400, width=400)
+            col3.title('') 
+            col3.write('Viajes')
+            modos_v1['Viajes'] = modos_v1['Viajes'].round()
+            col3.dataframe(modos_v1.set_index('Modo'), height=400, width=300)
+        if len(zona2) > 0:
+            h3_values2 = ", ".join(f"'{item}'" for item in zona2)
+            ## Etapas
+            query2 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values2}));"
+            etapas2 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query2)
+            etapas2['Zona_2'] = 'Zona 2'
+            
+            ## Viajes
+            query2 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values2}) );"
+            viajes2 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query2)
+            viajes2['Zona_2'] = 'Zona 2'
+
+            modos_e2 = etapas2.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas', 
+                                                                                                                      'nombre_linea': 'Línea', 'modo': 'Modo'})
+
+            modos_v2 = viajes2.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                      'modo': 'Modo'})
+            # Calculate the total and append as a new row
+            total_row2e = pd.DataFrame({
+                'Modo': ['Total'],
+                'Línea': ['-'],
+                'Etapas': [modos_e2['Etapas'].sum()]
+            })                        
+            modos_e2 = pd.concat([modos_e2, total_row2e], ignore_index=True)
+            
+            # Calculate the total and append as a new row
+            total_row2 = pd.DataFrame({
+                'Modo': ['Total'],                
+                'Viajes': [modos_v2['Viajes'].sum()]
+            })                        
+            modos_v2 = pd.concat([modos_v2, total_row2], ignore_index=True)
+
+
+            col4.title('Zona 2')                                                                                                  
+            col4.write('Etapas')  
+            modos_e2['Etapas'] = modos_e2['Etapas'].round()
+            col4.dataframe(modos_e2.set_index('Modo'), height=400, width=400)
+
+            modos_v2['Viajes'] = modos_v2['Viajes'].round()
+            col5.title('') 
+            col5.write('Viajes')
+            # col5.markdown(modos_v2.to_html(index=False), unsafe_allow_html=True)
+            col5.dataframe(modos_v2.set_index('Modo'), height=400, width=300)
+
+    with st.expander('Viajes entre zonas', expanded=True):
+        col1, col2, col3, col4 = st.columns([1, 2, 2, 3])        
         
         if len(zona1) > 0 and len(zona2) > 0:
             h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
             ## Etapas
             query = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-            etapas = levanto_tabla_sql('etapas_agregadas', tabla_tipo='dash', query=query)
+            etapas = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query)
             
             etapas['Zona_1'] = ''
             etapas['Zona_2'] = ''
@@ -145,23 +234,32 @@ def main():
             etapas.loc[etapas.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
             etapas = etapas[(etapas.Zona_1 != '') & (etapas.Zona_2 != '') & (etapas.Zona_1 != etapas.Zona_2) & (etapas.Zona_1 != etapas.Zona_2)]
             
+            etapas = etapas.fillna('')
+            
+            zonasod_e = etapas.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas'})
 
-            zonasod_e = etapas.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes'})
-            zonasod_e['Viajes'] = zonasod_e['Viajes'].astype(int)
 
-
-            modos_e = etapas.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes', 
+            modos_e = etapas.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas', 
                                                                                                                                   'nombre_linea': 'Línea', 
                                                                                                                                   'modo': 'Modo'})
-            modos_e['Viajes'] = modos_e['Viajes'].astype(int)
-            col2.write('Etapas')
-            col2.markdown(zonasod_e.to_html(index=False), unsafe_allow_html=True)
-            col2.markdown(modos_e.to_html(index=False), unsafe_allow_html=True)
+            # Calculate the total and append as a new row
+            total_rowe = pd.DataFrame({
+                'Modo': ['Total'],
+                'Línea': ['-'],
+                'Etapas': [modos_e['Etapas'].sum()]
+            })                        
+            modos_e = pd.concat([modos_e, total_rowe], ignore_index=True)
+
+            modos_e['Etapas'] = modos_e['Etapas'].round()
             
+            col2.write('Etapas')            
+            col2.markdown(zonasod_e.to_html(index=False), unsafe_allow_html=True)            
+            col2.dataframe(modos_e.set_index('Modo'), height=500, width=400)
+
 
             ## Viajes
             query = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-            viajes = levanto_tabla_sql('viajes_agregados', tabla_tipo='dash', query=query)
+            viajes = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query)
             
             viajes['Zona_1'] = ''
             viajes['Zona_2'] = ''
@@ -170,18 +268,26 @@ def main():
             viajes.loc[viajes.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
             viajes.loc[viajes.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
             viajes = viajes[(viajes.Zona_1 != '') & (viajes.Zona_2 != '') & (viajes.Zona_1 != viajes.Zona_2) & (viajes.Zona_1 != viajes.Zona_2)]
-            
 
-            zonasod_e = viajes.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes'})
-            zonasod_e['Viajes'] = zonasod_e['Viajes'].astype(int)
+            zonasod_v = viajes.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes'})
+           
 
-            modos_v = viajes.groupby(['modo'], as_index=False).factor_expansion_linea.sum().round().rename(columns={'factor_expansion_linea':'Viajes', 
+
+            modos_v = viajes.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
                                                                                                                    'modo': 'Modo'})
-
-            modos_v['Viajes'] = modos_v['Viajes'].astype(int)
+            
+            # Calculate the total and append as a new row
+            total_row = pd.DataFrame({
+                'Modo': ['Total'],
+                'Viajes': [modos_v['Viajes'].sum()]
+            })                        
+            modos_v = pd.concat([modos_v, total_row], ignore_index=True)
+            
             col3.write('Viajes')
-            col3.markdown(zonasod_e.to_html(index=False), unsafe_allow_html=True)
-            col3.markdown(modos_v.to_html(index=False), unsafe_allow_html=True)
+            col3.markdown(zonasod_v.to_html(index=False), unsafe_allow_html=True)     
+            modos_v['Viajes'] = modos_v['Viajes'].round()
+            # col3.markdown(modos_v.to_html(index=False), unsafe_allow_html=True)
+            col3.dataframe(modos_v.set_index('Modo'), height=500, width=300)
 
             ## Mapa
 
@@ -202,7 +308,7 @@ def main():
             folium.GeoJson(gdf, name="GeoData").add_to(m2)
 
             with col4:
-                st_folium(m2, width=700, height=700)
+                output2 = st_folium(m2, width=700, height=700)
 
 if __name__ == '__main__':
     main()

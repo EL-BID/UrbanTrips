@@ -8,7 +8,7 @@ from urbantrips.utils.utils import traigo_tabla_zonas, calculate_weighted_means
 from urbantrips.geo.geo import h3_to_lat_lon, h3toparent, h3_to_geodataframe, point_to_h3, create_h3_gdf
 from urbantrips.utils.check_configs import check_config
 from shapely.geometry import Point
-from urbantrips.utils.utils import leer_alias
+from urbantrips.utils.utils import leer_alias, leer_configs_generales
 from urbantrips.carto import carto
 
 
@@ -1409,12 +1409,16 @@ def proceso_poligonos(check_configs=True):
     poligonos = levanto_tabla_sql('poligonos')
 
     if len(poligonos) > 0:
+
+        configs = leer_configs_generales()
+        res = configs['resolucion_h3']
+        
         print('identifica viajes en polígonos')
         # Read trips and jorneys
         etapas, viajes = load_and_process_data()
         # Select cases based fron polygon
         etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
-            etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=8)
+            etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=res)
 
         etapas_agrupadas, etapas_sin_agrupar, viajes_matrices, zonificaciones = preparo_lineas_deseo(
             etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6])
