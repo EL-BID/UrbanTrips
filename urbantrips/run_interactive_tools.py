@@ -31,6 +31,7 @@ if "configs" not in st.session_state:
     st.session_state.configs = utils.leer_configs_generales()
 
 configs = st.session_state.configs
+h3_legs_res = configs["resolucion_h3"]
 alias = configs["alias_db_data"]
 use_branches = configs["lineas_contienen_ramales"]
 metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
@@ -123,7 +124,9 @@ with st.expander("Seleccionar líneas", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
 
     with col1:
-        h3_res_comp = st.slider("Resolución H3", min_value=7, max_value=9, value=8)
+        h3_res_comp = st.slider(
+            "Resolución H3", min_value=7, max_value=h3_legs_res, value=h3_legs_res
+        )
 
         if st.button("Comparar líneas"):
             for i in [1, 2]:
