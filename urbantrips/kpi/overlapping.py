@@ -349,11 +349,27 @@ def compute_supply_overlapping(
 
     # Crate linestring for each branch
     base_route_gdf = route_geoms.loc[route_geoms.route_id == base_route_id, "geometry"]
-    linestring_base = base_route_gdf.item()
-
     # Crate linestring for each branch
     comp_route_gdf = route_geoms.loc[route_geoms.route_id == comp_route_id, "geometry"]
-    linestring_comp = comp_route_gdf.item()
+
+    if (len(base_route_gdf) == 0) or (len(comp_route_gdf) == 0):
+        error_str = (
+            "No es posible la comparación de oferta para esta combinación de rutas. "
+        )
+        if len(base_route_gdf) == 0:
+            error_str += f"Ruta base {base_route_id} no encontrada. "
+        if len(comp_route_gdf) == 0:
+            error_str += f"Ruta comp {comp_route_id} no encontrada. "
+        return {
+            "base": {"line": None, "h3": None},
+            "comp": {"line": None, "h3": None},
+            "text_base_v_comp": error_str,
+            "text_comp_v_base": error_str,
+        }
+
+    else:
+        linestring_base = base_route_gdf.item()
+        linestring_comp = comp_route_gdf.item()
 
     # Turn linestring into coarse h3 indexes
     base_h3 = create_coarse_h3_from_line(

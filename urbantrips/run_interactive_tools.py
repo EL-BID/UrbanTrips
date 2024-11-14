@@ -212,61 +212,82 @@ with st.expander("Comparación de líneas", expanded=True):
         f = ovl_viz.plot_interactive_supply_overlapping(overlapping_dict)
         # Muestra la salida solo en col1
         with col1:
-            folium_static(f, width=800, height=600)
-            st.write(
-                st.session_state[f"supply_overlapping_{base_route_id}_{comp_route_id}"]
-            )
-            st.write(
-                st.session_state[f"supply_overlapping_{comp_route_id}_{base_route_id}"]
-            )
+            if f is not None:
+                folium_static(f, width=800, height=600)
+                st.write(
+                    st.session_state[
+                        f"supply_overlapping_{base_route_id}_{comp_route_id}"
+                    ]
+                )
+                st.write(
+                    st.session_state[
+                        f"supply_overlapping_{comp_route_id}_{base_route_id}"
+                    ]
+                )
+            else:
+                st.error(overlapping_dict["text_base_v_comp"])
 
         # Cálculo y visualización de la demanda, si no se ha realizado previamente
         if (
             f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
             not in st.session_state
         ):
-            demand_overlapping = ovl.compute_demand_overlapping(
-                st.session_state.id_linea_1,
-                st.session_state.id_linea_2,
-                "weekday",
-                base_route_id,
-                comp_route_id,
-                overlapping_dict["base"]["h3"],
-                overlapping_dict["comp"]["h3"],
-            )
-            st.session_state[
-                f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
-            ] = demand_overlapping
+            base_gdf = overlapping_dict["base"]["h3"]
+            comp_gdf = overlapping_dict["comp"]["h3"]
+            if (base_gdf is not None) and (comp_gdf is not None):
+                demand_overlapping = ovl.compute_demand_overlapping(
+                    st.session_state.id_linea_1,
+                    st.session_state.id_linea_2,
+                    "weekday",
+                    base_route_id,
+                    comp_route_id,
+                    base_gdf,
+                    comp_gdf,
+                )
+                st.session_state[
+                    f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
+                ] = demand_overlapping
 
-            st.session_state[f"demand_overlapping_{base_route_id}_{comp_route_id}"] = (
-                demand_overlapping["base"]["output_text"]
-            )
-            st.session_state[f"demand_overlapping_{comp_route_id}_{base_route_id}"] = (
-                demand_overlapping["comp"]["output_text"]
-            )
+                st.session_state[
+                    f"demand_overlapping_{base_route_id}_{comp_route_id}"
+                ] = demand_overlapping["base"]["output_text"]
+                st.session_state[
+                    f"demand_overlapping_{comp_route_id}_{base_route_id}"
+                ] = demand_overlapping["comp"]["output_text"]
+            else:
+                st.session_state[
+                    f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
+                ] = None
 
         demand_overlapping = st.session_state[
             f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
         ]
-        base_demand = demand_overlapping["base"]["data"]
-        comp_demand = demand_overlapping["comp"]["data"]
 
         # Renderiza el segundo mapa y muestra el texto justo después del mapa en col2
-        demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
-            base_demand, comp_demand, overlapping_dict
-        )
-        fig = demand_overlapping_fig["fig"]
-        base_gdf_to_db = demand_overlapping_fig["base_gdf_to_db"]
-        comp_gdf_to_db = demand_overlapping_fig["comp_gdf_to_db"]
+        if demand_overlapping is not None:
+            base_demand = demand_overlapping["base"]["data"]
+            comp_demand = demand_overlapping["comp"]["data"]
 
-        with col2:
-            folium_static(fig, width=800, height=600)
-            st.write(
-                st.session_state[f"demand_overlapping_{base_route_id}_{comp_route_id}"]
-            )  # Muestra la segunda salida justo después del mapa
-            st.write(
-                st.session_state[f"demand_overlapping_{comp_route_id}_{base_route_id}"]
-            )  # Muestra la segunda salida justo después del mapa
+            demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
+                base_demand, comp_demand, overlapping_dict
+            )
+            fig = demand_overlapping_fig["fig"]
+            base_gdf_to_db = demand_overlapping_fig["base_gdf_to_db"]
+            comp_gdf_to_db = demand_overlapping_fig["comp_gdf_to_db"]
+
+            with col2:
+                folium_static(fig, width=800, height=600)
+                st.write(
+                    st.session_state[
+                        f"demand_overlapping_{base_route_id}_{comp_route_id}"
+                    ]
+                )  # Muestra la segunda salida justo después del mapa
+                st.write(
+                    st.session_state[
+                        f"demand_overlapping_{comp_route_id}_{base_route_id}"
+                    ]
+                )  # Muestra la segunda salida justo después del mapa
+
 
 with st.expander("Exportar datos", expanded=True):
     col1_db, col2_db = st.columns([2, 2])
