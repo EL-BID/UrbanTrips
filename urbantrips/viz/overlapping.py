@@ -32,7 +32,7 @@ def plot_interactive_supply_overlapping(overlapping_dict):
 
     base_h3 = overlapping_dict["base"]["h3"]
     comp_h3 = overlapping_dict["comp"]["h3"]
-    if (base_h3 is None) or (comp_gdf is None):
+    if (base_h3 is None) or (comp_h3 is None):
         return None
 
     base_route_id = base_h3.route_id.unique()[0]
