@@ -30,7 +30,7 @@ def leer_configs_generales():
     return config
 
 
-def leer_alias(tipo='data'):
+def leer_alias(tipo='dash'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el alias seteado en el archivo de congifuracion
@@ -53,7 +53,7 @@ def leer_alias(tipo='data'):
     return alias
 
 
-def traigo_db_path(tipo='data'):
+def traigo_db_path(tipo='dash'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -62,12 +62,13 @@ def traigo_db_path(tipo='data'):
         raise ValueError('tipo invalido: %s' % tipo)
 
     alias = leer_alias(tipo)
+
     db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
 
     return db_path
 
 
-def iniciar_conexion_db(tipo='data'):
+def iniciar_conexion_db(tipo='dash'):
     """"
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
@@ -76,6 +77,7 @@ def iniciar_conexion_db(tipo='data'):
     assert os.path.isfile(
         db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
+
     return conn
 
 # Calculate weighted mean, handling division by zero or empty inputs
