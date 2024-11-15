@@ -11,8 +11,8 @@ from dash_utils import (
     levanto_tabla_sql, get_logo,
     create_data_folium, traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db, normalize_vars
-
+    iniciar_conexion_db, normalize_vars,
+    traigo_zonas_values
 )
 
 from streamlit_folium import folium_static
@@ -297,12 +297,12 @@ with st.expander('Líneas de Deseo', expanded=True):
         zonificaciones = levanto_tabla_sql('zonificaciones')        
         socio_indicadores = levanto_tabla_sql('socio_indicadores')
         desc_tipo_dia_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM poly_etapas;')
-        desc_zona_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT zona FROM poly_etapas;')
+        desc_zona_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT zona FROM poly_etapas;').sort_values('zona')
         modos_list_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT modo_agregado FROM poly_etapas;')
         rango_hora_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT rango_hora FROM poly_etapas;')
         distancia_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT distancia FROM poly_etapas;')
         desc_poly_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT id_polygon FROM poly_etapas;')
-        
+        zonas_values = traigo_zonas_values('poligonos')
 
         # st.session_state.etapas_all = st.session_state.etapas_all[st.session_state.etapas_all.factor_expansion_linea > 0].copy()
         general, modal, distancias = traigo_indicadores('poligonos')
@@ -316,11 +316,13 @@ with st.expander('Líneas de Deseo', expanded=True):
                 'transferencia': 'Todos',
                 'modo_agregado': 'Todos',
                 'rango_hora': 'Todos',
-                'distancia': 'Todas'
+                'distancia': 'Todas',
+                'desc_zonas_values':'Todos'
             }
             
         if 'data_cargada' not in st.session_state:
             st.session_state.data_cargada = False
+            
         
         # Opciones de los filtros en Streamlit
         # st.session_state.etapas_lst = ['Todos'] + etapas_lst_.mes.unique().tolist()        
@@ -358,6 +360,9 @@ with st.expander('Líneas de Deseo', expanded=True):
             desc_viajes = False
             desc_etapas = False
 
+        zonas_values_all = ['Todos'] + zonas_values[zonas_values.zona == desc_zona].Nombre.unique().tolist()
+        desc_zonas_values = col1.selectbox('Filtro', options=zonas_values_all)
+        
         desc_origenes = col1.checkbox(
             ':blue[Origenes]', value=False)
 
@@ -383,7 +388,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             desc_cuenca = False
             
         
-
+        mtabla = col2.checkbox('Mostrar tabla', value=False)
         
         # Construye el diccionario de filtros actual
         current_filters = {
@@ -396,6 +401,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             'distancia': None if distancia == 'Todas' else distancia,
             'coincidencias': None if desc_cuenca == False else True,
             'id_polygon': st.session_state.desc_poly,
+            'desc_zonas_values': None if desc_zonas_values == 'Todos' else desc_zonas_values,            
         }
         current_options = { 'desc_etapas': desc_etapas,
                             'desc_viajes': desc_viajes,
@@ -404,7 +410,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                             'desc_zonif': desc_zonif,                             
                             'show_poly' : st.session_state.show_poly,
                             'desc_cuenca': desc_cuenca,
-                            'desc_et_vi': desc_et_vi
+                            'desc_et_vi': desc_et_vi,
+                            'mtabla': mtabla
                             }
         
 
@@ -413,12 +420,22 @@ with st.expander('Líneas de Deseo', expanded=True):
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
             
             query = ""
-            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if value is not None)
+            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values'))
             if conditions:
                 query += f" WHERE {conditions}"
+                
+            conditions_etapas = ''
+            conditions_matrices = ''
+            if desc_zonas_values != 'Todos':
+                conditions_etapas = f" AND (inicio_norm = '{desc_zonas_values}' OR transfer1_norm = '{desc_zonas_values}' OR transfer2_norm = '{desc_zonas_values}' OR fin_norm = '{desc_zonas_values}')"
+                conditions_matrices = f" AND (inicio = '{desc_zonas_values}' OR fin = '{desc_zonas_values}')"
+            query_etapas = query + conditions_etapas
+            query_matrices = query + conditions_matrices
 
-            st.session_state.matrices_ = levanto_tabla_sql_local('poly_matrices', tabla_tipo='dash', query=f"SELECT * FROM poly_matrices{query}")    
-            st.session_state.etapas_ = levanto_tabla_sql_local('poly_etapas', tabla_tipo='dash', query=f"SELECT * FROM poly_etapas{query}")
+            
+            st.session_state.etapas_ = levanto_tabla_sql_local('poly_etapas', tabla_tipo='dash', query=f"SELECT * FROM poly_etapas{query_etapas}")
+            st.session_state.matrices_ = levanto_tabla_sql_local('poly_matrices', tabla_tipo='dash', query=f"SELECT * FROM poly_matrices{query_matrices}")    
+
 
             if len(st.session_state.etapas_)==0:
                 col2.write('No hay datos para mostrar')
@@ -531,6 +548,12 @@ with st.expander('Líneas de Deseo', expanded=True):
                     if st.session_state.map:
                         with col2:
                             folium_static(st.session_state.map, width=1000, height=800)
+
+                        
+                        if mtabla:
+                            col2.dataframe(st.session_state.etapas_[['inicio_norm', 'transfer1_norm', 'transfer2_norm', 'fin_norm', 'factor_expansion_linea']])
+
+
                     else:
                         col2.text("No hay datos suficientes para mostrar el mapa.")
     

@@ -598,3 +598,28 @@ def bring_latlon():
     except: 
         latlon = [-34.593, -58.451]
     return latlon
+
+@st.cache_data
+def traigo_zonas_values(tipo = 'etapas'):
+
+    if tipo == 'etapas':
+        table = 'agg_etapas'        
+    else:
+        table = 'poly_etapas'
+        
+    
+    query = f"""
+            SELECT DISTINCT zona, inicio_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, transfer1_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, transfer2_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, fin_norm FROM {table};
+            """
+    zonas_values = etapas=levanto_tabla_sql(table, 'dash', query)
+    zonas_values = zonas_values[(zonas_values.inicio_norm!='')&
+                            (zonas_values.inicio_norm.notna())&
+                            (zonas_values.inicio_norm!=' (cuenca)')].sort_values(['zona', 'inicio_norm']).rename(columns={'inicio_norm':'Nombre'})
+
+    return zonas_values

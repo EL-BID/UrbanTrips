@@ -145,3 +145,5 @@ dmypy.json
 .github/desktop.ini
 *.ini
 
+urbantrips/lineas_deseo/lineas_deseo-Copy1.py
+configs/configuraciones_generales.yaml
