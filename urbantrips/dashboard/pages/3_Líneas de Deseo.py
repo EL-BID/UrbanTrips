@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium, folium_static
@@ -12,7 +13,7 @@ from dash_utils import (
     create_data_folium, traigo_indicadores,
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
-    bring_latlon
+    bring_latlon, traigo_zonas_values
 )
 
 def crear_mapa_lineas_deseo(df_viajes,
@@ -265,27 +266,51 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=''):
     return tabla
     
 def traigo_socio_indicadores(socio_indicadores):    
-
-    df = socio_indicadores[socio_indicadores.tabla=='viajes-genero-tarifa'].copy()
-    totals = pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=False).fillna(0).round().astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
-    totals_porc = (pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=True) * 100).round(2)
-  
-    modos = socio_indicadores[socio_indicadores.tabla=='etapas-genero-modo'].copy()
-    modos_genero_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Genero], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
-    modos_genero_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Genero, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+    totals = None
+    totals_porc = 0
+    avg_distances = 0
+    avg_times = 0
+    avg_velocity = 0
+    modos_genero_abs = 0
+    modos_genero_porc = 0
+    modos_tarifa_abs = 0
+    modos_tarifa_porc = 0
+    avg_viajes = 0
+    avg_etapas = 0
+    avg_tiempo_entre_viajes = 0
     
-    modos = socio_indicadores[socio_indicadores.tabla=='etapas-tarifa-modo'].copy()
-    modos_tarifa_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Tarifa], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
-    modos_tarifa_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Tarifa, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+    if len(socio_indicadores) > 0:
 
-    avg_distances = pd.crosstab(values=df.Distancia, columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
-    avg_times = pd.crosstab(values=df['Tiempo de viaje'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
-    avg_velocity = pd.crosstab(values=df['Velocidad'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
-    avg_etapas = pd.crosstab(values=df['Etapas promedio'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).round(2).fillna('')
-    user = socio_indicadores[socio_indicadores.tabla=='usuario-genero-tarifa'].copy()
-    avg_viajes = pd.crosstab(values=user['Viajes promedio'], index=[user.Tarifa], columns=user.Genero, margins=True, margins_name='Total', aggfunc=lambda x: (x * user.loc[x.index, 'factor_expansion_linea']).sum() / user.loc[x.index, 'factor_expansion_linea'].sum(),).round(2).fillna('') 
-
-    avg_tiempo_entre_viajes = pd.crosstab(values=df['Tiempo entre viajes'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        df = socio_indicadores[socio_indicadores.tabla=='viajes-genero-tarifa'].copy()
+        totals = pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=False).fillna(0).round().astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        totals_porc = (pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=True) * 100).round(2)
+      
+        modos = socio_indicadores[socio_indicadores.tabla=='etapas-genero-modo'].copy()
+        modos_genero_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Genero], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        modos_genero_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Genero, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+        
+        modos = socio_indicadores[socio_indicadores.tabla=='etapas-tarifa-modo'].copy()
+        modos_tarifa_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Tarifa], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        modos_tarifa_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Tarifa, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+    
+        avg_distances = pd.crosstab(values=df.Distancia, columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_times = pd.crosstab(values=df['Tiempo de viaje'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_velocity = pd.crosstab(values=df['Velocidad'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_etapas = pd.crosstab(values=df['Etapas promedio'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).round(2).fillna('')
+        user = socio_indicadores[socio_indicadores.tabla=='usuario-genero-tarifa'].copy()
+        avg_viajes = pd.crosstab(values=user['Viajes promedio'], 
+                                 index=[user.Tarifa], 
+                                 columns=user.Genero, 
+                                 margins=True, 
+                                 margins_name='Total', 
+                                     aggfunc=lambda x: (x * user.loc[x.index, 'factor_expansion_linea']).sum() / user.loc[x.index, 'factor_expansion_linea'].sum(),).round(2).fillna('') 
+    
+        avg_tiempo_entre_viajes = pd.crosstab(values=df['Tiempo entre viajes'], 
+                                              columns=df.Genero, 
+                                              index=df.Tarifa, 
+                                              margins=True, 
+                                              margins_name='Total',
+                                              aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
     
     return totals, totals_porc, avg_distances, avg_times, avg_velocity, modos_genero_abs, modos_genero_porc, modos_tarifa_abs, modos_tarifa_porc, avg_viajes, avg_etapas, avg_tiempo_entre_viajes
 
@@ -315,20 +340,18 @@ with st.expander('Líneas de Deseo', expanded=True):
             st.session_state[var] = ''
     
     etapas_lst_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT mes FROM agg_etapas;')
-
-          
-    # st.session_state.etapas = traigo()
-    
+   
     if len(etapas_lst_) > 0:
 
         zonificaciones = levanto_tabla_sql('zonificaciones')
         socio_indicadores = levanto_tabla_sql('socio_indicadores')
         desc_tipo_dia_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
-        desc_zona_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT zona FROM agg_etapas;')
+        desc_zona_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT zona FROM agg_etapas;').sort_values('zona')
         modos_list_all_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT modo_agregado FROM agg_etapas;')
         rango_hora_all_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT rango_hora FROM agg_etapas;')
         distancia_all_ = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT distancia FROM agg_etapas;')
-        
+        zonas_values = traigo_zonas_values('etapas')
+
 
         # st.session_state.etapas_all = st.session_state.etapas_all[st.session_state.etapas_all.factor_expansion_linea > 0].copy()
         general, modal, distancias = traigo_indicadores('all')
@@ -342,7 +365,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                 'transferencia': 'Todos',
                 'modo_agregado': 'Todos',
                 'rango_hora': 'Todos',
-                'distancia': 'Todas'
+                'distancia': 'Todas',
+                'desc_zonas_values':'Todos'
             }
             
         if 'data_cargada' not in st.session_state:
@@ -362,7 +386,6 @@ with st.expander('Líneas de Deseo', expanded=True):
         modos_list = col1.selectbox('Modos', options=[text for text in modos_list_all])
         
         rango_hora_all = ['Todos'] + rango_hora_all_[rango_hora_all_.rango_hora != '99'].rango_hora.unique().tolist()
-        # rango_hora = col1.selectbox('Rango hora', options=[text.capitalize() for text in rango_hora_all])
         rango_hora = col1.selectbox('Rango hora', options=[text for text in rango_hora_all])
         
         distancia_all = ['Todas'] + distancia_all_[distancia_all_.distancia != '99'].distancia.unique().tolist()
@@ -379,6 +402,10 @@ with st.expander('Líneas de Deseo', expanded=True):
             desc_viajes = False
             desc_etapas = False
 
+        zonas_values_all = ['Todos'] + zonas_values[zonas_values.zona == desc_zona].Nombre.unique().tolist()
+        desc_zonas_values = col1.selectbox('Filtro', options=zonas_values_all)
+
+        
         desc_origenes = col1.checkbox(
             ':blue[Origenes]', value=False)
 
@@ -394,6 +421,8 @@ with st.expander('Líneas de Deseo', expanded=True):
             zonif = zonificaciones[zonificaciones.zona == desc_zona]
         else:
             zonif = ''
+
+        mtabla = col2.checkbox('Mostrar tabla', value=False)
         
         # Construye el diccionario de filtros actual
         current_filters = {
@@ -404,6 +433,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             'modo_agregado': None if modos_list == 'Todos' else modos_list,
             'rango_hora': None if rango_hora == 'Todos' else rango_hora,
             'distancia': None if distancia == 'Todas' else distancia,
+            'desc_zonas_values': None if desc_zonas_values == 'Todos' else desc_zonas_values,            
         }
         
         current_options = { 'desc_etapas': desc_etapas,
@@ -412,7 +442,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                             'desc_destinos': desc_destinos,
                             'desc_et_vi': desc_et_vi,
                             'desc_transferencias': desc_transferencias,
-                            'desc_zonif': desc_zonif, }
+                            'desc_zonif': desc_zonif, 
+                            'mtabla': mtabla}
         
 
         
@@ -420,14 +451,20 @@ with st.expander('Líneas de Deseo', expanded=True):
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
             
             query = ""
-            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if value is not None)
+            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values'))
             if conditions:
                 query += f" WHERE {conditions}"
 
-            st.session_state.matrices_ = levanto_tabla_sql_local('agg_matrices', tabla_tipo='dash', query=f"SELECT * FROM agg_matrices{query}")    
-            st.session_state.etapas_ = levanto_tabla_sql_local('agg_etapas', tabla_tipo='dash', query=f"SELECT * FROM agg_etapas{query}")
-            
+            conditions_etapas = ''
+            conditions_matrices = ''
+            if desc_zonas_values != 'Todos':
+                conditions_etapas = f" AND (inicio_norm = '{desc_zonas_values}' OR transfer1_norm = '{desc_zonas_values}' OR transfer2_norm = '{desc_zonas_values}' OR fin_norm = '{desc_zonas_values}')"
+                conditions_matrices = f" AND (inicio = '{desc_zonas_values}' OR fin = '{desc_zonas_values}')"
+            query_etapas = query + conditions_etapas
+            query_matrices = query + conditions_matrices
 
+            st.session_state.etapas_ = levanto_tabla_sql_local('agg_etapas', tabla_tipo='dash', query=f"SELECT * FROM agg_etapas{query_etapas}")
+            st.session_state.matrices_ = levanto_tabla_sql_local('agg_matrices', tabla_tipo='dash', query=f"SELECT * FROM agg_matrices{query_matrices}")    
 
             if len(st.session_state.matrices_)==0:
                 col2.write('No hay datos para mostrar')
@@ -587,6 +624,9 @@ with st.expander('Líneas de Deseo', expanded=True):
                         with col2:
                             folium_static(st.session_state.map, width=1000, height=800)
                             # output = st_folium(st.session_state.map, width=1000, height=800, key='m', returned_objects=["center"])
+                        if mtabla:
+                            col2.dataframe(st.session_state.etapas_[['inicio_norm', 'transfer1_norm', 'transfer2_norm', 'fin_norm', 'factor_expansion_linea']]) #
+
                     else:
                         col2.text("No hay datos suficientes para mostrar el mapa.")
                 else:
@@ -660,37 +700,41 @@ with st.expander('Género y tarifas'):
     col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
     totals, totals_porc, avg_distances, avg_times, avg_velocity, modos_genero_abs, modos_genero_porc, modos_tarifa_abs, modos_tarifa_porc, avg_viajes, avg_etapas, avg_tiempo_entre_viajes = traigo_socio_indicadores(st.session_state.socio_indicadores_)
 
-    col2.markdown("<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-    col2.table(totals)
-    col3.markdown("<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-    col3.table(totals_porc.round(2).astype(str))
 
-    col2.markdown("<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-    col2.table(avg_viajes.round(2).astype(str))
-    col3.markdown("<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>", unsafe_allow_html=True)
-    col3.table(avg_etapas.round(2).astype(str))
-
+    if totals is not None:
+        col2.markdown("<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col2.table(totals)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col3.table(totals_porc.round(2).astype(str))
     
-    col2.markdown("<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>", unsafe_allow_html=True)
-    col2.table(modos_genero_abs)
-    col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>", unsafe_allow_html=True)
-    col3.table(modos_genero_porc.round(2).astype(str))
-
-    col2.markdown("<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
-    col2.table(modos_tarifa_abs)
-    col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
-    col3.table(modos_tarifa_porc.round(2).astype(str))
-
-    col2.markdown("<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>", unsafe_allow_html=True)
-    col2.table(avg_distances.round(2).astype(str))
-
-    col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>", unsafe_allow_html=True)
-    col3.table(avg_times.round(2).astype(str))
-
-    col2.markdown("<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>", unsafe_allow_html=True)
-    col2.table(avg_velocity.round(2).astype(str))
-
-    col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>", unsafe_allow_html=True)
-    col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
+        col2.markdown("<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col2.table(avg_viajes.round(2).astype(str))
+        col3.markdown("<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>", unsafe_allow_html=True)
+        col3.table(avg_etapas.round(2).astype(str))
+    
+        
+        col2.markdown("<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>", unsafe_allow_html=True)
+        col2.table(modos_genero_abs)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>", unsafe_allow_html=True)
+        col3.table(modos_genero_porc.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
+        col2.table(modos_tarifa_abs)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
+        col3.table(modos_tarifa_porc.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>", unsafe_allow_html=True)
+        col2.table(avg_distances.round(2).astype(str))
+    
+        col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>", unsafe_allow_html=True)
+        col3.table(avg_times.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>", unsafe_allow_html=True)
+        col2.table(avg_velocity.round(2).astype(str))
+    
+        col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>", unsafe_allow_html=True)
+        col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
+    else:
+        col2.write('No hay datos para mostrar')
 
 
