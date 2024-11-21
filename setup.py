@@ -30,7 +30,7 @@ setuptools.setup(
         'fiona',
         'h3<4',
         'ipython',
-        'jupyterlab',
+        'jupyterlab<4.4',
         'jupyter',
         'libpysal',
         'mapclassify',
@@ -57,6 +57,5 @@ setuptools.setup(
         'typing_extensions',
         'weightedstats',
         'OSMnet',
-        'httpcore==0.13.3'
 ]
 )
