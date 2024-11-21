@@ -63,7 +63,7 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
-nombre_archivo_informacion_lineas: "lineas.csv"                    # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
+nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"                    # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
 imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las líneas
@@ -84,7 +84,7 @@ modos:
     otros:                                                         
 
 # Capas geográficas con recorridos de líneas
-recorridos_geojson:                                                # archivo geojson con el trazado de las líneas de transporte público
+recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"                                               # archivo geojson con el trazado de las líneas de transporte público
 
 filtro_latlong_bbox: 
     minx: -59.3                                                    
