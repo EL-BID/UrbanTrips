@@ -2625,15 +2625,13 @@ def plot_basic_kpi_wrapper():
     q = """
         select *
         from basic_kpi_by_line_hr
-        where dia = 'weekday'
+        where dia = 'weekday';
         """
 
-    if lineas_principales != "All":
-        q += f"limit {lineas_principales}"
-
-    q += ";"
-
     kpi_data = pd.read_sql(q, conn_data)
+    if lineas_principales != "All":
+        top_lines = list(kpi_data.id_linea.value_counts().index[:lineas_principales])
+        kpi_data = kpi_data.loc[kpi_data.id_linea.isin(top_lines)]
 
     if len(kpi_data) > 0:
         kpi_data.groupby(["id_linea", "yr_mo"]).apply(
