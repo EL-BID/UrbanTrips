@@ -573,6 +573,8 @@ def compute_new_services_stats(line_day_services):
         DataFrame with stats for each line and day
     """
     id_linea = line_day_services.id_linea.unique()
+    id_ramal = line_day_services.id_ramal.unique()
+
     dia = line_day_services.dia.unique()
 
     n_original_services = line_day_services.drop_duplicates(
@@ -613,6 +615,7 @@ def compute_new_services_stats(line_day_services):
     day_line_stats = pd.DataFrame(
         {
             "id_linea": id_linea,
+            "id_ramal": id_ramal,
             "dia": dia,
             "cant_servicios_originales": n_original_services,
             "cant_servicios_nuevos": n_new_services,
