@@ -3,6 +3,8 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point, LineString
 import h3
+import itertools
+import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
@@ -14,16 +16,13 @@ def from_linestring_to_h3(linestring, h3_res=8):
     This function takes a shapely linestring and
     returns all h3 hecgrid cells that intersect that linestring
     """
-    lrs = np.arange(0, 1, 0.01)
-    points = [linestring.interpolate(i, normalized=True) for i in lrs]
-    coords = [(point.x, point.y) for point in points]
-    linestring_h3 = pd.Series(
-        [
-            h3.geo_to_h3(lat=coord[1], lng=coord[0], resolution=h3_res)
-            for coord in coords
-        ]
-    ).drop_duplicates()
-    return linestring_h3
+    linestring_buffer = linestring.buffer(0.002)
+    linestring_buffer_geojson = eval(shapely.to_geojson(linestring_buffer))
+
+    linestring_h3 = h3.polyfill(linestring_buffer_geojson, 10, geo_json_conformant=True)
+
+    linestring_h3 = {h3.h3_to_parent(h, h3_res) for h in linestring_h3}
+    return pd.Series(list(linestring_h3)).drop_duplicates()
 
 
 def create_coarse_h3_from_line(
@@ -186,6 +185,7 @@ def aggregate_demand_data(
         comp_branch_name = metadata.loc[
             metadata.id_ramal == comp_branch_id, "nombre_ramal"
         ].item()
+
         demand_base_branch_str = (
             f"que podria recorrer este ramal {base_branch_name} (id {base_branch_id}) "
         )
@@ -196,10 +196,6 @@ def aggregate_demand_data(
         demand_comp_branch_str = " "
     conn_insumos.close()
 
-    print(
-        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas"
-    )
-
     shared_demand = round(
         legs_within_branch.loc[
             legs_within_branch.leg_in_shared_h3, "factor_expansion_linea"
@@ -208,8 +204,9 @@ def aggregate_demand_data(
         * 100,
         1,
     )
-    print(
-        f"De las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}"
+    output_text = (
+        f"La demanda total para la linea {base_line_name} (id {line_id}) {demand_base_branch_str}es: {int(total_demand)} etapas "
+        f"de las cuales el {shared_demand} % comparte OD con la linea {comp_line_name} (id {comp_line_id}) {demand_comp_branch_str}\n\n"
     )
     update_overlapping_table_demand(
         day,
@@ -220,7 +217,7 @@ def aggregate_demand_data(
         res_h3=h3.h3_get_resolution(supply_gdf.h3.iloc[0]),
         base_v_comp=shared_demand,
     )
-    return legs_within_branch
+    return {"data": legs_within_branch, "output_text": output_text}
 
 
 def demand_by_section_id(legs_within_branch):
@@ -264,7 +261,7 @@ def update_overlapping_table_supply(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -278,7 +275,7 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {comp_line_id}
         and base_branch_id = {comp_branch_id}
@@ -292,7 +289,8 @@ def update_overlapping_table_supply(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap)
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'oferta'),
          ('{day}',{comp_line_id},{comp_branch_id},{base_line_id},{base_branch_id},{res_h3},{comp_v_base},'oferta')
@@ -310,7 +308,7 @@ def update_overlapping_table_demand(
     conn_data = utils.iniciar_conexion_db(tipo="data")
     # Update db
     delete_q = f"""
-        delete from overlapping 
+        delete from overlapping_by_route
         where dia = '{day}'
         and base_line_id = {base_line_id}
         and base_branch_id = {base_branch_id}
@@ -324,7 +322,8 @@ def update_overlapping_table_demand(
     conn_data.commit()
 
     insert_q = f"""
-        insert into overlapping (dia,base_line_id,base_branch_id,comp_line_id,comp_branch_id,res_h3,overlap, type_overlap) 
+        insert into overlapping_by_route (dia,base_line_id,base_branch_id,comp_line_id,
+            comp_branch_id,res_h3,overlap, type_overlap) 
         values
          ('{day}',{base_line_id},{base_branch_id},{comp_line_id},{comp_branch_id},{res_h3},{base_v_comp},'demanda')
         ;
@@ -350,11 +349,27 @@ def compute_supply_overlapping(
 
     # Crate linestring for each branch
     base_route_gdf = route_geoms.loc[route_geoms.route_id == base_route_id, "geometry"]
-    linestring_base = base_route_gdf.item()
-
     # Crate linestring for each branch
     comp_route_gdf = route_geoms.loc[route_geoms.route_id == comp_route_id, "geometry"]
-    linestring_comp = comp_route_gdf.item()
+
+    if (len(base_route_gdf) == 0) or (len(comp_route_gdf) == 0):
+        error_str = (
+            "No es posible la comparación de oferta para esta combinación de rutas. "
+        )
+        if len(base_route_gdf) == 0:
+            error_str += f"Ruta base {base_route_id} no encontrada. "
+        if len(comp_route_gdf) == 0:
+            error_str += f"Ruta comp {comp_route_id} no encontrada. "
+        return {
+            "base": {"line": None, "h3": None},
+            "comp": {"line": None, "h3": None},
+            "text_base_v_comp": error_str,
+            "text_comp_v_base": error_str,
+        }
+
+    else:
+        linestring_base = base_route_gdf.item()
+        linestring_comp = comp_route_gdf.item()
 
     # Turn linestring into coarse h3 indexes
     base_h3 = create_coarse_h3_from_line(
@@ -416,13 +431,13 @@ def compute_supply_overlapping(
         base_branch_id = base_route_id
         comp_branch_id = comp_route_id
 
-        print(
-            f"El {base_v_comp} % del recorrido del ramal base {base_branch_name}"
-            f" se superpone con el del ramal de comparación {comp_branch_name}"
+        output_text_base_v_comp = (
+            f"El {base_v_comp} % del recorrido del ramal base {base_branch_name} "
+            f" se superpone con el del ramal de comparación {comp_branch_name}\n\n"
         )
-        print(
-            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name}"
-            f" se superpone con el del ramal {base_branch_name}"
+        output_text_comp_v_base = (
+            f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_branch_name} "
+            f" se superpone con el del ramal {base_branch_name}\n\n"
         )
 
     else:
@@ -431,12 +446,13 @@ def compute_supply_overlapping(
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
 
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
         metadata = pd.read_sql(
             f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
             conn_insumos,
             dtype={"id_linea": int},
         )
-
+        conn_insumos.close()
         base_line_name = metadata.loc[
             metadata.id_linea == base_route_id, "nombre_linea"
         ].item()
@@ -444,13 +460,13 @@ def compute_supply_overlapping(
             metadata.id_linea == comp_route_id, "nombre_linea"
         ].item()
 
-        print(
+        output_text_base_v_comp = (
             f"El {base_v_comp} % del recorrido de la linea base {base_line_name}"
-            " se superpone con el del ramal de comparación {comp_line_name}"
+            " se superpone con el del ramal de comparación {comp_line_name}\n\n"
         )
-        print(
+        output_text_comp_v_base = (
             f"Por otro lado {comp_v_base} % del recorrido del ramal {comp_line_name}"
-            " se superpone con el del ramal {base_line_name}"
+            " se superpone con el del ramal {base_line_name}\n\n"
         )
 
     update_overlapping_table_supply(
@@ -467,6 +483,8 @@ def compute_supply_overlapping(
     return {
         "base": {"line": base_route_gdf, "h3": base_h3},
         "comp": {"line": comp_route_gdf, "h3": comp_h3},
+        "text_base_v_comp": output_text_base_v_comp,
+        "text_comp_v_base": output_text_comp_v_base,
     }
 
 
@@ -508,7 +526,7 @@ def compute_demand_overlapping(
         supply_gdf=comp_gdf, day_type=day_type, line_id=comp_line_id
     )
 
-    base_demand = aggregate_demand_data(
+    base_demand_dict = aggregate_demand_data(
         legs=base_legs,
         supply_gdf=base_gdf,
         base_line_id=base_line_id,
@@ -516,7 +534,7 @@ def compute_demand_overlapping(
         base_branch_id=base_branch_id,
         comp_branch_id=comp_branch_id,
     )
-    comp_demand = aggregate_demand_data(
+    comp_demand_dict = aggregate_demand_data(
         legs=comp_legs,
         supply_gdf=comp_gdf,
         base_line_id=comp_line_id,
@@ -525,4 +543,153 @@ def compute_demand_overlapping(
         comp_branch_id=base_branch_id,
     )
 
-    return base_demand, comp_demand
+    return {"base": base_demand_dict, "comp": comp_demand_dict}
+
+
+def get_route_combinations(base_line_id, comp_line_id):
+    """
+    Retrieve route ID combinations and metadata based on the given line IDs.
+    This function fetches configuration settings to determine whether to use branches or lines.
+    It then reads metadata from a database and computes all possible combinations of route IDs
+    between the specified base and comparison line IDs.
+    Args:
+        base_line_id (int): The ID of the base line.
+        comp_line_id (int): The ID of the comparison line.
+    Returns:
+        dict: A dictionary containing:
+            - "route_id_combinations" (list of tuples): Combinations of route IDs.
+            - "metadata" (DataFrame): Metadata of the routes.
+            - "route_type" (str): Type of routes used ("branches" or "lines").
+    """
+
+    # Obtiene del archivo de configuración si se deben usar ramales o lineas
+    configs = utils.leer_configs_generales()
+    use_branches = configs["lineas_contienen_ramales"]
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    # Lee los datos de los ramales
+    metadata = pd.read_sql(
+        f"select id_linea,id_ramal from metadata_ramales where id_linea in ({base_line_id},{comp_line_id})",
+        conn_insumos,
+        dtype={"id_linea": int, "id_ramal": int},
+    )
+
+    if use_branches:
+        route_type = "branches"
+
+        # Computa todas las posibles combinaciones de ramales entre esas dos lineas
+        route_id_combinations = list(itertools.combinations(metadata["id_ramal"], 2))
+        base_route_id_combinations = list(
+            itertools.combinations(
+                metadata.loc[metadata.id_linea == base_line_id, "id_ramal"], 2
+            )
+        )
+        comp_line_id_combinations = list(
+            itertools.combinations(
+                metadata.loc[metadata.id_linea == comp_line_id, "id_ramal"], 2
+            )
+        )
+        route_id_combinations = [
+            combination
+            for combination in route_id_combinations
+            if (
+                (combination not in base_route_id_combinations)
+                and (combination not in comp_line_id_combinations)
+            )
+        ]
+
+        metadata = pd.read_sql(
+            f"select * from metadata_ramales where id_linea in ({base_line_id},{comp_line_id})",
+            conn_insumos,
+            dtype={"id_linea": int, "id_ramal": int},
+        )
+
+    else:
+        route_type = "lines"
+        route_id_combinations = [(base_line_id, comp_line_id)]
+
+    return {
+        "route_id_combinations": route_id_combinations,
+        "metadata": metadata,
+        "route_type": route_type,
+    }
+
+
+def get_route_ids_from_combination(base_line_id, comp_line_id, route_id_combination):
+    # Obtiene del archivo de configuración si se deben usar ramales o lineas
+    configs = utils.leer_configs_generales()
+    use_branches = configs["lineas_contienen_ramales"]
+
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    q = f"""select id_linea,id_ramal from metadata_ramales
+      where id_linea in ({base_line_id},{comp_line_id})"""
+    # Lee los datos de los ramales
+    metadata = pd.read_sql(
+        q,
+        conn_insumos,
+        dtype={"id_linea": int, "id_ramal": int},
+    )
+
+    q = f"""select id_linea, nombre_linea from metadata_lineas
+      where id_linea in ({base_line_id},{comp_line_id})"""
+    # Lee los datos de las lineas
+    metadata_lineas = pd.read_sql(
+        q,
+        conn_insumos,
+        dtype={"id_linea": int},
+    )
+
+    # crea un id de ruta unico de ramal o linea en funcion de si esta configurado
+    # para usar ramales o lineas
+    if use_branches:
+        q = f"""
+            select * from metadata_ramales where id_ramal in {route_id_combination}
+            """
+        metadata_branches = pd.read_sql(
+            q,
+            conn_insumos,
+            dtype={"id_linea": int, "id_ramal": int},
+        )
+        if (
+            route_id_combination[0]
+            in metadata.loc[metadata.id_linea == base_line_id, "id_ramal"].values
+        ):
+            base_route_id = route_id_combination[0]
+            comp_route_id = route_id_combination[1]
+
+        else:
+            base_route_id = route_id_combination[1]
+            comp_route_id = route_id_combination[0]
+
+        nombre_ramal_base = metadata_branches.loc[
+            metadata_branches.id_ramal == base_route_id, "nombre_ramal"
+        ].item()
+        nombre_ramal_comp = metadata_branches.loc[
+            metadata_branches.id_ramal == comp_route_id, "nombre_ramal"
+        ].item()
+
+        base_route_str = f"ramal {nombre_ramal_base} (id {base_route_id})"
+        comp_route_str = f"ramal {nombre_ramal_comp} (id {comp_route_id})"
+
+    else:
+        base_route_id, comp_route_id = route_id_combination
+        base_route_str = ""
+        comp_route_str = ""
+
+    nombre_linea_base = metadata_lineas.loc[
+        metadata_lineas.id_linea == base_line_id, "nombre_linea"
+    ].item()
+    nombre_linea_comp = metadata_lineas.loc[
+        metadata_lineas.id_linea == comp_line_id, "nombre_linea"
+    ].item()
+
+    print(
+        f"Tomando como linea base la linea {nombre_linea_base} (id {base_line_id}) "
+        + base_route_str
+    )
+    print(
+        f"Tomando como linea comparacion la linea {nombre_linea_comp} (id {comp_line_id}) "
+        + comp_route_str
+    )
+    return base_route_id, comp_route_id

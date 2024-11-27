@@ -30,7 +30,7 @@ def leer_configs_generales():
     return config
 
 
-def leer_alias(tipo='data'):
+def leer_alias(tipo='dash'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el alias seteado en el archivo de congifuracion
@@ -53,7 +53,7 @@ def leer_alias(tipo='data'):
     return alias
 
 
-def traigo_db_path(tipo='data'):
+def traigo_db_path(tipo='dash'):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -62,12 +62,13 @@ def traigo_db_path(tipo='data'):
         raise ValueError('tipo invalido: %s' % tipo)
 
     alias = leer_alias(tipo)
+
     db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
 
     return db_path
 
 
-def iniciar_conexion_db(tipo='data'):
+def iniciar_conexion_db(tipo='dash'):
     """"
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
@@ -76,6 +77,7 @@ def iniciar_conexion_db(tipo='data'):
     assert os.path.isfile(
         db_path), f'No existe la base de datos para el dashboard en {db_path}'
     conn = sqlite3.connect(db_path, timeout=10)
+
     return conn
 
 # Calculate weighted mean, handling division by zero or empty inputs
@@ -141,39 +143,29 @@ def normalize_vars(tabla):
 
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql,
-                      custom_query=False,
-                      tabla_tipo='dash'):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
-        if not custom_query:
-            tabla = pd.read_sql_query(
-                f"""
-                SELECT *
-                FROM {tabla_sql}
-                """,
-                conn,
-            )
-        else:
-            tabla = pd.read_sql_query(
-                custom_query,
-                conn,
-            )
+        if len(query) == 0:
+            query = f"""
+            SELECT *
+            FROM {tabla_sql}
+            """
 
+        tabla = pd.read_sql_query( query, conn )
     except:
-        print(f'{tabla_sql} no existe')
+        print(f"{tabla_sql} no existe")
         tabla = pd.DataFrame([])
 
     conn.close()
 
     if len(tabla) > 0:
-        if 'wkt' in tabla.columns:
+        if "wkt" in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla,
-                                     crs=4326)
-            tabla = tabla.drop(['wkt'], axis=1)
+            tabla = gpd.GeoDataFrame(tabla, crs=4326)
+            tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -211,7 +203,7 @@ def create_linestring_od(df,
                 for _, row in df.iterrows()]
 
     # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry=geometry)
+    gdf = gpd.GeoDataFrame(df, geometry=geometry, crs=4326)
 
     return gdf
 
@@ -319,7 +311,7 @@ def creo_bubble_od(df,
                                     'rango_hora',
                                     'distancia']).factor_expansion_linea.transform('sum')
         geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
-        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs="EPSG:4326")
+        orig = gpd.GeoDataFrame(orig, geometry=geometry, crs=4326)
         orig['viajes_porc'] = (
             orig.factor_expansion_linea / orig.tot * 100).round(1)
         orig = orig.rename(columns={od: 'od', lat: 'lat', lon: 'lon'})
@@ -352,7 +344,7 @@ def df_to_linestrings(df, lat_cols, lon_cols):
     df['geometry'] = df.apply(create_linestring, axis=1)
 
     # Convert DataFrame to GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry='geometry')
+    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs=4326)
 
     return gdf
 
@@ -364,60 +356,124 @@ def create_data_folium(etapas,
                        agg_hora=False,
                        agg_distancia=False,
                        agg_cols_etapas=[],
-                       agg_cols_viajes=[]):
+                       agg_cols_viajes=[],
+                       desc_etapas = True,
+                       desc_viajes = True,
+                       desc_origenes = True,
+                       desc_destinos = True,
+                       desc_transferencias = False):
+    
 
-    etapas = calculate_weighted_means_ods(etapas,
-                                          agg_cols_etapas,
-                                          ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm',
-                                           'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],
+    if desc_transferencias:
 
-                                          'factor_expansion_linea',
-                                          agg_transferencias=agg_transferencias,
-                                          agg_modo=agg_modo,
-                                          agg_hora=agg_hora,
-                                          agg_distancia=agg_distancia,
-                                          zero_to_nan=['lat1_norm', 'lon1_norm', 'lat2_norm', 'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'])
+        t1 = etapas.loc[etapas.transfer1_norm!='', ['zona', 
+                                                    'transfer1_norm', 
+                                                    'lat2_norm', 
+                                                    'lon2_norm', 
+                                                    'transferencia', 
+                                                    'modo_agregado', 
+                                                    'rango_hora', 
+                                                    'distancia',
+                                                    'factor_expansion_linea',]].rename(columns={'transfer1_norm':'transfer', 'lat2_norm':'lat_norm', 'lon2_norm':'lon_norm'})
+        t2 = etapas.loc[etapas.transfer2_norm!='', ['zona', 
+                                                    'transfer2_norm', 
+                                                    'lat3_norm', 
+                                                    'lon3_norm', 
+                                                    'transferencia', 
+                                                    'modo_agregado', 
+                                                    'rango_hora', 
+                                                    'distancia', 
+                                                    'factor_expansion_linea',]].rename(columns={'transfer2_norm':'transfer', 'lat3_norm':'lat_norm', 'lon3_norm':'lon_norm'})
+        transferencias = pd.concat([t1,t2], ignore_index=True)     
+        transferencias['id_polygon'] = 'NONE'
+        
+        trans_cols_o = ['id_polygon', 
+                        'zona', 
+                        'transfer',
+                         'transferencia', 
+                        'modo_agregado', 
+                        'rango_hora', 
+                        'distancia']
 
-    etapas[['lat1_norm',
-            'lon1_norm',
-            'lat2_norm',
-            'lon2_norm',
-            'lat3_norm',
-            'lon3_norm',
-            'lat4_norm',
-            'lon4_norm']] = etapas[['lat1_norm',
-                                    'lon1_norm',
-                                    'lat2_norm',
-                                    'lon2_norm',
-                                    'lat3_norm',
-                                    'lon3_norm',
-                                    'lat4_norm',
-                                    'lon4_norm']].fillna(0)
+        transferencias = creo_bubble_od(transferencias,
+                                aggregate_cols=trans_cols_o,
+                                weighted_mean_cols=['lat_norm', 'lon_norm'],
+                                weight_col='factor_expansion_linea',
+                                agg_transferencias=agg_transferencias,
+                                agg_modo=agg_modo,
+                                agg_hora=agg_hora,
+                                agg_distancia=agg_distancia,
+                                od='transfer',
+                                lat='lat_norm',
+                                lon='lon_norm')
+    else:
+        transferencias = pd.DataFrame([])
+    
+    if desc_etapas | desc_transferencias:
+        etapas = calculate_weighted_means_ods(etapas,
+                                              agg_cols_etapas,
+                                              ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm',
+                                               'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'],    
+                                              'factor_expansion_linea',
+                                              agg_transferencias=agg_transferencias,
+                                              agg_modo=agg_modo,
+                                              agg_hora=agg_hora,
+                                              agg_distancia=agg_distancia,
+                                              zero_to_nan=['lat1_norm', 'lon1_norm', 'lat2_norm', 'lon2_norm', 'lat3_norm', 'lon3_norm', 'lat4_norm', 'lon4_norm'])
+    
+        etapas[['lat1_norm',
+                'lon1_norm',
+                'lat2_norm',
+                'lon2_norm',
+                'lat3_norm',
+                'lon3_norm',
+                'lat4_norm',
+                'lon4_norm']] = etapas[['lat1_norm',
+                                        'lon1_norm',
+                                        'lat2_norm',
+                                        'lon2_norm',
+                                        'lat3_norm',
+                                        'lon3_norm',
+                                        'lat4_norm',
+                                        'lon4_norm']].fillna(0)
+    
+        etapas = df_to_linestrings(etapas,
+                               lat_cols=['lat1_norm', 'lat2_norm', 'lat3_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon2_norm', 'lon3_norm', 'lon4_norm'])
 
-    viajes = calculate_weighted_means_ods(etapas,
-                                          agg_cols_viajes,
-                                          ['distance_osm_drive',
-                                           'lat1_norm',
-                                           'lon1_norm',
-                                           'lat4_norm',
-                                           'lon4_norm'],
-                                          'factor_expansion_linea',
-                                          agg_transferencias=agg_transferencias,
-                                          agg_modo=agg_modo,
-                                          agg_hora=agg_hora,
-                                          agg_distancia=agg_distancia,
-                                          zero_to_nan=['lat1_norm', 'lon1_norm', 'lat4_norm', 'lon4_norm'])
-    viajes[['lat1_norm',
-            'lon1_norm',
-            'lat4_norm',
-            'lon4_norm']] = viajes[['lat1_norm',
-                                   'lon1_norm',
-                                    'lat4_norm',
-                                    'lon4_norm']].fillna(0)
+        etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
 
-    if 'id_polygon' not in viajes_matrices.columns:
-        viajes_matrices['id_polygon'] = 'NONE'
+    if desc_viajes:
+        viajes = calculate_weighted_means_ods(etapas,
+                                              agg_cols_viajes,
+                                              ['distance_osm_drive',
+                                               'lat1_norm',
+                                               'lon1_norm',
+                                               'lat4_norm',
+                                               'lon4_norm'],
+                                              'factor_expansion_linea',
+                                              agg_transferencias=agg_transferencias,
+                                              agg_modo=agg_modo,
+                                              agg_hora=agg_hora,
+                                              agg_distancia=agg_distancia,
+                                              zero_to_nan=['lat1_norm', 'lon1_norm', 'lat4_norm', 'lon4_norm'])
+        viajes[['lat1_norm',
+                'lon1_norm',
+                'lat4_norm',
+                'lon4_norm']] = viajes[['lat1_norm',
+                                       'lon1_norm',
+                                        'lat4_norm',
+                                        'lon4_norm']].fillna(0)
+    
+        if 'id_polygon' not in viajes_matrices.columns:
+            viajes_matrices['id_polygon'] = 'NONE'
+    
+        viajes = df_to_linestrings(viajes,
+                                   lat_cols=['lat1_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon4_norm'])
 
+        viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+    else:
+        viajes = pd.DataFrame([])
+        
     matriz = agg_matriz(viajes_matrices,
                         aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
                                         'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
@@ -439,37 +495,41 @@ def create_data_folium(etapas,
         bubble_cols_d = ['id_polygon', 'zona', 'fin',
                          'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
 
-    origen = creo_bubble_od(viajes_matrices,
-                            aggregate_cols=bubble_cols_o,
-                            weighted_mean_cols=['lat1', 'lon1'],
-                            weight_col='factor_expansion_linea',
-                            agg_transferencias=agg_transferencias,
-                            agg_modo=agg_modo,
-                            agg_hora=agg_hora,
-                            agg_distancia=agg_distancia,
-                            od='inicio',
-                            lat='lat1',
-                            lon='lon1')
+    if desc_origenes:
+        origen = creo_bubble_od(viajes_matrices,
+                                aggregate_cols=bubble_cols_o,
+                                weighted_mean_cols=['lat1', 'lon1'],
+                                weight_col='factor_expansion_linea',
+                                agg_transferencias=agg_transferencias,
+                                agg_modo=agg_modo,
+                                agg_hora=agg_hora,
+                                agg_distancia=agg_distancia,
+                                od='inicio',
+                                lat='lat1',
+                                lon='lon1')
+    else:
+        origen = pd.DataFrame([])
 
-    destino = creo_bubble_od(viajes_matrices,
-                             aggregate_cols=bubble_cols_d,
-                             weighted_mean_cols=['lat4', 'lon4'],
-                             weight_col='factor_expansion_linea',
-                             agg_transferencias=agg_transferencias,
-                             agg_modo=agg_modo,
-                             agg_hora=agg_hora,
-                             agg_distancia=agg_distancia,
-                             od='fin',
-                             lat='lat4',
-                             lon='lon4')
+    if desc_destinos:
+        destino = creo_bubble_od(viajes_matrices,
+                                 aggregate_cols=bubble_cols_d,
+                                 weighted_mean_cols=['lat4', 'lon4'],
+                                 weight_col='factor_expansion_linea',
+                                 agg_transferencias=agg_transferencias,
+                                 agg_modo=agg_modo,
+                                 agg_hora=agg_hora,
+                                 agg_distancia=agg_distancia,
+                                 od='fin',
+                                 lat='lat4',
+                                 lon='lon4')
+    else:
+        destino = pd.DataFrame([])
 
-    etapas = df_to_linestrings(etapas,
-                               lat_cols=['lat1_norm', 'lat2_norm', 'lat3_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon2_norm', 'lon3_norm', 'lon4_norm'])
+    if not desc_etapas:
+        etapas = pd.DataFrame([])
 
-    viajes = df_to_linestrings(viajes,
-                               lat_cols=['lat1_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon4_norm'])
 
-    return etapas, viajes, matriz, origen, destino
+    return etapas, viajes, matriz, origen, destino, transferencias
 
 
 @st.cache_data
@@ -529,3 +589,39 @@ def extract_hex_colors_from_cmap(cmap, n=5):
     hex_colors = [mcolors.rgb2hex(color) for color in colors]
 
     return hex_colors
+    
+@st.cache_data
+def bring_latlon():
+    try:
+        latlon = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY RANDOM() LIMIT 100;')
+        lat = latlon['lat1_norm'].mean()
+        lon = latlon['lon1_norm'].mean()
+        latlon = [lat, lon]
+    except: 
+        latlon = [-34.593, -58.451]
+    return latlon
+
+@st.cache_data
+def traigo_zonas_values(tipo = 'etapas'):
+
+    if tipo == 'etapas':
+        table = 'agg_etapas'        
+    else:
+        table = 'poly_etapas'
+        
+    
+    query = f"""
+            SELECT DISTINCT zona, inicio_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, transfer1_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, transfer2_norm FROM {table}
+            UNION
+            SELECT DISTINCT zona, fin_norm FROM {table};
+            """
+    zonas_values = etapas=levanto_tabla_sql(table, 'dash', query)
+    zonas_values = zonas_values[(zonas_values.inicio_norm!='')&
+                            (zonas_values.inicio_norm.notna())&
+                            (zonas_values.inicio_norm!=' (cuenca)')].sort_values(['zona', 'inicio_norm']).rename(columns={'inicio_norm':'Nombre'})
+
+    return zonas_values

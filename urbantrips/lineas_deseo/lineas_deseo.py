@@ -2,13 +2,13 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 import os
-from urbantrips.utils.utils import iniciar_conexion_db, levanto_tabla_sql
+from urbantrips.utils.utils import iniciar_conexion_db, levanto_tabla_sql, guardar_tabla_sql
 from urbantrips.geo.geo import normalizo_lat_lon
 from urbantrips.utils.utils import traigo_tabla_zonas, calculate_weighted_means
 from urbantrips.geo.geo import h3_to_lat_lon, h3toparent, h3_to_geodataframe, point_to_h3, create_h3_gdf
 from urbantrips.utils.check_configs import check_config
 from shapely.geometry import Point
-from urbantrips.utils.utils import leer_alias
+from urbantrips.utils.utils import leer_alias, leer_configs_generales
 from urbantrips.carto import carto
 
 
@@ -118,85 +118,90 @@ def format_dataframe(df):
     return df
 
 
-def construyo_indicadores(viajes):
+def construyo_indicadores(viajes, poligonos=False):
+
+    if poligonos:
+        nombre_tabla = 'poly_indicadores'
+    else:
+        nombre_tabla = 'agg_indicadores'
 
     if 'id_polygon' not in viajes.columns:
         viajes['id_polygon'] = 'NONE'
 
 
-    ind1 = viajes.groupby(['id_polygon', 'dia', 'mes'], as_index=False).factor_expansion_linea.sum(
-                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round()
+    ind1 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia'], as_index=False).factor_expansion_linea.sum(
+                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia'], as_index=False).Valor.mean().round()
     ind1['Indicador'] = 'Cantidad de Viajes'
     ind1['Valor'] = ind1.Valor.astype(int)
     ind1['Tipo'] = 'General'
     ind1['type_val'] = 'int'
 
-    ind2 = viajes[viajes.transferencia == 1].groupby(['id_polygon', 'dia', 'mes'], as_index=False).factor_expansion_linea.sum(
-                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round()
+    ind2 = viajes[viajes.transferencia == 1].groupby(['id_polygon', 'dia', 'mes', 'tipo_dia'], as_index=False).factor_expansion_linea.sum(
+                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia'], as_index=False).Valor.mean().round()
     ind2['Indicador'] = 'Cantidad de Viajes con Transferencia'
-    ind2 = ind2.merge(ind1[['id_polygon', 'mes', 'Valor']].rename(
+    ind2 = ind2.merge(ind1[['id_polygon', 'mes', 'tipo_dia', 'Valor']].rename(
         columns={'Valor': 'Tot'}), how='left')
     ind2['Valor'] = (ind2['Valor'] / ind2['Tot'] * 100).round(2)
     ind2['Tipo'] = 'General'
     ind2['type_val'] = 'percentage'
 
-    ind3 = viajes.groupby(['id_polygon', 'dia', 'mes', 'rango_hora'], as_index=False).factor_expansion_linea.sum(
-                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'rango_hora'], as_index=False).Valor.mean().round()
+    ind3 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia', 'rango_hora'], as_index=False).factor_expansion_linea.sum(
+                                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia', 'rango_hora'], as_index=False).Valor.mean().round()
     ind3['Indicador'] = 'Cantidad de Según Rango Horas'
-    ind3['Tot'] = ind3.groupby(['id_polygon', 'mes']).Valor.transform('sum')
+    ind3['Tot'] = ind3.groupby(['id_polygon', 'mes', 'tipo_dia']).Valor.transform('sum')
     ind3['Valor'] = (ind3['Valor'] / ind3['Tot'] * 100).round(2)
     ind3['Indicador'] = 'Cantidad de Viajes de '+ind3['rango_hora']+'hs'
     ind3['Tipo'] = 'General'
     ind3['type_val'] = 'percentage'
 
-    ind4 = viajes.groupby(['id_polygon', 'dia', 'mes', 'modo'], as_index=False).factor_expansion_linea.sum(
-                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'modo'], as_index=False).Valor.mean().round()
+    ind4 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia', 'modo'], as_index=False).factor_expansion_linea.sum(
+                ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia', 'modo'], as_index=False).Valor.mean().round()
     ind4['Indicador'] = 'Partición Modal'
-    ind4['Tot'] = ind4.groupby(['id_polygon', 'mes']).Valor.transform('sum')
+    ind4['Tot'] = ind4.groupby(['id_polygon', 'mes', 'tipo_dia']).Valor.transform('sum')
     ind4['Valor'] = (ind4['Valor'] / ind4['Tot'] * 100).round(2)
     ind4 = ind4.sort_values(['id_polygon', 'Valor'], ascending=False)
     ind4['Indicador'] = ind4['modo']
     ind4['Tipo'] = 'Modal'
     ind4['type_val'] = 'percentage'
 
-    ind9 = viajes.groupby(['id_polygon', 'dia', 'mes', 'distancia'], as_index=False).factor_expansion_linea.sum(
-                        ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'distancia'], as_index=False).Valor.mean().round()
+    ind9 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia', 'distancia'], as_index=False).factor_expansion_linea.sum(
+                        ).round(0).rename(columns={'factor_expansion_linea': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia', 'distancia'], as_index=False).Valor.mean().round()
     ind9['Indicador'] = 'Partición Modal'
-    ind9['Tot'] = ind9.groupby(['id_polygon', 'mes']).Valor.transform('sum')
+    ind9['Tot'] = ind9.groupby(['id_polygon', 'mes', 'tipo_dia']).Valor.transform('sum')
     ind9['Valor'] = (ind9['Valor'] / ind9['Tot'] * 100).round(2)
     ind9 = ind9.sort_values(['id_polygon', 'Valor'], ascending=False)
     ind9['Indicador'] = 'Cantidad de '+ind9['distancia']
     ind9['Tipo'] = 'General'
     ind9['type_val'] = 'percentage'
 
-    ind5 = viajes.groupby(['id_polygon', 'dia', 'mes', 'id_tarjeta'], 
-                          as_index=False).factor_expansion_linea.first().groupby(['id_polygon', 'dia', 'mes'], 
-                                                                                 as_index=False).factor_expansion_linea.sum().groupby(['id_polygon', 'mes'], 
+    ind5 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia', 'id_tarjeta'], 
+                          as_index=False).factor_expansion_linea.first().groupby(['id_polygon', 'dia', 'mes', 'tipo_dia'], 
+                                                                                 as_index=False).factor_expansion_linea.sum().groupby(['id_polygon', 'mes', 'tipo_dia'], 
                                                                                                                                       as_index=False).factor_expansion_linea.mean().round().rename(columns={'factor_expansion_linea': 'Valor'})
     ind5['Indicador'] = 'Cantidad de Usuarios'
     ind5['Tipo'] = 'General'
     ind5['type_val'] = 'int'
 
     ind6 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon', 'dia', 'mes'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'tipo_dia'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes'], as_index=False).Valor.mean().round(2)
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia'], as_index=False).Valor.mean().round(2)
     ind6['Tipo'] = 'Distancias'
     ind6['Indicador'] = 'Distancia Promedio (kms)'
     ind6['type_val'] = 'float'
 
     ind7 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'modo'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'tipo_dia', 'modo'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'modo'], as_index=False).Valor.mean().round(2)
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia', 'modo'], as_index=False).Valor.mean().round(2)
     ind7['Tipo'] = 'Distancias'
     ind7['Indicador'] = 'Distancia Promedio (' + ind7.modo + ') (kms)'
     ind7['type_val'] = 'float'
 
     ind8 = calculate_weighted_means(viajes,
-                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'distancia'],
+                                    aggregate_cols=['id_polygon', 'dia', 'mes', 'tipo_dia', 'distancia'],
                                     weighted_mean_cols=['distance_osm_drive'],
-                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'distancia'], as_index=False).Valor.mean().round(2)
+                                    weight_col='factor_expansion_linea').rename(columns={'distance_osm_drive': 'Valor'}).groupby(['id_polygon', 'mes', 'tipo_dia', 'distancia'], as_index=False).Valor.mean().round(2)
     ind8['Tipo'] = 'Distancias'
     ind8['Indicador'] = 'Distancia Promedio ' + ind8.distancia
     ind8['type_val'] = 'float'
@@ -204,15 +209,34 @@ def construyo_indicadores(viajes):
     indicadores = pd.concat(
         [ind1, ind5, ind2, ind3, ind6, ind9, ind7, ind8, ind4])
 
+    tupla_mes = tuple(indicadores.mes.unique().tolist() + ['Todos']) 
+    if len(tupla_mes) == 1:
+        query = f"""
+            SELECT *
+            FROM {nombre_tabla}
+            WHERE mes != '{tupla_mes[0]}'
+        """
+    else:
+        query = f"""
+            SELECT *
+            FROM {nombre_tabla}
+            WHERE mes NOT IN {tupla_mes}
+        """
+
+    indicadores_ant = levanto_tabla_sql(nombre_tabla, 'dash', query=query)
+
+    indicadores = pd.concat([indicadores[['id_polygon', 'mes', 'tipo_dia', 'Tipo', 'Indicador', 'type_val', 'Valor']], 
+                                         indicadores_ant], ignore_index=True)
+
     indicadores_todos = indicadores.groupby(['id_polygon', 'Tipo', 'Indicador', 'type_val'], as_index=False).Valor.mean().round(2)
     indicadores_todos['mes'] = 'Todos'
     indicadores = pd.concat([indicadores, indicadores_todos])
     
     indicadores = format_dataframe(indicadores)
-    indicadores = indicadores[['id_polygon', 'mes', 'Tipo', 'Indicador', 'Valor_str']].rename(
+    indicadores = indicadores[['id_polygon', 'mes', 'tipo_dia', 'Tipo', 'Indicador', 'Valor_str']].rename(
         columns={'Valor_str': 'Valor'})
 
-    indicadores = indicadores.sort_values(['id_polygon', 'mes', 'Tipo', 'Indicador'])
+    indicadores = indicadores.sort_values(['id_polygon', 'mes', 'tipo_dia', 'Tipo', 'Indicador'])
 
     return indicadores
 
@@ -287,13 +311,18 @@ def select_cases_from_polygons(etapas, viajes, polygons, res=8):
         gdf_hexs = select_h3_from_polygon(poly,
                                           res=res,
                                           viz=False)
+        
 
         gdf_hexs = gdf_hexs[['id', 'h3']].rename(
             columns={'h3': 'h3_o', 'id': 'id_polygon'})
 
         seleccionar = etapas.merge(gdf_hexs, on='h3_o')[
-            ['dia', 'id_tarjeta', 'id_viaje', 'id_polygon']].drop_duplicates()
-
+            ['dia', 'id_tarjeta', 'id_viaje', 'id_polygon']] 
+        seleccionar = seleccionar.groupby(['dia', 'id_tarjeta', 'id_viaje', 'id_polygon'], as_index=False).size()
+        seleccionar['coincidencias'] = 'False'
+        seleccionar.loc[seleccionar['size']>1, 'coincidencias'] = 'True'
+        seleccionar = seleccionar.drop(['size'], axis=1)
+        
         tmp = etapas.merge(seleccionar)
 
         etapas_selec = pd.concat([etapas_selec,
@@ -761,6 +790,32 @@ def crea_socio_indicadores(etapas, viajes):
 
     return socio_indicadores
 
+def preparo_etapas_agregadas(etapas, viajes):
+    e_agg = etapas.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.sum()
+    e_agg = e_agg.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.mean()
+    e_agg = e_agg[e_agg.h3_o!=e_agg.h3_d]
+    lineas = levanto_tabla_sql('metadata_lineas', 'insumos')
+    e_agg = e_agg.merge(lineas[['id_linea', 'nombre_linea']])
+
+    v_agg = viajes.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo'], as_index=False).factor_expansion_linea.sum()
+    v_agg = v_agg.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo'], as_index=False).factor_expansion_linea.mean()
+    v_agg = v_agg[v_agg.h3_o!=v_agg.h3_d]
+    
+    etapas['etapas_max'] = etapas.groupby(['dia', 'id_tarjeta', 'id_viaje']).id_etapa.transform('max')
+    transfers = etapas.loc[(etapas.etapas_max>1), ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'etapas_max', 'id_linea', 'h3_o', 'h3_d', 'factor_expansion_linea']]
+    transfers = transfers.merge(lineas[['id_linea', 'nombre_linea']], how='left')
+    transfers = transfers.pivot(index=['dia', 'id_tarjeta', 'id_viaje'], columns='id_etapa', values='nombre_linea').reset_index().fillna('')
+    transfers['seq_lineas'] = ''
+    for i in range(1, etapas.etapas_max.max()+1):
+        transfers['seq_lineas'] += transfers[i] + ' -- '
+        transfers['seq_lineas'] = transfers['seq_lineas'].str.replace(' --  -- ', '')
+        
+    transfers['seq_lineas'] = transfers.seq_lineas.str[:-4]
+    transfers = viajes.merge(transfers[['dia', 'id_tarjeta', 'id_viaje', 'seq_lineas']])
+    transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.sum()
+    transfers = transfers.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
+
+    return e_agg, v_agg, transfers
 
 def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6):
 
@@ -773,14 +828,19 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
         poligonos = pd.DataFrame([['NONE', 'NONE']], columns=['id', 'tipo'])
         etapas_selec['id_polygon'] = 'NONE'
         viajes_selec['id_polygon'] = 'NONE'
+        etapas_selec['coincidencias'] = 'NONE'
+        viajes_selec['coincidencias'] = 'NONE'
 
-    etapas_selec = etapas_selec[etapas_selec.distance_osm_drive.notna()].copy()
+    #### etapas_selec = etapas_selec[etapas_selec.distance_osm_drive.notna()].copy()
+
     etapas_selec = etapas_selec.rename(
         columns={'distance_osm_drive': 'distance_osm_drive_etapas'})
     distancias_all = etapas_selec.groupby(
         ['id_polygon', 'dia', 'id_tarjeta', 'id_viaje'], as_index=False)[['distance_osm_drive_etapas']].sum()
+
     distancias_all = distancias_all.merge(viajes_selec.loc[viajes_selec.od_validado == 1, [
-                                          'id_polygon', 'dia', 'id_tarjeta', 'id_viaje', 'distance_osm_drive', 'travel_time_min', 'travel_speed']])
+                                          'id_polygon', 'dia', 'id_tarjeta', 'id_viaje', 'distance_osm_drive', 'travel_time_min', 'travel_speed']]) #
+
     distancias_all['distancia'] = 'Viajes cortos (<=5kms)'
     distancias_all.loc[(distancias_all.distance_osm_drive > 5),
                        'distancia'] = 'Viajes largos (>5kms)'
@@ -822,16 +882,11 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
     etapas_selec.loc[(etapas_selec.hora >= 17) & (
         etapas_selec.hora <= 24), 'rango_hora'] = '17-24'
 
-    etapas_agrupadas_all = pd.DataFrame([])
-    gpd_viajes_agrupados_all = pd.DataFrame([])
-
     for id_polygon in polygons_h3.id_polygon.unique():
 
         poly_h3 = polygons_h3[polygons_h3.id_polygon == id_polygon]
         poly = poligonos[poligonos.id == id_polygon]
         tipo_poly = poly.tipo.values[0]
-        print('')
-        print(f'Polígono {id_polygon} - Tipo: {tipo_poly}')
 
         # Preparo Etapas con inicio, transferencias y fin del viaje
         etapas_all = etapas_selec.loc[(etapas_selec.id_polygon == id_polygon), ['dia',
@@ -844,6 +899,7 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                                 'rango_hora',
                                                                                 'genero',
                                                                                 'tarifa',
+                                                                                'coincidencias',
                                                                                 'factor_expansion_linea']]
         etapas_all['etapa_max'] = etapas_all.groupby(
             ['dia', 'id_tarjeta', 'id_viaje']).id_etapa.transform('max')
@@ -873,6 +929,7 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                  'rango_hora',
                                  'genero', 
                                  'tarifa',
+                                 'coincidencias',
                                  'factor_expansion_linea']]
         etapas_all['ultimo_viaje'] = 0
 
@@ -887,14 +944,14 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                      'rango_hora',
                                      'genero', 
                                      'tarifa',
+                                     'coincidencias',
                                      'factor_expansion_linea',
                                      'ultimo_viaje']]
 
         etapas_all = pd.concat([etapas_all, ultimo_viaje]).sort_values(
             ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']).reset_index(drop=True)
 
-        etapas_all['tipo_viaje'] = 'Transfer_' + \
-            (etapas_all['id_etapa']-1).astype(str)
+        etapas_all['tipo_viaje'] = 'Transfer_' + (etapas_all['id_etapa']-1).astype(str)
         etapas_all.loc[etapas_all.ultimo_viaje == 1, 'tipo_viaje'] = 'Fin'
         etapas_all.loc[etapas_all.id_etapa == 1, 'tipo_viaje'] = 'Inicio'
 
@@ -919,6 +976,7 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                                                     'rango_hora',
                                                                     'genero',
                                                                     'tarifa',
+                                                                    'coincidencias',
                                                                     'factor_expansion_linea',
                                                                     'polygon']].rename(columns={'h3': 'h3_inicio',
                                                                                                 'polygon': 'poly_inicio'})
@@ -962,11 +1020,12 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                              'rango_hora',
                                              'genero', 
                                              'tarifa',
+                                             'coincidencias',
                                              'factor_expansion_linea']]
-
-
         
         for zona in zonas:
+            print('')
+            print(f'Polígono {id_polygon} - Tipo: {tipo_poly} - Zona: {zona}')
 
             if id_polygon != 'NONE':
                 # print(id_polygon, zona)
@@ -1087,299 +1146,374 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
             etapas_agrupadas_zon = normalizo_zona(etapas_agrupadas_zon,
                                                   zonificaciones[zonificaciones.zona == zona].copy())
 
-            etapas_agrupadas_all = pd.concat(
-                [etapas_agrupadas_all, etapas_agrupadas_zon], ignore_index=True)
+            ### etapas_agrupadas_zon = pd.concat(
+            ###     [etapas_agrupadas_zon, etapas_agrupadas_zon], ignore_index=True)
 
-    etapas_agrupadas_all['transferencia'] = 0
-    etapas_agrupadas_all.loc[(etapas_agrupadas_all.transfer1_norm != '') | (
-        etapas_agrupadas_all.transfer2_norm != ''), 'transferencia'] = 1
-
-    etapas_agrupadas_all = etapas_agrupadas_all.merge(
-        distancias_all, how='left')
-
-    etapas_agrupadas_all['tipo_dia_'] = pd.to_datetime(etapas_agrupadas_all.dia).dt.weekday.astype(str).copy()
-    etapas_agrupadas_all['tipo_dia'] = 'Hábil'
-    etapas_agrupadas_all.loc[etapas_agrupadas_all.tipo_dia_.astype(int)>=5, 'tipo_dia'] = 'Fin de Semana'
-    etapas_agrupadas_all = etapas_agrupadas_all.drop(['tipo_dia_'], axis=1)
-    etapas_agrupadas_all['mes'] = etapas_agrupadas_all.dia.str[:7]
-
-    etapas_agrupadas_all = etapas_agrupadas_all[['id_polygon', 'zona', 'dia', 'mes', 'tipo_dia', 'id_tarjeta', 'id_viaje',
-                                                 'h3_inicio', 'h3_transfer1', 'h3_transfer2', 'h3_fin',
-                                                 'inicio', 'transfer1', 'transfer2', 'fin',
-                                                 'poly_inicio', 'poly_transfer1', 'poly_transfer2', 'poly_fin',
-                                                 'inicio_norm', 'transfer1_norm', 'transfer2_norm', 'fin_norm',
-                                                 'poly_inicio_norm', 'poly_transfer1_norm', 'poly_transfer2_norm', 'poly_fin_norm',
-                                                 'lon1', 'lat1', 'lon2', 'lat2', 'lon3', 'lat3', 'lon4', 'lat4',
-                                                 'lon1_norm', 'lat1_norm', 'lon2_norm', 'lat2_norm', 'lon3_norm', 'lat3_norm', 'lon4_norm', 'lat4_norm',
-                                                 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia', 
-                                                 'distance_osm_drive', 'distance_osm_drive_etapas', 
-                                                  'travel_time_min', 'travel_speed',
-                                                 'factor_expansion_linea']]
-
-    etapas_sin_agrupar = etapas_agrupadas_all.copy()
-
-    aggregate_cols = ['id_polygon', 'dia', 'mes', 'tipo_dia', 'zona', 'inicio', 'fin', 'poly_inicio',
-                      'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'distancia']
-    viajes_matrices = construyo_matrices(etapas_sin_agrupar,
-                                         aggregate_cols,
-                                         zonificaciones,
-                                         False,
-                                         False,
-                                         False)
-
-    # Agrupación de viajes
-    aggregate_cols = ['id_polygon',
-                      'dia',
-                      'mes', 
-                      'tipo_dia',
-                      'zona',
-                      'inicio_norm',
-                      'transfer1_norm',
-                      'transfer2_norm',
-                      'fin_norm',
-                      'poly_inicio_norm',
-                      'poly_transfer1_norm',
-                      'poly_transfer2_norm',
-                      'poly_fin_norm',
-                      'transferencia',
-                      'modo_agregado',
-                      'rango_hora',
-                      'genero', 
-                      'tarifa',
-                      'distancia']
-
-    weighted_mean_cols = ['distance_osm_drive',
-                          'distance_osm_drive_etapas',
-                          'travel_time_min', 
-                          'travel_speed',
-                          'lat1_norm',
-                          'lon1_norm',
-                          'lat2_norm',
-                          'lon2_norm',
-                          'lat3_norm',
-                          'lon3_norm',
-                          'lat4_norm',
-                          'lon4_norm']
-
-    weight_col = 'factor_expansion_linea'
-
-    zero_to_nan = ['lat1_norm',
-                   'lon1_norm',
-                   'lat2_norm',
-                   'lon2_norm',
-                   'lat3_norm',
-                   'lon3_norm',
-                   'lat4_norm',
-                   'lon4_norm']
-
-    etapas_agrupadas_all = agrupar_viajes(etapas_agrupadas_all,
-                                          aggregate_cols,
-                                          weighted_mean_cols,
-                                          weight_col,
-                                          zero_to_nan,
-                                          agg_transferencias=False,
-                                          agg_modo=False,
-                                          agg_hora=False,
-                                          agg_distancia=False)
-
-    zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
-    zonificaciones['lon'] = zonificaciones.geometry.representative_point().x
-
-    n = 1
-    poly_lst = ['poly_inicio', 'poly_transfer1', 'poly_transfer2', 'poly_fin']
-    for i in ['inicio', 'transfer1', 'transfer2', 'fin']:
-        etapas_agrupadas_all = etapas_agrupadas_all.merge(zonificaciones[['zona', 'id', 'lat', 'lon']].rename(columns={'id': f'{i}_norm', 'lat': f'lat{n}_norm_tmp', 'lon': f'lon{n}_norm_tmp'}),
-                                                          how='left',
-                                                          on=['zona', f'{i}_norm'])
-        etapas_agrupadas_all.loc[etapas_agrupadas_all[f'{poly_lst[n-1]}_norm'] == '',
-                                 f'lat{n}_norm'] = etapas_agrupadas_all.loc[etapas_agrupadas_all[f'{poly_lst[n-1]}_norm'] == '', f'lat{n}_norm_tmp']
-        etapas_agrupadas_all.loc[etapas_agrupadas_all[f'{poly_lst[n-1]}_norm'] == '',
-                                 f'lon{n}_norm'] = etapas_agrupadas_all.loc[etapas_agrupadas_all[f'{poly_lst[n-1]}_norm'] == '', f'lon{n}_norm_tmp']
-
-        etapas_agrupadas_all = etapas_agrupadas_all.drop(
-            [f'lat{n}_norm_tmp', f'lon{n}_norm_tmp'], axis=1)
-
-        if (n == 1) | (n == 4):
-            viajes_matrices = viajes_matrices.merge(zonificaciones[['zona', 'id', 'lat', 'lon']].rename(columns={'id': f'{i}', 'lat': f'lat{n}_tmp', 'lon': f'lon{n}_tmp'}),
-                                                    how='left',
-                                                    on=['zona', f'{i}'])
-            viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '',
-                                f'lat{n}'] = viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '', f'lat{n}_tmp']
-            viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '',
-                                f'lon{n}'] = viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '', f'lon{n}_tmp']
-            viajes_matrices = viajes_matrices.drop(
-                [f'lat{n}_tmp', f'lon{n}_tmp'], axis=1)
-
-        n += 1
-
-
-
-    # # Agrupar a nivel de mes y corregir factor de expansión
-    sum_viajes = etapas_agrupadas_all.groupby(['dia', 
-                                               'mes', 
-                                               'tipo_dia', 
-                                               'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 
-                                                                                                              'tipo_dia', 
-                                                                                                              'zona'], as_index=False).factor_expansion_linea.mean().round()
+            etapas_agrupadas_zon['transferencia'] = 0
+            etapas_agrupadas_zon.loc[(etapas_agrupadas_zon.transfer1_norm != '') | (
+                etapas_agrupadas_zon.transfer2_norm != ''), 'transferencia'] = 1
         
-    aggregate_cols = ['mes', 
-                      'tipo_dia', 
-                      'id_polygon', 
-                      'poly_inicio_norm',
-                      'poly_transfer1_norm',
-                      'poly_transfer2_norm',
-                      'poly_fin_norm',
-                      'zona', 
-                      'inicio_norm', 
-                      'transfer1_norm',
-                      'transfer2_norm', 
-                      'fin_norm', 
-                      'transferencia', 
-                      'modo_agregado', 
-                      'rango_hora', 
-                      'genero', 
-                      'tarifa', 
-                      'distancia', ]
-    weighted_mean_cols=['distance_osm_drive', 
-                        'distance_osm_drive_etapas', 
-                        'travel_time_min', 
-                        'travel_speed', 
-                        'lat1_norm', 
-                        'lon1_norm', 
-                        'lat2_norm', 
-                        'lon2_norm', 
-                        'lat3_norm', 
-                        'lon3_norm', 
-                        'lat4_norm', 
-                        'lon4_norm']
-    
-    etapas_agrupadas_all = calculate_weighted_means(etapas_agrupadas_all,
-                                aggregate_cols=aggregate_cols,
-                                weighted_mean_cols=weighted_mean_cols,
-                                weight_col='factor_expansion_linea',
-                                zero_to_nan=zero_to_nan,
-                                var_fex_summed=False)
-
-
-    sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / etapas_agrupadas_all.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
-    sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
-    
-    etapas_agrupadas_all = etapas_agrupadas_all.merge(sum_viajes)
-    etapas_agrupadas_all['factor_expansion_linea2'] = etapas_agrupadas_all['factor_expansion_linea'] * etapas_agrupadas_all['factor_correccion']
-    etapas_agrupadas_all['factor_expansion_linea2'] = etapas_agrupadas_all['factor_expansion_linea'] - etapas_agrupadas_all['factor_expansion_linea2']
-    etapas_agrupadas_all = etapas_agrupadas_all.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
-    etapas_agrupadas_all = etapas_agrupadas_all.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
-
-    # # Agrupar a nivel de mes y corregir factor de expansión
-    sum_viajes = viajes_matrices.groupby(['dia', 'mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.mean()
-    
-    aggregate_cols = ['id_polygon', 
-                      'poly_inicio', 
-                      'poly_fin',
-                      'mes', 
-                      'tipo_dia', 
-                      'zona', 
-                      'inicio', 
-                      'fin', 
-                      'transferencia', 
-                      'modo_agregado', 
-                      'rango_hora', 
-                      'genero', 
-                      'tarifa', 
-                      'distancia', 
-                      'orden_origen', 
-                      'orden_destino', 
-                      'Origen', 
-                      'Destino']
-    weighted_mean_cols = ['lat1', 
-                          'lon1', 
-                          'lat4', 
-                          'lon4', 
-                          'distance_osm_drive', 
-                          'travel_time_min', 
-                          'travel_speed',]
-    zero_to_nan = ['lat1', 
-                   'lon1', 
-                   'lat4', 
-                   'lon4']
-
-    viajes_matrices = calculate_weighted_means(viajes_matrices,
-                                aggregate_cols=aggregate_cols,
-                                weighted_mean_cols=weighted_mean_cols,
-                                weight_col='factor_expansion_linea',
-                                zero_to_nan=zero_to_nan,
-                                var_fex_summed=False)
-
-    sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / viajes_matrices.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
-    sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
-
-    viajes_matrices = viajes_matrices.merge(sum_viajes)
-    viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] * viajes_matrices['factor_correccion']
-    viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] - viajes_matrices['factor_expansion_linea2']
-    viajes_matrices = viajes_matrices.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
-    viajes_matrices = viajes_matrices.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
-
-    if id_polygon == 'NONE':        
-        etapas_agrupadas_all = etapas_agrupadas_all.drop(['id_polygon',
-                                                          'poly_inicio_norm',
-                                                          'poly_transfer1_norm',
-                                                          'poly_transfer2_norm',
-                                                          'poly_fin_norm'], axis=1)
-
-        viajes_matrices = viajes_matrices.drop(
-            ['poly_inicio', 
-             'poly_fin'], axis=1)
+            etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
+                distancias_all, how='left')
         
-    
-    return etapas_agrupadas_all, etapas_sin_agrupar, viajes_matrices, zonificaciones
+            etapas_agrupadas_zon['tipo_dia_'] = pd.to_datetime(etapas_agrupadas_zon.dia).dt.weekday.astype(str).copy()
+            etapas_agrupadas_zon['tipo_dia'] = 'Hábil'
+            etapas_agrupadas_zon.loc[etapas_agrupadas_zon.tipo_dia_.astype(int)>=5, 'tipo_dia'] = 'Fin de Semana'
+            etapas_agrupadas_zon = etapas_agrupadas_zon.drop(['tipo_dia_'], axis=1)
+            etapas_agrupadas_zon['mes'] = etapas_agrupadas_zon.dia.str[:7]
+        
+            etapas_agrupadas_zon = etapas_agrupadas_zon[['id_polygon', 'zona', 'dia', 'mes', 'tipo_dia', 'id_tarjeta', 'id_viaje',
+                                                         'h3_inicio', 'h3_transfer1', 'h3_transfer2', 'h3_fin',
+                                                         'inicio', 'transfer1', 'transfer2', 'fin',
+                                                         'poly_inicio', 'poly_transfer1', 'poly_transfer2', 'poly_fin',
+                                                         'inicio_norm', 'transfer1_norm', 'transfer2_norm', 'fin_norm',
+                                                         'poly_inicio_norm', 'poly_transfer1_norm', 'poly_transfer2_norm', 'poly_fin_norm',
+                                                         'lon1', 'lat1', 'lon2', 'lat2', 'lon3', 'lat3', 'lon4', 'lat4',
+                                                         'lon1_norm', 'lat1_norm', 'lon2_norm', 'lat2_norm', 'lon3_norm', 'lat3_norm', 'lon4_norm', 'lat4_norm',
+                                                         'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'coincidencias', 'distancia', 
+                                                         'distance_osm_drive', 'distance_osm_drive_etapas', 
+                                                          'travel_time_min', 'travel_speed',
+                                                         'factor_expansion_linea']]
+        
+            aggregate_cols = ['id_polygon', 'dia', 'mes', 'tipo_dia', 'zona', 'inicio', 'fin', 'poly_inicio',
+                              'poly_fin', 'transferencia', 'modo_agregado', 'rango_hora', 'genero', 'tarifa', 'coincidencias', 'distancia']
+            viajes_matrices = construyo_matrices(etapas_agrupadas_zon,
+                                                 aggregate_cols,
+                                                 zonificaciones,
+                                                 False,
+                                                 False,
+                                                 False)
+        
+            # Agrupación de viajes
+            aggregate_cols = ['id_polygon',
+                              'dia',
+                              'mes', 
+                              'tipo_dia',
+                              'zona',
+                              'inicio_norm',
+                              'transfer1_norm',
+                              'transfer2_norm',
+                              'fin_norm',
+                              'poly_inicio_norm',
+                              'poly_transfer1_norm',
+                              'poly_transfer2_norm',
+                              'poly_fin_norm',
+                              'transferencia',
+                              'modo_agregado',
+                              'rango_hora',
+                              'genero', 
+                              'tarifa',
+                              'coincidencias',
+                              'distancia']
+        
+            weighted_mean_cols = ['distance_osm_drive',
+                                  'distance_osm_drive_etapas',
+                                  'travel_time_min', 
+                                  'travel_speed',
+                                  'lat1_norm',
+                                  'lon1_norm',
+                                  'lat2_norm',
+                                  'lon2_norm',
+                                  'lat3_norm',
+                                  'lon3_norm',
+                                  'lat4_norm',
+                                  'lon4_norm']
+        
+            weight_col = 'factor_expansion_linea'
+        
+            zero_to_nan = ['lat1_norm',
+                           'lon1_norm',
+                           'lat2_norm',
+                           'lon2_norm',
+                           'lat3_norm',
+                           'lon3_norm',
+                           'lat4_norm',
+                           'lon4_norm']
+        
+            etapas_agrupadas_zon = agrupar_viajes(etapas_agrupadas_zon,
+                                                  aggregate_cols,
+                                                  weighted_mean_cols,
+                                                  weight_col,
+                                                  zero_to_nan,
+                                                  agg_transferencias=False,
+                                                  agg_modo=False,
+                                                  agg_hora=False,
+                                                  agg_distancia=False)
+        
+            zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
+            zonificaciones['lon'] = zonificaciones.geometry.representative_point().x
+        
+            n = 1
+            poly_lst = ['poly_inicio', 'poly_transfer1', 'poly_transfer2', 'poly_fin']
+            for i in ['inicio', 'transfer1', 'transfer2', 'fin']:
+                etapas_agrupadas_zon = etapas_agrupadas_zon.merge(zonificaciones[['zona', 'id', 'lat', 'lon']].rename(columns={'id': f'{i}_norm', 'lat': f'lat{n}_norm_tmp', 'lon': f'lon{n}_norm_tmp'}),
+                                                                  how='left',
+                                                                  on=['zona', f'{i}_norm'])
+                etapas_agrupadas_zon.loc[etapas_agrupadas_zon[f'{poly_lst[n-1]}_norm'] == '',
+                                         f'lat{n}_norm'] = etapas_agrupadas_zon.loc[etapas_agrupadas_zon[f'{poly_lst[n-1]}_norm'] == '', f'lat{n}_norm_tmp']
+                etapas_agrupadas_zon.loc[etapas_agrupadas_zon[f'{poly_lst[n-1]}_norm'] == '',
+                                         f'lon{n}_norm'] = etapas_agrupadas_zon.loc[etapas_agrupadas_zon[f'{poly_lst[n-1]}_norm'] == '', f'lon{n}_norm_tmp']
+        
+                etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
+                    [f'lat{n}_norm_tmp', f'lon{n}_norm_tmp'], axis=1)
+        
+                if (n == 1) | (n == 4):
+                    viajes_matrices = viajes_matrices.merge(zonificaciones[['zona', 'id', 'lat', 'lon']].rename(columns={'id': f'{i}', 'lat': f'lat{n}_tmp', 'lon': f'lon{n}_tmp'}),
+                                                            how='left',
+                                                            on=['zona', f'{i}'])
+                    viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '',
+                                        f'lat{n}'] = viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '', f'lat{n}_tmp']
+                    viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '',
+                                        f'lon{n}'] = viajes_matrices.loc[viajes_matrices[f'{poly_lst[n-1]}'] == '', f'lon{n}_tmp']
+                    viajes_matrices = viajes_matrices.drop(
+                        [f'lat{n}_tmp', f'lon{n}_tmp'], axis=1)
+        
+                n += 1
+        
+        
+        
+            # # Agrupar a nivel de mes y corregir factor de expansión
+            sum_viajes = etapas_agrupadas_zon.groupby(['dia', 
+                                                       'mes', 
+                                                       'tipo_dia', 
+                                                       'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 
+                                                                                                                      'tipo_dia', 
+                                                                                                                      'zona'], as_index=False).factor_expansion_linea.mean().round()
+                
+            aggregate_cols = ['mes', 
+                              'tipo_dia', 
+                              'id_polygon', 
+                              'poly_inicio_norm',
+                              'poly_transfer1_norm',
+                              'poly_transfer2_norm',
+                              'poly_fin_norm',
+                              'zona', 
+                              'inicio_norm', 
+                              'transfer1_norm',
+                              'transfer2_norm', 
+                              'fin_norm', 
+                              'transferencia', 
+                              'modo_agregado', 
+                              'rango_hora', 
+                              'genero', 
+                              'tarifa', 
+                              'coincidencias',
+                              'distancia', ]
+            weighted_mean_cols=['distance_osm_drive', 
+                                'distance_osm_drive_etapas', 
+                                'travel_time_min', 
+                                'travel_speed', 
+                                'lat1_norm', 
+                                'lon1_norm', 
+                                'lat2_norm', 
+                                'lon2_norm', 
+                                'lat3_norm', 
+                                'lon3_norm', 
+                                'lat4_norm', 
+                                'lon4_norm']
+            
+            etapas_agrupadas_zon = calculate_weighted_means(etapas_agrupadas_zon,
+                                        aggregate_cols=aggregate_cols,
+                                        weighted_mean_cols=weighted_mean_cols,
+                                        weight_col='factor_expansion_linea',
+                                        zero_to_nan=zero_to_nan,
+                                        var_fex_summed=False)
+        
+        
+            sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / etapas_agrupadas_zon.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
+            sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
+            
+            etapas_agrupadas_zon = etapas_agrupadas_zon.merge(sum_viajes)
+            etapas_agrupadas_zon['factor_expansion_linea2'] = etapas_agrupadas_zon['factor_expansion_linea'] * etapas_agrupadas_zon['factor_correccion']
+            etapas_agrupadas_zon['factor_expansion_linea2'] = etapas_agrupadas_zon['factor_expansion_linea'] - etapas_agrupadas_zon['factor_expansion_linea2']
+            etapas_agrupadas_zon = etapas_agrupadas_zon.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
+            etapas_agrupadas_zon = etapas_agrupadas_zon.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
+        
+            # # Agrupar a nivel de mes y corregir factor de expansión
+            sum_viajes = viajes_matrices.groupby(['dia', 'mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.mean()
+            
+            aggregate_cols = ['id_polygon', 
+                              'poly_inicio', 
+                              'poly_fin',
+                              'mes', 
+                              'tipo_dia', 
+                              'zona', 
+                              'inicio', 
+                              'fin', 
+                              'transferencia', 
+                              'modo_agregado', 
+                              'rango_hora', 
+                              'genero', 
+                              'tarifa', 
+                              'coincidencias',
+                              'distancia', 
+                              'orden_origen', 
+                              'orden_destino', 
+                              'Origen', 
+                              'Destino']
+            weighted_mean_cols = ['lat1', 
+                                  'lon1', 
+                                  'lat4', 
+                                  'lon4', 
+                                  'distance_osm_drive', 
+                                  'travel_time_min', 
+                                  'travel_speed',]
+            zero_to_nan = ['lat1', 
+                           'lon1', 
+                           'lat4', 
+                           'lon4']
+        
+            viajes_matrices = calculate_weighted_means(viajes_matrices,
+                                        aggregate_cols=aggregate_cols,
+                                        weighted_mean_cols=weighted_mean_cols,
+                                        weight_col='factor_expansion_linea',
+                                        zero_to_nan=zero_to_nan,
+                                        var_fex_summed=False)
+        
+            sum_viajes['factor_expansion_linea'] = 1 - (sum_viajes['factor_expansion_linea'] / viajes_matrices.groupby(['mes', 'tipo_dia', 'zona'], as_index=False).factor_expansion_linea.sum().factor_expansion_linea )
+            sum_viajes = sum_viajes.rename(columns={'factor_expansion_linea':'factor_correccion'})
+        
+            viajes_matrices = viajes_matrices.merge(sum_viajes)
+            viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] * viajes_matrices['factor_correccion']
+            viajes_matrices['factor_expansion_linea2'] = viajes_matrices['factor_expansion_linea'] - viajes_matrices['factor_expansion_linea2']
+            viajes_matrices = viajes_matrices.drop(['factor_correccion', 'factor_expansion_linea'], axis=1)
+            viajes_matrices = viajes_matrices.rename(columns={'factor_expansion_linea2':'factor_expansion_linea'})
+                
+            if len(poligonos[poligonos.tipo=='cuenca'])>0:
+            
+                etapas_agrupadas_zon.loc[
+                        etapas_agrupadas_zon.poly_inicio_norm.isin(
+                            poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                'inicio_norm'] = etapas_agrupadas_zon.loc[
+                                            etapas_agrupadas_zon.poly_inicio_norm.isin(
+                                                    poligonos[poligonos.tipo=='cuenca'].id.unique()), 'inicio_norm']+' (cuenca)'
+                etapas_agrupadas_zon.loc[
+                        etapas_agrupadas_zon.poly_transfer1_norm.isin(
+                                    poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                        'transfer1_norm'] = etapas_agrupadas_zon.loc[
+                                            etapas_agrupadas_zon.poly_transfer1_norm.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'transfer1_norm']+' (cuenca)'
+                etapas_agrupadas_zon.loc[
+                        etapas_agrupadas_zon.poly_transfer2_norm.isin(
+                                    poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                        'transfer2_norm'] = etapas_agrupadas_zon.loc[etapas_agrupadas_zon.poly_transfer2_norm.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'transfer2_norm']+' (cuenca)'
+                etapas_agrupadas_zon.loc[
+                        etapas_agrupadas_zon.poly_fin_norm.isin(
+                            poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                'fin_norm'] = etapas_agrupadas_zon.loc[etapas_agrupadas_zon.poly_fin_norm.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'fin_norm']+' (cuenca)'
+                viajes_matrices.loc[
+                        viajes_matrices.poly_inicio.isin(
+                                poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                    'Origen'] = viajes_matrices.loc[viajes_matrices.poly_inicio.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'Origen']+' (cuenca)'
+                viajes_matrices.loc[
+                        viajes_matrices.poly_fin.isin(
+                            poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                'Destino'] = viajes_matrices.loc[viajes_matrices.poly_fin.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'Destino']+' (cuenca)'
+                viajes_matrices.loc[
+                            viajes_matrices.poly_inicio.isin(
+                                poligonos[poligonos.tipo=='cuenca'].id.unique()), 
+                                    'inicio'] = viajes_matrices.loc[viajes_matrices.poly_inicio.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'inicio']+' (cuenca)'
+                viajes_matrices.loc[
+                            viajes_matrices.poly_fin.isin(
+                                    poligonos[poligonos.tipo==
+                                        'cuenca'].id.unique()), 'fin'] = viajes_matrices.loc[viajes_matrices.poly_fin.isin(poligonos[poligonos.tipo=='cuenca'].id.unique()), 'fin']+' (cuenca)'
+                
+
+            etapas_agrupadas_zon = etapas_agrupadas_zon.fillna(0)
+
+            if id_polygon == 'NONE':
+
+                etapas_agrupadas_zon = etapas_agrupadas_zon.drop(['id_polygon',
+                                                                  'poly_inicio_norm',
+                                                                  'poly_transfer1_norm',
+                                                                  'poly_transfer2_norm',
+                                                                  'poly_fin_norm'], axis=1)
+        
+                viajes_matrices = viajes_matrices.drop(
+                    ['poly_inicio', 
+                     'poly_fin'], axis=1)
+                
+                guardar_tabla_sql(etapas_agrupadas_zon, 
+                                  'agg_etapas', 
+                                  'dash', 
+                                  {'mes': etapas_agrupadas_zon.mes.unique().tolist(),                                      
+                                  'zona': etapas_agrupadas_zon.zona.unique().tolist()})
+                
+                guardar_tabla_sql(viajes_matrices, 
+                                  'agg_matrices', 
+                                  'dash', 
+                                  {'mes': viajes_matrices.mes.unique().tolist(),                                      
+                                  'zona': viajes_matrices.zona.unique().tolist()})
+            else:
+                guardar_tabla_sql(etapas_agrupadas_zon, 
+                                  'poly_etapas', 
+                                  'dash', 
+                                  {'mes': etapas_agrupadas_zon.mes.unique().tolist(),
+                                  'zona': etapas_agrupadas_zon.zona.unique().tolist(),
+                                  'id_polygon': etapas_agrupadas_zon.id_polygon.unique().tolist()})
+        
+                guardar_tabla_sql(viajes_matrices, 
+                                  'poly_matrices', 
+                                  'dash', 
+                                  {'mes': viajes_matrices.mes.unique().tolist(),
+                                  'zona': viajes_matrices.zona.unique().tolist(),
+                                  'id_polygon': viajes_matrices.id_polygon.unique().tolist()})
 
 
-def proceso_poligonos():
+###     return etapas_agrupadas_zon, viajes_matrices, zonificaciones
+
+
+def proceso_poligonos(check_configs=True):
 
     print('Procesa polígonos')
-
-    check_config()
-    carto.guardo_zonificaciones()
-    carto.create_zones_table()
+    if check_configs:
+        check_config()
+        carto.guardo_zonificaciones()
+        carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
 
     poligonos = levanto_tabla_sql('poligonos')
 
     if len(poligonos) > 0:
+
+        configs = leer_configs_generales()
+        res = configs['resolucion_h3']
+        
         print('identifica viajes en polígonos')
         # Read trips and jorneys
         etapas, viajes = load_and_process_data()
-        # # Select cases based fron polygon
+        # Select cases based fron polygon
         etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
-            etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=8)
+            etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=res)
 
-        etapas_agrupadas, etapas_sin_agrupar, viajes_matrices, zonificaciones = preparo_lineas_deseo(
-            etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6])
+        preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6])
 
-        indicadores = construyo_indicadores(viajes_selec)
-
-        conn_dash = iniciar_conexion_db(tipo='dash')
-        etapas_agrupadas = etapas_agrupadas.fillna(0)
-        etapas_agrupadas.to_sql("poly_etapas",
-                                conn_dash, if_exists="replace", index=False,)
-
-        viajes_matrices.to_sql("poly_matrices",
-                               conn_dash, if_exists="replace", index=False,)
-
-        indicadores.to_sql("poly_indicadores",
-                           conn_dash, if_exists="replace", index=False,)
-
-        conn_dash.close()
+        indicadores = construyo_indicadores(viajes_selec, poligonos=True)
 
 
-def proceso_lineas_deseo():
+        ## guardar_tabla_sql(etapas_agrupadas, 
+        ##                   'poly_etapas', 
+        ##                   'dash', 
+        ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
+
+        ## guardar_tabla_sql(viajes_matrices, 
+        ##                   'poly_matrices', 
+        ##                   'dash', 
+        ##                   {'mes': viajes_matrices.mes.unique().tolist()})
+
+        guardar_tabla_sql(indicadores, 
+                          'poly_indicadores', 
+                          'dash', 
+                          {'mes': indicadores.mes.unique().tolist()})
+
+def proceso_lineas_deseo(check_configs=False):
 
     print('Procesa etapas')
 
-    check_config()
-    carto.guardo_zonificaciones()
-    carto.create_zones_table()
+    if check_configs:
+        check_config()
+        carto.guardo_zonificaciones()
+        carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
     zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
@@ -1387,30 +1521,48 @@ def proceso_lineas_deseo():
 
     etapas, viajes = load_and_process_data()
 
-    etapas_agrupadas, etapas_sin_agrupar, viajes_matrices, zonificaciones = preparo_lineas_deseo(
-        etapas, viajes, res=[6])
+    preparo_lineas_deseo(etapas, viajes, res=[6])
 
-    indicadores = construyo_indicadores(viajes)
+    indicadores = construyo_indicadores(viajes, poligonos=False)
 
     socio_indicadores = crea_socio_indicadores(etapas, viajes)
     
     print('Guardo datos para dashboard')
-    conn_dash = iniciar_conexion_db(tipo='dash')
 
-    etapas_agrupadas = etapas_agrupadas.fillna(0)
-    etapas_agrupadas.to_sql("agg_etapas",
-                            conn_dash, if_exists="replace", index=False,)
+    ## guardar_tabla_sql(etapas_agrupadas, 
+    ##                   'agg_etapas', 
+    ##                   'dash', 
+    ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
+    
+    ## guardar_tabla_sql(viajes_matrices, 
+    ##                   'agg_matrices', 
+    ##                   'dash', 
+    ##                   {'mes': viajes_matrices.mes.unique().tolist()})
+    
+    guardar_tabla_sql(indicadores, 
+                      'agg_indicadores', 
+                      'dash', 
+                      {'mes': indicadores.mes.unique().tolist()})
 
-    viajes_matrices.to_sql("agg_matrices",
-                           conn_dash, if_exists="replace", index=False,)
+    guardar_tabla_sql(socio_indicadores, 
+                      'socio_indicadores', 
+                      'dash', 
+                      {'mes': socio_indicadores.mes.unique().tolist()})
+    
+    e_agg, v_agg, transfers = preparo_etapas_agregadas(etapas, viajes)
+    guardar_tabla_sql(e_agg, 
+                      'etapas_agregadas', 
+                      'dash', 
+                      {'mes': e_agg.mes.unique().tolist()})
 
-    indicadores.to_sql("agg_indicadores",
-                       conn_dash, if_exists="replace", index=False,)
+    guardar_tabla_sql(v_agg, 
+                  'viajes_agregados', 
+                  'dash', 
+                  {'mes': v_agg.mes.unique().tolist()})
 
-    socio_indicadores.to_sql("socio_indicadores",
-                       conn_dash, if_exists="replace", index=False,)
-
-
-    conn_dash.close()
-
+    guardar_tabla_sql(transfers, 
+                  'transferencias_agregadas', 
+                  'dash', 
+                  {'mes': v_agg.mes.unique().tolist()})
+    
     imprimo_matrices_od()

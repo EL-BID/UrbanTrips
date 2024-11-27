@@ -264,12 +264,14 @@ def load_route_section_load_data_q(
     q_main_data = q_main_data + ";"
     return q_main_data
 
+
 def standarize_size(series, min_size, max_size):
     if series.min() == series.max():
         return pd.Series([min_size] * len(series))
     return min_size + (max_size - min_size) * (series - series.min()) / (
         series.max() - series.min()
     )
+
 
 def viz_etapas_x_tramo_recorrido(
     df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
@@ -343,13 +345,13 @@ def viz_etapas_x_tramo_recorrido(
     print("Produciendo grafico de ocupacion por tramos", line_id)
 
     # set a expansion factor for viz purposes
-    #df["buff_factor"] = df[indicator_col] * factor
+    # df["buff_factor"] = df[indicator_col] * factor
     # Set a minimum for each section to be displated in map
-    #df["buff_factor"] = np.where(df["buff_factor"] <= factor_min, factor_min, df["buff_factor"])
+    # df["buff_factor"] = np.where(df["buff_factor"] <= factor_min, factor_min, df["buff_factor"])
 
-    df['buff_factor'] = standarize_size(
+    df["buff_factor"] = standarize_size(
         series=df[indicator_col], min_size=factor_min, max_size=factor
-        )
+    )
 
     cols = [
         "id_linea",
@@ -488,7 +490,7 @@ def viz_etapas_x_tramo_recorrido(
         + "-"
         + f" {id_linea_str} (id_linea: {line_id})"
     )
-    f.suptitle(title, fontsize=18)
+    f.suptitle(title)
 
     # Matching bar plot with route direction
     flecha_eo_xy = (0.4, 1.1)
@@ -2574,48 +2576,64 @@ def plot_dispatched_services_by_line_day(df):
 
     print("Creando plot de servicios despachados por linea", "id linea:", line_id)
 
-    f, ax = plt.subplots(figsize=(8, 6))
-    sns.barplot(data=df, x="hora", y="servicios", hue="id_linea", ax=ax)
+    try:
 
-    ax.get_legend().remove()
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Cantidad de servicios despachados")
+        f, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(data=df, x="hora", y="servicios", hue="id_linea", ax=ax)
 
-    f.suptitle(
-        f"Cantidad de servicios despachados por hora y dí­a",
-        fontdict={"size": 18, "weight": "bold"},
-    )
-    ax.set_title(
-        f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
-        fontdict={"fontsize": 11},
-    )
+        ax.get_legend().remove()
+        ax.set_xlabel("Hora")
+        ax.set_ylabel("Cantidad de servicios despachados")
 
-    ax.spines.right.set_visible(False)
-    ax.spines.top.set_visible(False)
-    ax.spines.bottom.set_visible(False)
-    ax.spines.left.set_visible(False)
-    ax.spines.left.set_position(("outward", 10))
-    ax.spines.bottom.set_position(("outward", 10))
+        f.suptitle(f"Cantidad de servicios despachados por hora y día")
 
-    ax.grid(axis="y")
+        ax.set_title(
+            f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+            fontdict={"fontsize": 11},
+        )
+        # ax.set_title(
+        #     f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
+        #     fontdict={"fontsize": 11},
+        # )
 
-    for frm in ["png", "pdf"]:
-        archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
-        f.savefig(db_path, dpi=300)
-        plt.close()
+        ax.spines.right.set_visible(False)
+        ax.spines.top.set_visible(False)
+        ax.spines.bottom.set_visible(False)
+        ax.spines.left.set_visible(False)
+        ax.spines.left.set_position(("outward", 10))
+        ax.spines.bottom.set_position(("outward", 10))
+
+        ax.grid(axis="y")
+
+        for frm in ["png", "pdf"]:
+            archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
+            db_path = os.path.join("resultados", frm, archivo)
+            f.savefig(db_path, dpi=300)
+            plt.close()
+    except:
+        print("ERROR")
 
 
 def plot_basic_kpi_wrapper():
     sns.set_style("whitegrid")
 
+    configs = leer_configs_generales()
     conn_data = iniciar_conexion_db(tipo="data")
+    lineas_principales = configs["imprimir_lineas_principales"]
 
+    # get top trx id_lines
     q = """
-    select *
-    from basic_kpi_by_line_hr
-    where dia = 'weekday';
-    """
+        select *
+        from basic_kpi_by_line_hr
+        where dia = 'weekday';
+        """
+
+    kpi_data = pd.read_sql(q, conn_data)
+
+    if lineas_principales != "All":
+        top_lines = list(kpi_data.id_linea.value_counts().index[:lineas_principales])
+        kpi_data = kpi_data.loc[kpi_data.id_linea.isin(top_lines)]
+
     kpi_data = pd.read_sql(q, conn_data)
 
     if len(kpi_data) > 0:
@@ -2732,15 +2750,13 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         ax.set_xlabel("Hora")
         ax.set_ylabel(ylabel_str)
 
-        f.suptitle(
-            f"Indicadores de oferta y demanda estadarizados",
-            fontdict={"size": 18, "weight": "bold"},
-        )
+        f.suptitle(f"Indicadores de oferta y demanda estadarizados")
 
         ax.set_title(
-            f"{id_linea_str} id linea: {line_id} - Dia: {day_str} - Mes: {mes}",
+            f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
             fontdict={"fontsize": 11},
         )
+
         # Add a footnote below and to the right side of the chart
 
         ax_note = ax.annotate(
@@ -2769,6 +2785,9 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         # add to dash
         kpi_stats_line_plot["nombre_linea"] = id_linea_str
         kpi_stats_line_plot["dia"] = day
+        kpi_stats_line_plot["yr_mo"] = kpi_stats_line_plot.yr_mo.dropna().unique()[0]
+        kpi_stats_line_plot = kpi_stats_line_plot.fillna(0)
+
         kpi_stats_line_plot = kpi_stats_line_plot.reindex(
             columns=[
                 "dia",
@@ -2893,9 +2912,11 @@ def indicadores_dash():
     indicadores["tipo_dia"] = "Hábil"
     indicadores.loc[indicadores.dow >= 5, "tipo_dia"] = "Fin de semana"
 
-    indicadores = indicadores.groupby(
-                ["desc_dia", "tipo_dia", "detalle"], as_index=False
-            ).agg({"indicador": "mean", "porcentaje": "mean"}).round(2)
+    indicadores = (
+        indicadores.groupby(["desc_dia", "tipo_dia", "detalle"], as_index=False)
+        .agg({"indicador": "mean", "porcentaje": "mean"})
+        .round(2)
+    )
 
     indicadores.loc[
         indicadores.detalle == "Cantidad de etapas con destinos validados", "detalle"
@@ -3017,9 +3038,6 @@ def indicadores_dash():
     conn_dash.close()
 
 
-
-
-
 def extract_hex_colors_from_cmap(cmap, n=5):
     # Choose a colormap
     cmap = plt.get_cmap(cmap)
@@ -3080,6 +3098,8 @@ def viz_travel_times_poly(polygon):
     gdf = gdf.merge(travel_time_choro, on="h3_o")
 
     return gdf
+
+
 @duracion
 def create_visualizations():
     """
@@ -3156,7 +3176,6 @@ def create_visualizations():
         etapas_dia = etapas[
             (etapas.yr == i.yr) & (etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)
         ]
-
 
         # print("Imprimiendo tabla de matrices OD")
         # # Impirmir tablas con matrices OD
