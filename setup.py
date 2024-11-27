@@ -8,7 +8,7 @@ with open('requirements.txt', 'r') as f:
 
 setuptools.setup(
     name='urbantrips',
-    version='0.4.0',
+    version='0.3.0',
     author="Felipe Gonzalez & Sebastian Anapolsky",
     author_email="",
     description="A library to process public transit smart card data.",
