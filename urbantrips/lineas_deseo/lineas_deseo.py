@@ -791,6 +791,7 @@ def crea_socio_indicadores(etapas, viajes):
     return socio_indicadores
 
 def preparo_etapas_agregadas(etapas, viajes):
+
     e_agg = etapas.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.sum()
     e_agg = e_agg.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.mean()
     e_agg = e_agg[e_agg.h3_o!=e_agg.h3_d]
@@ -802,18 +803,37 @@ def preparo_etapas_agregadas(etapas, viajes):
     v_agg = v_agg[v_agg.h3_o!=v_agg.h3_d]
     
     etapas['etapas_max'] = etapas.groupby(['dia', 'id_tarjeta', 'id_viaje']).id_etapa.transform('max')
-    transfers = etapas.loc[(etapas.etapas_max>1), ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'etapas_max', 'id_linea', 'h3_o', 'h3_d', 'factor_expansion_linea']]
+    
+    transfers = etapas.loc[:, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'etapas_max', 'id_linea', 'h3_o', 'h3_d', 'factor_expansion_linea']] #(etapas.etapas_max>1)
     transfers = transfers.merge(lineas[['id_linea', 'nombre_linea']], how='left')
     transfers = transfers.pivot(index=['dia', 'id_tarjeta', 'id_viaje'], columns='id_etapa', values='nombre_linea').reset_index().fillna('')
     transfers['seq_lineas'] = ''
     for i in range(1, etapas.etapas_max.max()+1):
         transfers['seq_lineas'] += transfers[i] + ' -- '
         transfers['seq_lineas'] = transfers['seq_lineas'].str.replace(' --  -- ', '')
-        
-    transfers['seq_lineas'] = transfers.seq_lineas.str[:-4]
+
+    transfers.loc[transfers.seq_lineas.str[-4:] == ' -- ', 'seq_lineas'] = transfers.loc[transfers.seq_lineas.str[-4:] == ' -- ', 'seq_lineas'].str[:-4]
     transfers = viajes.merge(transfers[['dia', 'id_tarjeta', 'id_viaje', 'seq_lineas']])
     transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.sum()
     transfers = transfers.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
+
+    zonas = levanto_tabla_sql('zonas', 'insumos')
+    zonas_cols = zonas.columns.tolist()
+    zonas_cols = [item for item in zonas_cols if item not in ['fex', 'latitud', 'longitud']]
+    zonas = zonas[zonas_cols]
+    
+    zonas_cols_o = [f'{item}_o' for item in zonas_cols]
+    zonas_cols_d = [f'{item}_d' for item in zonas_cols]
+    
+    zonas.columns = zonas_cols_o
+    e_agg = e_agg.merge(zonas, how='left')
+    v_agg = v_agg.merge(zonas, how='left')
+    transfers = transfers.merge(zonas, how='left')
+    
+    zonas.columns = zonas_cols_d
+    e_agg = e_agg.merge(zonas, how='left')
+    v_agg = v_agg.merge(zonas, how='left')
+    transfers = transfers.merge(zonas, how='left')
 
     return e_agg, v_agg, transfers
 

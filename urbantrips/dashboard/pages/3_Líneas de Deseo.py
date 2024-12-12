@@ -13,7 +13,7 @@ from dash_utils import (
     create_data_folium, traigo_indicadores,
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
-    bring_latlon, traigo_zonas_values
+    bring_latlon, traigo_zonas_values, get_h3_indices_in_geometry
 )
 
 def crear_mapa_lineas_deseo(df_viajes,
@@ -71,6 +71,10 @@ def crear_mapa_lineas_deseo(df_viajes,
                 bins = [df_etapas[var_fex].min()-1] + \
                     mapclassify.FisherJenks(
                         df_etapas[var_fex], k=k_jenks-3).bins.tolist()
+            except ValueError:
+                bins = [df_etapas[var_fex].min()-1] + \
+                    mapclassify.FisherJenks(
+                        df_etapas[var_fex], k=1).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -95,14 +99,22 @@ def crear_mapa_lineas_deseo(df_viajes,
         line_w = 0.5
         if len(df_viajes) > 0:
             try:
-                bins = [df_viajes[var_fex].min()-1] + \
-                    mapclassify.FisherJenks(
-                        df_viajes[var_fex], k=k_jenks).bins.tolist()
+                # Intentar clasificar con k clases
+                bins = [df_viajes[var_fex].min() - 1] + \
+                       mapclassify.FisherJenks(df_viajes[var_fex], k=k_jenks).bins.tolist()
             except ValueError:
-                bins = [df_viajes[var_fex].min()-1] + \
-                    mapclassify.FisherJenks(
-                        df_viajes[var_fex], k=k_jenks-2).bins.tolist()
-
+                # Si falla, reducir k dinámicamente
+                while k_jenks > 1:
+                    try:
+                        bins = [df_viajes[var_fex].min() - 1] + \
+                               mapclassify.FisherJenks(df_viajes[var_fex], k=k_jenks - 1).bins.tolist()
+                        break
+                    except ValueError:
+                        k_jenks -= 1
+                else:
+                    # Si no se puede crear ni una categoría, asignar un único bin
+                    bins = [df_viajes[var_fex].min() - 1, df_viajes[var_fex].max()]
+                    
             range_bins = range(0, len(bins)-1)
             bins_labels = [
                 f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
@@ -124,13 +136,25 @@ def crear_mapa_lineas_deseo(df_viajes,
 
         if len(origenes) > 0:
             try:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5).bins.tolist()
+                # Intentar clasificar con k inicial
+                bins = [origenes['factor_expansion_linea'].min() - 1] + \
+                       mapclassify.FisherJenks(origenes['factor_expansion_linea'], k=5).bins.tolist()
             except ValueError:
-                bins = [origenes['factor_expansion_linea'].min()-1] + \
-                    mapclassify.FisherJenks(
-                        origenes['factor_expansion_linea'], k=5-3).bins.tolist()
+                # Reducir k dinámicamente en caso de error
+                k = 5
+                while k > 1:
+                    try:
+                        bins = [origenes['factor_expansion_linea'].min() - 1] + \
+                               mapclassify.FisherJenks(origenes['factor_expansion_linea'], k=k).bins.tolist()
+                        break
+                    except ValueError:
+                        k -= 1
+                else:
+                    # Si no se pueden generar bins, usar un único bin
+                    bins = [origenes['factor_expansion_linea'].min() - 1, origenes['factor_expansion_linea'].max()]
+            
+            print(bins)
+
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -403,7 +427,10 @@ with st.expander('Líneas de Deseo', expanded=True):
             desc_etapas = False
 
         zonas_values_all = ['Todos'] + zonas_values[zonas_values.zona == desc_zona].Nombre.unique().tolist()
-        desc_zonas_values = col1.selectbox('Filtro', options=zonas_values_all)
+        desc_zonas_values1 = col1.selectbox('Filtro 1', options=zonas_values_all, key='filtro1')
+        desc_zonas_values2 = col1.selectbox('Filtro 2', options=zonas_values_all, key='filtro2')
+
+        
 
         
         desc_origenes = col1.checkbox(
@@ -433,7 +460,8 @@ with st.expander('Líneas de Deseo', expanded=True):
             'modo_agregado': None if modos_list == 'Todos' else modos_list,
             'rango_hora': None if rango_hora == 'Todos' else rango_hora,
             'distancia': None if distancia == 'Todas' else distancia,
-            'desc_zonas_values': None if desc_zonas_values == 'Todos' else desc_zonas_values,            
+            'desc_zonas_values1': None if desc_zonas_values1 == 'Todos' else desc_zonas_values1,            
+            'desc_zonas_values2': None if desc_zonas_values2 == 'Todos' else desc_zonas_values2,            
         }
         
         current_options = { 'desc_etapas': desc_etapas,
@@ -451,17 +479,35 @@ with st.expander('Líneas de Deseo', expanded=True):
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
             
             query = ""
-            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values'))
+            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values1')&(key != 'desc_zonas_values2'))
             if conditions:
                 query += f" WHERE {conditions}"
 
-            conditions_etapas = ''
-            conditions_matrices = ''
-            if desc_zonas_values != 'Todos':
-                conditions_etapas = f" AND (inicio_norm = '{desc_zonas_values}' OR transfer1_norm = '{desc_zonas_values}' OR transfer2_norm = '{desc_zonas_values}' OR fin_norm = '{desc_zonas_values}')"
-                conditions_matrices = f" AND (inicio = '{desc_zonas_values}' OR fin = '{desc_zonas_values}')"
-            query_etapas = query + conditions_etapas
-            query_matrices = query + conditions_matrices
+            conditions_etapas1 = ''
+            conditions_matrices1 = ''
+            st.session_state['zona_1'] = []
+            
+            if desc_zonas_values1 != 'Todos':
+                
+                conditions_etapas1 = f" AND (inicio_norm = '{desc_zonas_values1}' OR transfer1_norm = '{desc_zonas_values1}' OR transfer2_norm = '{desc_zonas_values1}' OR fin_norm = '{desc_zonas_values1}')"
+                conditions_matrices1 = f" AND (inicio = '{desc_zonas_values1}' OR fin = '{desc_zonas_values1}')"
+                
+                geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values1)].geometry.values[0]
+                h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                st.session_state['zona_1'].extend(h3_indices)
+            
+            conditions_etapas2 = ''
+            conditions_matrices2 = ''
+            st.session_state['zona_2'] = []
+            if desc_zonas_values2 != 'Todos':
+                conditions_etapas2 = f" AND (inicio_norm = '{desc_zonas_values2}' OR transfer1_norm = '{desc_zonas_values2}' OR transfer2_norm = '{desc_zonas_values2}' OR fin_norm = '{desc_zonas_values2}')"
+                conditions_matrices2 = f" AND (inicio = '{desc_zonas_values2}' OR fin = '{desc_zonas_values2}')"
+                geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values2)].geometry.values[0]
+                h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                st.session_state['zona_2'].extend(h3_indices)
+
+            query_etapas = query + conditions_etapas1 + conditions_etapas2
+            query_matrices = query + conditions_matrices1 + conditions_matrices2
 
             st.session_state.etapas_ = levanto_tabla_sql_local('agg_etapas', tabla_tipo='dash', query=f"SELECT * FROM agg_etapas{query_etapas}")
             st.session_state.matrices_ = levanto_tabla_sql_local('agg_matrices', tabla_tipo='dash', query=f"SELECT * FROM agg_matrices{query_matrices}")    
@@ -737,4 +783,267 @@ with st.expander('Género y tarifas'):
     else:
         col2.write('No hay datos para mostrar')
 
+
+
+
+
+with st.expander('Zonas', expanded=False):
+    col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 2])
+    zona1 = st.session_state['zona_1']
+    zona2 = st.session_state['zona_2']
+   
+
+    if len(zona1) > 0:
+        query1 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND ({desc_zona}_o = '{desc_zonas_values1}');"     
+        etapas1 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query1)
+
+
+        if len(etapas1) > 0:
+            etapas1['Zona_1'] = 'Zona 1'
+
+            ## Viajes
+            query1 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND {desc_zona}_o = '{desc_zonas_values1}';"
+            viajes1 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query1)
+            viajes1['Zona_1'] = 'Zona 1'
+
+            modos_e1 = etapas1.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas', 
+                                                                                                                      'nombre_linea': 'Línea', 'modo': 'Modo'})
+
+            modos_v1 = viajes1.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                      'modo': 'Modo'})
+
+            # Calculate the total and append as a new row
+            total_row1e = pd.DataFrame({
+                'Modo': ['Total'],
+                'Línea': ['-'],
+                'Etapas': [modos_e1['Etapas'].sum()]
+            })                        
+            modos_e1 = pd.concat([modos_e1, total_row1e], ignore_index=True)
+
+            
+            # Calculate the total and append as a new row
+            total_row1 = pd.DataFrame({
+                'Modo': ['Total'],                
+                'Viajes': [modos_v1['Viajes'].sum()]
+            })                        
+            modos_v1 = pd.concat([modos_v1, total_row1], ignore_index=True)
+            
+            col2.markdown(
+                f"""
+                <h3 style='font-size:22px;'>{desc_zonas_values1}</h3>
+                """, 
+                unsafe_allow_html=True
+            )
+
+            col2.write('Etapas')        
+            modos_e1['Etapas'] = modos_e1['Etapas'].round()            
+            col2.dataframe(modos_e1.set_index('Modo'), height=400, width=400)
+            
+            col3.markdown(
+                f"""
+                <h3 style='font-size:22px;'></h3>
+                """, 
+                unsafe_allow_html=True
+            )
+            col3.write('Viajes')
+            modos_v1['Viajes'] = modos_v1['Viajes'].round()
+            col3.dataframe(modos_v1.set_index('Modo'), height=400, width=300)
+    
+    if len(zona2) > 0:
+
+        query2 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND ({desc_zona}_o = '{desc_zonas_values2}');"     
+        etapas2 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query2)
+
+        if len(etapas2) > 0:
+
+            ## Etapas
+            if len(etapas2) > 0:
+                etapas2['Zona_2'] = 'Zona 2'
+                
+                ## Viajes                
+                query2 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND {desc_zona}_o = '{desc_zonas_values2}';"
+                viajes2 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query2)
+                viajes2['Zona_2'] = 'Zona 2'
+    
+                modos_e2 = etapas2.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas', 
+                                                                                                                          'nombre_linea': 'Línea', 'modo': 'Modo'})
+    
+                modos_v2 = viajes2.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                          'modo': 'Modo'})
+                # Calculate the total and append as a new row
+                total_row2e = pd.DataFrame({
+                    'Modo': ['Total'],
+                    'Línea': ['-'],
+                    'Etapas': [modos_e2['Etapas'].sum()]
+                })                        
+                modos_e2 = pd.concat([modos_e2, total_row2e], ignore_index=True)
+                
+                # Calculate the total and append as a new row
+                total_row2 = pd.DataFrame({
+                    'Modo': ['Total'],                
+                    'Viajes': [modos_v2['Viajes'].sum()]
+                })                        
+                modos_v2 = pd.concat([modos_v2, total_row2], ignore_index=True)
+ 
+                col4.markdown(
+                        f"""
+                        <h3 style='font-size:22px;'>{desc_zonas_values2}</h3>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                col4.write('Etapas')  
+                modos_e2['Etapas'] = modos_e2['Etapas'].round()
+                col4.dataframe(modos_e2.set_index('Modo'), height=400, width=400)
+    
+                modos_v2['Viajes'] = modos_v2['Viajes'].round()
+                col5.markdown(
+                    f"""
+                    <h3 style='font-size:22px;'></h3>
+                    """, 
+                    unsafe_allow_html=True
+                )
+    
+                col5.write('Viajes')
+                col5.dataframe(modos_v2.set_index('Modo'), height=400, width=300)
+
+with st.expander('Viajes entre zonas', expanded=True):
+    col1, col2, col3 = st.columns([1, 2, 4]) 
+
+    transferencias_modos = pd.DataFrame([])
+    modos_e = pd.DataFrame([])
+    modos_v = pd.DataFrame([])
+    transferencias = pd.DataFrame([])
+    zonasod_e = pd.DataFrame([])
+    zonasod_v = pd.DataFrame([])
+    
+    if len(zona1) > 0 and len(zona2) > 0:
+
+        col1.write(f'Mes: {desc_mes}')
+        col1.write(f'Tipo día: {desc_tipo_dia}')
+        col1.write(f'Zona 1: {desc_zonas_values1}')
+        col1.write(f'Zona 2: {desc_zonas_values2}')
+
+        ## Etapas
+        h3_values = [desc_zonas_values1, desc_zonas_values2]
+        h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
+        query = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND ({desc_zona}_o IN ({h3_values}) OR {desc_zona}_d IN ({h3_values}));"
+        etapas = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query)
+
+        if len(etapas) > 0:
+        
+            etapas['Zona_1'] = ''
+            etapas['Zona_2'] = ''
+            etapas.loc[etapas.h3_o.isin(zona1), 'Zona_1'] = 'Zona 1'
+            etapas.loc[etapas.h3_o.isin(zona2), 'Zona_1'] = 'Zona 2'
+            etapas.loc[etapas.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
+            etapas.loc[etapas.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
+            etapas = etapas[(etapas.Zona_1 != '') & (etapas.Zona_2 != '') & (etapas.Zona_1 != etapas.Zona_2)]
+            
+            etapas = etapas.fillna('')
+            
+            zonasod_e = etapas.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Etapas'}) #.round()
+            zonasod_e['Etapas'] = zonasod_e['Etapas'].apply(lambda x: f"{int(x):,}")
+
+            zonasod_e['Zonas'] = zonasod_e['Zona_1'] + ' - ' + zonasod_e['Zona_2']
+            zonasod_e = zonasod_e[['Zonas', 'Etapas']]
+            
+            modos_e = etapas.groupby(['modo', 'nombre_linea'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                                  'nombre_linea': 'Líneas', 
+                                                                                                                                  'modo': 'Modo'}) #.round()
+
+            
+        ## Viajes
+        # ({desc_zona}_o = '{desc_zonas_values2}')
+        h3_values = [desc_zonas_values1, desc_zonas_values2]
+        h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
+        query = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND ({desc_zona}_o IN ({h3_values}) OR {desc_zona}_d IN ({h3_values}));"
+        viajes = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query)
+        if len(viajes) > 0:
+        
+            viajes['Zona_1'] = ''
+            viajes['Zona_2'] = ''
+            viajes.loc[viajes.h3_o.isin(zona1), 'Zona_1'] = 'Zona 1'
+            viajes.loc[viajes.h3_o.isin(zona2), 'Zona_1'] = 'Zona 2'
+            viajes.loc[viajes.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
+            viajes.loc[viajes.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
+            viajes = viajes[(viajes.Zona_1 != '') & (viajes.Zona_2 != '') & (viajes.Zona_1 != viajes.Zona_2)]
+
+            zonasod_v = viajes.groupby(['Zona_1', 'Zona_2'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes'})
+           
+            zonasod_v['Zonas'] = zonasod_v['Zona_1'] + ' - ' + zonasod_v['Zona_2']
+            zonasod_v = zonasod_v[['Zonas', 'Viajes']]
+            zonasod_v['Viajes'] = zonasod_v['Viajes'].apply(lambda x: f"{int(x):,}")
+
+            modos_v = viajes.groupby(['modo'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                   'modo': 'Modo'})
+
+            if len(modos_v)>0:
+                # Calculate the total and append as a new row
+                total_row = pd.DataFrame({
+                    'Modo': ['Total'],
+                    'Viajes': [modos_v['Viajes'].sum()]
+                })                        
+                modos_v = pd.concat([modos_v, total_row], ignore_index=True)
+                modos_v['Viajes'] = modos_v['Viajes'].apply(lambda x: f"{int(x):,}")
+
+      # Transferencias
+        h3_values = [desc_zonas_values1, desc_zonas_values2]
+        h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
+        query = f"SELECT * FROM transferencias_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND ({desc_zona}_o IN ({h3_values}) OR {desc_zona}_d IN ({h3_values}));"
+        transferencias = levanto_tabla_sql_local('transferencias_agregadas', tabla_tipo='dash', query=query)
+        
+        if len(transferencias) > 0:
+    
+            transferencias['Zona_1'] = ''
+            transferencias['Zona_2'] = ''
+            transferencias.loc[transferencias.h3_o.isin(zona1), 'Zona_1'] = 'Zona 1'
+            transferencias.loc[transferencias.h3_o.isin(zona2), 'Zona_1'] = 'Zona 2'
+            transferencias.loc[transferencias.h3_d.isin(zona1), 'Zona_2'] = 'Zona 1'
+            transferencias.loc[transferencias.h3_d.isin(zona2), 'Zona_2'] = 'Zona 2'
+            transferencias = transferencias[(transferencias.Zona_1 != '') & (transferencias.Zona_2 != '') & (transferencias.Zona_1 != transferencias.Zona_2)]
+            
+            transferencias = transferencias.fillna('')
+            
+            transferencias = transferencias.groupby(['modo', 
+                                                     'seq_lineas'], as_index=False).factor_expansion_linea.sum().rename(columns={'factor_expansion_linea':'Viajes', 
+                                                                                                                                 'modo':'Modo', 'seq_lineas':'Líneas'}).sort_values('Viajes', ascending=False)
+
+            # Calculate the total and append as a new row
+            if len(transferencias)>0:
+                total_rowe = pd.DataFrame({
+                    'Modo': ['Total'],
+                    'Líneas': ['-'],
+                    'Viajes': [transferencias['Viajes'].sum()]
+                })                        
+                transferencias = pd.concat([transferencias, total_rowe], ignore_index=True)
+                transferencias['Viajes'] = transferencias['Viajes'].apply(lambda x: f"{int(x):,}")
+
+    
+        # Muestro resultados en el dashboard
+
+        col2.write('Etapas')
+        if len(zonasod_e) > 0:            
+            col2.dataframe(zonasod_e.set_index('Zonas'), height=100, width=300)    
+        else:
+            col2.write('No hay datos para mostrar')
+
+        col2.write('Viajes')                 
+        if len(zonasod_v):               
+            col2.dataframe(zonasod_v.set_index('Zonas'), height=100, width=300)    
+        else:
+            col2.write('No hay datos para mostrar')
+        
+        col2.write('Modal')                
+        if len(modos_v)>0:
+            col2.dataframe(modos_v.set_index('Modo'), height=300, width=300)    
+        else:
+            col2.write('No hay datos para mostrar')
+        
+        col3.write('Viajes por líneas')        
+        if len(transferencias)>0:
+            col3.dataframe(transferencias.set_index('Modo'), height=700, width=800)        
+        else:
+            col3.write('No hay datos para mostrar')
+
+        
 
