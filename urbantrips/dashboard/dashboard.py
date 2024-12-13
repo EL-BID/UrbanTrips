@@ -17,7 +17,7 @@ from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
 
-from dash_utils import levanto_tabla_sql, get_logo
+from dash_utils import levanto_tabla_sql, get_logo, traigo_indicadores
 
 
 st.set_page_config(layout="wide")
@@ -127,3 +127,20 @@ else:
         """   
     col2.markdown(texto_html, unsafe_allow_html=True)
 
+with st.expander('Indicadores'):
+    col1, col2, col3 = st.columns([2, 2, 2])
+
+    general, modal, distancias = traigo_indicadores('all')
+
+    st.session_state.general_ = general.loc[general.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+    st.session_state.modal_ = modal.loc[modal.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+    st.session_state.distancias_ = distancias.loc[distancias.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+
+
+    if len(st.session_state.etapas_) > 0:
+        col1.write(f'Periodo: {desc_dia_i}')
+        col1.table(st.session_state.general_)
+        col2.write('')
+        col2.table(st.session_state.modal_)
+        col3.write('')
+        col3.table(st.session_state.distancias_)

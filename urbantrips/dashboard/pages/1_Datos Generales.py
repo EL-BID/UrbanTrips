@@ -9,7 +9,55 @@ from folium import Figure
 from dash_utils import (levanto_tabla_sql, get_logo,
                         create_linestring_od, extract_hex_colors_from_cmap)
 
+def traigo_socio_indicadores(socio_indicadores):    
+    totals = None
+    totals_porc = 0
+    avg_distances = 0
+    avg_times = 0
+    avg_velocity = 0
+    modos_genero_abs = 0
+    modos_genero_porc = 0
+    modos_tarifa_abs = 0
+    modos_tarifa_porc = 0
+    avg_viajes = 0
+    avg_etapas = 0
+    avg_tiempo_entre_viajes = 0
+    
+    if len(socio_indicadores) > 0:
 
+        df = socio_indicadores[socio_indicadores.tabla=='viajes-genero-tarifa'].copy()
+        totals = pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=False).fillna(0).round().astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        totals_porc = (pd.crosstab(values=df.factor_expansion_linea, columns=df.Genero, index=df.Tarifa, aggfunc='sum', margins=True, margins_name='Total', normalize=True) * 100).round(2)
+      
+        modos = socio_indicadores[socio_indicadores.tabla=='etapas-genero-modo'].copy()
+        modos_genero_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Genero], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        modos_genero_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Genero, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+        
+        modos = socio_indicadores[socio_indicadores.tabla=='etapas-tarifa-modo'].copy()
+        modos_tarifa_abs = pd.crosstab(values=modos.factor_expansion_linea, index=[modos.Tarifa], columns=modos.Modo, aggfunc='sum', normalize=False, margins=True, margins_name='Total').fillna(0).astype(int).apply(lambda col: col.map(lambda x: f'{x:,.0f}'.replace(',', '.')))
+        modos_tarifa_porc = (pd.crosstab(values=modos.factor_expansion_linea, index=modos.Tarifa, columns=modos.Modo, aggfunc='sum', normalize=True, margins=True, margins_name='Total') * 100).round(2)
+    
+        avg_distances = pd.crosstab(values=df.Distancia, columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_times = pd.crosstab(values=df['Tiempo de viaje'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_velocity = pd.crosstab(values=df['Velocidad'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+        avg_etapas = pd.crosstab(values=df['Etapas promedio'], columns=df.Genero, index=df.Tarifa, margins=True, margins_name='Total',aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).round(2).fillna('')
+        user = socio_indicadores[socio_indicadores.tabla=='usuario-genero-tarifa'].copy()
+        avg_viajes = pd.crosstab(values=user['Viajes promedio'], 
+                                 index=[user.Tarifa], 
+                                 columns=user.Genero, 
+                                 margins=True, 
+                                 margins_name='Total', 
+                                     aggfunc=lambda x: (x * user.loc[x.index, 'factor_expansion_linea']).sum() / user.loc[x.index, 'factor_expansion_linea'].sum(),).round(2).fillna('') 
+    
+        avg_tiempo_entre_viajes = pd.crosstab(values=df['Tiempo entre viajes'], 
+                                              columns=df.Genero, 
+                                              index=df.Tarifa, 
+                                              margins=True, 
+                                              margins_name='Total',
+                                              aggfunc=lambda x: (x * df.loc[x.index, 'factor_expansion_linea']).sum() / df.loc[x.index, 'factor_expansion_linea'].sum(), ).fillna(0).round(2)
+    
+    return totals, totals_porc, avg_distances, avg_times, avg_velocity, modos_genero_abs, modos_genero_porc, modos_tarifa_abs, modos_tarifa_porc, avg_viajes, avg_etapas, avg_tiempo_entre_viajes
+    
 def crear_mapa_folium(df_agg,
                       cmap,
                       var_fex,
@@ -203,163 +251,43 @@ with st.expander('Viajes por hora'):
     col2.plotly_chart(fig_horas)
 
 
-# with st.expander('Líneas de deseo'):
+with st.expander('Género y tarifas'):
+    col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
+    totals, totals_porc, avg_distances, avg_times, avg_velocity, modos_genero_abs, modos_genero_porc, modos_tarifa_abs, modos_tarifa_porc, avg_viajes, avg_etapas, avg_tiempo_entre_viajes = traigo_socio_indicadores(st.session_state.socio_indicadores_)
 
-#     col1, col2 = st.columns([1, 4])
 
-#     lineas_deseo = levanto_tabla_sql('lineas_deseo')
-
-#     if len(lineas_deseo) > 0:
-
-#         lineas_deseo = create_linestring_od(lineas_deseo)
-
-#         desc_dia = col1.selectbox(
-#             'Periodo', options=lineas_deseo.desc_dia.unique())
-#         tipo_dia = col1.selectbox(
-#             'Tipo de dia', options=lineas_deseo.tipo_dia.unique())
-#         var_zona = col1.selectbox(
-#             'Zonificación', options=lineas_deseo.var_zona.unique())
-#         filtro1 = col1.selectbox(
-#             'Filtro', options=lineas_deseo.filtro1.unique())
-
-#         df_agg = lineas_deseo[(
-#             (lineas_deseo.desc_dia == desc_dia) &
-#             (lineas_deseo.tipo_dia == tipo_dia) &
-#             (lineas_deseo.var_zona == var_zona) &
-#             (lineas_deseo.filtro1 == filtro1)
-#         )].copy()
-
-#         if len(df_agg) > 0:
-
-#             map = crear_mapa_folium(df_agg,
-#                                     cmap='BuPu',
-#                                     var_fex='Viajes',
-#                                     k_jenks=5)
-
-#             with col2:
-#                 st_map = st_folium(map, width=900, height=700)
-#         else:
-
-#             col2.markdown("""
-#             <style>
-#             .big-font {
-#                 font-size:40px !important;
-#             }
-#             </style>
-#             """, unsafe_allow_html=True)
-
-#             col2.markdown(
-#                 '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
-
-#     else:
-#         # Usar HTML para personalizar el estilo del texto
-#         texto_html = """
-#             <style>
-#             .big-font {
-#                 font-size:30px !important;
-#                 font-weight:bold;
-#             }
-#             </style>
-#             <div class='big-font'>
-#                 No hay datos para mostrar            
-#             </div>
-#             """
-#         col2.markdown(texto_html, unsafe_allow_html=True)
-#         texto_html = """
-#             <style>
-#             .big-font {
-#                 font-size:30px !important;
-#                 font-weight:bold;
-#             }
-#             </style>
-#             <div class='big-font'>
-#                 Verifique que los procesos se corrieron correctamente            
-#             </div>
-#             """
-#         col2.markdown(texto_html, unsafe_allow_html=True)
-# with st.expander('Matrices OD'):
-#     col1, col2 = st.columns([1, 4])
-
-#     matriz = levanto_tabla_sql('matrices')
-
-#     if len(matriz) > 0:
-
-#         if col1.checkbox('Normalizar', value=True):
-#             normalize = True
-#         else:
-#             normalize = False
-
-#         desc_dia_ = col1.selectbox(
-#             'Periodo ', options=matriz.desc_dia.unique())
-#         tipo_dia_ = col1.selectbox(
-#             'Tipo de dia ', options=matriz.tipo_dia.unique())
-#         var_zona_ = col1.selectbox(
-#             'Zonificación ', options=matriz.var_zona.unique())
-#         filtro1_ = col1.selectbox('Filtro ', options=matriz.filtro1.unique())
-
-#         matriz = matriz[((matriz.desc_dia == desc_dia_) &
-#                          (matriz.tipo_dia == tipo_dia_) &
-#                          (matriz.var_zona == var_zona_) &
-#                          (matriz.filtro1 == filtro1_)
-#                          )].copy()
-
-#         od_heatmap = pd.crosstab(
-#             index=matriz['Origen'],
-#             columns=matriz['Destino'],
-#             values=matriz['Viajes'],
-#             aggfunc="sum",
-#             normalize=normalize,
-#         )
-#         od_heatmap = (od_heatmap * 100).round(1)
-
-#         od_heatmap = od_heatmap.reset_index()
-#         od_heatmap['Origen'] = od_heatmap['Origen'].str[4:]
-#         od_heatmap = od_heatmap.set_index('Origen')
-#         od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
-
-#         fig = px.imshow(od_heatmap, text_auto=True,
-#                         color_continuous_scale='Blues',)
-
-#         fig.update_coloraxes(showscale=False)
-
-#         if len(od_heatmap) <= 20:
-#             fig.update_layout(width=800, height=800)
-#         elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
-#             fig.update_layout(width=1000, height=1000)
-#         elif len(od_heatmap) > 40:
-#             fig.update_layout(width=1200, height=1200)
-
-#         col2.plotly_chart(fig)
-
-#     else:
-#         st.write('No hay datos para mostrar')
-
-#     zonas = levanto_tabla_sql('zonas')
-#     zonas = zonas[zonas.tipo_zona == var_zona_]
-
-#     col1, col2 = st.columns([1, 4])
-
-#     if col1.checkbox('Mostrar zonificacion'):
-
-#         # Create a folium map centered on the data
-#         map_center = [zonas.geometry.centroid.y.mean(
-#         ), zonas.geometry.centroid.x.mean()]
-
-#         fig = Figure(width=800, height=800)
-#         m = folium.Map(location=map_center, zoom_start=10,
-#                        tiles='cartodbpositron')
-
-#         # Add GeoDataFrame to the map
-#         folium.GeoJson(zonas).add_to(m)
-
-#         for idx, row in zonas.iterrows():
-#             # Replace 'column_name' with the name of the column containing the detail
-#             detail = row['Zona']
-#             point = [row['geometry'].representative_point(
-#             ).y, row['geometry'].representative_point().x]
-#             marker = folium.Marker(location=point, popup=detail)
-#             marker.add_to(m)
-
-#         # Display the map using folium_static
-#         with col2:
-#             folium_static(m)
+    if totals is not None:
+        col2.markdown("<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col2.table(totals)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col3.table(totals_porc.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>", unsafe_allow_html=True)
+        col2.table(avg_viajes.round(2).astype(str))
+        col3.markdown("<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>", unsafe_allow_html=True)
+        col3.table(avg_etapas.round(2).astype(str))
+    
+        
+        col2.markdown("<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>", unsafe_allow_html=True)
+        col2.table(modos_genero_abs)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>", unsafe_allow_html=True)
+        col3.table(modos_genero_porc.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
+        col2.table(modos_tarifa_abs)
+        col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
+        col3.table(modos_tarifa_porc.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>", unsafe_allow_html=True)
+        col2.table(avg_distances.round(2).astype(str))
+    
+        col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>", unsafe_allow_html=True)
+        col3.table(avg_times.round(2).astype(str))
+    
+        col2.markdown("<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>", unsafe_allow_html=True)
+        col2.table(avg_velocity.round(2).astype(str))
+    
+        col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>", unsafe_allow_html=True)
+        col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
+    else:
+        col2.write('No hay datos para mostrar')
