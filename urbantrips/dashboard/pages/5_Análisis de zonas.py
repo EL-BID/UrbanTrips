@@ -62,7 +62,6 @@ if 'zona_2' not in st.session_state:
     st.session_state['zona_2'] = []
 
 def main():
-
     
     st.set_page_config(layout="wide")
     logo = get_logo()

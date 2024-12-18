@@ -2476,47 +2476,47 @@ def save_zones():
     conn_dash.close()
 
 
-def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
+# def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
 
-    particion_viajes = (
-        viajes_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-    )
-    particion_viajes["modal"] = (
-        particion_viajes["factor_expansion_linea"]
-        / viajes_dia.factor_expansion_linea.sum()
-        * 100
-    ).round()
-    particion_viajes = particion_viajes.sort_values("modal", ascending=False).drop(
-        ["factor_expansion_linea"], axis=1
-    )
-    particion_viajes["tipo"] = "viajes"
-    particion_viajes["tipo_dia"] = tipo_dia
-    particion_viajes["desc_dia"] = desc_dia
-    particion_etapas = (
-        etapas_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-    )
+#     particion_viajes = (
+#         viajes_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
+#     )
+#     particion_viajes["modal"] = (
+#         particion_viajes["factor_expansion_linea"]
+#         / viajes_dia.factor_expansion_linea.sum()
+#         * 100
+#     ).round()
+#     particion_viajes = particion_viajes.sort_values("modal", ascending=False).drop(
+#         ["factor_expansion_linea"], axis=1
+#     )
+#     particion_viajes["tipo"] = "viajes"
+#     particion_viajes["tipo_dia"] = tipo_dia
+#     particion_viajes["desc_dia"] = desc_dia
+#     particion_etapas = (
+#         etapas_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
+#     )
 
-    particion_etapas["modal"] = (
-        particion_etapas["factor_expansion_linea"]
-        / etapas_dia.factor_expansion_linea.sum()
-        * 100
-    ).round()
-    particion_etapas = particion_etapas.sort_values("modal", ascending=False).drop(
-        ["factor_expansion_linea"], axis=1
-    )
-    particion_etapas["tipo"] = "etapas"
-    particion_etapas["desc_dia"] = desc_dia
-    particion_etapas["tipo_dia"] = tipo_dia
-    particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
+#     particion_etapas["modal"] = (
+#         particion_etapas["factor_expansion_linea"]
+#         / etapas_dia.factor_expansion_linea.sum()
+#         * 100
+#     ).round()
+#     particion_etapas = particion_etapas.sort_values("modal", ascending=False).drop(
+#         ["factor_expansion_linea"], axis=1
+#     )
+#     particion_etapas["tipo"] = "etapas"
+#     particion_etapas["desc_dia"] = desc_dia
+#     particion_etapas["tipo_dia"] = tipo_dia
+#     particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
+#     conn_dash = iniciar_conexion_db(tipo="dash")
 
-    query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
-    conn_dash.execute(query)
-    conn_dash.commit()
-    particion["modo"] = particion.modo.str.capitalize()
-    particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
-    conn_dash.close()
+#     query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
+#     conn_dash.execute(query)
+#     conn_dash.commit()
+#     particion["modo"] = particion.modo.str.capitalize()
+#     particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
+#     conn_dash.close()
 
 
 def plot_dispatched_services_wrapper():
@@ -3202,7 +3202,7 @@ def create_visualizations():
         # )
 
         # partición modal
-        particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
+        # particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
 
         print("Imprimiendo gráficos")
         titulo = f"Cantidad de viajes en transporte público {desc_dia}"

@@ -98,6 +98,7 @@ def crear_mapa_lineas_deseo(df_viajes,
         # Viajes
         line_w = 0.5
         if len(df_viajes) > 0:
+
             try:
                 # Intentar clasificar con k clases
                 bins = [df_viajes[var_fex].min() - 1] + \
@@ -114,12 +115,23 @@ def crear_mapa_lineas_deseo(df_viajes,
                 else:
                     # Si no se puede crear ni una categoría, asignar un único bin
                     bins = [df_viajes[var_fex].min() - 1, df_viajes[var_fex].max()]
-                    
+            
+            # Eliminar duplicados en bins
+            bins = sorted(set(bins))
+            
+            # Crear etiquetas únicas para los bins
             range_bins = range(0, len(bins)-1)
             bins_labels = [
-                f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins]
+                f'{int(bins[n])} a {int(bins[n+1])} viajes' for n in range_bins
+            ]
+            
+            # Garantizar que las etiquetas sean únicas
+            bins_labels = [f"{label} ({i})" for i, label in enumerate(bins_labels)]
+            
+            # Aplicar pd.cut con ordered=False para evitar el error
             df_viajes['cuts'] = pd.cut(
-                df_viajes[var_fex], bins=bins, labels=bins_labels)
+                df_viajes[var_fex], bins=bins, labels=bins_labels, ordered=False
+            )
 
             n = 0
             for i in bins_labels:
@@ -522,10 +534,6 @@ with st.expander('Líneas de Deseo', expanded=True):
                                     ]] .mean().round(2)
     
                 
-                # st.session_state.general_ = general.loc[general.mes==desc_mes, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-                # st.session_state.modal_ = modal.loc[modal.mes==desc_mes, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-                # st.session_state.distancias_ = distancias.loc[distancias.mes==desc_mes, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
-        
                 if transf_list == 'Todos':
                     st.session_state.desc_transfers = True
                 else:
@@ -632,28 +640,27 @@ with st.expander('Líneas de Deseo', expanded=True):
                     col2.text("No hay datos suficientes para mostrar el mapa.")
 
 
-# with st.expander('Indicadores'):
-#     col1, col2, col3 = st.columns([2, 2, 2])
-
-#     if len(st.session_state.etapas_) > 0:
-#         col1.table(st.session_state.general_)
-#         col2.table(st.session_state.modal_)
-#         col3.table(st.session_state.distancias_)
-
 with st.expander('Matrices'):
 
     col1, col2 = st.columns([1, 4])
+
     if len(st.session_state.matriz) > 0:
 
-        # col2.table(st.session_state.matriz)
-    
         tipo_matriz = col1.selectbox(
                 'Variable', options=['Viajes', 'Distancia promedio (kms)', 'Tiempo promedio (min)', 'Velocidad promedio (km/h)'])
-            
+
         normalize = False
         if tipo_matriz == 'Viajes':
             var_matriz = 'factor_expansion_linea'
             normalize = col1.checkbox('Normalizar', value=True)
+
+        col1.write(f'Mes: {desc_mes}')
+        col1.write(f'Tipo día: {desc_tipo_dia}')
+        col1.write(f'Transferencias: {transf_list}')
+        col1.write(f'Modos: {modos_list}')
+        col1.write(f'Rango hora: {rango_hora}')
+        col1.write(f'Distancias: {distancia}')        
+    
         if tipo_matriz == 'Distancia promedio (kms)':
             var_matriz = 'distance_osm_drive'
         if tipo_matriz == 'Tiempo promedio (min)':
@@ -694,49 +701,6 @@ with st.expander('Matrices'):
         col2.plotly_chart(fig)
     else:
         col2.text('No hay datos para mostrar')
-
-# with st.expander('Género y tarifas'):
-#     col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
-#     totals, totals_porc, avg_distances, avg_times, avg_velocity, modos_genero_abs, modos_genero_porc, modos_tarifa_abs, modos_tarifa_porc, avg_viajes, avg_etapas, avg_tiempo_entre_viajes = traigo_socio_indicadores(st.session_state.socio_indicadores_)
-
-
-#     if totals is not None:
-#         col2.markdown("<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-#         col2.table(totals)
-#         col3.markdown("<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-#         col3.table(totals_porc.round(2).astype(str))
-    
-#         col2.markdown("<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>", unsafe_allow_html=True)
-#         col2.table(avg_viajes.round(2).astype(str))
-#         col3.markdown("<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>", unsafe_allow_html=True)
-#         col3.table(avg_etapas.round(2).astype(str))
-    
-        
-#         col2.markdown("<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>", unsafe_allow_html=True)
-#         col2.table(modos_genero_abs)
-#         col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>", unsafe_allow_html=True)
-#         col3.table(modos_genero_porc.round(2).astype(str))
-    
-#         col2.markdown("<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
-#         col2.table(modos_tarifa_abs)
-#         col3.markdown("<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>", unsafe_allow_html=True)
-#         col3.table(modos_tarifa_porc.round(2).astype(str))
-    
-#         col2.markdown("<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>", unsafe_allow_html=True)
-#         col2.table(avg_distances.round(2).astype(str))
-    
-#         col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>", unsafe_allow_html=True)
-#         col3.table(avg_times.round(2).astype(str))
-    
-#         col2.markdown("<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>", unsafe_allow_html=True)
-#         col2.table(avg_velocity.round(2).astype(str))
-    
-#         col3.markdown("<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>", unsafe_allow_html=True)
-#         col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
-#     else:
-#         col2.write('No hay datos para mostrar')
-
-
 
 
 

@@ -1480,7 +1480,19 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
 
 
 ###     return etapas_agrupadas_zon, viajes_matrices, zonificaciones
-
+def guarda_particion_modal(etapas):
+    df_dummies = pd.get_dummies(etapas.modo)
+    etapas = pd.concat([etapas, df_dummies], axis=1)
+    cols_dummies = df_dummies.columns.tolist()
+    
+    etapas_modos = etapas.groupby(['mes', 'tipo_dia', 'genero', 'id_tarjeta', 'id_viaje'], as_index=False).factor_expansion_linea.mean().merge(
+                                                                                etapas.groupby(['dia', 'id_tarjeta', 'id_viaje'], as_index=False)[cols_dummies].sum(), how='left')
+    
+    cols = ['mes', 'tipo_dia', 'genero', ]+cols_dummies
+    etapas_modos = etapas_modos.groupby(cols, as_index=False).factor_expansion_linea.sum().copy()
+    for i in cols_dummies:
+        etapas_modos = etapas_modos.rename(columns={i:i.capitalize()})
+    guardar_tabla_sql(etapas_modos, 'particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
 
 def proceso_poligonos(check_configs=True):
 
@@ -1510,17 +1522,6 @@ def proceso_poligonos(check_configs=True):
 
         indicadores = construyo_indicadores(viajes_selec, poligonos=True)
 
-
-        ## guardar_tabla_sql(etapas_agrupadas, 
-        ##                   'poly_etapas', 
-        ##                   'dash', 
-        ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
-
-        ## guardar_tabla_sql(viajes_matrices, 
-        ##                   'poly_matrices', 
-        ##                   'dash', 
-        ##                   {'mes': viajes_matrices.mes.unique().tolist()})
-
         guardar_tabla_sql(indicadores, 
                           'poly_indicadores', 
                           'dash', 
@@ -1549,15 +1550,7 @@ def proceso_lineas_deseo(check_configs=False):
     
     print('Guardo datos para dashboard')
 
-    ## guardar_tabla_sql(etapas_agrupadas, 
-    ##                   'agg_etapas', 
-    ##                   'dash', 
-    ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
-    
-    ## guardar_tabla_sql(viajes_matrices, 
-    ##                   'agg_matrices', 
-    ##                   'dash', 
-    ##                   {'mes': viajes_matrices.mes.unique().tolist()})
+    guarda_particion_modal(etapas)
     
     guardar_tabla_sql(indicadores, 
                       'agg_indicadores', 
@@ -1586,3 +1579,4 @@ def proceso_lineas_deseo(check_configs=False):
                   {'mes': v_agg.mes.unique().tolist()})
     
     imprimo_matrices_od()
+    
