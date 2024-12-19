@@ -268,7 +268,7 @@ st.image(logo)
 with st.expander('Partición modal', True):
 
     col1, col2, col3, col4 = st.columns([1, 5, 1.5, 1.5])
-    particion_modal = levanto_tabla_sql('particion_modal')
+    particion_modal = levanto_tabla_sql('datos_particion_modal')
 
     desc_mes = col1.selectbox(
         'Periodo', options=particion_modal.mes.unique(), key='desc_mes')
@@ -282,11 +282,11 @@ with st.expander('Partición modal', True):
     'Genero', options=list_genero, key='desc_genero')
 
 
-    query = f'select * from particion_modal where mes="{desc_mes}" and tipo_dia="{desc_tipo_dia}"'
+    query = f'select * from datos_particion_modal where mes="{desc_mes}" and tipo_dia="{desc_tipo_dia}"'
     if desc_genero!='Todos':
         query += f'and genero = "{desc_genero}"'
 
-    etapas_modos = levanto_tabla_sql('particion_modal', query=query)
+    etapas_modos = levanto_tabla_sql('datos_particion_modal', query=query)
 
     fig, modal_etapas, modal_viajes = plot_venn_diagram(etapas_modos)
     col2.pyplot(fig)

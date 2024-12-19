@@ -1492,7 +1492,7 @@ def guarda_particion_modal(etapas):
     etapas_modos = etapas_modos.groupby(cols, as_index=False).factor_expansion_linea.sum().copy()
     for i in cols_dummies:
         etapas_modos = etapas_modos.rename(columns={i:i.capitalize()})
-    guardar_tabla_sql(etapas_modos, 'particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
+    guardar_tabla_sql(etapas_modos, 'datos_particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
 
 def proceso_poligonos(check_configs=True):
 
