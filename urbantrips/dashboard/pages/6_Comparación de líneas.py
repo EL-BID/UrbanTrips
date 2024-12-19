@@ -1,13 +1,17 @@
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from urbantrips.utils.utils import iniciar_conexion_db
-from urbantrips.utils import utils
-from urbantrips.kpi import overlapping as ovl
-from urbantrips.viz import overlapping as ovl_viz
 from streamlit_folium import folium_static
-
-st.set_page_config(layout="wide")
+from dash_utils import (
+    get_logo)
+try:
+    from urbantrips.utils.utils import iniciar_conexion_db
+    from urbantrips.utils import utils
+    from urbantrips.kpi import overlapping as ovl
+    from urbantrips.viz import overlapping as ovl_viz
+except ImportError as e:
+    st.error(f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página")
+    st.stop()
 
 
 # --- Función para levantar tablas SQL y almacenar en session_state ---
@@ -25,36 +29,6 @@ def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
             conn.close()
     return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
-
-# --- Cargar configuraciones y conexiones en session_state ---
-if "configs" not in st.session_state:
-    st.session_state.configs = utils.leer_configs_generales()
-
-configs = st.session_state.configs
-h3_legs_res = configs["resolucion_h3"]
-alias = configs["alias_db_data"]
-use_branches = configs["lineas_contienen_ramales"]
-metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
-    ["id_linea", "nombre_linea"]
-]
-conn_insumos = iniciar_conexion_db(tipo="insumos")
-
-# --- Inicializar variables en session_state ---
-for var in [
-    "id_linea_1",
-    "nombre_linea_1",
-    "branch_id_1",
-    "branch_name_1",
-    "id_linea_2",
-    "nombre_linea_2",
-    "branch_id_2",
-    "branch_name_2",
-]:
-    if var not in st.session_state:
-        st.session_state[var] = None
-
-
-# --- Función para seleccionar líneas y ramales y almacenarlos en session_state ---
 def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_insumos):
     texto_a_buscar = st.text_input(
         f"Ingrese el texto a buscar para {nombre_columna}", key=key_input
@@ -118,7 +92,42 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
             st.warning("No se encontró ninguna coincidencia.")
 
 
-# st.set_page_config(layout="wide")
+st.set_page_config(layout="wide")
+logo = get_logo()
+st.image(logo)
+
+try:
+    # --- Cargar configuraciones y conexiones en session_state ---
+    if "configs" not in st.session_state:
+        st.session_state.configs = utils.leer_configs_generales()
+    
+    configs = st.session_state.configs
+    h3_legs_res = configs["resolucion_h3"]
+    alias = configs["alias_db_data"]
+    use_branches = configs["lineas_contienen_ramales"]
+    metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
+        ["id_linea", "nombre_linea"]
+    ]
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+except ValueError as e:
+    st.error(f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página")
+    st.stop()
+
+
+# --- Inicializar variables en session_state ---
+for var in [
+    "id_linea_1",
+    "nombre_linea_1",
+    "branch_id_1",
+    "branch_name_1",
+    "id_linea_2",
+    "nombre_linea_2",
+    "branch_id_2",
+    "branch_name_2",
+]:
+    if var not in st.session_state:
+        st.session_state[var] = None
+
 # --- Selección de líneas y ramales con almacenamiento en session_state ---
 with st.expander("Seleccionar líneas", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
