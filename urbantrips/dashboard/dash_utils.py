@@ -12,7 +12,8 @@ import sqlite3
 from shapely import wkt
 from matplotlib import colors as mcolors
 from folium import Figure
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, shape, mapping
+import h3
 
 
 def leer_configs_generales():
@@ -127,12 +128,16 @@ def calculate_weighted_means(df,
 
 def normalize_vars(tabla):
     if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Día hábil'
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Hábil'
         tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
     if 'day_type' in tabla.columns:
-        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Día hábil'
+        tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Hábil'
         tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
+    if 'tipo_dia' in tabla.columns:
+        tabla.loc[tabla.tipo_dia == 'Dia habil', 'tipo_dia'] = 'Hábil'
+        # tabla.loc[tabla.tipo_dia == 'weekend', 'tipo_dia'] = 'Fin de semana'
 
+        
     if 'nombre_linea' in tabla.columns:
         tabla['nombre_linea'] = tabla['nombre_linea'].str.replace(' -', '')
     if 'Modo' in tabla.columns:
@@ -625,3 +630,9 @@ def traigo_zonas_values(tipo = 'etapas'):
                             (zonas_values.inicio_norm!=' (cuenca)')].sort_values(['zona', 'inicio_norm']).rename(columns={'inicio_norm':'Nombre'})
 
     return zonas_values
+    
+# Convert geometry to H3 indices
+def get_h3_indices_in_geometry(geometry, resolution):
+    geojson = mapping(geometry)
+    h3_indices = list(h3.polyfill(geojson, resolution, geo_json_conformant=True))
+    return h3_indices

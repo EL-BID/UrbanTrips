@@ -791,6 +791,7 @@ def crea_socio_indicadores(etapas, viajes):
     return socio_indicadores
 
 def preparo_etapas_agregadas(etapas, viajes):
+
     e_agg = etapas.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.sum()
     e_agg = e_agg.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.mean()
     e_agg = e_agg[e_agg.h3_o!=e_agg.h3_d]
@@ -802,18 +803,37 @@ def preparo_etapas_agregadas(etapas, viajes):
     v_agg = v_agg[v_agg.h3_o!=v_agg.h3_d]
     
     etapas['etapas_max'] = etapas.groupby(['dia', 'id_tarjeta', 'id_viaje']).id_etapa.transform('max')
-    transfers = etapas.loc[(etapas.etapas_max>1), ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'etapas_max', 'id_linea', 'h3_o', 'h3_d', 'factor_expansion_linea']]
+    
+    transfers = etapas.loc[:, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'etapas_max', 'id_linea', 'h3_o', 'h3_d', 'factor_expansion_linea']] #(etapas.etapas_max>1)
     transfers = transfers.merge(lineas[['id_linea', 'nombre_linea']], how='left')
     transfers = transfers.pivot(index=['dia', 'id_tarjeta', 'id_viaje'], columns='id_etapa', values='nombre_linea').reset_index().fillna('')
     transfers['seq_lineas'] = ''
     for i in range(1, etapas.etapas_max.max()+1):
         transfers['seq_lineas'] += transfers[i] + ' -- '
         transfers['seq_lineas'] = transfers['seq_lineas'].str.replace(' --  -- ', '')
-        
-    transfers['seq_lineas'] = transfers.seq_lineas.str[:-4]
+
+    transfers.loc[transfers.seq_lineas.str[-4:] == ' -- ', 'seq_lineas'] = transfers.loc[transfers.seq_lineas.str[-4:] == ' -- ', 'seq_lineas'].str[:-4]
     transfers = viajes.merge(transfers[['dia', 'id_tarjeta', 'id_viaje', 'seq_lineas']])
     transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.sum()
     transfers = transfers.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
+
+    zonas = levanto_tabla_sql('zonas', 'insumos')
+    zonas_cols = zonas.columns.tolist()
+    zonas_cols = [item for item in zonas_cols if item not in ['fex', 'latitud', 'longitud']]
+    zonas = zonas[zonas_cols]
+    
+    zonas_cols_o = [f'{item}_o' for item in zonas_cols]
+    zonas_cols_d = [f'{item}_d' for item in zonas_cols]
+    
+    zonas.columns = zonas_cols_o
+    e_agg = e_agg.merge(zonas, how='left')
+    v_agg = v_agg.merge(zonas, how='left')
+    transfers = transfers.merge(zonas, how='left')
+    
+    zonas.columns = zonas_cols_d
+    e_agg = e_agg.merge(zonas, how='left')
+    v_agg = v_agg.merge(zonas, how='left')
+    transfers = transfers.merge(zonas, how='left')
 
     return e_agg, v_agg, transfers
 
@@ -1460,7 +1480,19 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
 
 
 ###     return etapas_agrupadas_zon, viajes_matrices, zonificaciones
-
+def guarda_particion_modal(etapas):
+    df_dummies = pd.get_dummies(etapas.modo)
+    etapas = pd.concat([etapas, df_dummies], axis=1)
+    cols_dummies = df_dummies.columns.tolist()
+    
+    etapas_modos = etapas.groupby(['mes', 'tipo_dia', 'genero', 'id_tarjeta', 'id_viaje'], as_index=False).factor_expansion_linea.mean().merge(
+                                                                                etapas.groupby(['dia', 'id_tarjeta', 'id_viaje'], as_index=False)[cols_dummies].sum(), how='left')
+    
+    cols = ['mes', 'tipo_dia', 'genero', ]+cols_dummies
+    etapas_modos = etapas_modos.groupby(cols, as_index=False).factor_expansion_linea.sum().copy()
+    for i in cols_dummies:
+        etapas_modos = etapas_modos.rename(columns={i:i.capitalize()})
+    guardar_tabla_sql(etapas_modos, 'datos_particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
 
 def proceso_poligonos(check_configs=True):
 
@@ -1490,17 +1522,6 @@ def proceso_poligonos(check_configs=True):
 
         indicadores = construyo_indicadores(viajes_selec, poligonos=True)
 
-
-        ## guardar_tabla_sql(etapas_agrupadas, 
-        ##                   'poly_etapas', 
-        ##                   'dash', 
-        ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
-
-        ## guardar_tabla_sql(viajes_matrices, 
-        ##                   'poly_matrices', 
-        ##                   'dash', 
-        ##                   {'mes': viajes_matrices.mes.unique().tolist()})
-
         guardar_tabla_sql(indicadores, 
                           'poly_indicadores', 
                           'dash', 
@@ -1529,15 +1550,7 @@ def proceso_lineas_deseo(check_configs=False):
     
     print('Guardo datos para dashboard')
 
-    ## guardar_tabla_sql(etapas_agrupadas, 
-    ##                   'agg_etapas', 
-    ##                   'dash', 
-    ##                   {'mes': etapas_agrupadas.mes.unique().tolist()})
-    
-    ## guardar_tabla_sql(viajes_matrices, 
-    ##                   'agg_matrices', 
-    ##                   'dash', 
-    ##                   {'mes': viajes_matrices.mes.unique().tolist()})
+    guarda_particion_modal(etapas)
     
     guardar_tabla_sql(indicadores, 
                       'agg_indicadores', 
@@ -1566,3 +1579,4 @@ def proceso_lineas_deseo(check_configs=False):
                   {'mes': v_agg.mes.unique().tolist()})
     
     imprimo_matrices_od()
+    

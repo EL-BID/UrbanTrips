@@ -53,6 +53,10 @@ def crear_mapa_poligonos(df_viajes,
                 bins = [df_etapas[var_fex].min()-1] + \
                     mapclassify.FisherJenks(
                         df_etapas[var_fex], k=k_jenks-3).bins.tolist()
+            except ValueError:
+                bins = [df_etapas[var_fex].min()-1] + \
+                    mapclassify.FisherJenks(
+                        df_etapas[var_fex], k=1).bins.tolist()
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -77,13 +81,21 @@ def crear_mapa_poligonos(df_viajes,
         line_w = 0.5
         if len(df_viajes) > 0:
             try:
-                bins = [df_viajes[var_fex].min()-1] + \
-                    mapclassify.FisherJenks(
-                        df_viajes[var_fex], k=k_jenks).bins.tolist()
+                # Intentar clasificar con k clases
+                bins = [df_viajes[var_fex].min() - 1] + \
+                       mapclassify.FisherJenks(df_viajes[var_fex], k=k_jenks).bins.tolist()
             except ValueError:
-                bins = [df_viajes[var_fex].min()-1] + \
-                    mapclassify.FisherJenks(
-                        df_viajes[var_fex], k=k_jenks-2).bins.tolist()
+                # Si falla, reducir k dinámicamente
+                while k_jenks > 1:
+                    try:
+                        bins = [df_viajes[var_fex].min() - 1] + \
+                               mapclassify.FisherJenks(df_viajes[var_fex], k=k_jenks - 1).bins.tolist()
+                        break
+                    except ValueError:
+                        k_jenks -= 1
+                else:
+                    # Si no se puede crear ni una categoría, asignar un único bin
+                    bins = [df_viajes[var_fex].min() - 1, df_viajes[var_fex].max()]
 
             range_bins = range(0, len(bins)-1)
             bins_labels = [
@@ -177,7 +189,7 @@ def crear_mapa_poligonos(df_viajes,
                 name=poly.id.values[0],
                 style_function=lambda feature: {
                     'fillColor': 'grey',
-                    'color': 'black',
+                    'color': 'white',
                     'weight': 2,
                     'fillOpacity': .5,
 
@@ -361,7 +373,8 @@ with st.expander('Líneas de Deseo', expanded=True):
             desc_etapas = False
 
         zonas_values_all = ['Todos'] + zonas_values[zonas_values.zona == desc_zona].Nombre.unique().tolist()
-        desc_zonas_values = col1.selectbox('Filtro', options=zonas_values_all)
+        desc_zonas_values1 = col1.selectbox('Filtro 1', options=zonas_values_all, key='filtro1')
+        desc_zonas_values2 = col1.selectbox('Filtro 2', options=zonas_values_all, key='filtro2')
         
         desc_origenes = col1.checkbox(
             ':blue[Origenes]', value=False)
@@ -370,7 +383,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             ':orange[Destinos]', value=False)
 
         desc_zonif = col1.checkbox(
-            'Mostrar zonificación', value=False)
+            'Mostrar zonificación', value=True)
         if desc_zonif:
             st.session_state.zonif = zonificaciones[zonificaciones.zona == desc_zona]
         else:
@@ -401,7 +414,8 @@ with st.expander('Líneas de Deseo', expanded=True):
             'distancia': None if distancia == 'Todas' else distancia,
             'coincidencias': None if desc_cuenca == False else True,
             'id_polygon': st.session_state.desc_poly,
-            'desc_zonas_values': None if desc_zonas_values == 'Todos' else desc_zonas_values,            
+            'desc_zonas_values1': None if desc_zonas_values1 == 'Todos' else desc_zonas_values1,            
+            'desc_zonas_values2': None if desc_zonas_values2 == 'Todos' else desc_zonas_values2,            
         }
         current_options = { 'desc_etapas': desc_etapas,
                             'desc_viajes': desc_viajes,
@@ -420,22 +434,30 @@ with st.expander('Líneas de Deseo', expanded=True):
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
             
             query = ""
-            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values'))
+            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'desc_zonas_values1')&(key != 'desc_zonas_values2'))
             if conditions:
                 query += f" WHERE {conditions}"
                 
-            conditions_etapas = ''
-            conditions_matrices = ''
-            if desc_zonas_values != 'Todos':
-                conditions_etapas = f" AND (inicio_norm = '{desc_zonas_values}' OR transfer1_norm = '{desc_zonas_values}' OR transfer2_norm = '{desc_zonas_values}' OR fin_norm = '{desc_zonas_values}')"
-                conditions_matrices = f" AND (inicio = '{desc_zonas_values}' OR fin = '{desc_zonas_values}')"
-            query_etapas = query + conditions_etapas
-            query_matrices = query + conditions_matrices
+            conditions_etapas1 = ''
+            conditions_matrices1 = ''
+            if desc_zonas_values1 != 'Todos':
+                conditions_etapas1 = f" AND (inicio_norm = '{desc_zonas_values1}' OR transfer1_norm = '{desc_zonas_values1}' OR transfer2_norm = '{desc_zonas_values1}' OR fin_norm = '{desc_zonas_values1}')"
+                conditions_matrices1 = f" AND (inicio = '{desc_zonas_values1}' OR fin = '{desc_zonas_values1}')"
+
+
+            conditions_etapas2 = ''
+            conditions_matrices2 = ''
+            if desc_zonas_values2 != 'Todos':
+                conditions_etapas2 = f" AND (inicio_norm = '{desc_zonas_values2}' OR transfer1_norm = '{desc_zonas_values2}' OR transfer2_norm = '{desc_zonas_values2}' OR fin_norm = '{desc_zonas_values2}')"
+                conditions_matrices2 = f" AND (inicio = '{desc_zonas_values2}' OR fin = '{desc_zonas_values2}')"
+            
+            query_etapas = query + conditions_etapas1 + conditions_etapas2
+            query_matrices = query + conditions_matrices1 + conditions_matrices2
+
 
             
             st.session_state.etapas_ = levanto_tabla_sql_local('poly_etapas', tabla_tipo='dash', query=f"SELECT * FROM poly_etapas{query_etapas}")
             st.session_state.matrices_ = levanto_tabla_sql_local('poly_matrices', tabla_tipo='dash', query=f"SELECT * FROM poly_matrices{query_matrices}")    
-
 
             if len(st.session_state.etapas_)==0:
                 col2.write('No hay datos para mostrar')
