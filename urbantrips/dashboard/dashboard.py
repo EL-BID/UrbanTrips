@@ -17,7 +17,7 @@ from shapely import wkt
 from folium import Figure
 from shapely.geometry import LineString
 
-from dash_utils import levanto_tabla_sql, get_logo
+from dash_utils import levanto_tabla_sql, get_logo, traigo_indicadores
 
 
 st.set_page_config(layout="wide")
@@ -79,26 +79,24 @@ if len(indicadores) > 0:
     
     # Inject CSS with Markdown
     col3.markdown(hide_table_row_index, unsafe_allow_html=True)
-    
-    
     col3.table(df)
     
     df = indicadores.loc[indicadores.orden == 3, ['Indicador', 'Valor']].copy()
     titulo = indicadores.loc[indicadores.orden == 3].Titulo.unique()[0]
     
-    col2.text(titulo)
-    # CSS to inject contained in a string
-    hide_table_row_index = """
-                <style>
-                thead tr th:first-child {display:none}
-                tbody th {display:none}
-                </style>
-                """
+    # col2.text(titulo)
+    # # CSS to inject contained in a string
+    # hide_table_row_index = """
+    #             <style>
+    #             thead tr th:first-child {display:none}
+    #             tbody th {display:none}
+    #             </style>
+    #             """
     
-    # Inject CSS with Markdown
-    col2.markdown(hide_table_row_index, unsafe_allow_html=True)
+    # # Inject CSS with Markdown
+    # col2.markdown(hide_table_row_index, unsafe_allow_html=True)
     
-    col2.table(df)
+    # col2.table(df)
 else:
 
     # Usar HTML para personalizar el estilo del texto
@@ -127,3 +125,21 @@ else:
         """   
     col2.markdown(texto_html, unsafe_allow_html=True)
 
+with st.expander('Indicadores', True):
+    col1, col2, col3 = st.columns([2, 2, 2])
+
+    general, modal, distancias = traigo_indicadores('all')
+
+    st.session_state.general_ = general.loc[general.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+    st.session_state.modal_ = modal.loc[modal.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+    st.session_state.distancias_ = distancias.loc[distancias.mes==desc_dia_i, ['Tipo', 'Indicador', 'Valor']].set_index('Tipo')
+
+    
+    st.session_state.general_ = st.session_state.general_[~st.session_state.general_.Indicador.isin(['Cantidad de Usuarios', 'Cantidad de Viajes'])]
+    if len(st.session_state.general_) > 0:
+        col1.write(f'Periodo: {desc_dia_i}')
+        col1.table(st.session_state.general_)
+        # col2.write('')
+        # col2.table(st.session_state.modal_)
+        col3.write('')
+        col3.table(st.session_state.distancias_)
