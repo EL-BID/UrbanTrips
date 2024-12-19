@@ -87,22 +87,18 @@ def plot_venn_diagram(etapas_modos):
     # Left subplot: Venn3
     venn3(subsets=venn_subsets, set_labels=[activity.capitalize() for activity in cols_dummies], ax=ax1)
     ax1.set_title("Partición modal (%)")
-
-    etapas_modos['Multimodal'] = 0
-    etapas_modos.loc[etapas_modos.Autobus>1, 'Multimodal'] = 1
-    etapas_modos.loc[etapas_modos.Autobus>1, 'Autobus'] = 0
     
-    etapas_modos['Multietapa'] = 0
-    etapas_modos.loc[(etapas_modos.Autobus>=1)&(etapas_modos.Tren>=1), 'Multietapa'] = 1
-    etapas_modos.loc[(etapas_modos.Autobus>=1)&(etapas_modos.Metro>=1), 'Multietapa'] = 1
-    etapas_modos.loc[(etapas_modos.Tren>=1)&(etapas_modos.Metro>=1), 'Multietapa'] = 1
+    # Identificar multimodal (más de un modo utilizado)
+    etapas_modos['Multimodal'] = (etapas_modos[cols_dummies].gt(0).sum(axis=1) > 1).astype(int)
     
+    # Identificar multietapa (más de una etapa en al menos un modo)
+    etapas_modos['Multietapa'] = (etapas_modos[cols_dummies].gt(1).any(axis=1)).astype(int)
     
     for i in cols_dummies:
         etapas_modos.loc[etapas_modos.Multimodal==1, i] = 0
         etapas_modos.loc[etapas_modos.Multietapa==1, i] = 0
-        etapas_modos.loc[etapas_modos[i]>=1, i] = 1
-        
+        # etapas_modos.loc[etapas_modos[i]>=1, i] = 1
+            
     etapas_modos.loc[(etapas_modos.Multietapa>0)&(etapas_modos.Multimodal>0), 'Multietapa'] = 0
     
     cols_dummies = cols_dummies+['Multimodal', 'Multietapa']
