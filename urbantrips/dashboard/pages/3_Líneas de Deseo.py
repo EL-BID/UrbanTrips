@@ -15,6 +15,8 @@ from dash_utils import (
     iniciar_conexion_db, normalize_vars,
     bring_latlon, traigo_zonas_values, get_h3_indices_in_geometry
 )
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import mapping
 
 def crear_mapa_lineas_deseo(df_viajes,
                             df_etapas,
@@ -457,9 +459,34 @@ with st.expander('Líneas de Deseo', expanded=True):
                 conditions_etapas1 = f" AND (inicio_norm = '{desc_zonas_values1}' OR transfer1_norm = '{desc_zonas_values1}' OR transfer2_norm = '{desc_zonas_values1}' OR fin_norm = '{desc_zonas_values1}')"
                 conditions_matrices1 = f" AND (inicio = '{desc_zonas_values1}' OR fin = '{desc_zonas_values1}')"
                 
-                geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values1)].geometry.values[0]
-                h3_indices = get_h3_indices_in_geometry(geometry, 8)
-                st.session_state['zona_1'].extend(h3_indices)
+                # geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values1)].geometry.values[0]
+                # h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                # st.session_state['zona_1'].extend(h3_indices)
+                # Obtener la geometría filtrada
+                geometry = zonificaciones[
+                    (zonificaciones.zona == desc_zona) & 
+                    (zonificaciones.id == desc_zonas_values1)
+                ].geometry.values[0]
+                
+                # Inicializar una lista para almacenar los índices H3
+                h3_indices_total = []
+                
+                # Verificar el tipo de geometría
+                if isinstance(geometry, Polygon):
+                    # Si es un Polygon, procesarlo directamente
+                    h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                    h3_indices_total.extend(h3_indices)
+                elif isinstance(geometry, MultiPolygon):
+                    # Si es un MultiPolygon, iterar sobre cada Polygon
+                    for poly in geometry.geoms:
+                        h3_indices = get_h3_indices_in_geometry(poly, 8)
+                        h3_indices_total.extend(h3_indices)
+                else:
+                    st.error("La geometría proporcionada no es un Polygon ni un MultiPolygon.")
+                
+                # Extender los índices H3 en el estado de la sesión
+                st.session_state['zona_1'].extend(h3_indices_total)
+
             
             conditions_etapas2 = ''
             conditions_matrices2 = ''
@@ -467,9 +494,33 @@ with st.expander('Líneas de Deseo', expanded=True):
             if desc_zonas_values2 != 'Todos':
                 conditions_etapas2 = f" AND (inicio_norm = '{desc_zonas_values2}' OR transfer1_norm = '{desc_zonas_values2}' OR transfer2_norm = '{desc_zonas_values2}' OR fin_norm = '{desc_zonas_values2}')"
                 conditions_matrices2 = f" AND (inicio = '{desc_zonas_values2}' OR fin = '{desc_zonas_values2}')"
-                geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values2)].geometry.values[0]
-                h3_indices = get_h3_indices_in_geometry(geometry, 8)
-                st.session_state['zona_2'].extend(h3_indices)
+                # geometry = zonificaciones[(zonificaciones.zona == desc_zona)&(zonificaciones.id==desc_zonas_values2)].geometry.values[0]
+                # h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                # st.session_state['zona_2'].extend(h3_indices)
+                geometry = zonificaciones[
+                    (zonificaciones.zona == desc_zona) & 
+                    (zonificaciones.id == desc_zonas_values2)
+                ].geometry.values[0]
+                
+                # Inicializar una lista para almacenar los índices H3
+                h3_indices_total = []
+                
+                # Verificar el tipo de geometría
+                if isinstance(geometry, Polygon):
+                    # Si es un Polygon, procesarlo directamente
+                    h3_indices = get_h3_indices_in_geometry(geometry, 8)
+                    h3_indices_total.extend(h3_indices)
+                elif isinstance(geometry, MultiPolygon):
+                    # Si es un MultiPolygon, iterar sobre cada Polygon
+                    for poly in geometry.geoms:
+                        h3_indices = get_h3_indices_in_geometry(poly, 8)
+                        h3_indices_total.extend(h3_indices)
+                else:
+                    st.error("La geometría proporcionada no es un Polygon ni un MultiPolygon.")
+                
+                # Extender los índices H3 en el estado de la sesión
+                st.session_state['zona_2'].extend(h3_indices_total)
+
 
             query_etapas = query + conditions_etapas1 + conditions_etapas2
             query_matrices = query + conditions_matrices1 + conditions_matrices2
