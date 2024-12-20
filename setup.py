@@ -57,5 +57,7 @@ setuptools.setup(
         'typing_extensions',
         'weightedstats',
         'OSMnet',
+        'squarify',
+	'matplotlib_venn',
 ]
 )
