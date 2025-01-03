@@ -8,6 +8,8 @@ import statsmodels.api as sm
 from shapely import LineString
 from itertools import repeat
 import numpy as np
+import warnings
+from math import floor
 
 from urbantrips.geo import geo
 from urbantrips.carto import carto
@@ -548,3 +550,283 @@ def read_routes(route_ids, route_type):
         route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
     )
     return route_geoms
+
+
+def get_route_geoms_with_sections_data(line_ids_where, section_meters, n_sections):
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    q_route_geoms = "select * from lines_geoms"
+    q_route_geoms = q_route_geoms + line_ids_where
+    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
+    route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
+
+    # Set which parameter to use to split route geoms into sections
+
+    epsg_m = geo.get_epsg_m()
+
+    # project geoms and get for each geom both n_sections and meter
+    route_geoms = route_geoms.to_crs(epsg=epsg_m)
+
+    if section_meters:
+        # warning if meters params give to many sections
+        # get how many sections given the meters
+        n_sections = (route_geoms.geometry.length / section_meters).astype(int)
+
+    else:
+        section_meters = (route_geoms.geometry.length / n_sections).astype(int)
+
+    if isinstance(n_sections, int):
+        n_sections_check = pd.Series([n_sections])
+    else:
+        n_sections_check = n_sections
+
+    if any(n_sections_check > 1000):
+        warnings.warn(
+            "Algunos recorridos tienen mas de 1000 segmentos"
+            "Puede arrojar resultados imprecisos "
+        )
+
+    route_geoms = route_geoms.to_crs(epsg=4326)
+
+    # set the section length in meters
+    route_geoms["section_meters"] = section_meters
+
+    # set the number of sections
+    route_geoms["n_sections"] = n_sections
+
+    return route_geoms
+
+
+def check_exists_route_section_points_table(route_geoms):
+    """
+    This function checks if the route section points table exists
+    for those lines and n_sections in the route geoms gdf
+    """
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    q = """
+    select distinct id_linea,n_sections, 1 as section_exists from routes_section_id_coords
+    """
+    route_sections = pd.read_sql(q, conn_insumos)
+    conn_insumos.close()
+
+    new_route_geoms = route_geoms.merge(
+        route_sections, on=["id_linea", "n_sections"], how="left"
+    )
+    new_route_geoms = new_route_geoms.loc[
+        new_route_geoms.section_exists.isna(), ["id_linea", "n_sections", "geometry"]
+    ]
+
+    return new_route_geoms
+
+
+def upload_route_section_points_table(route_geoms, delete_old_data=False):
+    """
+    Uploads a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoDataFrame
+        routes geom GeoDataFrame with geometry, n_sections and line id
+
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # delete old records
+    if delete_old_data:
+        delete_old_routes_section_id_coords_data_q(route_geoms)
+
+    print("Creando tabla de secciones de recorrido")
+    route_section_points = pd.concat(
+        [create_route_section_points(row) for _, row in route_geoms.iterrows()]
+    )
+
+    route_section_points.to_sql(
+        "routes_section_id_coords",
+        conn_insumos,
+        if_exists="append",
+        index=False,
+    )
+    print("Fin creacion de tabla de secciones de recorrido")
+    conn_insumos.close()
+
+
+def delete_old_routes_section_id_coords_data_q(route_geoms):
+    """
+    Deletes old data in table routes_section_id_coords
+    """
+    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
+    for _, row in delete_df.iterrows():
+        # Delete old data for those parameters
+
+        q_delete = f"""
+            delete from routes_section_id_coords
+            where id_linea = {row.id_linea} 
+            and n_sections = {row.n_sections}
+            """
+
+        cur = conn_insumos.cursor()
+        cur.execute(q_delete)
+        conn_insumos.commit()
+
+    conn_insumos.close()
+    print("Fin borrado datos previos")
+
+
+def create_route_section_points(row):
+    """
+    Creates a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoSeries
+        Row from route geom GeoDataFrame
+        with geometry, n_sections and line id
+
+    Returns
+    ----------
+    pandas.DataFrame
+        dataFrame with line id, number of sections and the
+        latlong for each section id
+    """
+
+    n_sections = row.n_sections
+    route_geom = row.geometry
+    line_id = row.id_linea
+    sections_lrs = create_route_section_ids(n_sections)
+    sections_id = list(range(1, len(sections_lrs))) + [-1]
+    points = route_geom.interpolate(sections_lrs, normalized=True)
+    route_section_points = pd.DataFrame(
+        {
+            "id_linea": [line_id] * len(sections_id),
+            "n_sections": [n_sections] * len(sections_id),
+            "section_id": sections_id,
+            "section_lrs": sections_lrs,
+            "x": points.map(lambda p: p.x),
+            "y": points.map(lambda p: p.y),
+        }
+    )
+    return route_section_points
+
+
+def floor_rounding(num):
+    """
+    Rounds a number to the floor at 3 digits to use as route section id
+    """
+    return floor(num * 1000) / 1000
+
+
+def get_route_section_id(point, route_geom):
+    """
+    Computes the route section id as a 3 digit float projecing
+    a point on to the route geom in a normalized way
+
+    Parameters
+    ----------
+    point : shapely Point
+        a Point for the leg's origin or destination
+    route_geom : shapely Linestring
+        a Linestring representing the leg's route geom
+    """
+    return floor_rounding(route_geom.project(point, normalized=True))
+
+
+def create_route_section_ids(n_sections):
+    step = 1 / n_sections
+    sections = np.arange(0, 1 + step, step)
+    section_ids = pd.Series(map(floor_rounding, sections))
+    # n sections like 6 returns steps with max setion > 1
+    section_ids = section_ids[section_ids <= 1]
+
+    return section_ids
+
+
+def build_leg_route_sections_df(row):
+    """
+    Computes for a leg a table with all sections id traversed by
+    that leg based on the origin and destionation's section id
+
+    Parameters
+    ----------
+    row : dict
+        row in a legs df with origin, destination and direction
+
+    Returns
+    ----------
+    leg_route_sections_df: pandas.DataFrame
+        a dataframe with all section ids traversed by the leg's
+        trajectory
+
+    """
+
+    sentido = row["sentido"]
+    dia = row["dia"]
+    f_exp = row["factor_expansion_linea"]
+
+    # always build it in increasing order
+    if sentido == "ida":
+        o_id = row["o_proj"]
+        d_id = row["d_proj"]
+    else:
+        o_id = row["d_proj"]
+        d_id = row["o_proj"]
+
+    leg_route_sections = list(range(o_id, d_id + 1))
+    leg_route_sections_df = pd.DataFrame(
+        {
+            "dia": [dia] * len(leg_route_sections),
+            "sentido": [sentido] * len(leg_route_sections),
+            "section_id": leg_route_sections,
+            "factor_expansion_linea": [f_exp] * len(leg_route_sections),
+        }
+    )
+    return leg_route_sections_df
+
+
+def build_gps_route_sections_df(row):
+    """
+    Computes for a gps a table with all sections id traversed by
+    that gps based on the gps point section id and the next
+
+    Parameters
+    ----------
+    row : dict
+        row in a legs df with origin, destination and direction
+
+    Returns
+    ----------
+    gps_route_sections_df: pandas.DataFrame
+        a dataframe with all section ids traversed by the leg's
+        trajectory
+
+    """
+
+    sentido = row["sentido"]
+    dia = row["dia"]
+
+    # always build it in increasing order
+    if sentido == "ida":
+        o_id = row["section_id"]
+        d_id = row["section_id_next"]
+    else:
+        o_id = row["section_id_next"]
+        d_id = row["section_id"]
+
+    gps_route_sections = list(range(o_id, d_id + 1))
+    gps_route_sections_df = pd.DataFrame(
+        {
+            "dia": [dia] * len(gps_route_sections),
+            "sentido": [sentido] * len(gps_route_sections),
+            "section_id": gps_route_sections,
+        }
+    )
+    return gps_route_sections_df
