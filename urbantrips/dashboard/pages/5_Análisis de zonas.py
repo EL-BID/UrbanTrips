@@ -98,8 +98,10 @@ def main():
             
             # Save hexagons to session state based on button clicks
             if col1.button("Guardar en Zona 1"):
+                st.session_state['zona_1'] = []
                 st.session_state['zona_1'].extend(h3_indices)
             if col1.button("Guardar en Zona 2"):
+                st.session_state['zona_2'] = []
                 st.session_state['zona_2'].extend(h3_indices)
 
         zona1 = st.session_state['zona_1']

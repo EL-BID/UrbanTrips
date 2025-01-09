@@ -1490,7 +1490,7 @@ def calculate_weighted_means(
     for i in zero_to_nan:
         df.loc[df[i] == 0, i] = np.nan
 
-    calculate_weighted_means  # Validate inputs
+    # calculate_weighted_means  # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
         raise ValueError("One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])

@@ -11,6 +11,7 @@ import itertools
 import os
 import geopandas as gpd
 import h3
+from shapely.geometry import Point, MultiPolygon, Polygon
 from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
@@ -27,7 +28,7 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    leer_alias,
+    leer_alias, levanto_tabla_sql, guardar_tabla_sql
 )
 
 import subprocess
@@ -123,6 +124,11 @@ def update_stations_catchment_area(ring_size):
         )
     return None
 
+def h3_to_polygon(h3_index):
+    # Obtener las coordenadas del hexágono
+    boundary = h3.h3_to_geo_boundary(h3_index, geo_json=True)
+    return Polygon(boundary)
+
 def guardo_zonificaciones():
     configs = leer_configs_generales()
     alias = leer_alias()
@@ -193,6 +199,26 @@ def guardo_zonificaciones():
         
             conn_insumos.close()
             conn_dash.close()
+            
+            zonificaciones = levanto_tabla_sql('zonificaciones', 'insumos')
+            zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
+            zonificaciones['all'] = 1
+            zonificaciones = zonificaciones[['all', 'geometry']].dissolve(by='all')
+            
+            zonas = levanto_tabla_sql('zonas', 'insumos')
+            zonas = zonas.drop(['fex'], axis=1)
+            
+            # Añadir geometrías al DataFrame
+            zonas['geometry'] = zonas['h3'].apply(h3_to_polygon)
+            
+            # Convertir a GeoDataFrame
+            zonas = gpd.GeoDataFrame(zonas, geometry='geometry', crs='EPSG:4326')
+            
+            # Mostrar el GeoDataFrame
+            
+            zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
+            zonas = zonas.drop(['geometry'], axis=1)
+            guardar_tabla_sql(zonas, 'equivalencia_zonas', 'dash')
             
     if configs['poligonos']:
         

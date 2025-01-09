@@ -12,7 +12,7 @@ from dash_utils import (
     create_data_folium, traigo_indicadores,
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
-    traigo_zonas_values
+    traigo_lista_zonas
 )
 
 from streamlit_folium import folium_static
@@ -314,7 +314,7 @@ with st.expander('Líneas de Deseo', expanded=True):
         rango_hora_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT rango_hora FROM poly_etapas;')
         distancia_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT distancia FROM poly_etapas;')
         desc_poly_all_ = levanto_tabla_sql('poly_etapas', 'dash', 'SELECT DISTINCT id_polygon FROM poly_etapas;')
-        zonas_values = traigo_zonas_values('poligonos')
+        zonas_values = traigo_lista_zonas('poligonos')
 
         # st.session_state.etapas_all = st.session_state.etapas_all[st.session_state.etapas_all.factor_expansion_linea > 0].copy()
         general, modal, distancias = traigo_indicadores('poligonos')
@@ -542,11 +542,11 @@ with st.expander('Líneas de Deseo', expanded=True):
                                                                     agg_distancia=st.session_state.desc_distancia,
                                                                     agg_cols_etapas=st.session_state.agg_cols_etapas,
                                                                     agg_cols_viajes=st.session_state.agg_cols_viajes,
-                                                                    desc_etapas=desc_etapas,
-                                                                    desc_viajes=desc_viajes,
-                                                                    desc_origenes=desc_origenes,
-                                                                    desc_destinos=desc_destinos,
-                                                                    desc_transferencias=False
+                                                                    etapas_seleccionada=desc_etapas,
+                                                                    viajes_seleccionado=desc_viajes,
+                                                                    origenes_seleccionado=desc_origenes,
+                                                                    destinos_seleccionado=desc_destinos,
+                                                                    transferencias_seleccionado=False
                                                                     )
             
                 if (len(st.session_state.etapas) > 0) | (len(st.session_state.viajes) > 0) | (len(st.session_state.origenes) > 0) | (len(st.session_state.destinos) > 0) | (len(st.session_state.transferencias) > 0) | (desc_zonif):
