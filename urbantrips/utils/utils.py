@@ -1426,10 +1426,10 @@ def traigo_tabla_zonas():
 
 
 def normalize_vars(tabla):
-    if "dia" in tabla.columns:
-        tabla["dia"] = ""
-        tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
-        tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
+    # if "dia" in tabla.columns:
+    #     tabla["dia"] = ""
+    #     tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
+    #     tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
     if "day_type" in tabla.columns:
         tabla.loc[tabla.day_type == "weekday", "day_type"] = "Día hábil"
         tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"

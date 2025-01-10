@@ -284,10 +284,19 @@ def construyo_indicadores(viajes, poligonos=False):
     ind9['Tipo'] = 'General'
     ind9['type_val'] = 'percentage'
 
-    ind5 = viajes.groupby(['id_polygon', 'dia', 'mes', 'tipo_dia', 'id_tarjeta'], 
-                          as_index=False).factor_expansion_linea.first().groupby(['id_polygon', 'dia', 'mes', 'tipo_dia'], 
-                                                                                 as_index=False).factor_expansion_linea.sum().groupby(['id_polygon', 'mes', 'tipo_dia'], 
-                                                                                                                                      as_index=False).factor_expansion_linea.mean().round().rename(columns={'factor_expansion_linea': 'Valor'})
+    ind5 = viajes.groupby(['id_polygon', 
+                           'dia', 
+                           'mes', 
+                           'tipo_dia', 
+                           'id_tarjeta'], 
+                                  as_index=False).factor_expansion_linea.first().groupby(['id_polygon', 
+                                                                                          'dia', 
+                                                                                          'mes', 
+                                                                                          'tipo_dia'], 
+                                                         as_index=False).factor_expansion_linea.sum().groupby(['id_polygon', 
+                                                                                                               'mes', 
+                                                                                                               'tipo_dia'], 
+                                                                                            as_index=False).factor_expansion_linea.mean().round().rename(columns={'factor_expansion_linea': 'Valor'})
     ind5['Indicador'] = 'Cantidad de Usuarios'
     ind5['Tipo'] = 'General'
     ind5['type_val'] = 'int'
@@ -1680,6 +1689,120 @@ def guarda_particion_modal(etapas):
         etapas_modos = etapas_modos.rename(columns={i:i.capitalize()})
     guardar_tabla_sql(etapas_modos, 'datos_particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
 
+
+def agrego_lineas(cols, trx, etapas, gps, servicios):
+    trx_agg = trx.groupby(cols+['modo'], as_index=False).factor_expansion.sum().rename(columns={'factor_expansion':'transacciones'})
+    
+    etapas_agg = utils.calculate_weighted_means(etapas,
+                                        aggregate_cols=cols+['modo'],
+                                        weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                        zero_to_nan=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                                        weight_col='factor_expansion_linea', var_fex_summed=False).round(2).rename(columns={'modo':'modo_new'},
+                                        ).rename(columns={'distance_osm_drive':'distancia_media'})
+    internos_agg = trx.groupby(cols+['interno'], as_index=False).size().groupby(cols, as_index=False).size().rename(columns={'size':'cant_internos_en_trx'})
+    
+    gps_agg = gps.groupby(cols+['interno'], as_index=False).size().groupby(cols, 
+                                                                      as_index=False).size().rename(columns={'size':'cant_internos_en_gps'})
+    
+    serv_agg = servicios[servicios.valid==1].groupby(cols, as_index=False).agg({'interno':'count', 
+                                                                                        'distance_km':'sum', 
+                                                                                        'min_ts': 'sum', }).rename(columns={'interno':'cant_servicios', 
+                                                                                                                            'distance_km':'serv_distance_km', 
+                                                                                                                            'min_ts':'serv_min_ts'})
+    
+    
+    all = trx_agg.merge(etapas_agg, how='left').          \
+                    merge(internos_agg, how='left').      \
+                    merge(gps_agg, how='left'). \
+                    merge(kpis, how='left').              \
+                    merge(lineas_agg, how='left').        \
+                    merge(serv_agg, how='left').round(2)
+    
+    all = all[cols+['nombre_linea', 
+                    'empresa', 
+                    'modo', 
+                    'transacciones', 
+                    'distancia_media',
+                    'travel_time_min', 'travel_speed', 
+                    'cant_internos_en_trx', 'cant_internos_en_gps', 'tot_veh', 'tot_km', 'tot_pax',
+                   'dmt_mean', 'dmt_median', 'pvd', 'kvd', 'ipk', 'fo_mean', 'fo_median']]
+    all['transacciones'] = all['transacciones'].round(0)
+    all['tot_pax'] = all['tot_pax'].round(0)
+    return all
+
+def resumen_x_linea(etapas, viajes):
+    gps = levanto_tabla_sql('gps', 'data')
+    gps['fecha'] = pd.to_datetime(gps['fecha'], unit='s')
+    lineas = levanto_tabla_sql('metadata_lineas', 'insumos')
+    kpis = levanto_tabla_sql('kpi_by_day_line', tabla_tipo='data')
+    servicios = levanto_tabla_sql('services', tabla_tipo='data')
+    lineas = lineas[['id_linea', 'nombre_linea', 'empresa']].sort_values(['id_linea'])
+    lineas_agg = lineas[['id_linea', 'nombre_linea', 'empresa']].drop_duplicates()
+    trx = levanto_tabla_sql('transacciones', 'data')
+    trx['tarifa'] = trx['tarifa'].fillna('')
+    trx['genero'] = trx['genero'].fillna('')
+
+    #Agrego líneas
+    all = agrego_lineas(['dia', 'id_linea'], trx, etapas, gps, servicios)
+
+    all['mes'] = all['dia'].str[:7]
+    
+    all = all.groupby(['mes', 'id_linea', 'nombre_linea', 'empresa', 'modo'], as_index=False)[['transacciones',
+                                                                         'distancia_media', 
+                                                                         'travel_time_min', 
+                                                                         'travel_speed',
+                                                                         'cant_internos_en_trx', 
+                                                                         'cant_internos_en_gps', 
+                                                                         'tot_veh', 
+                                                                         'tot_km',
+                                                                         'tot_pax', 
+                                                                         'dmt_mean', 
+                                                                         'dmt_median', 
+                                                                         'pvd', 
+                                                                         'kvd', 
+                                                                         'ipk', 
+                                                                         'fo_mean',
+                                                                         'fo_median']].mean()
+
+    
+    guardar_tabla_sql(all, 
+                      'resumen_lineas', 
+                      'dash', 
+                      {'mes': all.mes.unique().tolist()})
+
+    #Agrego líneas y Ramal
+    all = agrego_lineas(['dia', 'id_linea', 'id_ramal'], trx, etapas, gps, servicios)
+
+    all['mes'] = all['dia'].str[:7]
+    
+    all = all.groupby(['mes', 
+                       'id_linea', 
+                       'id_ramal', 
+                       'nombre_linea', 
+                       'empresa', 
+                       'modo'], as_index=False)[['transacciones',
+                                                                         'distancia_media', 
+                                                                         'travel_time_min', 
+                                                                         'travel_speed',
+                                                                         'cant_internos_en_trx', 
+                                                                         'cant_internos_en_gps', 
+                                                                         'tot_veh', 
+                                                                         'tot_km',
+                                                                         'tot_pax', 
+                                                                         'dmt_mean', 
+                                                                         'dmt_median', 
+                                                                         'pvd', 
+                                                                         'kvd', 
+                                                                         'ipk', 
+                                                                         'fo_mean',
+                                                                         'fo_median']].mean()
+
+    
+    guardar_tabla_sql(all, 
+                      'resumen_lineas_ramal', 
+                      'dash', 
+                      {'mes': all.mes.unique().tolist()})
+
 def proceso_poligonos(check_configs=True):
 
     print('Procesa polígonos')
@@ -1729,6 +1852,8 @@ def proceso_lineas_deseo(check_configs=False):
     etapas, viajes = load_and_process_data()
 
     preparo_lineas_deseo(etapas, viajes, res=[6, 8])
+
+    resumen_x_linea(etapas, viajes)
 
     indicadores = construyo_indicadores(viajes, poligonos=False)
 

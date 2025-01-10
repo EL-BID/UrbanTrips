@@ -137,9 +137,9 @@ def calculate_weighted_means(
 
 
 def normalize_vars(tabla):
-    if 'dia' in tabla.columns:
-        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Hábil'
-        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
+    # if 'dia' in tabla.columns:
+    #     tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Hábil'
+    #     tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
     if 'day_type' in tabla.columns:
         tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Hábil'
         tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
