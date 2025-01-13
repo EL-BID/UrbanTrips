@@ -812,6 +812,8 @@ def build_gps_route_sections_df(row):
 
     sentido = row["sentido"]
     dia = row["dia"]
+    ramal = row["id_ramal"]
+    interno = row["interno"]
 
     # always build it in increasing order
     if sentido == "ida":
@@ -824,6 +826,8 @@ def build_gps_route_sections_df(row):
     gps_route_sections = list(range(o_id, d_id + 1))
     gps_route_sections_df = pd.DataFrame(
         {
+            "id_ramal": [ramal] * len(gps_route_sections),
+            "interno": [interno] * len(gps_route_sections),
             "dia": [dia] * len(gps_route_sections),
             "sentido": [sentido] * len(gps_route_sections),
             "section_id": gps_route_sections,

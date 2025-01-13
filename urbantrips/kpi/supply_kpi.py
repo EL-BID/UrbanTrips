@@ -86,15 +86,26 @@ def compute_route_section_supply(
     print("Computing supply stats per route section ...")
 
     if (len(route_geoms) > 0) and (len(gps) > 0):
-        """
+
         section_supply_stats_table = gps.groupby(["id_linea", "yr_mo"]).apply(
-            compute_section_supply_stats,
-            route_geoms=route_geoms,
-            hour_range=hour_range,
-            day_type=day_type,
+            compute_section_supply_stats, route_geoms=route_geoms
         )
-        """
-    return gps
+
+        section_supply_stats_table = section_supply_stats_table.droplevel(
+            2, axis=0
+        ).reset_index()
+
+        # Add hourly range
+        if hour_range:
+            section_supply_stats_table["hour_min"] = hour_range[0]
+            section_supply_stats_table["hour_max"] = hour_range[1]
+        else:
+            section_supply_stats_table["hour_min"] = None
+            section_supply_stats_table["hour_max"] = None
+
+        section_supply_stats_table["day_type"] = day_type
+
+    return section_supply_stats_table
 
 
 def compute_section_supply_stats(gps, route_geoms):
@@ -113,7 +124,9 @@ def compute_section_supply_stats(gps, route_geoms):
 
         route_geom = route.geometry.item()
         n_sections = route.n_sections.item()
+        section_meters = route.section_meters.item()
 
+        # use more granular lrs to classify direction
         gps["lrs"] = route_geom.project(
             gpd.GeoSeries.from_xy(gps.longitud, gps.latitud), normalized=True
         ).map(floor_rounding)
@@ -164,10 +177,38 @@ def compute_section_supply_stats(gps, route_geoms):
             .to_dict("records")
         )
         gps_route_sections_df = pd.concat(map(build_gps_route_sections_df, gps_dict))
+        # remove duplicates for same vehicle in same section
+        gps_route_sections_df = gps_route_sections_df.drop_duplicates()
 
         gps["delta_hours"] = (gps.fecha_next - gps.fecha) / 60 / 60
+
+        # remove any gps with less than 4 minutes
+        gps = gps.loc[gps.delta_hours > (4 / 60), :]
+
         gps["kmh"] = gps.distance_km / gps.delta_hours
-    return gps, gps_route_sections_df
+        average_speed_table = (
+            gps.reindex(columns=["dia", "section_id", "sentido", "kmh"])
+            .groupby(["dia", "sentido", "section_id"])
+            .agg(avg_speed=("kmh", "mean"), median_speed=("kmh", "median"))
+            .reset_index()
+        )
+        average_speed_table.avg_speed = average_speed_table.avg_speed.round()
+        average_speed_table.median_speed = average_speed_table.median_speed.round()
+
+        n_vehicles_table = (
+            gps_route_sections_df.groupby(["dia", "sentido", "section_id"])
+            .size()
+            .reset_index()
+            .rename(columns={0: "n_vehicles"})
+        )
+
+        section_supply_stats = n_vehicles_table.merge(
+            average_speed_table, on=["dia", "sentido", "section_id"], how="left"
+        )
+        section_supply_stats["n_sections"] = n_sections
+        section_supply_stats["section_meters"] = section_meters
+
+    return section_supply_stats
 
 
 def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
