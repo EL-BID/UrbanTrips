@@ -4,111 +4,111 @@ import multiprocessing
 import pandas as pd
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db)
+    iniciar_conexion_db, levanto_tabla_sql, guardar_tabla_sql)
 
 
-def cambia_id_viajes_etapas_tarjeta_dia(df):
-    """
-    Takes a legs dataframe with legs and trips id and splits
-    trips with same id into 2 trips with different ids
+# def cambia_id_viajes_etapas_tarjeta_dia(df):
+#     """
+#     Takes a legs dataframe with legs and trips id and splits
+#     trips with same id into 2 trips with different ids
 
-    Parameters
-    ----------
-    df : pandas DataFrame
-        legs dataframe
+#     Parameters
+#     ----------
+#     df : pandas DataFrame
+#         legs dataframe
 
-    Returns
-    ----------
+#     Returns
+#     ----------
 
-    pandas DataFrame
-        legs with new trips ids
+#     pandas DataFrame
+#         legs with new trips ids
 
-    """
+#     """
 
-    # produce una tabla temporal de viajes
-    # para detectar los que tienen mismo par od
-    viajes_temp = crear_viaje_temp(df)
+#     # produce una tabla temporal de viajes
+#     # para detectar los que tienen mismo par od
+#     viajes_temp = crear_viaje_temp(df)
 
-    # dejar solamente con las tarjeta dia que tienen problemas
-    tarjeta_dia_problemas = viajes_temp.reindex(
-        columns=['dia', 'id_tarjeta']).drop_duplicates()
+#     # dejar solamente con las tarjeta dia que tienen problemas
+#     tarjeta_dia_problemas = viajes_temp.reindex(
+#         columns=['dia', 'id_tarjeta']).drop_duplicates()
 
-    df = df.merge(tarjeta_dia_problemas,
-                  on=['dia', 'id_tarjeta'], how='inner')
+#     df = df.merge(tarjeta_dia_problemas,
+#                   on=['dia', 'id_tarjeta'], how='inner')
 
-    print(f"Modificando id_viajes en {len(df)} etapas")
-    print(f"de {len(viajes_temp)} viajes")
+#     print(f"Modificando id_viajes en {len(df)} etapas")
+#     print(f"de {len(viajes_temp)} viajes")
 
-    # sumar la informacion de la ultima etapa
-    df = df.merge(viajes_temp, how='left', on=[
-                  'dia', 'id_tarjeta', 'id_viaje', 'id_etapa'])
+#     # sumar la informacion de la ultima etapa
+#     df = df.merge(viajes_temp, how='left', on=[
+#                   'dia', 'id_tarjeta', 'id_viaje', 'id_etapa'])
 
-    # cumsum_mismo_od = df\
-    #    .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
-    #    .groupby(['id_tarjeta', 'dia'])['mismo_od']\
-    #    .apply(crear_cumsum_mismo_od)
+#     # cumsum_mismo_od = df\
+#     #    .reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])\
+#     #    .groupby(['id_tarjeta', 'dia'])['mismo_od']\
+#     #    .apply(crear_cumsum_mismo_od)
 
-    df_paralel = df.reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])
-    n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
-    df_split = np.array_split(df_paralel, n_cores)
-    pool = multiprocessing.Pool(n_cores)
+#     df_paralel = df.reindex(columns=['id_tarjeta', 'dia', 'mismo_od'])
+#     n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
+#     df_split = np.array_split(df_paralel, n_cores)
+#     pool = multiprocessing.Pool(n_cores)
 
-    cumsum_mismo_od = pd.concat(pool.starmap(cumsum_paralel, zip(df_split)))
-    pool.close()
-    pool.join()
+#     cumsum_mismo_od = pd.concat(pool.starmap(cumsum_paralel, zip(df_split)))
+#     pool.close()
+#     pool.join()
 
-    df.loc[:, ['cumsum']] = cumsum_mismo_od.values
+#     df.loc[:, ['cumsum']] = cumsum_mismo_od.values
 
-    # crear nuevos id viaje y etapa
-    df.loc[:, ['nuevo_id_viaje']] = (df.id_viaje + df['cumsum']).map(int)
-    df.loc[:, ['nuevo_id_etapa']] = df.id_etapa.copy()
-    df.loc[df.mismo_od == 1, 'nuevo_id_etapa'] = 1
+#     # crear nuevos id viaje y etapa
+#     df.loc[:, ['nuevo_id_viaje']] = (df.id_viaje + df['cumsum']).map(int)
+#     df.loc[:, ['nuevo_id_etapa']] = df.id_etapa.copy()
+#     df.loc[df.mismo_od == 1, 'nuevo_id_etapa'] = 1
 
-    df = df\
-        .drop(['mismo_od', 'cumsum',
-               'id_viaje', 'id_etapa'], axis=1)\
-        .rename(columns={'nuevo_id_viaje': 'id_viaje',
-                         'nuevo_id_etapa': 'id_etapa'})\
-        .reindex(columns=['id', 'id_tarjeta', 'dia', 'id_viaje', 'id_etapa',
-                          'tiempo', 'hora', 'modo', 'id_linea', 'id_ramal',
-                          'interno', 'genero', 'tarifa', 'latitud', 'longitud', 'h3_o', 'h3_d',
-                          'od_validado', 'factor_expansion_original',
-                          'factor_expansion_linea',
-                          'factor_expansion_tarjeta'])
+#     df = df\
+#         .drop(['mismo_od', 'cumsum',
+#                'id_viaje', 'id_etapa'], axis=1)\
+#         .rename(columns={'nuevo_id_viaje': 'id_viaje',
+#                          'nuevo_id_etapa': 'id_etapa'})\
+#         .reindex(columns=['id', 'id_tarjeta', 'dia', 'id_viaje', 'id_etapa',
+#                           'tiempo', 'hora', 'modo', 'id_linea', 'id_ramal',
+#                           'interno', 'genero', 'tarifa', 'latitud', 'longitud', 'h3_o', 'h3_d',
+#                           'od_validado', 'factor_expansion_original',
+#                           'factor_expansion_linea',
+#                           'factor_expansion_tarjeta'])
 
-    return df
-
-
-def crear_viaje_temp(df):
-    """
-    Esta funcion toma un df de etapas y produce
-    un df de viaje temporal para detectar viajes
-    con el mismo od
-    """
-    df = df.groupby(
-        ["dia", "id_tarjeta", "id_viaje"],
-        as_index=False,
-    ).agg(
-        h3_o=('h3_o', 'first'),
-        h3_d=('h3_d', 'last'),
-        od_validado=('od_validado', 'min'),
-        cant_etapas=('id_etapa', 'count'),
-        id_etapa=('id_etapa', 'last')
-    )
-    mask = (df.h3_o == df.h3_d) & (df.od_validado == 1) & (
-        df.cant_etapas > 1) & (df.od_validado == 1)
-    df = df.loc[mask, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']]
-    df['mismo_od'] = 1
-    return df
+#     return df
 
 
-def cumsum_paralel(df):
-    df_grouped = df.groupby(['id_tarjeta', 'dia'])['mismo_od']
-    return df_grouped.transform(crear_cumsum_mismo_od)
+# def crear_viaje_temp(df):
+#     """
+#     Esta funcion toma un df de etapas y produce
+#     un df de viaje temporal para detectar viajes
+#     con el mismo od
+#     """
+#     df = df.groupby(
+#         ["dia", "id_tarjeta", "id_viaje"],
+#         as_index=False,
+#     ).agg(
+#         h3_o=('h3_o', 'first'),
+#         h3_d=('h3_d', 'last'),
+#         od_validado=('od_validado', 'min'),
+#         cant_etapas=('id_etapa', 'count'),
+#         id_etapa=('id_etapa', 'last')
+#     )
+#     mask = (df.h3_o == df.h3_d) & (df.od_validado == 1) & (
+#         df.cant_etapas > 1) & (df.od_validado == 1)
+#     df = df.loc[mask, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']]
+#     df['mismo_od'] = 1
+#     return df
 
 
-def crear_cumsum_mismo_od(s):
-    return s.cumsum().ffill().fillna(0)
+# def cumsum_paralel(df):
+#     df_grouped = df.groupby(['id_tarjeta', 'dia'])['mismo_od']
+#     return df_grouped.transform(crear_cumsum_mismo_od)
+
+
+# def crear_cumsum_mismo_od(s):
+#     return s.cumsum().ffill().fillna(0)
 
 
 @duracion
@@ -392,7 +392,6 @@ def create_trips_from_legs():
 
     conn.close()
 
-
 @duracion
 def rearrange_trip_id_same_od():
     """
@@ -424,7 +423,7 @@ def rearrange_trip_id_same_od():
         conn_data,
     )
 
-    etapas = pd.read_sql_query(
+    df = pd.read_sql_query(
         """
                                 SELECT e.*
                                 FROM etapas e
@@ -434,36 +433,157 @@ def rearrange_trip_id_same_od():
         conn_data,
     )
 
-    print("Crear nuevos ids")
+    print("Crear nuevos ids cuando un mismo viaje se hace en una misma línea")
+
+    cols_df = df.columns.tolist()
+
+    # Ordenar el DataFrame para procesarlo secuencialmente
+    # 1) Ordenar
+    df = df.sort_values(by=['dia', 'id_tarjeta', 'id_viaje', 'tiempo', 'hora', 'id_etapa']).reset_index(drop=True)
     
-    # crear nuevos ids
-    nuevos_ids_etapas_viajes = cambia_id_viajes_etapas_tarjeta_dia(etapas)
+    # 2) Calcular la línea anterior dentro de cada grupo
+    df['id_linea_anterior'] = df.groupby(['dia','id_tarjeta','id_viaje'])['id_linea'].shift()
+    
+    # 3) Crear columna booleana: True si es la misma línea que la anterior, False en caso contrario
+    df['es_igual'] = (df['id_linea'] == df['id_linea_anterior'])
+    
+    # 4) Hacer la suma acumulada dentro de cada grupo
+    df['sum_id_viaje'] = df.groupby(['dia', 'id_tarjeta'])['es_igual'].cumsum()
+    
+    df['id_viaje'] = df.id_viaje + df.sum_id_viaje
+    df['id_etapa'] = df.groupby(['dia', 'id_tarjeta', 'id_viaje']).cumcount() + 1
+    
+    # Borrar columnas auxiliares
+    df.drop(columns=['es_igual', 'id_linea_anterior', 'sum_id_viaje'], inplace=True)
+    
+    
+    # Corrige viajes con origen y destino iguales
+    print('Corrige viajes con origen y destino iguales')
+    
+    # Crear tabla temporal para detectar viajes con el mismo OD
+    df_viajes = df.groupby(
+        ["dia", "id_tarjeta", "id_viaje"],
+        as_index=False
+    ).agg(
+        h3_o=('h3_o', 'first'),           # Primer origen
+        h3_d=('h3_d', 'last'),            # Último destino
+        od_validado=('od_validado', 'min'),  # Validación mínima del viaje
+        cant_etapas=('id_etapa', 'count'),  # Número de etapas en el viaje
+        id_etapa=('id_etapa', 'last')     # Última etapa del viaje
+    )
+    
+    # Filtrar viajes con el mismo OD
+    mask = (df_viajes.h3_o == df_viajes.h3_d) & \
+           (df_viajes.od_validado == 1) & \
+           (df_viajes.cant_etapas > 1)
+    
+    # Seleccionar solo las tarjetas y días con problemas
+    df_viajes_problemas = df_viajes.loc[mask, ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']]
+    df_viajes_problemas['mismo_od'] = 1
+    
+    # Filtrar las etapas originales con problemas
+    df = df.merge(df_viajes_problemas[['dia', 'id_tarjeta', 'id_viaje', 'mismo_od']], on=['dia', 'id_tarjeta', 'id_viaje'], how='left')
+    df['mismo_od'] = df['mismo_od'].fillna(0)
 
-    print('Actualizando nuevos ids en etapas')
+    df['con_problemas'] = df.groupby(['dia', 'id_tarjeta'])['mismo_od'].transform('max')
 
-    etapas = etapas[~(etapas.id.isin(nuevos_ids_etapas_viajes.id.unique()))]
-    etapas = pd.concat([etapas, nuevos_ids_etapas_viajes])
-    etapas = etapas.sort_values('id').reset_index(drop=True)
+    df_ok = df[df.con_problemas==0].copy()
+    df_viajes_problemas = df[df.con_problemas==1].copy()
+    
+    
+    # 3) Crear columna booleana: True si es la misma línea que la anterior, False en caso contrario
+    df_viajes_problemas['es_igual'] = 0
+    df_viajes_problemas.loc[(df_viajes_problemas.mismo_od==1)&(df_viajes_problemas.id_etapa!=1), 'es_igual'] = 1
+    
+    
+    # 4) Hacer la suma acumulada dentro de cada grupo
+    df_viajes_problemas['sum_id_viaje'] = df_viajes_problemas.groupby(['dia', 'id_tarjeta'])['es_igual'].cumsum()
+    
+    df_viajes_problemas['id_viaje'] = df_viajes_problemas.id_viaje + df_viajes_problemas.sum_id_viaje
+    df_viajes_problemas['id_etapa'] = df_viajes_problemas.groupby(['dia', 'id_tarjeta', 'id_viaje']).cumcount() + 1
+    
+    df = pd.concat([df_ok, df_viajes_problemas], ignore_index=True)
+    df = df.sort_values(by=['dia', 'id_tarjeta', 'id_viaje', 'id_etapa']).reset_index(drop=True)
 
-    # borro si ya existen etapas de una corrida anterior
-    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
-    query = f"DELETE FROM etapas WHERE dia IN ({values})"
-    conn_data.execute(query)
-    conn_data.commit()
+    # Borrar columnas auxiliares
+    df = df[cols_df]
+   
+    guardar_tabla_sql(df, 
+                      'etapas', 
+                      'data', 
+                      {'dia': df.dia.unique().tolist()})
 
-    # etapas.to_sql("etapas", conn_data,
-    #               if_exists="append", index=False)
+# @duracion
+# def rearrange_trip_id_same_od():
+#     """
+#     Takes a legs dataframe with legs and trips id and splits
+#     trips with same id into 2 trips with different ids and uploads
+#     new legs to the db
 
-    chunk_size = 400000  # Número de registros por chunk
+#     Parameters
+#     ----------
+#     df : pandas DataFrame
+#         legs dataframe
 
-    # Subir los datos por partes
-    for i in range(0, len(etapas), chunk_size):
-        etapas_chunk = etapas.iloc[i:i + chunk_size]
-        etapas_chunk.to_sql("etapas", conn_data, if_exists="append", index=False)
+#     Returns
+#     ----------
 
-    conn_data.close()
+#     pandas DataFrame
+#         legs with new trips ids
 
-    print("Fin correxión de ids de etapas y viajes con mismo od")
+#     """
+#     conn_data = iniciar_conexion_db(tipo='data')
+
+#     print("Leer etapas")
+
+#     dias_ultima_corrida = pd.read_sql_query(
+#         """
+#                                 SELECT *
+#                                 FROM dias_ultima_corrida
+#                                 """,
+#         conn_data,
+#     )
+
+#     etapas = pd.read_sql_query(
+#         """
+#                                 SELECT e.*
+#                                 FROM etapas e
+#                                 JOIN dias_ultima_corrida d
+#                                 ON e.dia = d.dia
+#                                 """,
+#         conn_data,
+#     )
+
+#     print("Crear nuevos ids")
+    
+#     # crear nuevos ids
+#     nuevos_ids_etapas_viajes = cambia_id_viajes_etapas_tarjeta_dia(etapas)
+
+#     print('Actualizando nuevos ids en etapas')
+
+#     etapas = etapas[~(etapas.id.isin(nuevos_ids_etapas_viajes.id.unique()))]
+#     etapas = pd.concat([etapas, nuevos_ids_etapas_viajes])
+#     etapas = etapas.sort_values('id').reset_index(drop=True)
+
+#     # borro si ya existen etapas de una corrida anterior
+#     values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+#     query = f"DELETE FROM etapas WHERE dia IN ({values})"
+#     conn_data.execute(query)
+#     conn_data.commit()
+
+#     # etapas.to_sql("etapas", conn_data,
+#     #               if_exists="append", index=False)
+
+#     chunk_size = 400000  # Número de registros por chunk
+
+#     # Subir los datos por partes
+#     for i in range(0, len(etapas), chunk_size):
+#         etapas_chunk = etapas.iloc[i:i + chunk_size]
+#         etapas_chunk.to_sql("etapas", conn_data, if_exists="append", index=False)
+
+#     conn_data.close()
+
+#     print("Fin correxión de ids de etapas y viajes con mismo od")
 
 
 @duracion

@@ -21,6 +21,7 @@ def load_and_process_data():
         viajes (DataFrame): Processed DataFrame containing journey data.
     """
 
+    print('Prepara etapas y viajes')
     # Establish connections to different databases for input data and operational data
     conn_insumos = iniciar_conexion_db(tipo='insumos')
     conn_data = iniciar_conexion_db(tipo='data')
@@ -1690,10 +1691,10 @@ def guarda_particion_modal(etapas):
     guardar_tabla_sql(etapas_modos, 'datos_particion_modal', filtros={'mes': etapas_modos.mes.unique().tolist()})
 
 
-def agrego_lineas(cols, trx, etapas, gps, servicios):
+def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
     trx_agg = trx.groupby(cols+['modo'], as_index=False).factor_expansion.sum().rename(columns={'factor_expansion':'transacciones'})
-    
-    etapas_agg = utils.calculate_weighted_means(etapas,
+    lineas_agg = lineas[['id_linea', 'nombre_linea', 'empresa']].drop_duplicates()
+    etapas_agg = calculate_weighted_means(etapas,
                                         aggregate_cols=cols+['modo'],
                                         weighted_mean_cols=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
                                         zero_to_nan=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
@@ -1737,13 +1738,13 @@ def resumen_x_linea(etapas, viajes):
     kpis = levanto_tabla_sql('kpi_by_day_line', tabla_tipo='data')
     servicios = levanto_tabla_sql('services', tabla_tipo='data')
     lineas = lineas[['id_linea', 'nombre_linea', 'empresa']].sort_values(['id_linea'])
-    lineas_agg = lineas[['id_linea', 'nombre_linea', 'empresa']].drop_duplicates()
+    
     trx = levanto_tabla_sql('transacciones', 'data')
     trx['tarifa'] = trx['tarifa'].fillna('')
     trx['genero'] = trx['genero'].fillna('')
 
     #Agrego líneas
-    all = agrego_lineas(['dia', 'id_linea'], trx, etapas, gps, servicios)
+    all = agrego_lineas(['dia', 'id_linea'], trx, etapas, gps, servicios, kpis, lineas)
 
     all['mes'] = all['dia'].str[:7]
     
@@ -1771,7 +1772,7 @@ def resumen_x_linea(etapas, viajes):
                       {'mes': all.mes.unique().tolist()})
 
     #Agrego líneas y Ramal
-    all = agrego_lineas(['dia', 'id_linea', 'id_ramal'], trx, etapas, gps, servicios)
+    all = agrego_lineas(['dia', 'id_linea', 'id_ramal'], trx, etapas, gps, servicios, kpis, lineas)
 
     all['mes'] = all['dia'].str[:7]
     
@@ -1809,7 +1810,6 @@ def proceso_poligonos(check_configs=True):
     if check_configs:
         check_config()
         carto.guardo_zonificaciones()
-        carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
 
@@ -1843,7 +1843,6 @@ def proceso_lineas_deseo(check_configs=False):
     if check_configs:
         check_config()
         carto.guardo_zonificaciones()
-        carto.create_zones_table()
 
     zonificaciones = levanto_tabla_sql('zonificaciones')
     zonificaciones['lat'] = zonificaciones.geometry.representative_point().y

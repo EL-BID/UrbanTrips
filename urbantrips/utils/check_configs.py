@@ -629,5 +629,4 @@ def check_config():
     config_default = check_lineas(config_default)
     write_config(config_default)
     check_config_errors(config_default)    
-    # guardo_zonificaciones()
-    # create_zones_table()
+

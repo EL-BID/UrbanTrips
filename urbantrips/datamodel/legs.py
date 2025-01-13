@@ -176,7 +176,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
     """
     conn = iniciar_conexion_db(tipo="data")
 
-    print("Creando nuevos id tajetas para trx simultaneas")
+    print("Creando nuevos id tarjetas para trx simultaneas")
     trx_c = trx.copy()
 
     trx_c, tarjetas_duplicadas = pago_doble_tarjeta(trx_c, trx_order_params)

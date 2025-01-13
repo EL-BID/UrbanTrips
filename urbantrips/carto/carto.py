@@ -205,7 +205,8 @@ def guardo_zonificaciones():
             zonificaciones['all'] = 1
             zonificaciones = zonificaciones[['all', 'geometry']].dissolve(by='all')
             
-            zonas = levanto_tabla_sql('zonas', 'insumos')
+            zonas = create_zones_table()
+            
             zonas = zonas.drop(['fex'], axis=1)
             
             # Añadir geometrías al DataFrame
@@ -334,7 +335,7 @@ def create_zones_table():
     zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
     conn_insumos.close()
     print("Graba zonas en sql lite")
-
+    return zonas
 
 @duracion
 def create_voronoi_zones(res=8, max_zonas=15, show_map=False):

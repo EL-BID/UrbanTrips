@@ -137,9 +137,9 @@ def calculate_weighted_means(
 
 
 def normalize_vars(tabla):
-    # if 'dia' in tabla.columns:
-    #     tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Hábil'
-    #     tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
+    if 'dia' in tabla.columns:
+        tabla.loc[tabla.dia == 'weekday', 'dia'] = 'Hábil'
+        tabla.loc[tabla.dia == 'weekend', 'dia'] = 'Fin de semana'
     if 'day_type' in tabla.columns:
         tabla.loc[tabla.day_type == 'weekday', 'day_type'] = 'Hábil'
         tabla.loc[tabla.day_type == 'weekend', 'day_type'] = 'Fin de semana'
@@ -531,9 +531,20 @@ def create_data_folium(etapas,
         viajes = pd.DataFrame([])
         
     matriz = agg_matriz(viajes_matrices,
-                        aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
-                                        'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-                        weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                        aggregate_cols=['id_polygon', 
+                                        'zona', 
+                                        'Origen', 
+                                        'Destino',
+                                        'transferencia', 
+                                        'modo_agregado', 
+                                        'rango_hora', 
+                                        'distancia'],
+                        weight_col=['distance_osm_drive', 
+                                    'travel_time_min', 
+                                    'travel_speed'],
+                        zero_to_nan=['distance_osm_drive', 
+                           'travel_time_min', 
+                           'travel_speed'],
                         weight_var='factor_expansion_linea',
                         agg_transferencias=agg_transferencias,
                         agg_modo=agg_modo,
