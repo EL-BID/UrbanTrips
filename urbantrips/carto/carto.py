@@ -136,6 +136,7 @@ def guardo_zonificaciones():
     vars_zona = []
     
     if configs["zonificaciones"]:
+        print('Actualizo zonificaciones en db')
         zonificaciones = pd.DataFrame([])
         for n in range(0, 5):
             try:
