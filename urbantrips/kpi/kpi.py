@@ -479,20 +479,12 @@ def read_data_for_daily_kpi():
 
         return legs, gps
 
-    # get day with stats computed
-    processed_days_q = """
-    select distinct dia
-    from kpi_by_day_line
-    """
-    processed_days = pd.read_sql(processed_days_q, conn_data)
-    processed_days = processed_days.dia
-    processed_days = ", ".join([f"'{val}'" for val in processed_days])
-
     print("Leyendo datos de oferta")
     q = f"""
-    select * from gps
-    where dia not in ({processed_days})
-    order by dia, id_linea, interno, fecha
+    select g.* from gps g
+    JOIN dias_ultima_corrida d
+    ON g.dia = d.dia
+    order by g.dia, id_linea, interno, fecha
     """
     gps = pd.read_sql(q, conn_data)
 
@@ -501,8 +493,9 @@ def read_data_for_daily_kpi():
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
         e.h3_d, e.factor_expansion_linea
         from etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
         where e.od_validado==1
-        and dia not in ({processed_days})
     """
     legs = pd.read_sql(q, conn_data)
 
@@ -641,6 +634,17 @@ def compute_kpi_by_line_day(legs, gps):
 
     day_stats = day_stats.reindex(columns=cols)
 
+    # get last processed days
+    dias_ultima_corrida = pd.read_sql_query(
+        """SELECT * FROM dias_ultima_corrida""",
+        conn_data,
+    )
+    # borro si ya existen etapas de una corrida anterior
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+    query = f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+
     day_stats.to_sql(
         "kpi_by_day_line",
         conn_data,
@@ -746,54 +750,52 @@ def compute_kpi_by_service():
 
     print("Leyendo demanda por servicios validos")
     q_valid_services = """
-        with fechas_procesadas as (
-            select distinct dia from kpi_by_day_line_service
-        ),
-        demand as (
-            select e.id_tarjeta, e.id, id_linea, dia, interno,
-              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
-            e.h3_o,
-            e.h3_d, e.factor_expansion_linea
-            from etapas e
-            where od_validado = 1
-            and id_linea in (select distinct id_linea from gps)
-            and dia not in fechas_procesadas
-        ),
-        valid_services as (
-            select id_linea,dia,interno, service_id, min_ts, max_ts
-            from services
-            where valid = 1
-        ),
-        valid_demand as (
-            select d.*, s.service_id
-            from demand d
-            join valid_services s
-            on d.id_linea = s.id_linea
-            and d.dia = s.dia
-            and d.interno = s.interno
-            and d.ts >= s.min_ts
-            and d.ts <= s.max_ts
-            )
-            select * from valid_demand
-        ;
+        with demand as (
+                select e.id_tarjeta, e.id, id_linea, e.dia, interno,
+                    cast(strftime('%s',(e.dia||' '||tiempo)) as int) as ts, tiempo,
+                e.h3_o,
+                e.h3_d, e.factor_expansion_linea
+                from etapas e
+                JOIN dias_ultima_corrida d
+                ON e.dia = d.dia
+                where od_validado = 1
+                and id_linea in (select distinct id_linea from gps)
+            ),
+            valid_services as (
+                select id_linea,dia,interno, service_id, min_ts, max_ts
+                from services
+                where valid = 1
+            ),
+            valid_demand as (
+                select d.*, s.service_id
+                from demand d
+                join valid_services s
+                on d.id_linea = s.id_linea
+                and d.dia = s.dia
+                and d.interno = s.interno
+                and d.ts >= s.min_ts
+                and d.ts <= s.max_ts
+                )
+                select * from valid_demand
+            ;
         """
 
     valid_demand = pd.read_sql(q_valid_services, conn_data)
 
     print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
-        with fechas_procesadas as (
-            select distinct dia from kpi_by_day_line_service
-        ),
+        with 
         demand as (
-            select e.id_tarjeta, e.id, id_linea, dia, interno,
-              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
+            select e.id_tarjeta, e.id, e.id_linea, e.dia, e.interno,
+                cast(strftime('%s',(e.dia||' '||e.tiempo)) as int) as ts, e.tiempo,
             e.h3_o,
             e.h3_d, e.factor_expansion_linea
             from etapas e
+            JOIN dias_ultima_corrida d
+            ON e.dia = d.dia
             where od_validado = 1
             and id_linea in (select distinct id_linea from gps)
-            and dia not in fechas_procesadas
+
         ),
         valid_services as (
             select id_linea,dia,interno, service_id, min_ts, max_ts
@@ -812,7 +814,7 @@ def compute_kpi_by_service():
             ),
         legs_no_service as (
             select e.id_tarjeta, e.id, id_linea, dia, interno, ts,
-              tiempo, h3_o, h3_d,factor_expansion_linea
+                tiempo, h3_o, h3_d,factor_expansion_linea
             from invalid_demand e
             where service_id is null
         )
@@ -839,10 +841,6 @@ def compute_kpi_by_service():
     # add distances to demand data
     service_demand = add_distances_to_legs(legs=service_demand)
 
-    # TODO: remove this line when factor is corrected
-    service_demand["factor_expansion_linea"] = service_demand[
-        "factor_expansion_linea"
-    ].replace(0, 1)
     # compute demand stats
     service_demand_stats = service_demand.groupby(
         ["dia", "id_linea", "interno", "service_id"], as_index=False
@@ -895,6 +893,17 @@ def compute_kpi_by_service():
     ]
 
     service_stats = service_stats.reindex(columns=cols)
+
+    # get last processed days
+    dias_ultima_corrida = pd.read_sql_query(
+        """SELECT * FROM dias_ultima_corrida""",
+        conn_data,
+    )
+    # borro si ya existen etapas de una corrida anterior
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+    query = f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
 
     service_stats.to_sql(
         "kpi_by_day_line_service",

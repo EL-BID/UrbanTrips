@@ -87,7 +87,7 @@ def main():
     trips.compute_trips_travel_time()
 
     # Inferir route geometries based on legs data
-    routes.infer_routes_geoms(plotear_lineas=False)
+    routes.infer_routes_geoms()
 
     # Build final routes from official an inferred sources
     routes.build_routes_from_official_inferred()

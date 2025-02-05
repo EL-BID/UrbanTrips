@@ -77,11 +77,10 @@ def compute_route_section_supply(
 
     # delete old seciton load data
     yr_mos = gps.yr_mo.unique()
+    delete_old_supply_stats_by_section_id(
+        route_geoms, hour_range, day_type, yr_mos, db_type="data"
+    )
 
-    # ESTO SERIA GENERALIZABLE
-    # delete_old_route_section_load_data(
-    #    route_geoms, hour_range, day_type, yr_mos, db_type="data"
-    # )
     # compute section load
     print("Computing supply stats per route section ...")
 
@@ -105,17 +104,43 @@ def compute_route_section_supply(
 
         section_supply_stats_table["day_type"] = day_type
 
+        section_supply_stats_table = section_supply_stats_table.reindex(
+            columns=[
+                "id_linea",
+                "yr_mo",
+                "day_type",
+                "n_sections",
+                "section_meters",
+                "sentido",
+                "section_id",
+                "hour_min",
+                "hour_max",
+                "n_vehicles",
+                "avg_speed",
+                "median_speed",
+                "frequency",
+                "frequency_interval",
+            ]
+        )
+
+        conn_data = iniciar_conexion_db(tipo="data")
+        print("Uploading data to db...")
+        section_supply_stats_table.to_sql(
+            "supply_stats_by_section_id",
+            conn_data,
+            if_exists="append",
+            index=False,
+        )
+        conn_data.close()
+    else:
+        print("No existen recorridos o etapas para las líneas")
+        print("Cantidad de lineas:", len(line_ids))
+        print("Cantidad de recorridos", len(route_geoms))
+        print("Cantidad de puntos gps", len(gps))
     return section_supply_stats_table
 
 
 def compute_section_supply_stats(gps, route_geoms):
-    # compute_section_load_table TOMAR ESTA
-    # EN BASE A LO QUE CALCULE VER LO DE delete_old_route_section_load_data
-
-    # id_linea|yr_mo  |day_type|n_sections|section_meters|sentido|section_id|hour_min|hour_max|n_vehicles|avg_speed
-
-    # DISTANCIA: si un punto gps esta demasiado lejos de la seccion, no se considera
-    # def compute_section_supply_stats(gps, route_geoms, hour_range, day_type):
     line_id = gps.id_linea.unique()[0]
     print(f"Calculando estadisticos de oferta por tramo para linea id {line_id}")
 
@@ -207,6 +232,17 @@ def compute_section_supply_stats(gps, route_geoms):
         )
         section_supply_stats["n_sections"] = n_sections
         section_supply_stats["section_meters"] = section_meters
+        # Create the frequency column
+        section_supply_stats["frequency"] = 60 / section_supply_stats["n_vehicles"]
+        labels = [f"{i} - {i+5} min" for i in range(0, 60, 5)]
+
+        # Group the frequency into intervals of 5 minutes
+        section_supply_stats["frequency_interval"] = pd.cut(
+            section_supply_stats["frequency"],
+            bins=range(0, 65, 5),
+            right=False,
+            labels=labels,
+        )
 
     return section_supply_stats
 
@@ -272,3 +308,54 @@ def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
         gps = gps.loc[(gps.hora >= hour_range[0]) & (gps.hora <= hour_range[1]), :]
 
     return gps
+
+
+def delete_old_supply_stats_by_section_id(
+    route_geoms, hour_range, day_type, yr_mos, db_type="data"
+):
+    """
+    Deletes old data in table ocupacion_por_linea_tramo
+    """
+    table_name = "supply_stats_by_section_id"
+
+    if db_type == "data":
+        conn = iniciar_conexion_db(tipo="data")
+    else:
+        conn = iniciar_conexion_db(tipo="dash")
+
+    # hour range filter
+    if hour_range:
+        hora_min_filter = f"= {hour_range[0]}"
+        hora_max_filter = f"= {hour_range[1]}"
+    else:
+        hora_min_filter = "is NULL"
+        hora_max_filter = "is NULL"
+
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
+    for yr_mo in yr_mos:
+        for _, row in delete_df.iterrows():
+            # Delete old data for those parameters
+            print(f"Borrando datos antiguos de {table_name}")
+            print(row.id_linea)
+            print(f"{row.n_sections} secciones")
+            print(yr_mo)
+            if hour_range:
+                print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
+
+            q_delete = f"""
+                delete from {table_name}
+                where id_linea = {row.id_linea} 
+                and hour_min {hora_min_filter}
+                and hour_max {hora_max_filter}
+                and day_type = '{day_type}'
+                and n_sections = {row.n_sections}
+                and yr_mo = '{yr_mo}';
+                """
+
+            cur = conn.cursor()
+            cur.execute(q_delete)
+            conn.commit()
+
+    conn.close()
+    print("Fin borrado datos previos")

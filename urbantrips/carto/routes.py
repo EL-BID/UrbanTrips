@@ -1,4 +1,3 @@
-from urbantrips.viz.viz import plotear_recorrido_lowess
 import os
 import pandas as pd
 import geopandas as gpd
@@ -12,7 +11,6 @@ import warnings
 from math import floor
 
 from urbantrips.geo import geo
-from urbantrips.carto import carto
 from urbantrips.utils.utils import (
     leer_configs_generales,
     duracion,
@@ -93,7 +91,7 @@ def process_routes_geoms():
 
 
 @duracion
-def infer_routes_geoms(plotear_lineas):
+def infer_routes_geoms(plotear_lineas=False):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
     de las lineas y lo guarda en la db
@@ -109,6 +107,8 @@ def infer_routes_geoms(plotear_lineas):
     etapas = pd.read_sql(q, conn_data)
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
+    """
+    from urbantrips.viz.viz import plotear_recorrido_lowess
 
     if plotear_lineas:
         print("Imprimiento bosquejos de lineas")
@@ -117,7 +117,7 @@ def infer_routes_geoms(plotear_lineas):
             plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
             for id_linea in recorridos_lowess.id_linea
         ]
-
+    """
     print("Subiendo recorridos a la db...")
     recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
 
