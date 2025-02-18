@@ -142,9 +142,8 @@ def viz_route_section_frequency(
     section_ids = df.section_id.unique()
     print("Produciendo grafico de estimación de frecuencias por tramos", line_id)
 
-    df["buff_factor"] = standarize_size(
-        series=df["frequency"], min_size=factor_min, max_size=factor
-    )
+    df["buff_factor"] = (factor + factor_min) / 2
+    # standarize_size(series=df["frequency"], min_size=factor_min, max_size=factor)
     cols = [
         "id_linea",
         "yr_mo",
@@ -385,7 +384,8 @@ def viz_route_section_speed(
     """
 
     conn_insumos = iniciar_conexion_db(tipo="insumos")
-    indicator_col = "median_speed"
+    indicator_col = "speed_interval"
+
     line_id = df.id_linea.unique().item()
     n_sections = df.n_sections.unique().item()
     mes = df.yr_mo.unique().item()
@@ -410,9 +410,9 @@ def viz_route_section_speed(
 
     section_ids = df.section_id.unique()
     print("Produciendo grafico de velocidad promedio por tramos", line_id)
-    df["buff_factor"] = standarize_size(
-        series=df[indicator_col], min_size=factor_min, max_size=factor
-    )
+    df["buff_factor"] = (factor + factor_min) / 2
+    # standarize_size(series=df["frequency"], min_size=factor_min, max_size=factor)
+
     cols = [
         "id_linea",
         "yr_mo",
@@ -425,6 +425,7 @@ def viz_route_section_speed(
         "n_vehicles",
         "avg_speed",
         "median_speed",
+        "speed_interval",
         "frequency",
         "frequency_interval",
         "buff_factor",
@@ -508,22 +509,22 @@ def viz_route_section_speed(
         gdf_d0.plot(
             ax=ax1,
             column=indicator_col,
-            cmap="BuPu",
-            scheme="fisherjenks",
-            k=5,
+            cmap="RdYlGn_r",
+            categorical=True,
             alpha=0.6,
+            legend=True,
         )
         gdf_d1.plot(
             ax=ax2,
             column=indicator_col,
-            cmap="Oranges",
-            scheme="fisherjenks",
-            k=5,
+            cmap="RdYlGn_r",
+            categorical=True,
             alpha=0.6,
+            legend=True,
         )
     except ValueError:
-        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="BuPu", alpha=0.6)
-        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="Oranges", alpha=0.6)
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn_r", alpha=0.6)
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn_r", alpha=0.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
@@ -596,21 +597,22 @@ def viz_route_section_speed(
         df_d0 = df_d0.sort_values("section_id", ascending=False)
         df_d1 = df_d1.sort_values("section_id", ascending=False)
 
+    bar_variable = "avg_speed"
     sns.barplot(
         data=df_d0,
         x="section_id",
-        y=indicator_col,
+        y=bar_variable,
         ax=ax3,
-        color="Purple",
+        color="Grey",
         order=df_d0.section_id.values,
     )
 
     sns.barplot(
         data=df_d1,
         x="section_id",
-        y=indicator_col,
+        y=bar_variable,
         ax=ax4,
-        color="Orange",
+        color="Grey",
         order=df_d1.section_id.values,
     )
 
@@ -626,7 +628,8 @@ def viz_route_section_speed(
 
     ax4.set_ylabel("")
     ax4.set_xlabel("")
-    max_y_barplot = max(df_d0[indicator_col].max(), df_d1[indicator_col].max())
+    max_y_barplot = max(df_d0[bar_variable].max(), df_d1[bar_variable].max())
+
     ax3.set_ylim(0, max_y_barplot)
     ax4.set_ylim(0, max_y_barplot)
 
@@ -677,7 +680,7 @@ def viz_route_section_speed(
         va="center",
         ha="center",
         xycoords="axes fraction",
-        arrowprops=dict(facecolor="Purple", shrink=0.05, edgecolor="Purple"),
+        arrowprops=dict(facecolor="Grey", shrink=0.05, edgecolor="Grey"),
     )
     ax4.annotate(
         "Sentido",
@@ -687,7 +690,7 @@ def viz_route_section_speed(
         va="center",
         ha="center",
         xycoords="axes fraction",
-        arrowprops=dict(facecolor="Orange", shrink=0.05, edgecolor="Orange"),
+        arrowprops=dict(facecolor="Grey", shrink=0.05, edgecolor="Grey"),
     )
 
     prov = cx.providers.CartoDB.Positron

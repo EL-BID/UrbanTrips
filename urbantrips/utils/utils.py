@@ -1360,6 +1360,7 @@ def create_kpi_tables():
         n_vehicles int,
         avg_speed float,
         median_speed float,
+        speed_interval float,
         frequency float,
         frequency_interval text
         )

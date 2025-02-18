@@ -118,6 +118,7 @@ def compute_route_section_supply(
                 "n_vehicles",
                 "avg_speed",
                 "median_speed",
+                "speed_interval",
                 "frequency",
                 "frequency_interval",
             ]
@@ -234,11 +235,20 @@ def compute_section_supply_stats(gps, route_geoms):
         section_supply_stats["section_meters"] = section_meters
         # Create the frequency column
         section_supply_stats["frequency"] = 60 / section_supply_stats["n_vehicles"]
-        labels = [f"{i} - {i+5} min" for i in range(0, 60, 5)]
 
+        labels = [f"{i} - {i+5} min" for i in range(0, 60, 5)]
         # Group the frequency into intervals of 5 minutes
         section_supply_stats["frequency_interval"] = pd.cut(
             section_supply_stats["frequency"],
+            bins=range(0, 65, 5),
+            right=False,
+            labels=labels,
+        )
+
+        labels = [f"{i} - {i+5} kmh" for i in range(0, 60, 5)]
+        # Group the speed into intervals of 5 kmh
+        section_supply_stats["speed_interval"] = pd.cut(
+            section_supply_stats["avg_speed"],
             bins=range(0, 65, 5),
             right=False,
             labels=labels,

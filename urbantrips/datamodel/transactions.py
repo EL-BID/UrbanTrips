@@ -812,7 +812,9 @@ def process_and_upload_gps_table(
                 "Revisar el configs para servicios_gps"
             )
 
-    # compute distance between gps points if there is no distance provided
+    if "distance" not in gps.columns:
+        gps["distance"] = None
+
     if gps["distance"].isna().all():
         gps = compute_distance_km_gps(gps, use_pandana=True)
     else:
