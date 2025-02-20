@@ -620,10 +620,11 @@ def test_section_load_viz(matriz_validacion_test_amba):
     # Fix trips with same OD
     trips.rearrange_trip_id_same_od()
 
+    carto.guardo_zonificaciones()
+
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
-    carto.create_zones_table()
     # Infer route geometries based on legs data
     routes.infer_routes_geoms(plotear_lineas=False)
 
@@ -685,10 +686,10 @@ def test_viz(matriz_validacion_test_amba):
     # Fix trips with same OD
     trips.rearrange_trip_id_same_od()
 
+    carto.guardo_zonificaciones()
+
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
-
-    carto.create_zones_table()
 
     carto.create_voronoi_zones()
 
@@ -829,6 +830,8 @@ def test_gps(matriz_validacion_test_amba):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs()
 
+    carto.guardo_zonificaciones()
+
     carto.create_distances_table(use_parallel=True)
 
     distancias = pd.read_sql("select * from distancias;", conn_insumos)
@@ -850,8 +853,6 @@ def test_gps(matriz_validacion_test_amba):
     assert kpi_df.tot_veh.iloc[0] == 2
     assert kpi_df.dmt_mean.iloc[0] == mean_distances
     assert kpi_df.tot_pax.iloc[0] == tot_pax
-
-    carto.create_zones_table()
 
     # Persist datamodel into csv tables
     misc.persist_datamodel_tables()

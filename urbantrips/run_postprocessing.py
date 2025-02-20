@@ -9,9 +9,6 @@ def main():
 
     # Save zonification cartography in db
     carto.guardo_zonificaciones()    
-
-    # Create zones_table
-    carto.create_zones_table()
     
     # Create voronoi TAZs
     carto.create_voronoi_zones()

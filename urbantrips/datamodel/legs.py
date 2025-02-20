@@ -176,7 +176,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
     """
     conn = iniciar_conexion_db(tipo="data")
 
-    print("Creando nuevos id tajetas para trx simultaneas")
+    print("Creando nuevos id tarjetas para trx simultaneas")
     trx_c = trx.copy()
 
     trx_c, tarjetas_duplicadas = pago_doble_tarjeta(trx_c, trx_order_params)
@@ -244,19 +244,25 @@ def pago_doble_tarjeta(trx, trx_order_params):
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
 
-    trx["interno2"] = trx["interno"]
-    trx["interno2"] = trx["interno2"].fillna(0)
+    # trx["interno2"] = trx["interno"]
+    # trx["interno2"] = trx["interno2"].fillna(0)
 
+    # trx = trx.sort_values(
+    #     ["dia", "id_tarjeta", "id_linea", "interno2", "fecha_aux", "orden_trx"]
+    # ).reset_index(drop=True)
     trx = trx.sort_values(
-        ["dia", "id_tarjeta", "id_linea", "interno2", "fecha_aux", "orden_trx"]
+        ["dia", "id_tarjeta", "id_linea", "fecha_aux", "orden_trx"]
     ).reset_index(drop=True)
 
     trx["datetime_proximo"] = trx["fecha_aux"].shift(-1)
 
     trx["diff_datetime"] = (trx.fecha_aux - trx.datetime_proximo).abs()
 
+    # trx["diff_datetime2"] = trx.groupby(
+    #     ["dia", "id_tarjeta", "id_linea", "interno2"]
+    # ).diff_datetime.shift(+1)
     trx["diff_datetime2"] = trx.groupby(
-        ["dia", "id_tarjeta", "id_linea", "interno2"]
+        ["dia", "id_tarjeta", "id_linea"]
     ).diff_datetime.shift(+1)
 
     trx["nro"] = np.nan
@@ -265,9 +271,13 @@ def pago_doble_tarjeta(trx, trx_order_params):
     ] = 0
 
     while len(trx[trx.nro.isna()]) > 0:
+        # trx["nro2"] = (
+        #     trx.groupby(["dia", "id_tarjeta", "id_linea", "interno2"]).nro.shift(+1) + 1
+        # )
         trx["nro2"] = (
-            trx.groupby(["dia", "id_tarjeta", "id_linea", "interno2"]).nro.shift(+1) + 1
+            trx.groupby(["dia", "id_tarjeta", "id_linea"]).nro.shift(+1) + 1
         )
+
         trx.loc[trx.nro.isna() & (trx.nro2.notna()), "nro"] = trx.loc[
             trx.nro.isna() & (trx.nro2.notna()), "nro2"
         ]

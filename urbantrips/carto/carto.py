@@ -11,11 +11,12 @@ import itertools
 import os
 import geopandas as gpd
 import h3
+from shapely.geometry import Point, MultiPolygon, Polygon
 from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
     get_stop_hex_ring,
-    h3togeo,
+    h3togeo, h3_from_row,
     add_geometry,
     create_voronoi,
     normalizo_lat_lon,
@@ -27,7 +28,7 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    leer_alias,
+    leer_alias, levanto_tabla_sql, guardar_tabla_sql
 )
 
 import subprocess
@@ -123,6 +124,11 @@ def update_stations_catchment_area(ring_size):
         )
     return None
 
+def h3_to_polygon(h3_index):
+    # Obtener las coordenadas del hexágono
+    boundary = h3.h3_to_geo_boundary(h3_index, geo_json=True)
+    return Polygon(boundary)
+
 def guardo_zonificaciones():
     configs = leer_configs_generales()
     alias = leer_alias()
@@ -130,6 +136,7 @@ def guardo_zonificaciones():
     vars_zona = []
     
     if configs["zonificaciones"]:
+        print('Actualizo zonificaciones en db')
         zonificaciones = pd.DataFrame([])
         for n in range(0, 5):
             try:
@@ -189,8 +196,53 @@ def guardo_zonificaciones():
                                  conn_insumos, if_exists="replace", index=False,)
             zonificaciones.to_sql("zonificaciones",
                          conn_dash, if_exists="replace", index=False,)
-    
-        
+            
+            zonificaciones = levanto_tabla_sql('zonificaciones', 'insumos')
+            zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
+            zonificaciones['all'] = 1
+            zonificaciones = zonificaciones[['all', 'geometry']].dissolve(by='all')
+            
+            zonas = create_zones_table()
+            
+            zonas = zonas.drop(['fex'], axis=1)
+            
+            # Añadir geometrías al DataFrame
+            zonas['geometry'] = zonas['h3'].apply(h3_to_polygon)
+            
+            # Convertir a GeoDataFrame
+            zonas = gpd.GeoDataFrame(zonas, geometry='geometry', crs='EPSG:4326')
+            
+            # Mostrar el GeoDataFrame
+            
+            zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
+            zonas = zonas.drop(['geometry'], axis=1)
+            guardar_tabla_sql(zonas, 'equivalencia_zonas', 'dash')
+            
+            # Agrego res_6 y res_8 en zonificaciones
+            zonificaciones = levanto_tabla_sql('zonificaciones', 'insumos')
+            zonificaciones = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_8']))]
+
+            res_6 = generate_h3_hexagons_within_polygon(zonificaciones, 6)    
+            res_8 = upscale_h3_resolution(res_6, 8)
+            res_6['zona'] = 'res_6'
+            res_6['orden'] = 0
+            res_6 = res_6.rename(columns={'h3_index':'id'})
+            res_6 = res_6[['zona', 'id', 'orden','geometry']]
+            res_8['zona'] = 'res_8'
+            res_8['orden'] = 0
+            res_8 = res_8.rename(columns={'h3_index':'id'})
+            res_8 = res_8[['zona', 'id', 'orden','geometry']]
+            zonificaciones = pd.concat([zonificaciones, res_6, res_8], ignore_index=True)
+
+            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
+            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
+            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+
+            zonificaciones.to_sql("zonificaciones",
+                     conn_insumos, if_exists="replace", index=False,)
+            zonificaciones.to_sql("zonificaciones",
+                         conn_dash, if_exists="replace", index=False,)
+            
             conn_insumos.close()
             conn_dash.close()
             
@@ -304,11 +356,14 @@ def create_zones_table():
             except (KeyError, TypeError):
                 pass
 
+    zonas["res_8"] = zonas.apply(h3_from_row, axis=1, args=(8, "latitud", "longitud"))
+    zonas["res_6"] = zonas.apply(h3_from_row, axis=1, args=(6, "latitud", "longitud"))
+
     zonas = zonas.drop(["geometry"], axis=1)
     zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
     conn_insumos.close()
     print("Graba zonas en sql lite")
-
+    return zonas
 
 @duracion
 def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
@@ -853,3 +908,72 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     except NetworkXNoPath:
         out = np.nan
     return out
+
+def generate_h3_hexagons_within_polygon(geo_df, resolution):
+    """
+    Genera un GeoDataFrame con hexágonos H3 dentro del polígono dado.
+
+    Parameters:
+        geo_df (GeoDataFrame): GeoDataFrame que contiene el polígono de entrada.
+        resolution (int): Resolución H3 deseada (0-15).
+
+    Returns:
+        GeoDataFrame: Nuevo GeoDataFrame con hexágonos H3 dentro del polígono.
+    """
+    # Asegurarse de que el GeoDataFrame usa el CRS correcto (WGS84 - EPSG:4326)
+    geo_df = geo_df.to_crs("EPSG:4326")
+
+    # Convertir la geometría del GeoDataFrame en un único polígono o multipolígono
+    polygon = geo_df.geometry.iloc[0]
+
+    # Asegurar que sea un Polygon o MultiPolygon
+    if isinstance(polygon, MultiPolygon):
+        # Combinar en un único polígono si hay varios
+        polygon = max(polygon.geoms, key=lambda p: p.area)  # Seleccionar el más grande
+    elif not isinstance(polygon, Polygon):
+        raise ValueError("La geometría proporcionada debe ser un Polygon o MultiPolygon.")
+
+    # Obtener los hexágonos que cubren el polígono
+    hexagons = list(h3.polyfill_geojson(polygon.__geo_interface__, resolution))
+
+    # Crear un GeoDataFrame con los hexágonos dentro del polígono
+    hexagon_geometries = []
+    for h in hexagons:
+        hex_polygon = Polygon(h3.h3_to_geo_boundary(h, geo_json=True))
+        if polygon.contains(hex_polygon.centroid):
+            hexagon_geometries.append(hex_polygon)
+
+    # Crear un GeoDataFrame con los hexágonos seleccionados
+    hexagon_gdf = gpd.GeoDataFrame({"h3_index": [h for h in hexagons if Polygon(h3.h3_to_geo_boundary(h, geo_json=True)).centroid.within(polygon)]},
+                                   geometry=hexagon_geometries, crs="EPSG:4326")
+
+    return hexagon_gdf
+
+def upscale_h3_resolution(hexagon_gdf, target_resolution):
+    """
+    Aumenta la resolución de hexágonos H3 en un GeoDataFrame.
+
+    Parameters:
+        hexagon_gdf (GeoDataFrame): GeoDataFrame con hexágonos H3 en una resolución inicial.
+        target_resolution (int): Resolución H3 objetivo.
+
+    Returns:
+        GeoDataFrame: GeoDataFrame con los hexágonos en la resolución objetivo.
+    """
+    # Validar que la resolución objetivo sea mayor que la resolución actual
+    current_resolution = h3.h3_get_resolution(hexagon_gdf["h3_index"].iloc[0])
+    if target_resolution <= current_resolution:
+        raise ValueError("La resolución objetivo debe ser mayor que la resolución actual.")
+
+    # Generar los hijos para cada hexágono
+    hexagon_children = []
+    for h3_index in hexagon_gdf["h3_index"]:
+        children = h3.h3_to_children(h3_index, target_resolution)
+        for child in children:
+            hex_polygon = Polygon(h3.h3_to_geo_boundary(child, geo_json=True))
+            hexagon_children.append({"h3_index": child, "geometry": hex_polygon})
+
+    # Crear el nuevo GeoDataFrame
+    upscale_gdf = gpd.GeoDataFrame(hexagon_children, crs=hexagon_gdf.crs)
+
+    return upscale_gdf

@@ -92,36 +92,46 @@ def weighted_mean(series, weights):
     return result
 
 
-def calculate_weighted_means(df,
-                             aggregate_cols,
-                             weighted_mean_cols,
-                             weight_col,
-                             zero_to_nan=[]):
-
+def calculate_weighted_means(
+    df_,
+    aggregate_cols,
+    weighted_mean_cols,
+    weight_col,
+    zero_to_nan=[],
+    var_fex_summed=True,
+):
+    df = df_.copy()
     for i in zero_to_nan:
         df.loc[df[i] == 0, i] = np.nan
 
-    calculate_weighted_means    # Validate inputs
+    # calculate_weighted_means  # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError(
-            "One or more columns specified do not exist in the DataFrame.")
+        raise ValueError("One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])
     # Calculate the product of the value and its weight for weighted mean calculation
     for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f'{col}_weighted'] = df.loc[df[col].notna(
-        ), col] * df.loc[df[col].notna(), weight_col]
-        grouped = df.loc[df[col].notna()].groupby(aggregate_cols, as_index=False)[
-            [f'{col}_weighted', weight_col]].sum()
-        grouped[col] = grouped[f'{col}_weighted'] / grouped[weight_col]
-        grouped = grouped.drop([f'{col}_weighted', weight_col], axis=1)
+        df.loc[df[col].notna(), f"{col}_weighted"] = (
+            df.loc[df[col].notna(), col] * df.loc[df[col].notna(), weight_col]
+        )
+        grouped = (
+            df.loc[df[col].notna()]
+            .groupby(aggregate_cols, as_index=False)[[f"{col}_weighted", weight_col]]
+            .sum()
+        )
+        grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
+        grouped = grouped.drop([f"{col}_weighted", weight_col], axis=1)
 
         if len(result) == 0:
             result = grouped.copy()
         else:
-            result = result.merge(grouped, how='left', on=aggregate_cols)
+            result = result.merge(grouped, how="left", on=aggregate_cols)
 
-    fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
-    result = result.merge(fex_summed, how='left', on=aggregate_cols)
+    if var_fex_summed:
+        fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+        result = result.merge(fex_summed, how="left", on=aggregate_cols)
+    else:
+        fex_mean = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
+        result = result.merge(fex_mean, how="left", on=aggregate_cols)
 
     return result
 
@@ -176,7 +186,34 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=''):
 
     return tabla
 
+def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=''):
 
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
+
+    try:
+        if len(query) == 0:
+            query = f"""
+            SELECT *
+            FROM {tabla_sql}
+            """
+
+        tabla = pd.read_sql_query( query, conn )
+    except:
+        print(f"{tabla_sql} no existe")
+        tabla = pd.DataFrame([])
+
+    conn.close()
+
+    if len(tabla) > 0:
+        if "wkt" in tabla.columns:
+            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+            tabla = gpd.GeoDataFrame(tabla, crs=4326)
+            tabla = tabla.drop(["wkt"], axis=1)
+
+    tabla = normalize_vars(tabla)
+
+    return tabla
+    
 @st.cache_data
 def get_logo():
     file_logo = os.path.join(
@@ -242,10 +279,21 @@ def calculate_weighted_means_ods(df,
 
 
 def agg_matriz(df,
-               aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
-                               'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-               weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+               aggregate_cols=['id_polygon', 
+                               'zona', 
+                               'Origen', 
+                               'Destino',
+                               'transferencia', 
+                               'modo_agregado', 
+                               'rango_hora', 
+                               'distancia'],
+               weight_col=['distance_osm_drive', 
+                           'travel_time_min', 
+                           'travel_speed'],
                weight_var='factor_expansion_linea',               
+               zero_to_nan=['distance_osm_drive', 
+                           'travel_time_min', 
+                           'travel_speed'],
                agg_transferencias=False,
                agg_modo=False,
                agg_hora=False,
@@ -266,8 +314,8 @@ def agg_matriz(df,
         df2 = calculate_weighted_means(df,
                               aggregate_cols=aggregate_cols,
                               weighted_mean_cols=weight_col,
-                              weight_col=weight_var
-                              )
+                              weight_col=weight_var,
+                              zero_to_nan=zero_to_nan)
         df = df1.merge(df2)
 
 
@@ -362,14 +410,14 @@ def create_data_folium(etapas,
                        agg_distancia=False,
                        agg_cols_etapas=[],
                        agg_cols_viajes=[],
-                       desc_etapas = True,
-                       desc_viajes = True,
-                       desc_origenes = True,
-                       desc_destinos = True,
-                       desc_transferencias = False):
+                       etapas_seleccionada = True,
+                       viajes_seleccionado = True,
+                       origenes_seleccionado = True,
+                       destinos_seleccionado = True,
+                       transferencias_seleccionado = False):
     
 
-    if desc_transferencias:
+    if transferencias_seleccionado:
 
         t1 = etapas.loc[etapas.transfer1_norm!='', ['zona', 
                                                     'transfer1_norm', 
@@ -411,10 +459,11 @@ def create_data_folium(etapas,
                                 od='transfer',
                                 lat='lat_norm',
                                 lon='lon_norm')
+        transferencias['factor_expansion_linea'] = transferencias['factor_expansion_linea'].round(0)
     else:
         transferencias = pd.DataFrame([])
     
-    if desc_etapas | desc_transferencias:
+    if etapas_seleccionada | transferencias_seleccionado:
         etapas = calculate_weighted_means_ods(etapas,
                                               agg_cols_etapas,
                                               ['distance_osm_drive', 'lat1_norm', 'lon1_norm', 'lat2_norm',
@@ -446,8 +495,9 @@ def create_data_folium(etapas,
                                lat_cols=['lat1_norm', 'lat2_norm', 'lat3_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon2_norm', 'lon3_norm', 'lon4_norm'])
 
         etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
+        etapas['factor_expansion_linea'] = etapas['factor_expansion_linea'].round(0)
 
-    if desc_viajes:
+    if viajes_seleccionado:
         viajes = calculate_weighted_means_ods(etapas,
                                               agg_cols_viajes,
                                               ['distance_osm_drive',
@@ -476,19 +526,33 @@ def create_data_folium(etapas,
                                    lat_cols=['lat1_norm', 'lat4_norm'], lon_cols=['lon1_norm', 'lon4_norm'])
 
         viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+        viajes['factor_expansion_linea'] = viajes['factor_expansion_linea'].round(0)
     else:
         viajes = pd.DataFrame([])
         
     matriz = agg_matriz(viajes_matrices,
-                        aggregate_cols=['id_polygon', 'zona', 'Origen', 'Destino',
-                                        'transferencia', 'modo_agregado', 'rango_hora', 'distancia'],
-                        weight_col=['distance_osm_drive', 'travel_time_min', 'travel_speed'],
+                        aggregate_cols=['id_polygon', 
+                                        'zona', 
+                                        'Origen', 
+                                        'Destino',
+                                        'transferencia', 
+                                        'modo_agregado', 
+                                        'rango_hora', 
+                                        'distancia'],
+                        weight_col=['distance_osm_drive', 
+                                    'travel_time_min', 
+                                    'travel_speed'],
+                        zero_to_nan=['distance_osm_drive', 
+                           'travel_time_min', 
+                           'travel_speed'],
                         weight_var='factor_expansion_linea',
                         agg_transferencias=agg_transferencias,
                         agg_modo=agg_modo,
                         agg_hora=agg_hora,
                         agg_distancia=agg_distancia)
-
+    
+    matriz['factor_expansion_linea'] = matriz['factor_expansion_linea'].round(0)
+    
     if ('poly_inicio' in viajes_matrices.columns) | ('poly_fin' in viajes_matrices.columns):
         bubble_cols_o = ['id_polygon', 'zona', 'inicio', 'poly_inicio',
                          'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
@@ -500,7 +564,7 @@ def create_data_folium(etapas,
         bubble_cols_d = ['id_polygon', 'zona', 'fin',
                          'transferencia', 'modo_agregado', 'rango_hora', 'distancia']
 
-    if desc_origenes:
+    if origenes_seleccionado:
         origen = creo_bubble_od(viajes_matrices,
                                 aggregate_cols=bubble_cols_o,
                                 weighted_mean_cols=['lat1', 'lon1'],
@@ -512,10 +576,11 @@ def create_data_folium(etapas,
                                 od='inicio',
                                 lat='lat1',
                                 lon='lon1')
+        origen['factor_expansion_linea'] = origen['factor_expansion_linea'].round()
     else:
         origen = pd.DataFrame([])
 
-    if desc_destinos:
+    if destinos_seleccionado:
         destino = creo_bubble_od(viajes_matrices,
                                  aggregate_cols=bubble_cols_d,
                                  weighted_mean_cols=['lat4', 'lon4'],
@@ -527,10 +592,11 @@ def create_data_folium(etapas,
                                  od='fin',
                                  lat='lat4',
                                  lon='lon4')
+        destino['factor_expansion_linea'] = destino['factor_expansion_linea'].round(0)
     else:
         destino = pd.DataFrame([])
 
-    if not desc_etapas:
+    if not etapas_seleccionada:
         etapas = pd.DataFrame([])
 
 
@@ -607,14 +673,13 @@ def bring_latlon():
     return latlon
 
 @st.cache_data
-def traigo_zonas_values(tipo = 'etapas'):
+def traigo_lista_zonas(tipo = 'etapas'):
 
     if tipo == 'etapas':
         table = 'agg_etapas'        
     else:
         table = 'poly_etapas'
-        
-    
+
     query = f"""
             SELECT DISTINCT zona, inicio_norm FROM {table}
             UNION
@@ -636,3 +701,210 @@ def get_h3_indices_in_geometry(geometry, resolution):
     geojson = mapping(geometry)
     h3_indices = list(h3.polyfill(geojson, resolution, geo_json_conformant=True))
     return h3_indices
+
+
+def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2_col):
+    """
+    Normaliza las zonas para que los pares inicio/fin siempre estén ordenados de forma consistente,
+    dejando sin cambios los registros donde inicio_col o fin_col estén vacíos (="").
+    """
+    # Máscara para identificar registros válidos (sin valores vacíos)
+    mask_valid = (df[inicio_col] != "") & (df[fin_col] != "")
+    
+    # Máscara para el orden correcto (solo en registros válidos)
+    mask_order = mask_valid & (df[inicio_col] < df[fin_col])
+    
+    # Asignar valores normalizados columna por columna
+    df[f'{inicio_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[inicio_col], df[fin_col]),
+        df[inicio_col]
+    )
+    df[f'{lat1_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[lat1_col], df[lat2_col]),
+        df[lat1_col]
+    )
+    df[f'{lon1_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[lon1_col], df[lon2_col]),
+        df[lon1_col]
+    )
+    df[f'{fin_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[fin_col], df[inicio_col]),
+        df[fin_col]
+    )
+    df[f'{lat2_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[lat2_col], df[lat1_col]),
+        df[lat2_col]
+    )
+    df[f'{lon2_col}_norm'] = np.where(
+        mask_valid,
+        np.where(mask_order, df[lon2_col], df[lon1_col]),
+        df[lon2_col]
+    )
+    
+    return df
+
+
+def traigo_tablas_con_filtros(mes, tipo_dia, var_zonif, var_filtro1, det_filtro1, var_filtro2, det_filtro2, zonas, zonificaciones):    
+
+    lst1 = zonas[zonas[var_filtro1] == det_filtro1].h3.unique().tolist()
+    lst2 = zonas[zonas[var_filtro2] == det_filtro2].h3.unique().tolist()
+        
+    conn = iniciar_conexion_db(tipo='dash')
+    
+    cursor = conn.cursor()
+
+    # Crear marcadores de posición para SQL
+    placeholders1 = ", ".join(["?"] * len(lst1))  # Para lista origen
+    placeholders2 = ", ".join(["?"] * len(lst2))  # Para lista destino
+    
+    # Parámetros de la consulta
+    params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
+    
+    # Consulta SQL
+    query = f"""
+    SELECT * FROM agg_etapas 
+    WHERE zona = 'res_8'
+    AND mes = ? 
+    AND tipo_dia = ? 
+    AND (
+        (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+        AND 
+        (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+    );
+    """
+    # Ejecutar consulta
+    agg_etapas = pd.read_sql_query(query, conn, params=params)
+    
+    
+    if len(agg_etapas) > 0:
+        zonas_renamed = zonas[['h3', 'latitud', 'longitud', var_zonif]]
+        
+        for i, z in enumerate(['inicio', 'transfer1', 'transfer2', 'fin'], start=1):
+            zonas_temp = zonas_renamed.rename(
+                columns={
+                    'h3': f'{z}_norm',
+                    'latitud': f'lat{i}',
+                    'longitud': f'lon{i}',
+                    var_zonif: z
+                }
+            )
+            agg_etapas = agg_etapas.merge(zonas_temp, how='left')
+            agg_etapas[z] = agg_etapas[z].fillna('')
+        
+        # Filtros innecesarios en un solo paso
+        agg_etapas = agg_etapas[
+            ~(((agg_etapas.inicio == '') & (agg_etapas.inicio_norm != '')) |
+              ((agg_etapas.fin == '') & (agg_etapas.fin_norm != '')) |
+              ((agg_etapas.transfer1 == '') & (agg_etapas.transfer1_norm != '')) |
+              ((agg_etapas.transfer2 == '') & (agg_etapas.transfer2_norm != '')))
+        ]
+    
+        
+        aggregate_cols = ['mes', 
+                          'tipo_dia', 
+                          'inicio', 
+                          'transfer1', 
+                          'transfer2', 
+                          'fin', 
+                          'zona', 
+                          'transferencia', 
+                          'modo_agregado',
+                          'rango_hora', 
+                          'genero', 
+                          'tarifa', 
+                          'coincidencias', 
+                          'distancia',] 
+        weighted_mean_cols=['distance_osm_drive',                                 
+                            'travel_time_min', 
+                            'travel_speed', 
+                            'lat1', 
+                            'lon1', 
+                            'lat2', 
+                            'lon2', 
+                            'lat3', 
+                            'lon3', 
+                            'lat4', 
+                            'lon4',
+                             ]
+        zero_to_nan = ['lat1',
+                       'lon1',
+                       'lat2',
+                       'lon2',
+                       'lat3',
+                       'lon3',
+                       'lat4',
+                       'lon4',
+                       'distance_osm_drive',                                 
+                       'travel_time_min', 
+                       'travel_speed',]
+        
+        agg_etapas = calculate_weighted_means(agg_etapas,
+                                    aggregate_cols=aggregate_cols,
+                                    weighted_mean_cols=weighted_mean_cols,
+                                    weight_col='factor_expansion_linea',
+                                    zero_to_nan=zero_to_nan,
+                                    var_fex_summed=False)
+        
+        agg_etapas = normalizar_zonas(agg_etapas, 'inicio', 'lat1', 'lon1', 'fin', 'lat4', 'lon4')
+        agg_etapas = normalizar_zonas(agg_etapas, 'transfer1', 'lat2', 'lon2', 'transfer2', 'lat3', 'lon3')
+    
+        agg_etapas['zona'] = var_zonif
+    
+    # Crear una lista de valores para la cláusula IN de forma segura
+    placeholders1 = ", ".join(["?"] * len(lst1))
+    placeholders2 = ", ".join(["?"] * len(lst2))
+    params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+    
+    query = f"""
+    SELECT * FROM agg_matrices 
+    WHERE zona = 'res_8'
+    AND mes = ? 
+    AND tipo_dia = ? 
+        AND (
+        (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+        AND 
+        (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+    );
+    """
+    
+    agg_matrices = pd.read_sql_query(query, conn, params=params)
+    
+    if len(agg_matrices) > 0:
+        zonas_renamed = zonas[['h3', var_zonif, 'latitud', 'longitud']]
+        for i, z in enumerate(['inicio', 'fin'], start=1):
+            zonas_temp = zonas_renamed.rename(
+                columns={
+                    'h3': f'{z}',
+                    'latitud': f'lat{i}_new',
+                    'longitud': f'lon{i}_new',
+                    var_zonif: f'{z}_new'
+                }
+            )
+            agg_matrices = agg_matrices.merge(zonas_temp, how='left')
+            agg_matrices[z] = agg_matrices[z].fillna('')
+
+        agg_matrices = agg_matrices.drop(['inicio', 'fin', 'lat1', 'lon1', 'lat4', 'lon4'], axis=1)
+        agg_matrices = agg_matrices.rename(columns={
+            'inicio_new': 'inicio',
+            'fin_new': 'fin',
+            'lat1_new': 'lat1',
+            'lon1_new': 'lon1',
+            'lat2_new': 'lat4',
+            'lon2_new': 'lon4'
+        })
+        
+        agg_matrices = agg_matrices.merge(zonificaciones[['id', 'orden']].rename(columns={'id':'inicio', 'orden': 'orden_inicio'}))
+        agg_matrices = agg_matrices.merge(zonificaciones[['id', 'orden']].rename(columns={'id':'fin', 'orden': 'orden_fin'}))
+        
+        agg_matrices['Origen'] = agg_matrices.orden_inicio.astype(
+        int).astype(str).str.zfill(3)+'_'+agg_matrices.inicio
+        agg_matrices['Destino'] = agg_matrices.orden_fin.astype(
+            int).astype(str).str.zfill(3)+'_'+agg_matrices.fin
+        agg_matrices = agg_matrices.drop(['orden_inicio', 'orden_fin'], axis=1)
+    
+    return agg_etapas, agg_matrices
