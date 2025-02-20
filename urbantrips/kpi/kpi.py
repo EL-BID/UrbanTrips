@@ -1,12 +1,19 @@
 import itertools
 import warnings
-from math import floor
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import weightedstats as ws
 import h3
 from urbantrips.geo import geo
+from urbantrips.carto.routes import (
+    get_route_geoms_with_sections_data,
+    check_exists_route_section_points_table,
+    upload_route_section_points_table,
+    get_route_section_id,
+    create_route_section_ids,
+    build_leg_route_sections_df,
+)
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -122,51 +129,14 @@ def compute_route_section_load(
             raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # read legs data
     legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
 
     # read routes geoms
-    q_route_geoms = "select * from lines_geoms"
-    q_route_geoms = q_route_geoms + line_ids_where
-    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
-    route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
-
-    # Set which parameter to use to split route geoms into sections
-
-    epsg_m = geo.get_epsg_m()
-
-    # project geoms and get for each geom both n_sections and meter
-    route_geoms = route_geoms.to_crs(epsg=epsg_m)
-
-    if section_meters:
-        # warning if meters params give to many sections
-        # get how many sections given the meters
-        n_sections = (route_geoms.geometry.length / section_meters).astype(int)
-
-    else:
-        section_meters = (route_geoms.geometry.length / n_sections).astype(int)
-
-    if isinstance(n_sections, int):
-        n_sections_check = pd.Series([n_sections])
-    else:
-        n_sections_check = n_sections
-
-    if any(n_sections_check > 1000):
-        warnings.warn(
-            "Algunos recorridos tienen mas de 1000 segmentos"
-            "Puede arrojar resultados imprecisos "
-        )
-
-    route_geoms = route_geoms.to_crs(epsg=4326)
-
-    # set the section length in meters
-    route_geoms["section_meters"] = section_meters
-
-    # set the number of sections
-    route_geoms["n_sections"] = n_sections
+    route_geoms = get_route_geoms_with_sections_data(
+        line_ids_where, section_meters, n_sections
+    )
 
     # check which section geoms are already crated
     new_route_geoms = check_exists_route_section_points_table(route_geoms)
@@ -184,7 +154,6 @@ def compute_route_section_load(
     )
 
     # compute section load
-
     print("Computing section load per route ...")
 
     if (len(route_geoms) > 0) and (len(legs) > 0):
@@ -230,29 +199,6 @@ def compute_route_section_load(
         print("Cantidad de lineas:", len(line_ids))
         print("Cantidad de recorridos", len(route_geoms))
         print("Cantidad de etapas", len(legs))
-
-
-def check_exists_route_section_points_table(route_geoms):
-    """
-    This function checks if the route section points table exists
-    for those lines and n_sections in the route geoms gdf
-    """
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    q = """
-    select distinct id_linea,n_sections, 1 as section_exists from routes_section_id_coords
-    """
-    route_sections = pd.read_sql(q, conn_insumos)
-    conn_insumos.close()
-
-    new_route_geoms = route_geoms.merge(
-        route_sections, on=["id_linea", "n_sections"], how="left"
-    )
-    new_route_geoms = new_route_geoms.loc[
-        new_route_geoms.section_exists.isna(), ["id_linea", "n_sections", "geometry"]
-    ]
-
-    return new_route_geoms
 
 
 def delete_old_route_section_load_data(
@@ -493,80 +439,6 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         print("No existe recorrido para id_linea:", line_id)
 
 
-def create_route_section_ids(n_sections):
-    step = 1 / n_sections
-    sections = np.arange(0, 1 + step, step)
-    section_ids = pd.Series(map(floor_rounding, sections))
-    # n sections like 6 returns steps with max setion > 1
-    section_ids = section_ids[section_ids <= 1]
-
-    return section_ids
-
-
-def build_leg_route_sections_df(row):
-    """
-    Computes for a leg a table with all sections id traversed by
-    that leg based on the origin and destionation's section id
-
-    Parameters
-    ----------
-    row : dict
-        row in a legs df with origin, destination and direction
-
-    Returns
-    ----------
-    leg_route_sections_df: pandas.DataFrame
-        a dataframe with all section ids traversed by the leg's
-        trajectory
-
-    """
-
-    sentido = row["sentido"]
-    dia = row["dia"]
-    f_exp = row["factor_expansion_linea"]
-
-    # always build it in increasing order
-    if sentido == "ida":
-        o_id = row["o_proj"]
-        d_id = row["d_proj"]
-    else:
-        o_id = row["d_proj"]
-        d_id = row["o_proj"]
-
-    leg_route_sections = list(range(o_id, d_id + 1))
-    leg_route_sections_df = pd.DataFrame(
-        {
-            "dia": [dia] * len(leg_route_sections),
-            "sentido": [sentido] * len(leg_route_sections),
-            "section_id": leg_route_sections,
-            "factor_expansion_linea": [f_exp] * len(leg_route_sections),
-        }
-    )
-    return leg_route_sections_df
-
-
-def floor_rounding(num):
-    """
-    Rounds a number to the floor at 3 digits to use as route section id
-    """
-    return floor(num * 1000) / 1000
-
-
-def get_route_section_id(point, route_geom):
-    """
-    Computes the route section id as a 3 digit float projecing
-    a point on to the route geom in a normalized way
-
-    Parameters
-    ----------
-    point : shapely Point
-        a Point for the leg's origin or destination
-    route_geom : shapely Linestring
-        a Linestring representing the leg's route geom
-    """
-    return floor_rounding(route_geom.project(point, normalized=True))
-
-
 # GENERAL PURPOSE KPIS WITH GPS
 
 
@@ -607,20 +479,12 @@ def read_data_for_daily_kpi():
 
         return legs, gps
 
-    # get day with stats computed
-    processed_days_q = """
-    select distinct dia
-    from kpi_by_day_line
-    """
-    processed_days = pd.read_sql(processed_days_q, conn_data)
-    processed_days = processed_days.dia
-    processed_days = ", ".join([f"'{val}'" for val in processed_days])
-
     print("Leyendo datos de oferta")
     q = f"""
-    select * from gps
-    where dia not in ({processed_days})
-    order by dia, id_linea, interno, fecha
+    select g.* from gps g
+    JOIN dias_ultima_corrida d
+    ON g.dia = d.dia
+    order by g.dia, id_linea, interno, fecha
     """
     gps = pd.read_sql(q, conn_data)
 
@@ -629,8 +493,9 @@ def read_data_for_daily_kpi():
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
         e.h3_d, e.factor_expansion_linea
         from etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
         where e.od_validado==1
-        and dia not in ({processed_days})
     """
     legs = pd.read_sql(q, conn_data)
 
@@ -769,6 +634,17 @@ def compute_kpi_by_line_day(legs, gps):
 
     day_stats = day_stats.reindex(columns=cols)
 
+    # get last processed days
+    dias_ultima_corrida = pd.read_sql_query(
+        """SELECT * FROM dias_ultima_corrida""",
+        conn_data,
+    )
+    # borro si ya existen etapas de una corrida anterior
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+    query = f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
+
     day_stats.to_sql(
         "kpi_by_day_line",
         conn_data,
@@ -874,54 +750,52 @@ def compute_kpi_by_service():
 
     print("Leyendo demanda por servicios validos")
     q_valid_services = """
-        with fechas_procesadas as (
-            select distinct dia from kpi_by_day_line_service
-        ),
-        demand as (
-            select e.id_tarjeta, e.id, id_linea, dia, interno,
-              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
-            e.h3_o,
-            e.h3_d, e.factor_expansion_linea
-            from etapas e
-            where od_validado = 1
-            and id_linea in (select distinct id_linea from gps)
-            and dia not in fechas_procesadas
-        ),
-        valid_services as (
-            select id_linea,dia,interno, service_id, min_ts, max_ts
-            from services
-            where valid = 1
-        ),
-        valid_demand as (
-            select d.*, s.service_id
-            from demand d
-            join valid_services s
-            on d.id_linea = s.id_linea
-            and d.dia = s.dia
-            and d.interno = s.interno
-            and d.ts >= s.min_ts
-            and d.ts <= s.max_ts
-            )
-            select * from valid_demand
-        ;
+        with demand as (
+                select e.id_tarjeta, e.id, id_linea, e.dia, interno,
+                    cast(strftime('%s',(e.dia||' '||tiempo)) as int) as ts, tiempo,
+                e.h3_o,
+                e.h3_d, e.factor_expansion_linea
+                from etapas e
+                JOIN dias_ultima_corrida d
+                ON e.dia = d.dia
+                where od_validado = 1
+                and id_linea in (select distinct id_linea from gps)
+            ),
+            valid_services as (
+                select id_linea,dia,interno, service_id, min_ts, max_ts
+                from services
+                where valid = 1
+            ),
+            valid_demand as (
+                select d.*, s.service_id
+                from demand d
+                join valid_services s
+                on d.id_linea = s.id_linea
+                and d.dia = s.dia
+                and d.interno = s.interno
+                and d.ts >= s.min_ts
+                and d.ts <= s.max_ts
+                )
+                select * from valid_demand
+            ;
         """
 
     valid_demand = pd.read_sql(q_valid_services, conn_data)
 
     print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
-        with fechas_procesadas as (
-            select distinct dia from kpi_by_day_line_service
-        ),
+        with 
         demand as (
-            select e.id_tarjeta, e.id, id_linea, dia, interno,
-              cast(strftime('%s',(dia||' '||tiempo)) as int) as ts, tiempo,
+            select e.id_tarjeta, e.id, e.id_linea, e.dia, e.interno,
+                cast(strftime('%s',(e.dia||' '||e.tiempo)) as int) as ts, e.tiempo,
             e.h3_o,
             e.h3_d, e.factor_expansion_linea
             from etapas e
+            JOIN dias_ultima_corrida d
+            ON e.dia = d.dia
             where od_validado = 1
             and id_linea in (select distinct id_linea from gps)
-            and dia not in fechas_procesadas
+
         ),
         valid_services as (
             select id_linea,dia,interno, service_id, min_ts, max_ts
@@ -940,7 +814,7 @@ def compute_kpi_by_service():
             ),
         legs_no_service as (
             select e.id_tarjeta, e.id, id_linea, dia, interno, ts,
-              tiempo, h3_o, h3_d,factor_expansion_linea
+                tiempo, h3_o, h3_d,factor_expansion_linea
             from invalid_demand e
             where service_id is null
         )
@@ -967,10 +841,6 @@ def compute_kpi_by_service():
     # add distances to demand data
     service_demand = add_distances_to_legs(legs=service_demand)
 
-    # TODO: remove this line when factor is corrected
-    service_demand["factor_expansion_linea"] = service_demand[
-        "factor_expansion_linea"
-    ].replace(0, 1)
     # compute demand stats
     service_demand_stats = service_demand.groupby(
         ["dia", "id_linea", "interno", "service_id"], as_index=False
@@ -1023,6 +893,17 @@ def compute_kpi_by_service():
     ]
 
     service_stats = service_stats.reindex(columns=cols)
+
+    # get last processed days
+    dias_ultima_corrida = pd.read_sql_query(
+        """SELECT * FROM dias_ultima_corrida""",
+        conn_data,
+    )
+    # borro si ya existen etapas de una corrida anterior
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+    query = f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})"
+    conn_data.execute(query)
+    conn_data.commit()
 
     service_stats.to_sql(
         "kpi_by_day_line_service",
@@ -1779,102 +1660,6 @@ def compute_dispatched_services_by_line_hour_typeday():
         print("Correr la funcion kpi.compute_services_by_line_hour_day()")
 
     return type_of_day_stats
-
-
-def upload_route_section_points_table(route_geoms, delete_old_data=False):
-    """
-    Uploads a table with route section points from a route geom row
-    and returns a table with line_id, number of sections and the
-    xy point for that section
-
-    Parameters
-    ----------
-    row : GeoPandas GeoDataFrame
-        routes geom GeoDataFrame with geometry, n_sections and line id
-
-    """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-
-    # delete old records
-    if delete_old_data:
-        delete_old_routes_section_id_coords_data_q(route_geoms)
-
-    print("Creando tabla de secciones de recorrido")
-    route_section_points = pd.concat(
-        [create_route_section_points(row) for _, row in route_geoms.iterrows()]
-    )
-
-    route_section_points.to_sql(
-        "routes_section_id_coords",
-        conn_insumos,
-        if_exists="append",
-        index=False,
-    )
-    print("Fin creacion de tabla de secciones de recorrido")
-    conn_insumos.close()
-
-
-def create_route_section_points(row):
-    """
-    Creates a table with route section points from a route geom row
-    and returns a table with line_id, number of sections and the
-    xy point for that section
-
-    Parameters
-    ----------
-    row : GeoPandas GeoSeries
-        Row from route geom GeoDataFrame
-        with geometry, n_sections and line id
-
-    Returns
-    ----------
-    pandas.DataFrame
-        dataFrame with line id, number of sections and the
-        latlong for each section id
-    """
-
-    n_sections = row.n_sections
-    route_geom = row.geometry
-    line_id = row.id_linea
-    sections_lrs = create_route_section_ids(n_sections)
-    sections_id = list(range(1, len(sections_lrs))) + [-1]
-    points = route_geom.interpolate(sections_lrs, normalized=True)
-    route_section_points = pd.DataFrame(
-        {
-            "id_linea": [line_id] * len(sections_id),
-            "n_sections": [n_sections] * len(sections_id),
-            "section_id": sections_id,
-            "section_lrs": sections_lrs,
-            "x": points.map(lambda p: p.x),
-            "y": points.map(lambda p: p.y),
-        }
-    )
-    return route_section_points
-
-
-def delete_old_routes_section_id_coords_data_q(route_geoms):
-    """
-    Deletes old data in table routes_section_id_coords
-    """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-
-    # create a df with n sections for each line
-    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
-    for _, row in delete_df.iterrows():
-        # Delete old data for those parameters
-
-        q_delete = f"""
-            delete from routes_section_id_coords
-            where id_linea = {row.id_linea} 
-            and n_sections = {row.n_sections}
-            """
-
-        cur = conn_insumos.cursor()
-        cur.execute(q_delete)
-        conn_insumos.commit()
-
-    conn_insumos.close()
-    print("Fin borrado datos previos")
 
 
 def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):

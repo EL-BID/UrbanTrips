@@ -643,7 +643,7 @@ def viz_etapas_x_tramo_recorrido(
 
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
-        archivo = archivo + f"{line_id}_{stat}_{hr_str}.{frm}"
+        archivo = archivo + f"{line_id}_{stat}_{hr_str}_{n_sections}_sections.{frm}"
         db_path = os.path.join("resultados", frm, archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)

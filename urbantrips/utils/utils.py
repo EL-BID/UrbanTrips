@@ -489,6 +489,31 @@ def create_dash_tables():
             """
     )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_stats_by_section_id
+        (id_linea int not null,
+        yr_mo text,
+        nombre_linea str,
+        day_type text not null,
+        n_sections int,
+        section_meters int,
+        sentido text not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        n_vehicles int,
+        avg_speed float,
+        median_speed float,
+        frequency float,
+        frequency_interval text,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
+
     conn_dash.close()
 
 
@@ -1316,6 +1341,29 @@ def create_kpi_tables():
         res_h3 int,
         overlap float,
         type_overlap text
+        )
+        ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_stats_by_section_id
+        (
+        id_linea int not null,
+        yr_mo text not null,
+        day_type text not null,
+        n_sections int not null,
+        section_meters int,
+        sentido text not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        n_vehicles int,
+        avg_speed float,
+        median_speed float,
+        speed_interval float,
+        frequency float,
+        frequency_interval text
         )
         ;
         """

@@ -8,7 +8,7 @@ import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
-from urbantrips.carto.routes import read_routes
+from urbantrips.carto.routes import read_routes, floor_rounding
 
 
 def from_linestring_to_h3(linestring, h3_res=8):
@@ -40,7 +40,7 @@ def create_coarse_h3_from_line(
 
     # Create LRS for each hex index
     gdf["h3_lrs"] = [
-        kpi.floor_rounding(linestring.project(Point(p[::-1]), True))
+        floor_rounding(linestring.project(Point(p[::-1]), True))
         for p in gdf.h3.map(h3.h3_to_geo)
     ]
 
