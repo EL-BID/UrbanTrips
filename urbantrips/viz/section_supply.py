@@ -509,7 +509,7 @@ def viz_route_section_speed(
         gdf_d0.plot(
             ax=ax1,
             column=indicator_col,
-            cmap="RdYlGn_r",
+            cmap="RdYlGn",
             categorical=True,
             alpha=0.6,
             legend=True,
@@ -517,14 +517,14 @@ def viz_route_section_speed(
         gdf_d1.plot(
             ax=ax2,
             column=indicator_col,
-            cmap="RdYlGn_r",
+            cmap="RdYlGn",
             categorical=True,
             alpha=0.6,
             legend=True,
         )
     except ValueError:
-        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn_r", alpha=0.6)
-        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn_r", alpha=0.6)
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn", alpha=0.6)
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn", alpha=0.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
@@ -716,7 +716,13 @@ def viz_route_section_speed(
     # Save to dash db
 
     gdf_d0_dash["wkt"] = gdf_d0_dash.geometry.to_wkt()
+    gdf_d0_dash["sentido"] = (
+        gdf_d0_dash["sentido"].fillna(method="ffill").fillna(method="bfill")
+    )
     gdf_d1_dash["wkt"] = gdf_d1_dash.geometry.to_wkt()
+    gdf_d1_dash["sentido"] = (
+        gdf_d1_dash["sentido"].fillna(method="ffill").fillna(method="bfill")
+    )
 
     gdf_d_dash = pd.concat([gdf_d0_dash, gdf_d1_dash], ignore_index=True)
     gdf_d_dash["nombre_linea"] = id_linea_str
@@ -756,6 +762,9 @@ def viz_route_section_speed(
     )
 
     conn_dash = iniciar_conexion_db(tipo="dash")
+
+    for var in ["yr_mo", "day_type", "hour_min", "hour_max"]:
+        gdf_d_dash[var] = gdf_d_dash[var].fillna(method="ffill").fillna(method="bfill")
 
     gdf_d_dash.to_sql(
         "supply_stats_by_section_id", conn_dash, if_exists="append", index=False
