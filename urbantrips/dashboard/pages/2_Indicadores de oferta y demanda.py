@@ -106,6 +106,7 @@ def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     flecha_ida_wgs84 = gdf_d0.loc[
         gdf_d0.section_id == gdf_d0.section_id.min(), "geometry"
     ]
+
     flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
     flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
 
@@ -401,43 +402,73 @@ except ValueError as e:
     )
     st.stop()
 
-id_linea = ""
-secciones_ = ""
-
 
 # --- Inicializar variables en session_state ---
-for var in ["id_linea", "nombre_linea", "day_type_kpi", "yr_mo_kpi"]:
+for var in [
+    "id_linea",
+    "nombre_linea",
+    "day_type_kpi",
+    "yr_mo_kpi",
+    "secciones",
+    "rango",
+]:
     if var not in st.session_state:
         st.session_state[var] = None
 
 
-with st.expander("Seleccionar líneas y periodo"):
+col1, col2, col3 = st.columns([1, 2, 1])
+with col1:
+    st.subheader("Periodo")
 
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.subheader("Periodo")
+    kpi_lineas = levanto_tabla_sql("basic_kpi_by_line_hr")
+    day_type_kpi = col1.selectbox("Tipo de dia  ", options=kpi_lineas.dia.unique())
+    # add month and year
+    yr_mo_kpi = col1.selectbox(
+        "Periodo  ", options=kpi_lineas.yr_mo.unique(), key="year_month"
+    )
+    st.session_state["day_type_kpi"] = day_type_kpi
+    st.session_state["yr_mo_kpi"] = yr_mo_kpi
 
-        kpi_lineas = levanto_tabla_sql("basic_kpi_by_line_hr")
-        day_type_kpi = col1.selectbox("Tipo de dia  ", options=kpi_lineas.dia.unique())
-        # add month and year
-        yr_mo_kpi = col1.selectbox(
-            "Periodo  ", options=kpi_lineas.yr_mo.unique(), key="year_month"
-        )
-        st.session_state[f"day_type_kpi"] = day_type_kpi
-        st.session_state[f"yr_mo_kpi"] = yr_mo_kpi
+with col2:
+    st.subheader("Línea")
+    seleccionar_linea("base_input", "base_select")
 
-    with col2:
-        st.subheader("Línea:")
-        seleccionar_linea("base_input", "base_select")
+with col3:
+    # col1, col2 = st.columns([1, 1])
+    id_linea = st.session_state["id_linea"]
+    nombre_linea = st.session_state["nombre_linea"]
 
+    lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
+    lineas = lineas[
+        (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
+    ]
 
-with st.expander("Cargas por horas"):
-    nombre_linea_kpi = st.session_state[f"nombre_linea"]
-    id_linea_kpi = st.session_state[f"id_linea"]
+    lineas.loc[lineas["hour_min"].notna(), "rango"] = (
+        "de "
+        + lineas.loc[lineas["hour_min"].notna(), "hour_min"].astype(int).astype(str)
+        + " a "
+        + lineas.loc[lineas["hour_max"].notna(), "hour_max"].astype(int).astype(str)
+        + " hrs"
+    )
+
+    lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
+
+    st.subheader("Parámetros")
+
+    n_sections = col3.selectbox("Secciones ", options=lineas.n_sections.unique())
+
+    rango = col3.selectbox("Rango horario ", options=lineas.rango.unique())
+
+    st.session_state["secciones"] = n_sections
+    st.session_state["rango"] = rango
+
+with st.expander("Factor de ocupación por horas"):
+    nombre_linea_kpi = st.session_state["nombre_linea"]
+    id_linea_kpi = st.session_state["id_linea"]
     kpi_stats_line_plot = kpi_lineas[
-        (kpi_lineas.id_linea == st.session_state[f"id_linea"])
-        & (kpi_lineas.dia == st.session_state[f"day_type_kpi"])
-        & (kpi_lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
+        (kpi_lineas.id_linea == st.session_state["id_linea"])
+        & (kpi_lineas.dia == st.session_state["day_type_kpi"])
+        & (kpi_lineas.yr_mo == st.session_state["yr_mo_kpi"])
     ]
     if len(kpi_stats_line_plot) > 0:
 
@@ -506,65 +537,86 @@ with st.expander("Cargas por horas"):
     else:
         st.write("No hay datos para mostrar")
 
+with st.expander("Demanda por segmento de recorrido"):
+    lineas = lineas[
+        (lineas.day_type == st.session_state["day_type_kpi"])
+        & (lineas.n_sections == st.session_state["secciones"])
+        & (lineas.rango == st.session_state["rango"])
+    ]
 
-with st.expander("Cargas por tramos"):
+    if len(lineas) > 0:
+        if st.checkbox("Mostrar datos", value=False):
+            st.write(lineas)
 
-    col1, col2 = st.columns([1, 4])
+        f_lineas = plot_lineas(
+            lineas,
+            st.session_state["id_linea"],
+            st.session_state["nombre_linea"],
+            st.session_state["day_type_kpi"],
+            st.session_state["secciones"],
+            st.session_state["rango"],
+        )
+        st.pyplot(f_lineas)
+    else:
+        st.write("No hay datos para mostrar")
 
-    lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
-    nl2 = traigo_nombre_lineas(lineas[["id_linea", "nombre_linea"]])
+with st.expander("Líneas de deseo por linea"):
 
-    lineas.loc[lineas["hour_min"].notna(), "rango"] = (
+    custom_query = """
+    select m.*, co.x as lon_o, co.y as lat_o,  cd.x as lon_d, cd.y as lat_d
+    from matrices_linea m
+    left join matrices_linea_carto co
+    on m.id_linea = co.id_linea
+    and m.n_sections = co.n_sections
+    and m.Origen = co.section_id
+    left join matrices_linea_carto cd
+    on m.id_linea = cd.id_linea
+    and m.n_sections = cd.n_sections
+    and m.Destino = cd.section_id 
+    where lon_o is not NULL 
+    and lat_o is not NULL ;
+    """
+    matriz = levanto_tabla_sql(
+        tabla_sql="matrices_linea",
+        query=custom_query,
+    )
+
+    matriz = create_linestring_od(matriz)
+
+    matriz.loc[matriz["hour_min"].notna(), "rango"] = (
         "de "
-        + lineas.loc[lineas["hour_min"].notna(), "hour_min"].astype(int).astype(str)
+        + matriz.loc[matriz["hour_min"].notna(), "hour_min"].astype(int).astype(str)
         + " a "
-        + lineas.loc[lineas["hour_max"].notna(), "hour_max"].astype(int).astype(str)
+        + matriz.loc[matriz["hour_max"].notna(), "hour_max"].astype(int).astype(str)
         + " hrs"
     )
 
-    lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
+    matriz.loc[matriz["hour_min"].isna(), "rango"] = "Todo el dia"
 
-    if len(lineas) > 0:
-        if len(nl2) > 0:
-            nombre_linea = col1.selectbox("Línea  ", options=nl2)
-            id_linea = lineas[lineas.nombre_linea == nombre_linea].id_linea.values[0]
-        else:
-            nombre_linea = ""
-            id_linea = col1.selectbox("Línea ", options=lineas.id_linea.unique())
+    matriz = matriz[matriz.id_linea == st.session_state["id_linea"]]
+    matriz = matriz[matriz.yr_mo == st.session_state["yr_mo_kpi"]]
 
-        day_type = col1.selectbox("Tipo de dia ", options=lineas.day_type.unique())
-        n_sections = col1.selectbox("Secciones ", options=lineas.n_sections.unique())
-        rango = col1.selectbox("Rango horario ", options=lineas.rango.unique())
+    matriz = matriz[matriz.day_type == st.session_state["day_type_kpi"]]
+    matriz = matriz[matriz.n_sections == st.session_state["secciones"]]
+    matriz = matriz[matriz.rango == st.session_state["rango"]]
 
-        # add month and year
-        yr_mo_kpi_sl = col1.selectbox(
-            "Periodo  ", options=lineas.yr_mo.unique(), key="year_month_section_load"
-        )
+    if len(matriz) > 0:
+        if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos2"):
+            st.write(matriz)
 
-        lineas = lineas[
-            (lineas.id_linea == id_linea)
-            & (lineas.day_type == day_type)
-            & (lineas.n_sections == n_sections)
-            & (lineas.rango == rango)
-            & (lineas.yr_mo == yr_mo_kpi_sl)
-        ]
+        k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
+        st.text(f"Hay un total de {matriz.legs.sum()} etapas")
 
-        # if col2.checkbox('Ver datos: cargas por tramos'):
-        #     col2.write(lineas)
+        map = crear_mapa_folium(matriz, cmap="BuPu", var_fex="legs", k_jenks=k_jenks)
 
-        if len(lineas) > 0:
-            f_lineas = plot_lineas(
-                lineas, id_linea, nombre_linea, day_type, n_sections, rango
-            )
-            col2.pyplot(f_lineas)
-        else:
-            st.write("No hay datos para mostrar")
+        st_map = st_folium(map, width=900, height=700)
+    else:
+        st.write("No hay datos para mostrar")
 
 with st.expander("Matriz OD por linea"):
-    col1, col2 = st.columns([1, 4])
 
     matriz = levanto_tabla_sql("matrices_linea")
-    nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
+    # nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
 
     matriz.loc[matriz["hour_min"].notna(), "rango"] = (
         "de "
@@ -577,43 +629,17 @@ with st.expander("Matriz OD por linea"):
     matriz.loc[matriz["hour_min"].isna(), "rango"] = "Todo el dia"
 
     if len(matriz) > 0:
-        if len(nl3) > 0:
-            nombre_linea_ = col1.selectbox("Línea  ", options=nl3, key="nombre_linea_3")
-            id_linea = matriz[matriz.nombre_linea == nombre_linea_].id_linea.values[0]
-        else:
-            nombre_linea = ""
-            id_linea = col1.selectbox(
-                "Línea  ", options=matriz.id_linea.unique(), key="id_linea_3"
-            )
 
-        if col1.checkbox("Normalizar", value=True):
+        if st.checkbox("Normalizar", value=True):
             values = "prop"
         else:
             values = "legs"
 
-        matriz = matriz[matriz.id_linea == id_linea]
-
-        desc_dia_ = col1.selectbox("Periodo ", options=matriz.yr_mo.unique())
-
-        matriz = matriz[matriz.yr_mo == desc_dia_]
-
-        tipo_dia_ = col1.selectbox(
-            "Tipo de dia ", options=matriz.day_type.unique(), key="day_type_line_matrix"
-        )
-
-        matriz = matriz[matriz.day_type == tipo_dia_]
-
-        secciones_ = col1.selectbox(
-            "Cantidad de secciones", options=matriz.n_sections.unique()
-        )
-
-        matriz = matriz[matriz.n_sections == secciones_]
-
-        rango_ = col1.selectbox(
-            "Rango horario ", options=matriz.rango.unique(), key="rango_nl3"
-        )
-
-        matriz = matriz[matriz.rango == rango_]
+        matriz = matriz[matriz.id_linea == st.session_state["id_linea"]]
+        matriz = matriz[matriz.yr_mo == st.session_state[f"yr_mo_kpi"]]
+        matriz = matriz[matriz.day_type == st.session_state["day_type_kpi"]]
+        matriz = matriz[matriz.n_sections == st.session_state["secciones"]]
+        matriz = matriz[matriz.rango == st.session_state["rango"]]
 
         od_heatmap = matriz.pivot_table(
             values=values, index="Origen", columns="Destino"
@@ -634,7 +660,7 @@ with st.expander("Matriz OD por linea"):
         elif len(od_heatmap) > 40:
             fig.update_layout(width=1200, height=1200)
 
-        col2.plotly_chart(fig)
+        st.plotly_chart(fig)
 
     else:
         st.write("No hay datos para mostrar")
@@ -642,7 +668,9 @@ with st.expander("Matriz OD por linea"):
     zonas = levanto_tabla_sql("matrices_linea_carto")
 
     zonas = zonas.loc[
-        (zonas.id_linea == id_linea) & (zonas.n_sections == secciones_), :
+        (zonas.id_linea == id_linea)
+        & (zonas.n_sections == st.session_state["secciones"]),
+        :,
     ]
 
     col1, col2 = st.columns([1, 4])
@@ -684,101 +712,3 @@ with st.expander("Matriz OD por linea"):
             # Display the map using folium_static
             with col2:
                 folium_static(m)
-
-with st.expander("Líneas de deseo por linea"):
-    col1, col2 = st.columns([1, 4])
-    custom_query = """
-    select m.*, co.x as lon_o, co.y as lat_o,  cd.x as lon_d, cd.y as lat_d
-    from matrices_linea m
-    left join matrices_linea_carto co
-    on m.id_linea = co.id_linea
-    and m.n_sections = co.n_sections
-    and m.Origen = co.section_id
-    left join matrices_linea_carto cd
-    on m.id_linea = cd.id_linea
-    and m.n_sections = cd.n_sections
-    and m.Destino = cd.section_id 
-    where lon_o is not NULL 
-    and lat_o is not NULL ;
-    """
-    matriz = levanto_tabla_sql(
-        tabla_sql="matrices_linea",
-        query=custom_query,
-    )
-
-    matriz = create_linestring_od(matriz)
-
-    nl4 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
-
-    matriz.loc[matriz["hour_min"].notna(), "rango"] = (
-        "de "
-        + matriz.loc[matriz["hour_min"].notna(), "hour_min"].astype(int).astype(str)
-        + " a "
-        + matriz.loc[matriz["hour_max"].notna(), "hour_max"].astype(int).astype(str)
-        + " hrs"
-    )
-
-    matriz.loc[matriz["hour_min"].isna(), "rango"] = "Todo el dia"
-
-    if len(matriz) > 0:
-        if len(nl4) > 0:
-            nombre_linea_ = col1.selectbox(
-                "Línea  ", options=nl4, key="nombre_linea_ldeseo_od"
-            )
-            id_linea = matriz[matriz.nombre_linea == nombre_linea_].id_linea.values[0]
-        else:
-            nombre_linea = ""
-            id_linea = col1.selectbox(
-                "Línea ", options=matriz.id_linea.unique(), key="linea_4"
-            )
-
-        matriz = matriz[matriz.id_linea == id_linea]
-
-        desc_dia_ = col1.selectbox(
-            "Periodo ", options=matriz.yr_mo.unique(), key="desc_deseo"
-        )
-
-        matriz = matriz[matriz.yr_mo == desc_dia_]
-
-        tipo_dia_ = col1.selectbox(
-            "Tipo de dia ",
-            options=matriz.day_type.unique(),
-            key="day_type_line_matrix2",
-        )
-
-        matriz = matriz[matriz.day_type == tipo_dia_]
-
-        secciones_ = col1.selectbox(
-            "Cantidad de secciones",
-            options=matriz.n_sections.unique(),
-            key="secc_deseo",
-        )
-
-        matriz = matriz[matriz.n_sections == secciones_]
-
-        rango_ = col1.selectbox(
-            "Rango horario ", options=matriz.rango.unique(), key="reango_deseo"
-        )
-
-        matriz = matriz[matriz.rango == rango_]
-
-        with col2:
-            k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
-            st.text(f"Hay un total de {matriz.legs.sum()} etapas")
-            map = crear_mapa_folium(
-                matriz, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
-            )
-
-            st_map = st_folium(map, width=900, height=700)
-    else:
-        col2.write("No hay datos para mostrar")
-        # col2.markdown("""
-        # <style>
-        # .big-font {
-        #     font-size:40px !important;
-        # }
-        # </style>
-        # """, unsafe_allow_html=True)
-
-        # col2.markdown(
-        #     '<p class="big-font">            ¡¡ No hay datos para mostrar !!</p>', unsafe_allow_html=True)
