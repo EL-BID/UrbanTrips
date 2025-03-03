@@ -83,6 +83,173 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     return fig
 
 
+def plot_frequency_by_section(
+    lineas, id_linea, nombre_linea, day_type, n_sections, rango
+):
+    indicator_col = "frequency_interval"
+    gdf_d0 = lineas[(lineas.sentido == "ida")].copy()
+
+    gdf_d1 = lineas[(lineas.sentido == "vuelta")].copy()
+
+    epsg_m = get_epsg_m()
+    gdf_d0 = gdf_d0.to_crs(epsg=epsg_m)
+    gdf_d1 = gdf_d1.to_crs(epsg=epsg_m)
+    # Arrows
+    flecha_ida_wgs84 = gdf_d0.loc[
+        gdf_d0.section_id == gdf_d0.section_id.min(), "geometry"
+    ]
+
+    flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
+    flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
+
+    flecha_vuelta_wgs84 = gdf_d1.loc[
+        gdf_d1.section_id == max(gdf_d1.section_id), "geometry"
+    ]
+    flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
+    flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
+
+    # check if route geom is drawn from west to east
+    geom_dir_east = flecha_ida_inicio_wgs84[0] < flecha_vuelta_fin_wgs84[0]
+    # Matching bar plot with route direction
+    flecha_eo_xy = (0.4, 1.1)
+    flecha_eo_text_xy = (0.05, 1.1)
+    flecha_oe_xy = (0.6, 1.1)
+    flecha_oe_text_xy = (0.95, 1.1)
+
+    labels_eo = [""] * len(gdf_d0)
+    labels_eo[0] = "INICIO"
+    labels_eo[-1] = "FIN"
+    labels_oe = [""] * len(gdf_d0)
+    labels_oe[-1] = "INICIO"
+    labels_oe[0] = "FIN"
+
+    # Set arrows in barplots based on reout geom direction
+    if geom_dir_east:
+
+        flecha_ida_xy = flecha_eo_xy
+        flecha_ida_text_xy = flecha_eo_text_xy
+        labels_ida = labels_eo
+
+        flecha_vuelta_xy = flecha_oe_xy
+        flecha_vuelta_text_xy = flecha_oe_text_xy
+        labels_vuelta = labels_oe
+
+        # direction 0 east to west
+        gdf_d0 = gdf_d0.sort_values("section_id", ascending=True)
+        gdf_d1 = gdf_d1.sort_values("section_id", ascending=True)
+
+    else:
+        flecha_ida_xy = flecha_oe_xy
+        flecha_ida_text_xy = flecha_oe_text_xy
+        labels_ida = labels_oe
+
+        flecha_vuelta_xy = flecha_eo_xy
+        flecha_vuelta_text_xy = flecha_eo_text_xy
+        labels_vuelta = labels_eo
+
+        gdf_d0 = gdf_d0.sort_values("section_id", ascending=False)
+        gdf_d1 = gdf_d1.sort_values("section_id", ascending=False)
+
+    # For direction 0, get the last section of the route geom
+    flecha_ida = gdf_d0.loc[gdf_d0.section_id == max(gdf_d0.section_id), "geometry"]
+    flecha_ida = list(flecha_ida.item().coords)
+    flecha_ida_inicio = flecha_ida[1]
+    flecha_ida_fin = flecha_ida[0]
+
+    # For direction 1, get the first section of the route geom
+    flecha_vuelta = gdf_d1.loc[gdf_d1.section_id == gdf_d1.section_id.min(), "geometry"]
+    flecha_vuelta = list(flecha_vuelta.item().coords)
+
+    # invert the direction of the arrow
+    flecha_vuelta_inicio = flecha_vuelta[0]
+    flecha_vuelta_fin = flecha_vuelta[1]
+
+    minx, miny, maxx, maxy = gdf_d0.total_bounds
+    box = create_squared_polygon(minx, miny, maxx, maxy, epsg_m)
+
+    # st.dataframe(gdf_d0.drop('geometry', axis=1))
+    # st.dataframe(gdf_d1.drop('geometry', axis=1))
+
+    # creando buffers en base a
+    gdf_d0["geometry"] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
+    gdf_d1["geometry"] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
+    # creating plot
+
+    f = plt.figure(tight_layout=True, figsize=(20, 10))
+    ax1 = f.add_subplot(1, 2, 1)
+    ax2 = f.add_subplot(1, 2, 2)
+
+    font_dicc = {"fontsize": 18, "fontweight": "bold"}
+    box.plot(ax=ax1, color="#ffffff00")
+    box.plot(ax=ax2, color="#ffffff00")
+
+    try:
+        gdf_d0.plot(
+            ax=ax1,
+            column=indicator_col,
+            cmap="PiYG",
+            categorical=True,
+            alpha=0.8,
+            legend=True,
+        )
+        gdf_d1.plot(
+            ax=ax2,
+            column=indicator_col,
+            cmap="managua",
+            categorical=True,
+            alpha=0.8,
+            legend=True,
+        )
+    except ValueError:
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="BuPu", alpha=0.6)
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="Oranges", alpha=0.6)
+
+    ax1.set_axis_off()
+    ax2.set_axis_off()
+
+    ax1.set_title("IDA", fontdict=font_dicc, y=1.0, pad=-20)
+    ax2.set_title("VUELTA", fontdict=font_dicc, y=1.0, pad=-20)
+
+    title = "Promedio de frequencia - "
+
+    if nombre_linea == "":
+        title = title + f"Id línea {id_linea} - {day_type}\n{rango}"
+    else:
+        title = (
+            title
+            + f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
+        )
+
+    f.suptitle(title, fontsize=20)
+
+    ax1.annotate(
+        "",
+        xy=(flecha_ida_inicio[0], flecha_ida_inicio[1]),
+        xytext=(flecha_ida_fin[0], flecha_ida_fin[1]),
+        arrowprops=dict(facecolor="black", edgecolor="black", shrink=0.2),
+    )
+
+    ax2.annotate(
+        "",
+        xy=(flecha_vuelta_inicio[0], flecha_vuelta_inicio[1]),
+        xytext=(flecha_vuelta_fin[0], flecha_vuelta_fin[1]),
+        arrowprops=dict(facecolor="black", edgecolor="black", shrink=0.2),
+    )
+
+    try:
+        prov = cx.providers.CartoDB.Positron
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+    except (UnidentifiedImageError, ValueError):
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+    except r_ConnectionError:
+        pass
+
+    plt.close(f)
+    return f
+
+
 def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
     indicator_col = "speed_interval"
 
@@ -174,7 +341,7 @@ def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, 
     gdf_d1["geometry"] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
     # creating plot
 
-    f = plt.figure(tight_layout=True, figsize=(18, 10), dpi=8)
+    f = plt.figure(tight_layout=True, figsize=(20, 15))
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
     ax2 = f.add_subplot(gs[0:2, 1])
@@ -212,13 +379,16 @@ def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, 
     ax1.set_title("IDA", fontdict=font_dicc)
     ax2.set_title("VUELTA", fontdict=font_dicc)
 
-    title = "Segmentos del recorrido - Promedio de velocidad"
+    title = "Promedio de velocidad - "
     y_axis_lable = "Velocidad promedio (kmh)"
 
     if nombre_linea == "":
-        title = f"Id línea {id_linea} - {day_type}\n{rango}"
+        title = title + f"Id línea {id_linea} - {day_type}\n{rango}"
     else:
-        title = f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
+        title = (
+            title
+            + f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
+        )
 
     f.suptitle(title, fontsize=20)
 
@@ -414,7 +584,7 @@ def plot_demand_by_section(lineas, id_linea, nombre_linea, day_type, n_sections,
 
     # creating plot
 
-    f = plt.figure(tight_layout=True, figsize=(18, 10), dpi=8)
+    f = plt.figure(tight_layout=True, figsize=(20, 15))
     gs = f.add_gridspec(nrows=3, ncols=2)
     ax1 = f.add_subplot(gs[0:2, 0])
     ax2 = f.add_subplot(gs[0:2, 1])
@@ -987,7 +1157,7 @@ with st.expander("Oferta por segmento de recorrido"):
         ):
             st.write(lineas)
 
-        f_lineas = plot_speed_by_section(
+        f_lineas_speed = plot_speed_by_section(
             lineas,
             st.session_state["id_linea"],
             st.session_state["nombre_linea"],
@@ -995,7 +1165,17 @@ with st.expander("Oferta por segmento de recorrido"):
             st.session_state["secciones"],
             st.session_state["rango"],
         )
-        st.pyplot(f_lineas)
+        st.pyplot(f_lineas_speed)
+
+        f_lineas_frequency = plot_frequency_by_section(
+            lineas,
+            st.session_state["id_linea"],
+            st.session_state["nombre_linea"],
+            st.session_state["day_type_kpi"],
+            st.session_state["secciones"],
+            st.session_state["rango"],
+        )
+        st.pyplot(f_lineas_frequency)
 
     else:
         st.write("No hay datos para mostrar")

@@ -367,7 +367,7 @@ def delete_old_supply_stats_by_section_id(
                 and n_sections = {row.n_sections}
                 and yr_mo = '{yr_mo}';
                 """
-            print("q_delete", q_delete)
+
             cur = conn.cursor()
             cur.execute(q_delete)
             conn.commit()
