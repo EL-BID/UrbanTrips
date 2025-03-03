@@ -613,7 +613,7 @@ def viz_route_section_speed(
         y=bar_variable,
         ax=ax4,
         color="Grey",
-        order=df_d1.section_id.values,
+        order=df_d0.section_id.values,
     )
 
     # Axis
@@ -740,6 +740,7 @@ def viz_route_section_speed(
         "n_vehicles",
         "avg_speed",
         "median_speed",
+        "speed_interval",
         "frequency",
         "frequency_interval",
         "buff_factor",

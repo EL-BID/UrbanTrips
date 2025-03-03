@@ -83,7 +83,237 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     return fig
 
 
-def plot_lineas(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
+def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
+    indicator_col = "speed_interval"
+
+    gdf_d0 = lineas[(lineas.sentido == "ida")].copy()
+
+    gdf_d1 = lineas[(lineas.sentido == "vuelta")].copy()
+
+    epsg_m = get_epsg_m()
+    gdf_d0 = gdf_d0.to_crs(epsg=epsg_m)
+    gdf_d1 = gdf_d1.to_crs(epsg=epsg_m)
+    # Arrows
+    flecha_ida_wgs84 = gdf_d0.loc[
+        gdf_d0.section_id == gdf_d0.section_id.min(), "geometry"
+    ]
+
+    flecha_ida_wgs84 = list(flecha_ida_wgs84.item().coords)
+    flecha_ida_inicio_wgs84 = flecha_ida_wgs84[0]
+
+    flecha_vuelta_wgs84 = gdf_d1.loc[
+        gdf_d1.section_id == max(gdf_d1.section_id), "geometry"
+    ]
+    flecha_vuelta_wgs84 = list(flecha_vuelta_wgs84.item().coords)
+    flecha_vuelta_fin_wgs84 = flecha_vuelta_wgs84[1]
+
+    # check if route geom is drawn from west to east
+    geom_dir_east = flecha_ida_inicio_wgs84[0] < flecha_vuelta_fin_wgs84[0]
+    # Matching bar plot with route direction
+    flecha_eo_xy = (0.4, 1.1)
+    flecha_eo_text_xy = (0.05, 1.1)
+    flecha_oe_xy = (0.6, 1.1)
+    flecha_oe_text_xy = (0.95, 1.1)
+
+    labels_eo = [""] * len(gdf_d0)
+    labels_eo[0] = "INICIO"
+    labels_eo[-1] = "FIN"
+    labels_oe = [""] * len(gdf_d0)
+    labels_oe[-1] = "INICIO"
+    labels_oe[0] = "FIN"
+
+    # Set arrows in barplots based on reout geom direction
+    if geom_dir_east:
+
+        flecha_ida_xy = flecha_eo_xy
+        flecha_ida_text_xy = flecha_eo_text_xy
+        labels_ida = labels_eo
+
+        flecha_vuelta_xy = flecha_oe_xy
+        flecha_vuelta_text_xy = flecha_oe_text_xy
+        labels_vuelta = labels_oe
+
+        # direction 0 east to west
+        gdf_d0 = gdf_d0.sort_values("section_id", ascending=True)
+        gdf_d1 = gdf_d1.sort_values("section_id", ascending=True)
+
+    else:
+        flecha_ida_xy = flecha_oe_xy
+        flecha_ida_text_xy = flecha_oe_text_xy
+        labels_ida = labels_oe
+
+        flecha_vuelta_xy = flecha_eo_xy
+        flecha_vuelta_text_xy = flecha_eo_text_xy
+        labels_vuelta = labels_eo
+
+        gdf_d0 = gdf_d0.sort_values("section_id", ascending=False)
+        gdf_d1 = gdf_d1.sort_values("section_id", ascending=False)
+
+    # For direction 0, get the last section of the route geom
+    flecha_ida = gdf_d0.loc[gdf_d0.section_id == max(gdf_d0.section_id), "geometry"]
+    flecha_ida = list(flecha_ida.item().coords)
+    flecha_ida_inicio = flecha_ida[1]
+    flecha_ida_fin = flecha_ida[0]
+
+    # For direction 1, get the first section of the route geom
+    flecha_vuelta = gdf_d1.loc[gdf_d1.section_id == gdf_d1.section_id.min(), "geometry"]
+    flecha_vuelta = list(flecha_vuelta.item().coords)
+
+    # invert the direction of the arrow
+    flecha_vuelta_inicio = flecha_vuelta[0]
+    flecha_vuelta_fin = flecha_vuelta[1]
+
+    minx, miny, maxx, maxy = gdf_d0.total_bounds
+    box = create_squared_polygon(minx, miny, maxx, maxy, epsg_m)
+
+    # st.dataframe(gdf_d0.drop('geometry', axis=1))
+    # st.dataframe(gdf_d1.drop('geometry', axis=1))
+
+    # creando buffers en base a
+    gdf_d0["geometry"] = gdf_d0.geometry.buffer(gdf_d0.buff_factor)
+    gdf_d1["geometry"] = gdf_d1.geometry.buffer(gdf_d1.buff_factor)
+    # creating plot
+
+    f = plt.figure(tight_layout=True, figsize=(18, 10), dpi=8)
+    gs = f.add_gridspec(nrows=3, ncols=2)
+    ax1 = f.add_subplot(gs[0:2, 0])
+    ax2 = f.add_subplot(gs[0:2, 1])
+    ax3 = f.add_subplot(gs[2, 0])
+    ax4 = f.add_subplot(gs[2, 1])
+
+    font_dicc = {"fontsize": 18, "fontweight": "bold"}
+    box.plot(ax=ax1, color="#ffffff00")
+    box.plot(ax=ax2, color="#ffffff00")
+
+    try:
+        gdf_d0.plot(
+            ax=ax1,
+            column=indicator_col,
+            cmap="RdYlGn",
+            categorical=True,
+            alpha=0.6,
+            legend=True,
+        )
+        gdf_d1.plot(
+            ax=ax2,
+            column=indicator_col,
+            cmap="RdYlGn",
+            categorical=True,
+            alpha=0.6,
+            legend=True,
+        )
+    except ValueError:
+        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn", alpha=0.6)
+        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn", alpha=0.6)
+
+    ax1.set_axis_off()
+    ax2.set_axis_off()
+
+    ax1.set_title("IDA", fontdict=font_dicc)
+    ax2.set_title("VUELTA", fontdict=font_dicc)
+
+    title = "Segmentos del recorrido - Promedio de velocidad"
+    y_axis_lable = "Velocidad promedio (kmh)"
+
+    if nombre_linea == "":
+        title = f"Id línea {id_linea} - {day_type}\n{rango}"
+    else:
+        title = f"Línea: {nombre_linea.replace('Línea ', '')} - Id línea: {id_linea} - {day_type}\n{rango}"
+
+    f.suptitle(title, fontsize=20)
+
+    bar_variable = "avg_speed"
+
+    sns.barplot(
+        data=gdf_d0,
+        x="section_id",
+        y=bar_variable,
+        ax=ax3,
+        color="Grey",
+        order=gdf_d0.section_id.values,
+    )
+
+    sns.barplot(
+        data=gdf_d1,
+        x="section_id",
+        y=bar_variable,
+        ax=ax4,
+        color="Grey",
+        order=gdf_d1.section_id.values,
+    )
+
+    # Axis
+    ax3.set_xticklabels(labels_ida)
+    ax4.set_xticklabels(labels_vuelta)
+
+    ax3.set_ylabel(y_axis_lable)
+    ax3.set_xlabel("")
+
+    ax4.get_yaxis().set_visible(False)
+
+    ax4.set_ylabel("")
+    ax4.set_xlabel("")
+
+    max_y_barplot = max(gdf_d0[bar_variable].max(), gdf_d1[bar_variable].max())
+    ax3.set_ylim(0, max_y_barplot)
+    ax4.set_ylim(0, max_y_barplot)
+
+    ax3.spines.right.set_visible(False)
+    ax3.spines.top.set_visible(False)
+    ax4.spines.left.set_visible(False)
+    ax4.spines.right.set_visible(False)
+    ax4.spines.top.set_visible(False)
+
+    ax1.annotate(
+        "",
+        xy=(flecha_ida_inicio[0], flecha_ida_inicio[1]),
+        xytext=(flecha_ida_fin[0], flecha_ida_fin[1]),
+        arrowprops=dict(facecolor="black", edgecolor="black", shrink=0.2),
+    )
+
+    ax2.annotate(
+        "",
+        xy=(flecha_vuelta_inicio[0], flecha_vuelta_inicio[1]),
+        xytext=(flecha_vuelta_fin[0], flecha_vuelta_fin[1]),
+        arrowprops=dict(facecolor="black", edgecolor="black", shrink=0.2),
+    )
+
+    ax3.annotate(
+        "Sentido",
+        xy=flecha_ida_xy,
+        xytext=flecha_ida_text_xy,
+        size=16,
+        va="center",
+        ha="center",
+        xycoords="axes fraction",
+        arrowprops=dict(facecolor="Grey", shrink=0.05, edgecolor="Grey"),
+    )
+    ax4.annotate(
+        "Sentido",
+        xy=flecha_vuelta_xy,
+        xytext=flecha_vuelta_text_xy,
+        size=16,
+        va="center",
+        ha="center",
+        xycoords="axes fraction",
+        arrowprops=dict(facecolor="Grey", shrink=0.05, edgecolor="Grey"),
+    )
+
+    try:
+        prov = cx.providers.CartoDB.Positron
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+    except (UnidentifiedImageError, ValueError):
+        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+    except r_ConnectionError:
+        pass
+
+    plt.close(f)
+    return f
+
+
+def plot_demand_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, rango):
 
     gdf_d0 = lineas[
         (lineas.id_linea == id_linea)
@@ -411,12 +641,14 @@ for var in [
     "yr_mo_kpi",
     "secciones",
     "rango",
+    "secciones_supply",
+    "rango_supply",
 ]:
     if var not in st.session_state:
         st.session_state[var] = None
 
 
-col1, col2, col3 = st.columns([1, 2, 1])
+col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("Periodo")
 
@@ -432,35 +664,8 @@ with col1:
 with col2:
     st.subheader("Línea")
     seleccionar_linea("base_input", "base_select")
-
-with col3:
-    # col1, col2 = st.columns([1, 1])
     id_linea = st.session_state["id_linea"]
     nombre_linea = st.session_state["nombre_linea"]
-
-    lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
-    lineas = lineas[
-        (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
-    ]
-
-    lineas.loc[lineas["hour_min"].notna(), "rango"] = (
-        "de "
-        + lineas.loc[lineas["hour_min"].notna(), "hour_min"].astype(int).astype(str)
-        + " a "
-        + lineas.loc[lineas["hour_max"].notna(), "hour_max"].astype(int).astype(str)
-        + " hrs"
-    )
-
-    lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
-
-    st.subheader("Parámetros")
-
-    n_sections = col3.selectbox("Secciones ", options=lineas.n_sections.unique())
-
-    rango = col3.selectbox("Rango horario ", options=lineas.rango.unique())
-
-    st.session_state["secciones"] = n_sections
-    st.session_state["rango"] = rango
 
 with st.expander("Factor de ocupación por horas"):
     nombre_linea_kpi = st.session_state["nombre_linea"]
@@ -538,6 +743,31 @@ with st.expander("Factor de ocupación por horas"):
         st.write("No hay datos para mostrar")
 
 with st.expander("Demanda por segmento de recorrido"):
+    st.subheader("Parámetros")
+
+    col1, col2 = st.columns([1, 1])
+
+    lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
+    lineas = lineas[
+        (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
+    ]
+
+    lineas.loc[lineas["hour_min"].notna(), "rango"] = (
+        "de "
+        + lineas.loc[lineas["hour_min"].notna(), "hour_min"].astype(int).astype(str)
+        + " a "
+        + lineas.loc[lineas["hour_max"].notna(), "hour_max"].astype(int).astype(str)
+        + " hrs"
+    )
+
+    lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
+
+    n_sections = col1.selectbox("Secciones ", options=lineas.n_sections.unique())
+
+    rango = col2.selectbox("Rango horario ", options=lineas.rango.unique())
+
+    st.session_state["secciones"] = n_sections
+    st.session_state["rango"] = rango
     lineas = lineas[
         (lineas.day_type == st.session_state["day_type_kpi"])
         & (lineas.n_sections == st.session_state["secciones"])
@@ -548,7 +778,7 @@ with st.expander("Demanda por segmento de recorrido"):
         if st.checkbox("Mostrar datos", value=False):
             st.write(lineas)
 
-        f_lineas = plot_lineas(
+        f_lineas = plot_demand_by_section(
             lineas,
             st.session_state["id_linea"],
             st.session_state["nombre_linea"],
@@ -712,3 +942,60 @@ with st.expander("Matriz OD por linea"):
             # Display the map using folium_static
             with col2:
                 folium_static(m)
+
+with st.expander("Oferta por segmento de recorrido"):
+
+    st.subheader("Parámetros")
+    col1, col2 = st.columns([1, 1])
+
+    lineas = levanto_tabla_sql("supply_stats_by_section_id")
+    lineas = lineas[
+        (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
+    ]
+
+    lineas.loc[lineas["hour_min"].notna(), "rango"] = (
+        "de "
+        + lineas.loc[lineas["hour_min"].notna(), "hour_min"].astype(int).astype(str)
+        + " a "
+        + lineas.loc[lineas["hour_max"].notna(), "hour_max"].astype(int).astype(str)
+        + " hrs"
+    )
+
+    lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
+
+    n_sections = col1.selectbox(
+        "Secciones ", options=lineas.n_sections.unique(), key="sections_supply"
+    )
+
+    rango = col2.selectbox(
+        "Rango horario ", options=lineas.rango.unique(), key="range_supply"
+    )
+
+    st.session_state["secciones_supply"] = n_sections
+    st.session_state["rango_supply"] = rango
+
+    lineas = lineas[
+        (lineas.day_type == st.session_state["day_type_kpi"])
+        & (lineas.n_sections == st.session_state["secciones_supply"])
+        & (lineas.rango == st.session_state["rango_supply"])
+    ]
+
+    if len(lineas) > 0:
+
+        if st.checkbox(
+            "Mostrar datos", value=False, key="display_supply_stats_by_section_id"
+        ):
+            st.write(lineas)
+
+        f_lineas = plot_speed_by_section(
+            lineas,
+            st.session_state["id_linea"],
+            st.session_state["nombre_linea"],
+            st.session_state["day_type_kpi"],
+            st.session_state["secciones"],
+            st.session_state["rango"],
+        )
+        st.pyplot(f_lineas)
+
+    else:
+        st.write("No hay datos para mostrar")
