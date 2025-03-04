@@ -932,9 +932,9 @@ with st.expander("Demanda por segmento de recorrido"):
 
     lineas.loc[lineas["hour_min"].isna(), "rango"] = "Todo el dia"
 
-    n_sections = col1.selectbox("Secciones ", options=lineas.n_sections.unique())
+    n_sections = col1.selectbox("Secciones", options=lineas.n_sections.unique())
 
-    rango = col2.selectbox("Rango horario ", options=lineas.rango.unique())
+    rango = col2.selectbox("Rango horario", options=lineas.rango.unique())
 
     st.session_state["secciones"] = n_sections
     st.session_state["rango"] = rango

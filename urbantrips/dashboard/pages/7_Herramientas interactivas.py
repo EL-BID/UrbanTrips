@@ -179,6 +179,7 @@ if (line_ids is not None) & (geoms_check):
         line_ids=[line_ids],
         hour_range=hour_range,
         day_type=day_type,
+        n_sections=n_sections,
         section_meters=section_meters,
         save_gdf=True,
         stat="totals",
@@ -212,6 +213,7 @@ if (line_ids is not None) & (geoms_check):
     route_section_supply = compute_route_section_supply(
         line_ids=[line_ids],
         hour_range=hour_range,
+        n_sections=n_sections,
         section_meters=section_meters,
         day_type=day_type,
     )
@@ -222,7 +224,12 @@ if (line_ids is not None) & (geoms_check):
         line_ids=[line_ids],
         hour_range=hour_range,
         day_type="weekday",
+        n_sections=n_sections,
         section_meters=section_meters,
+    )
+
+    st.write(
+        "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
     )
 else:
     st.write("No hay datos para mostrar")
