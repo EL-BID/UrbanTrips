@@ -10,10 +10,10 @@ from folium import Figure
 from dash_utils import (levanto_tabla_sql, get_logo,
                         create_linestring_od, extract_hex_colors_from_cmap)
 
-import matplotlib.pyplot as plt
 from itertools import combinations
 import squarify
 from matplotlib_venn import venn3
+import matplotlib.pyplot as plt
 
 # Function to create activity combinations as tuples
 def get_activity_tuple(cols_dummies, selected_cols_dummies):
@@ -64,11 +64,20 @@ def get_venn_subsets(subset_sizes):
 # Plot Venn diagram
 def plot_venn_diagram(etapas_modos):
 
-    cols_dummies = [x for x in etapas_modos.columns.tolist() if x not in ['mes', 'tipo_dia', 'genero', 'factor_expansion_linea']]
+    cols_dummies = [x for x in etapas_modos.columns.tolist() if x not in ['mes', 'tipo_dia', 'genero', 'Modos', 'factor_expansion_linea']]
+    cols_tmp = []
+    for i in cols_dummies:
+        etapas_modos[f'{i}_tmp'] = etapas_modos[i]*etapas_modos['factor_expansion_linea']
+        cols_tmp += [f'{i}_tmp']
+    cols_tmp = etapas_modos[cols_tmp].sum().reset_index().rename(columns={'index':'modo', 0:'viajes'}).sort_values('viajes', ascending=False).round().head(3).modo.values.tolist()
+    cols_dummies_first3 = [modo.replace('_tmp', '') for modo in cols_tmp]
+    
    
     # Calcular porcentajes
     absolute_values = calculate_weighted_values(etapas_modos, cols_dummies, weight_column='factor_expansion_linea', as_percentage=False)
     percentage_values = calculate_weighted_values(etapas_modos, cols_dummies, weight_column='factor_expansion_linea', as_percentage=True)
+    absolute_values_first3 = calculate_weighted_values(etapas_modos, cols_dummies_first3, weight_column='factor_expansion_linea', as_percentage=False)
+    percentage_values_first3 = calculate_weighted_values(etapas_modos, cols_dummies_first3, weight_column='factor_expansion_linea', as_percentage=True)
 
     modal_etapas = pd.DataFrame(list(absolute_values.items()), columns=['Modes', 'Cantidad']).round(0)
     modal_etapas[cols_dummies] = pd.DataFrame(modal_etapas['Modes'].tolist(), index=modal_etapas.index)
@@ -80,13 +89,13 @@ def plot_venn_diagram(etapas_modos):
     modal_etapas['Cantidad'] = modal_etapas['Cantidad'].astype(int)
     modal_etapas['%'] = (modal_etapas['Cantidad'] / modal_etapas['Cantidad'].sum() * 100).round(1)
     modal_etapas = modal_etapas.sort_values('Cantidad', ascending=False)
-    
-    venn_subsets = get_venn_subsets(percentage_values)
+
+    venn_subsets = get_venn_subsets(percentage_values_first3)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
     
     # Left subplot: Venn3
-    venn3(subsets=venn_subsets, set_labels=[activity.capitalize() for activity in cols_dummies], ax=ax1)
+    venn3(subsets=venn_subsets, set_labels=[activity.capitalize() for activity in cols_dummies_first3], ax=ax1)
     ax1.set_title("Partición modal (%)")
     
     # Identificar multimodal (más de un modo utilizado)
@@ -120,15 +129,33 @@ def plot_venn_diagram(etapas_modos):
         '#F8C471', '#D7BDE2', '#A2D9CE', '#FDEBD0', '#D5F5E3',
         '#F9E79F', '#82E0AA', '#BB8FCE', '#EDBB99', '#A9CCE3'
     ]
-
-    colors = fixed_palette[:len(v)]
     
     # Right subplot: Squarify treemap
-    squarify.plot(values_data,
-                  label=values_names,
-                  color=colors,
-                  ax=ax2,
-                  text_kwargs={'fontsize': 10, 'color': 'black'}) #, 'fontweight': 'bold'
+
+    # Filtrar valores cero
+    filtered_values = []
+    filtered_labels = []
+
+    for value, label in zip(values_data, values_names):
+        if value > 0:
+            filtered_values.append(value)
+            filtered_labels.append(label)
+    
+    # Verificar que haya datos antes de graficar
+    if len(filtered_values) == 0:
+        st.warning("No hay datos suficientes para mostrar el treemap de combinaciones de modos.")
+    else:
+
+        total = sum(filtered_values)
+        normalized_values = [(v / total) * 100 for v in filtered_values]
+    
+        squarify.plot(
+            sizes=filtered_values,
+            label=filtered_labels,
+            color=fixed_palette[:len(filtered_values)],
+            text_kwargs={'fontsize': 10, 'color': 'black'},
+            ax=ax2
+        )
     ax2.axis("off")
     
     plt.tight_layout()
@@ -142,7 +169,10 @@ def plot_venn_diagram(etapas_modos):
     
     return fig, modal_etapas, modal_viajes
 
+
 # Función para calcular los porcentajes o valores absolutos ponderados
+from itertools import combinations
+
 def calculate_weighted_values(df, cols_dummies, weight_column, as_percentage=True):
     # Calcular el total ponderado
     total_weight = df[weight_column].sum()
@@ -153,13 +183,17 @@ def calculate_weighted_values(df, cols_dummies, weight_column, as_percentage=Tru
         activity_str_filter = [f"{a} > 0" if a in combo else f"{a} == 0" for a in cols_dummies]
         query_str = " & ".join(activity_str_filter)
         subset_weight = df.query(query_str)[weight_column].sum()
-        subset_sizes[tuple(1 if a in combo else 0 for a in cols_dummies)] = subset_weight
+
+        # Solo guardar combinaciones con valores > 0
+        if subset_weight > 0:
+            subset_sizes[tuple(1 if a in combo else 0 for a in cols_dummies)] = subset_weight
 
     # Convertir a porcentajes si as_percentage es True
     if as_percentage:
         subset_sizes = {key: round((value / total_weight) * 100, 1) for key, value in subset_sizes.items()}
 
     return subset_sizes
+
 
 def traigo_socio_indicadores(socio_indicadores):    
     totals = None
