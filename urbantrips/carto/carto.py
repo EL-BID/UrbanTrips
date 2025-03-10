@@ -375,126 +375,131 @@ def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # Leer informacion en tabla zonas
-    zonas = pd.read_sql_query(
-        """
-        SELECT *
-        FROM zonas
-        """,
-        conn_insumos,
-    )
+    try:
+        zonas = pd.read_sql_query(
+            """
+            SELECT *
+            FROM zonas
+            """,
+            conn_insumos,
+        )
+    except DatabaseError:
+            print("No existe la tabla zonas en la base")
+            zonas = pd.DataFrame([])        
 
-    # Si existe la columna de zona voronoi la elimina
-    if "Zona_voi" in zonas.columns:
-        zonas.drop(["Zona_voi"], axis=1, inplace=True)
-
-    # agrega datos a un hexagono mas grande
-    zonas["h3_r"] = zonas["h3"].apply(h3.h3_to_parent, res=res)
-
-    # Computa para ese hexagono el promedio ponderado de latlong
-    zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
-
-    hexs = zonas_for_hexs.groupby("h3_r", as_index=False).fex.sum()
-
-    hexs = hexs.merge(
-        zonas_for_hexs.groupby("h3_r")
-        .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "longitud"}),
-        how="left",
-    )
-
-    hexs = hexs.merge(
-        zonas_for_hexs.groupby("h3_r")
-        .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "latitud"}),
-        how="left",
-    )
-
-    hexs = gpd.GeoDataFrame(
-        hexs,
-        geometry=gpd.points_from_xy(hexs["longitud"], hexs["latitud"]),
-        crs=4326,
-    )
-
-    cant_zonas = len(hexs) + 10
-    k_ring = 1
-
-    if cant_zonas <= max_zonas:
-        hexs2 = hexs.copy()
-
-    while cant_zonas > max_zonas:
-        # Construye un set de hexagonos aun mas grandes
-        hexs2 = hexs.copy()
-        hexs2["h3_r2"] = hexs2.h3_r.apply(h3.h3_to_parent, res=res - 1)
-        hexs2["geometry"] = hexs2.h3_r2.apply(add_geometry)
-        hexs2 = hexs2.sort_values(["h3_r2", "fex"], ascending=[True, False])
-        hexs2["orden"] = hexs2.groupby(["h3_r2"]).cumcount()
-        hexs2 = hexs2[hexs2.orden == 0]
-
-        hexs2 = hexs2.sort_values("fex", ascending=False)
-        hexs["cambiado"] = 0
-        for i in hexs2.h3_r.tolist():
-            vecinos = h3.k_ring(i, k_ring)
-            hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "h3_r"] = i
-            hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "cambiado"] = 1
-
-        hexs_tmp = hexs.groupby("h3_r", as_index=False).fex.sum()
-        hexs_tmp = hexs_tmp.merge(
-            hexs[hexs.fex != 0]
-            .groupby("h3_r")
+    if len(zonas) > 0:
+        # Si existe la columna de zona voronoi la elimina
+        if "Zona_voi" in zonas.columns:
+            zonas.drop(["Zona_voi"], axis=1, inplace=True)
+    
+        # agrega datos a un hexagono mas grande
+        zonas["h3_r"] = zonas["h3"].apply(h3.h3_to_parent, res=res)
+    
+        # Computa para ese hexagono el promedio ponderado de latlong
+        zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
+    
+        hexs = zonas_for_hexs.groupby("h3_r", as_index=False).fex.sum()
+    
+        hexs = hexs.merge(
+            zonas_for_hexs.groupby("h3_r")
             .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
             .reset_index()
             .rename(columns={0: "longitud"}),
             how="left",
         )
-        hexs_tmp = hexs_tmp.merge(
-            hexs[hexs.fex != 0]
-            .groupby("h3_r")
+    
+        hexs = hexs.merge(
+            zonas_for_hexs.groupby("h3_r")
             .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
             .reset_index()
             .rename(columns={0: "latitud"}),
             how="left",
         )
-        hexs_tmp = gpd.GeoDataFrame(
-            hexs_tmp,
-            geometry=gpd.points_from_xy(hexs_tmp["longitud"], hexs_tmp["latitud"]),
+    
+        hexs = gpd.GeoDataFrame(
+            hexs,
+            geometry=gpd.points_from_xy(hexs["longitud"], hexs["latitud"]),
             crs=4326,
         )
-
-        hexs = hexs_tmp.copy()
-
-        if cant_zonas == len(hexs):
-            k_ring += 1
-        else:
-            cant_zonas = len(hexs)
-
-    voi = create_voronoi(hexs)
-    voi = gpd.sjoin(voi, hexs[["fex", "geometry"]], how="left")
-    voi = voi.sort_values("fex", ascending=False)
-    voi = voi.drop(["Zona", "index_right"], axis=1)
-    voi = voi.reset_index(drop=True).reset_index().rename(columns={"index": "Zona_voi"})
-    voi["Zona_voi"] = voi["Zona_voi"] + 1
-    voi["Zona_voi"] = voi["Zona_voi"].astype(str)
-
-    file = os.path.join("data", "data_ciudad", "zona_voi.geojson")
-    voi[["Zona_voi", "geometry"]].to_file(file)
-
-    zonas = zonas.drop(["h3_r"], axis=1)
-    zonas["geometry"] = zonas["h3"].apply(add_geometry)
-
-    zonas = gpd.GeoDataFrame(zonas, geometry="geometry", crs=4326)
-    zonas["geometry"] = zonas["geometry"].representative_point()
-
-    zonas = gpd.sjoin(zonas, voi[["Zona_voi", "geometry"]], how="left")
-
-    zonas = zonas.drop(["index_right", "geometry"], axis=1)
-    zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
-    conn_insumos.close()
-    print("Graba zonas en sql lite")
-
-    # Plotea geoms de voronoi
-    viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
+    
+        cant_zonas = len(hexs) + 10
+        k_ring = 1
+    
+        if cant_zonas <= max_zonas:
+            hexs2 = hexs.copy()
+    
+        while cant_zonas > max_zonas:
+            # Construye un set de hexagonos aun mas grandes
+            hexs2 = hexs.copy()
+            hexs2["h3_r2"] = hexs2.h3_r.apply(h3.h3_to_parent, res=res - 1)
+            hexs2["geometry"] = hexs2.h3_r2.apply(add_geometry)
+            hexs2 = hexs2.sort_values(["h3_r2", "fex"], ascending=[True, False])
+            hexs2["orden"] = hexs2.groupby(["h3_r2"]).cumcount()
+            hexs2 = hexs2[hexs2.orden == 0]
+    
+            hexs2 = hexs2.sort_values("fex", ascending=False)
+            hexs["cambiado"] = 0
+            for i in hexs2.h3_r.tolist():
+                vecinos = h3.k_ring(i, k_ring)
+                hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "h3_r"] = i
+                hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "cambiado"] = 1
+    
+            hexs_tmp = hexs.groupby("h3_r", as_index=False).fex.sum()
+            hexs_tmp = hexs_tmp.merge(
+                hexs[hexs.fex != 0]
+                .groupby("h3_r")
+                .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
+                .reset_index()
+                .rename(columns={0: "longitud"}),
+                how="left",
+            )
+            hexs_tmp = hexs_tmp.merge(
+                hexs[hexs.fex != 0]
+                .groupby("h3_r")
+                .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
+                .reset_index()
+                .rename(columns={0: "latitud"}),
+                how="left",
+            )
+            hexs_tmp = gpd.GeoDataFrame(
+                hexs_tmp,
+                geometry=gpd.points_from_xy(hexs_tmp["longitud"], hexs_tmp["latitud"]),
+                crs=4326,
+            )
+    
+            hexs = hexs_tmp.copy()
+    
+            if cant_zonas == len(hexs):
+                k_ring += 1
+            else:
+                cant_zonas = len(hexs)
+    
+        voi = create_voronoi(hexs)
+        voi = gpd.sjoin(voi, hexs[["fex", "geometry"]], how="left")
+        voi = voi.sort_values("fex", ascending=False)
+        voi = voi.drop(["Zona", "index_right"], axis=1)
+        voi = voi.reset_index(drop=True).reset_index().rename(columns={"index": "Zona_voi"})
+        voi["Zona_voi"] = voi["Zona_voi"] + 1
+        voi["Zona_voi"] = voi["Zona_voi"].astype(str)
+    
+        file = os.path.join("data", "data_ciudad", "zona_voi.geojson")
+        voi[["Zona_voi", "geometry"]].to_file(file)
+    
+        zonas = zonas.drop(["h3_r"], axis=1)
+        zonas["geometry"] = zonas["h3"].apply(add_geometry)
+    
+        zonas = gpd.GeoDataFrame(zonas, geometry="geometry", crs=4326)
+        zonas["geometry"] = zonas["geometry"].representative_point()
+    
+        zonas = gpd.sjoin(zonas, voi[["Zona_voi", "geometry"]], how="left")
+    
+        zonas = zonas.drop(["index_right", "geometry"], axis=1)
+        zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
+        conn_insumos.close()
+        print("Graba zonas en sql lite")
+    
+        # Plotea geoms de voronoi
+        viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
 
 
 @duracion

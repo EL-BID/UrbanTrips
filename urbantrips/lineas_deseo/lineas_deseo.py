@@ -1021,22 +1021,23 @@ def preparo_etapas_agregadas(etapas, viajes):
     transfers = transfers.groupby(['mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
 
     zonas = levanto_tabla_sql('zonas', 'insumos')
-    zonas_cols = zonas.columns.tolist()
-    zonas_cols = [item for item in zonas_cols if item not in ['fex', 'latitud', 'longitud']]
-    zonas = zonas[zonas_cols]
-    
-    zonas_cols_o = [f'{item}_o' for item in zonas_cols]
-    zonas_cols_d = [f'{item}_d' for item in zonas_cols]
-    
-    zonas.columns = zonas_cols_o
-    e_agg = e_agg.merge(zonas, how='left')
-    v_agg = v_agg.merge(zonas, how='left')
-    transfers = transfers.merge(zonas, how='left')
-    
-    zonas.columns = zonas_cols_d
-    e_agg = e_agg.merge(zonas, how='left')
-    v_agg = v_agg.merge(zonas, how='left')
-    transfers = transfers.merge(zonas, how='left')
+    if len(zonas) > 0:
+        zonas_cols = zonas.columns.tolist()
+        zonas_cols = [item for item in zonas_cols if item not in ['fex', 'latitud', 'longitud']]
+        zonas = zonas[zonas_cols]
+        
+        zonas_cols_o = [f'{item}_o' for item in zonas_cols]
+        zonas_cols_d = [f'{item}_d' for item in zonas_cols]
+        
+        zonas.columns = zonas_cols_o
+        e_agg = e_agg.merge(zonas, how='left')
+        v_agg = v_agg.merge(zonas, how='left')
+        transfers = transfers.merge(zonas, how='left')
+        
+        zonas.columns = zonas_cols_d
+        e_agg = e_agg.merge(zonas, how='left')
+        v_agg = v_agg.merge(zonas, how='left')
+        transfers = transfers.merge(zonas, how='left')
 
     return e_agg, v_agg, transfers
 
