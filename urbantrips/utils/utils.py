@@ -1460,17 +1460,13 @@ def create_branch_ids_sql_filter(branch_ids):
 
 def traigo_tabla_zonas():
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-
-    zonas = pd.read_sql_query(
-        """
-        SELECT * from zonas
-        """,
-        conn_insumos,
-    )
-    zonas_cols = [
-        i for i in zonas.columns if i not in ["h3", "fex", "latitud", "longitud"]
-    ]
+    zonas = levanto_tabla_sql('zonas', 'insumos')
+    zonas_cols = []
+    if len(zonas)>0:
+        zonas_cols = [
+            i for i in zonas.columns if i not in ["h3", "fex", "latitud", "longitud"]
+        ]
+    
     return zonas, zonas_cols
 
 

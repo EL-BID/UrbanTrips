@@ -25,18 +25,24 @@ def persist_datamodel_tables():
         distancias
     """
     distancias = pd.read_sql_query(q, conn_insumos)
+    
+    try:
+        zonas = pd.read_sql_query("""
+                                select * from zonas
+                                  """,
+                                  conn_insumos)
+        zonas = zonas.drop(['fex', 'latitud', 'longitud'], axis=1)
+        zonas_o = zonas.copy()
+        zonas_d = zonas.copy()
+        cols_o = zonas.columns.copy() + '_o'
+        cols_d = zonas.columns.copy() + '_d'
+        zonas_o.columns = cols_o
+        zonas_d.columns = cols_d
 
-    zonas = pd.read_sql_query("""
-                            select * from zonas
-                              """,
-                              conn_insumos)
-    zonas = zonas.drop(['fex', 'latitud', 'longitud'], axis=1)
-    zonas_o = zonas.copy()
-    zonas_d = zonas.copy()
-    cols_o = zonas.columns.copy() + '_o'
-    cols_d = zonas.columns.copy() + '_d'
-    zonas_o.columns = cols_o
-    zonas_d.columns = cols_d
+    except DatabaseError:
+        print("No existe la tabla zonas en la base")
+        zonas = pd.DataFrame([])        
+
 
     q = """
         SELECT *
@@ -44,7 +50,8 @@ def persist_datamodel_tables():
         where e.od_validado==1
     """
     etapas = pd.read_sql_query(q, conn_data)
-    etapas = etapas.merge(zonas_o, how='left').merge(zonas_d, how='left')
+    if len(zonas) > 0:
+        etapas = etapas.merge(zonas_o, how='left').merge(zonas_d, how='left')
     etapas = etapas.merge(distancias, how='left')
 
     viajes = pd.read_sql_query("""
@@ -52,7 +59,8 @@ def persist_datamodel_tables():
                                 from viajes
                                 where od_validado==1
                                """, conn_data)
-    viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
+    if len(zonas)>0:
+        viajes = viajes.merge(zonas_o, how='left').merge(zonas_d, how='left')
     viajes = viajes.merge(distancias, how='left')
 
     print("Leyendo informacion de usuarios...")
