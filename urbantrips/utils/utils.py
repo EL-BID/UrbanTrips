@@ -99,7 +99,7 @@ def leer_alias(tipo="data"):
     return alias
 
 
-def traigo_db_path(tipo="data", alias_db=''):
+def traigo_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -113,13 +113,13 @@ def traigo_db_path(tipo="data", alias_db=''):
     return db_path
 
 
-def iniciar_conexion_db(tipo="data", alias_db=''):
+def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
     db_path = traigo_db_path(tipo, alias_db)
-    
+
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
@@ -505,6 +505,7 @@ def create_dash_tables():
         n_vehicles int,
         avg_speed float,
         median_speed float,
+        speed_interval float,
         frequency float,
         frequency_interval text,
         buff_factor float,
@@ -1488,7 +1489,7 @@ def normalize_vars(tabla):
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=''):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 

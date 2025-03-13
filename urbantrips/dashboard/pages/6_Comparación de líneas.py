@@ -2,15 +2,17 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from dash_utils import (
-    get_logo)
+from dash_utils import get_logo
+
 try:
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
     from urbantrips.kpi import overlapping as ovl
     from urbantrips.viz import overlapping as ovl_viz
 except ImportError as e:
-    st.error(f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página")
+    st.error(
+        f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
+    )
     st.stop()
 
 
@@ -28,6 +30,7 @@ def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
         finally:
             conn.close()
     return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
+
 
 def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_insumos):
     texto_a_buscar = st.text_input(
@@ -100,7 +103,7 @@ try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
         st.session_state.configs = utils.leer_configs_generales()
-    
+
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
@@ -110,7 +113,9 @@ try:
     ]
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 except ValueError as e:
-    st.error(f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página")
+    st.error(
+        f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página"
+    )
     st.stop()
 
 
