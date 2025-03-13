@@ -783,6 +783,10 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
+
+st.write(
+    "Si recién procesó nuevas líneas con Herramientas interactivas, limpie el caché desde el ícono superior derecho de la pantalla"
+)
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
@@ -918,6 +922,7 @@ with st.expander("Demanda por segmento de recorrido"):
     col1, col2 = st.columns([1, 1])
 
     lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
+
     lineas = lineas[
         (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
     ]
@@ -1027,19 +1032,18 @@ with st.expander("Matriz OD por linea"):
     )
 
     matriz.loc[matriz["hour_min"].isna(), "rango"] = "Todo el dia"
+    matriz = matriz[matriz.id_linea == st.session_state["id_linea"]]
+    matriz = matriz[matriz.yr_mo == st.session_state[f"yr_mo_kpi"]]
+    matriz = matriz[matriz.day_type == st.session_state["day_type_kpi"]]
+    matriz = matriz[matriz.n_sections == st.session_state["secciones"]]
+    matriz = matriz[matriz.rango == st.session_state["rango"]]
 
     if len(matriz) > 0:
-
+        st.write(matriz)
         if st.checkbox("Normalizar", value=True):
             values = "prop"
         else:
             values = "legs"
-
-        matriz = matriz[matriz.id_linea == st.session_state["id_linea"]]
-        matriz = matriz[matriz.yr_mo == st.session_state[f"yr_mo_kpi"]]
-        matriz = matriz[matriz.day_type == st.session_state["day_type_kpi"]]
-        matriz = matriz[matriz.n_sections == st.session_state["secciones"]]
-        matriz = matriz[matriz.rango == st.session_state["rango"]]
 
         od_heatmap = matriz.pivot_table(
             values=values, index="Origen", columns="Destino"

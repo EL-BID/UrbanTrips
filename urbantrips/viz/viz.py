@@ -687,12 +687,11 @@ def viz_etapas_x_tramo_recorrido(
         db_type="dash",
     )
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
-
+    conn_dash__ = iniciar_conexion_db(tipo="dash")
     gdf_d_dash.to_sql(
-        "ocupacion_por_linea_tramo", conn_dash, if_exists="append", index=False
+        "ocupacion_por_linea_tramo", conn_dash__, if_exists="append", index=False
     )
-    conn_dash.close()
+    conn_dash__.close()
 
     if save_gdf:
         gdf_d0 = gdf_d0.to_crs(epsg=4326)

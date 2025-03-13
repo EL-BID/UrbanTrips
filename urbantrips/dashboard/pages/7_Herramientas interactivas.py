@@ -139,10 +139,15 @@ with col3:
     )
     st.session_state["section_meters_7"] = section_meters
 
-    rango_desde = col3.selectbox(
+    (
+        col3a,
+        col3b,
+    ) = st.columns([1, 1])
+
+    rango_desde = col3a.selectbox(
         "Rango horario (desde) ", options=range(0, 24), key="rango_hora_desde", index=9
     )
-    rango_hasta = col3.selectbox(
+    rango_hasta = col3b.selectbox(
         "Rango horario (hasta)", options=range(0, 24), key="rango_hora_hasta", index=9
     )
     hour_range = [rango_desde, rango_hasta]
@@ -155,81 +160,91 @@ geoms_check = (st.session_state["n_sections_7"] is not None) | (
     st.session_state["section_meters_7"] is not None
 )
 
+if st.button("Comenzar a procesar"):
+    if (line_ids is not None) & (geoms_check):
 
-if (line_ids is not None) & (geoms_check):
+        hour_range = st.session_state["hour_range_7"]
+        n_sections = st.session_state["n_sections_7"]
+        section_meters = st.session_state["section_meters_7"]
+        day_type = st.session_state["day_type_7"]
 
-    hour_range = st.session_state["hour_range_7"]
-    n_sections = st.session_state["n_sections_7"]
-    section_meters = st.session_state["section_meters_7"]
-    day_type = st.session_state["day_type_7"]
+        st.write("Calculando la matriz OD de la linea...")
+        # Se computa la matriz OD de las lineas
+        compute_lines_od_matrix(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            n_sections=n_sections,
+            section_meters=section_meters,
+            day_type=day_type,
+            save_csv=True,
+        )
+        st.write("Visualizando la matriz OD de la linea...")
+        # Se visualiza la matriz OD de las lineas
+        visualize_lines_od_matrix(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            day_type=day_type,
+            n_sections=n_sections,
+            section_meters=section_meters,
+            stat="totals",
+        )
 
-    st.write("Calculando los estadisticos de carga de las secciones de las lineas")
-    # Se calculan los estadisticos de carga de las secciones de las lineas
-    compute_route_section_load(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        n_sections=n_sections,
-        section_meters=section_meters,
-        day_type=day_type,
-    )
+        st.write("Calculando los estadisticos de oferta por secciones de las lineas...")
+        # Calcula los estadisticos de oferta por sección de las lineas
+        route_section_supply = compute_route_section_supply(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            n_sections=n_sections,
+            section_meters=section_meters,
+            day_type=day_type,
+        )
 
-    st.write("Visualizando los estadisticos de carga de las secciones de las lineas")
-    # Se visualizan los estadisticos de carga de las secciones de las lineas
-    visualize_route_section_load(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        day_type=day_type,
-        n_sections=n_sections,
-        section_meters=section_meters,
-        save_gdf=True,
-        stat="totals",
-        factor=500,
-        factor_min=10,
-    )
+        st.write(
+            "Visualizando los estadisticos de oferta por secciones de las lineas..."
+        )
+        # Visualiza los estadisticos de oferta por sección de las lineas
+        visualize_route_section_supply_data(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            day_type="weekday",
+            n_sections=n_sections,
+            section_meters=section_meters,
+        )
 
-    st.write("Calculando la matriz OD de la linea")
-    # Se computa la matriz OD de las lineas
-    compute_lines_od_matrix(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        n_sections=n_sections,
-        section_meters=section_meters,
-        day_type=day_type,
-        save_csv=True,
-    )
-    st.write("Visualizando la matriz OD de la linea")
-    # Se visualiza la matriz OD de las lineas
-    visualize_lines_od_matrix(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        day_type=day_type,
-        n_sections=n_sections,
-        section_meters=section_meters,
-        stat="totals",
-    )
+        st.write(
+            "Calculando los estadisticos de carga de las secciones de las lineas..."
+        )
+        # Se calculan los estadisticos de carga de las secciones de las lineas
+        compute_route_section_load(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            n_sections=n_sections,
+            section_meters=section_meters,
+            day_type=day_type,
+        )
 
-    st.write("Calculando los estadisticos de oferta por secciones de las lineas")
-    # Calcula los estadisticos de oferta por sección de las lineas
-    route_section_supply = compute_route_section_supply(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        n_sections=n_sections,
-        section_meters=section_meters,
-        day_type=day_type,
-    )
+        st.write(
+            "Visualizando los estadisticos de carga de las secciones de las lineas..."
+        )
+        # Se visualizan los estadisticos de carga de las secciones de las lineas
+        visualize_route_section_load(
+            line_ids=[line_ids],
+            hour_range=hour_range,
+            day_type=day_type,
+            n_sections=n_sections,
+            section_meters=section_meters,
+            save_gdf=True,
+            stat="totals",
+            factor=500,
+            factor_min=10,
+        )
 
-    st.write("Visualizando los estadisticos de oferta por secciones de las lineas")
-    # Visualiza los estadisticos de oferta por sección de las lineas
-    visualize_route_section_supply_data(
-        line_ids=[line_ids],
-        hour_range=hour_range,
-        day_type="weekday",
-        n_sections=n_sections,
-        section_meters=section_meters,
-    )
+        st.write(
+            "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
+        )
 
-    st.write(
-        "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
-    )
-else:
-    st.write("No hay datos para mostrar")
+        st.write(
+            "Para que se visualice en Indicadores de oferta y demanda, limpie el caché desde el ícono superior derecho de la pantalla"
+        )
+    else:
+        st.write("No hay datos para mostrar")
