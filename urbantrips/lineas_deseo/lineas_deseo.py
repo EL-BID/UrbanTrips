@@ -50,7 +50,10 @@ def load_and_process_data():
     conn_insumos.close()
     
     if len(travel_times) > 0:
-        etapas = etapas.merge(travel_times[['dia', 'id', 'travel_time_min']], how='left', on=['dia', 'id'])
+
+        ttimes = travel_times[['dia', 'id', 'travel_time_min']].drop_duplicates()        
+        etapas = etapas.merge(ttimes, how='left', on=['dia', 'id'])
+        
         etapas['travel_speed'] = (
                 etapas['distance_osm_drive'] /
                 (etapas['travel_time_min']/60)
@@ -1039,7 +1042,21 @@ def preparo_etapas_agregadas(etapas, viajes):
         v_agg = v_agg.merge(zonas, how='left')
         transfers = transfers.merge(zonas, how='left')
 
-    return e_agg, v_agg, transfers
+    guardar_tabla_sql(e_agg, 
+                  'etapas_agregadas', 
+                  'dash', 
+                  {'mes': e_agg.mes.unique().tolist()})
+
+    guardar_tabla_sql(v_agg, 
+                  'viajes_agregados', 
+                  'dash', 
+                  {'mes': v_agg.mes.unique().tolist()})
+
+    guardar_tabla_sql(transfers, 
+              'transferencias_agregadas', 
+              'dash', 
+              {'mes': v_agg.mes.unique().tolist()})
+
 
 def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6):
 # etapas_selec = etapas.copy()
@@ -1851,6 +1868,8 @@ def proceso_lineas_deseo(check_configs=False):
 
     etapas, viajes = load_and_process_data()
 
+    preparo_etapas_agregadas(etapas.copy(), viajes.copy())
+
     preparo_lineas_deseo(etapas, viajes, res=[6, 8])
 
     resumen_x_linea(etapas, viajes)
@@ -1873,21 +1892,8 @@ def proceso_lineas_deseo(check_configs=False):
                       'dash', 
                       {'mes': socio_indicadores.mes.unique().tolist()})
     
-    e_agg, v_agg, transfers = preparo_etapas_agregadas(etapas, viajes)
-    guardar_tabla_sql(e_agg, 
-                      'etapas_agregadas', 
-                      'dash', 
-                      {'mes': e_agg.mes.unique().tolist()})
+    
 
-    guardar_tabla_sql(v_agg, 
-                  'viajes_agregados', 
-                  'dash', 
-                  {'mes': v_agg.mes.unique().tolist()})
-
-    guardar_tabla_sql(transfers, 
-                  'transferencias_agregadas', 
-                  'dash', 
-                  {'mes': v_agg.mes.unique().tolist()})
     
     imprimo_matrices_od()
     

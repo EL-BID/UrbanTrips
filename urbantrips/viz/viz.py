@@ -2466,13 +2466,14 @@ def save_zones():
             df["tipo_zona"] = i[1]
             zonas = pd.concat([zonas, df])
 
-    zonas = zonas.dissolve(by=["tipo_zona", "Zona"], as_index=False)
-    zonas["wkt"] = zonas.geometry.to_wkt()
-    zonas = zonas.drop(["geometry"], axis=1)
+    if len(zonas) > 0:
+        zonas = zonas.dissolve(by=["tipo_zona", "Zona"], as_index=False)
+        zonas["wkt"] = zonas.geometry.to_wkt()
+        zonas = zonas.drop(["geometry"], axis=1)
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
-    zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
-    conn_dash.close()
+        conn_dash = iniciar_conexion_db(tipo="dash")
+        zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
+        conn_dash.close()
 
 
 # def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
