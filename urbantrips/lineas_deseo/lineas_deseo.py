@@ -8,7 +8,7 @@ from urbantrips.utils.utils import traigo_tabla_zonas, calculate_weighted_means
 from urbantrips.geo.geo import h3_to_lat_lon, h3toparent, h3_to_geodataframe, point_to_h3, create_h3_gdf
 from urbantrips.utils.check_configs import check_config
 from shapely.geometry import Point
-from urbantrips.utils.utils import leer_alias, leer_configs_generales
+from urbantrips.utils.utils import leer_alias, leer_configs_generales, duracion
 from urbantrips.carto import carto
 
 
@@ -1822,6 +1822,7 @@ def resumen_x_linea(etapas, viajes):
                       'dash', 
                       {'mes': all.mes.unique().tolist()})
 
+@duracion
 def proceso_poligonos(check_configs=True):
 
     print('Procesa polígonos')
@@ -1854,6 +1855,7 @@ def proceso_poligonos(check_configs=True):
                           'dash', 
                           {'mes': indicadores.mes.unique().tolist()})
 
+@duracion
 def proceso_lineas_deseo(check_configs=False):
 
     print('Procesa etapas')

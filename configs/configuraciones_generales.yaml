@@ -1,16 +1,16 @@
 # Archivo de configuración para urbantrips
 
 # Bases de datos
-nombre_archivo_trx: "UT_AMBA-2024-5-14-AP_m10.csv"                 # Especificar el archivo con las transacciones a consumir
-alias_db_data: "amba_2024_m10"                                     # nombre del sqlite donde se guardan los datos procesados
-alias_db_insumos: "amba_2024_m10"                                  # nombre del sqlite donde se guardan los insumos generales
-alias_db_dashboard: "amba_2024_m10"                                # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
+nombre_archivo_trx: "UT_AMBA_2024_10_15.csv"                       # Especificar el archivo con las transacciones a consumir
+alias_db_data: "amba_2024_15_10"                                   # nombre del sqlite donde se guardan los datos procesados
+alias_db_insumos: "amba_2024_15_10"                                # nombre del sqlite donde se guardan los insumos generales
+alias_db_dashboard: "amba_2024_15_10"                              # nombre del sqlite donde se guardan los datos a mostrar en el dashboard
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
     id_trx: "id"                                                   # columna con id único del archivo de transacciones
     fecha_trx: "fecha_trx"                                         # columna con fecha de la transacción
-    id_tarjeta_trx: "id_tarjeta_trx"                               # columna con id de la tarjeta
+    id_tarjeta_trx: "id_tarjeta"                                   # columna con id de la tarjeta
     modo_trx: "modo"                                               # columna con modo de transporte
     hora_trx:                                                      # columna con hora de la transacción
     id_linea_trx: "id_linea"                                       # columna con el id de la línea
@@ -21,7 +21,7 @@ nombres_variables_trx:
     tarifa: "ats"                                                  # Indica el tipo de tarifa asignado a la transacción
     latitud_trx: "latitude"                                        # columna con la latitud de la transacción
     longitud_trx: "longitude"                                      # columna con longitud de la transacción
-    factor_expansion: "fex_linea"                                  # columna con el factor de expansión
+    factor_expansion:                                              # columna con el factor de expansión
 
 # Parámetros de transacciones
 ordenamiento_transacciones: "fecha_completa"                       # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
@@ -48,7 +48,7 @@ formato_fecha: "%d/%m/%Y %H:%M:%S"                                 # Configuraci
 columna_hora: False                                                
 
 geolocalizar_trx: False                                            
-nombre_archivo_gps: "UT_GPS-2024-5.csv"                            # Especificar el archivo con los datos gps de las líneas
+nombre_archivo_gps: "UT_GPS_AMBA_2024_10_15.csv"                   # Especificar el archivo con los datos gps de las líneas
 
 # Nombre de columnas en el archivo de GPS
 nombres_variables_gps: 
@@ -64,7 +64,7 @@ nombres_variables_gps:
     servicios_gps: "serv_val"                                      # Indica cuando se abre y cierra un servicio
 
 # Información para procesamiento de líneas
-nombre_archivo_informacion_lineas: "UT_LINEAS-2024.csv"            # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
+nombre_archivo_informacion_lineas: "UT_LINEAS_AMBA_2024_10_15.csv" # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: True                                     # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas: "stops_amba_2023.csv"                      
 imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las líneas
@@ -75,13 +75,13 @@ valor_inicio_servicio: "INI"                                       # Valor de la
 valor_fin_servicio: "FIN"                                          # Valor de la variable que marca el fin del servicio
 
 modos: 
-    autobus: "COLE"                                                
-    tren: "FFCC"                                                   
+    autobus: "COLECTIVO"                                           
+    tren: "TREN"                                                   
     metro: "SUBTE"                                                 
     tranvia:                                                       
     brt:                                                           
     cable:                                                         
-    lancha:                                                        
+    lancha: "LANCHAS"                                              
     otros:                                                         
 
 # Capas geográficas con recorridos de líneas
