@@ -8,7 +8,7 @@ from urbantrips.utils.utils import traigo_tabla_zonas, calculate_weighted_means
 from urbantrips.geo.geo import h3_to_lat_lon, h3toparent, h3_to_geodataframe, point_to_h3, create_h3_gdf
 from urbantrips.utils.check_configs import check_config
 from shapely.geometry import Point
-from urbantrips.utils.utils import leer_alias, leer_configs_generales
+from urbantrips.utils.utils import leer_alias, leer_configs_generales, duracion
 from urbantrips.carto import carto
 
 
@@ -50,7 +50,10 @@ def load_and_process_data():
     conn_insumos.close()
     
     if len(travel_times) > 0:
-        etapas = etapas.merge(travel_times[['dia', 'id', 'travel_time_min']], how='left', on=['dia', 'id'])
+
+        ttimes = travel_times[['dia', 'id', 'travel_time_min']].drop_duplicates()        
+        etapas = etapas.merge(ttimes, how='left', on=['dia', 'id'])
+        
         etapas['travel_speed'] = (
                 etapas['distance_osm_drive'] /
                 (etapas['travel_time_min']/60)
@@ -1039,7 +1042,21 @@ def preparo_etapas_agregadas(etapas, viajes):
         v_agg = v_agg.merge(zonas, how='left')
         transfers = transfers.merge(zonas, how='left')
 
-    return e_agg, v_agg, transfers
+    guardar_tabla_sql(e_agg, 
+                  'etapas_agregadas', 
+                  'dash', 
+                  {'mes': e_agg.mes.unique().tolist()})
+
+    guardar_tabla_sql(v_agg, 
+                  'viajes_agregados', 
+                  'dash', 
+                  {'mes': v_agg.mes.unique().tolist()})
+
+    guardar_tabla_sql(transfers, 
+              'transferencias_agregadas', 
+              'dash', 
+              {'mes': v_agg.mes.unique().tolist()})
+
 
 def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6):
 # etapas_selec = etapas.copy()
@@ -1805,6 +1822,7 @@ def resumen_x_linea(etapas, viajes):
                       'dash', 
                       {'mes': all.mes.unique().tolist()})
 
+@duracion
 def proceso_poligonos(check_configs=True):
 
     print('Procesa polígonos')
@@ -1837,6 +1855,7 @@ def proceso_poligonos(check_configs=True):
                           'dash', 
                           {'mes': indicadores.mes.unique().tolist()})
 
+@duracion
 def proceso_lineas_deseo(check_configs=False):
 
     print('Procesa etapas')
@@ -1850,6 +1869,8 @@ def proceso_lineas_deseo(check_configs=False):
     zonificaciones['lon'] = zonificaciones.geometry.representative_point().x
 
     etapas, viajes = load_and_process_data()
+
+    preparo_etapas_agregadas(etapas.copy(), viajes.copy())
 
     preparo_lineas_deseo(etapas, viajes, res=[6, 8])
 
@@ -1873,21 +1894,8 @@ def proceso_lineas_deseo(check_configs=False):
                       'dash', 
                       {'mes': socio_indicadores.mes.unique().tolist()})
     
-    e_agg, v_agg, transfers = preparo_etapas_agregadas(etapas, viajes)
-    guardar_tabla_sql(e_agg, 
-                      'etapas_agregadas', 
-                      'dash', 
-                      {'mes': e_agg.mes.unique().tolist()})
+    
 
-    guardar_tabla_sql(v_agg, 
-                  'viajes_agregados', 
-                  'dash', 
-                  {'mes': v_agg.mes.unique().tolist()})
-
-    guardar_tabla_sql(transfers, 
-                  'transferencias_agregadas', 
-                  'dash', 
-                  {'mes': v_agg.mes.unique().tolist()})
     
     imprimo_matrices_od()
     

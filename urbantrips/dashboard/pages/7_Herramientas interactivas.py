@@ -4,16 +4,18 @@ from dash_utils import (
     levanto_tabla_sql,
     get_logo,
 )
-from urbantrips.kpi.kpi import compute_route_section_load
-from urbantrips.viz.viz import visualize_route_section_load
-from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
-from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
-from urbantrips.kpi.supply_kpi import compute_route_section_supply
-from urbantrips.viz.section_supply import visualize_route_section_supply_data
+
 
 try:
+    from urbantrips.kpi.kpi import compute_route_section_load
+    from urbantrips.viz.viz import visualize_route_section_load
+    from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
+    from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
+    from urbantrips.kpi.supply_kpi import compute_route_section_supply
+    from urbantrips.viz.section_supply import visualize_route_section_supply_data
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
+    
 except ImportError as e:
     st.error(
         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
