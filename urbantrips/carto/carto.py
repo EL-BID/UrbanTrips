@@ -789,30 +789,35 @@ def compute_distances_osm(
 
     for mode in modes:
 
-        if processing == "osmnx":
-            # computing distances with osmnx
-            df = compute_distances_osmx(df=df, mode=mode, use_parallel=use_parallel)
+        if processing == "pandana":
+            max_retries = 10
+            retries = 0
+            while retries < max_retries:
+                try:
+                    # computing distances with pandana
+                    df = compute_distances_pandana(df=df, mode=mode)
+                    break  
+                except Exception as e:  # Captura excepciones específicas si es necesario
+                    retries += 1
+                    print(f"Intento {retries} con Pandana falló: {e}")
+                    if retries == max_retries:
+                        print("No se pudo computar distancias con Pandana después de varios intentos. Recurriendo a OSMNX.")
 
-        else:
-            try:
-                # computing distances with pandana
-                df = compute_distances_pandana(df=df, mode=mode)
-            except:
-                print("No es posible computar distancias con pandana")
-                library_name = "Pandana"
-                version = get_library_version(library_name)
-                if version:
-                    print(f"{library_name} version {version} is installed.")
-                else:
-                    print(f"{library_name} is not installed.")
+                        library_name = "Pandana"
+                        version = get_library_version(library_name)
+                        if version:
+                            print(f"{library_name} version {version} is installed.")
+                        else:
+                            print(f"{library_name} is not installed.")
 
-                library_name = "OSMnet"
-                version = get_library_version(library_name)
-                if version:
-                    print(f"{library_name} version {version} is installed.")
-                else:
-                    print(f"{library_name} is not installed.")
-                return pd.DataFrame([])
+                        library_name = "OSMnet"
+                        version = get_library_version(library_name)
+                        if version:
+                            print(f"{library_name} version {version} is installed.")
+                        else:
+                            print(f"{library_name} is not installed.")
+                        return pd.DataFrame([])
+                        df = compute_distances_osmx(df=df, mode=mode, use_parallel=use_parallel)
 
     var_distances += [f"distance_osm_{mode}"]
     df[f"distance_osm_{mode}"] = (df[f"distance_osm_{mode}"] / 1000).round(2)
