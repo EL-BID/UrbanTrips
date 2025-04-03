@@ -245,8 +245,6 @@ if st.button("Comenzar a procesar"):
             "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
         )
 
-        st.write(
-            "Para que se visualice en Indicadores de oferta y demanda, limpie el caché desde el ícono superior derecho de la pantalla"
-        )
+
     else:
         st.write("No hay datos para mostrar")
