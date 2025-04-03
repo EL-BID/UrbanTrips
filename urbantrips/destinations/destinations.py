@@ -164,7 +164,7 @@ def imputar_destino_min_distancia(etapas):
     n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
     if n_cores > 4:
         n_cores = 4
-    print("Usando", n_cores, "cores para paralelizar") 
+    print("Usando", n_cores, "cores para paralelizar")
     # crear un df con el id de cada etapa, la linea que uso y la etapa
     # siguiente
     lag_etapas = etapas.copy().reindex(columns=['id', 'id_linea_agg', 'h3_d'])\

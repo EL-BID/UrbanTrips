@@ -19,6 +19,7 @@ from dash_utils import (
     create_squared_polygon,
     get_epsg_m,
     extract_hex_colors_from_cmap,
+    levanto_tabla_sql_local
 )
 
 try:
@@ -826,7 +827,7 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("Periodo")
 
-    kpi_lineas = levanto_tabla_sql("basic_kpi_by_line_hr")
+    kpi_lineas = levanto_tabla_sql_local("basic_kpi_by_line_hr")
     day_type_kpi = col1.selectbox("Tipo de dia  ", options=kpi_lineas.dia.unique())
     # add month and year
     yr_mo_kpi = col1.selectbox(
@@ -921,7 +922,7 @@ with st.expander("Demanda por segmento de recorrido"):
 
     col1, col2 = st.columns([1, 1])
 
-    lineas = levanto_tabla_sql("ocupacion_por_linea_tramo")
+    lineas = levanto_tabla_sql_local("ocupacion_por_linea_tramo")
 
     lineas = lineas[
         (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
@@ -981,7 +982,7 @@ with st.expander("Líneas de deseo por linea"):
     where lon_o is not NULL 
     and lat_o is not NULL ;
     """
-    matriz = levanto_tabla_sql(
+    matriz = levanto_tabla_sql_local(
         tabla_sql="matrices_linea",
         query=custom_query,
     )
@@ -1020,7 +1021,7 @@ with st.expander("Líneas de deseo por linea"):
 
 with st.expander("Matriz OD por linea"):
 
-    matriz = levanto_tabla_sql("matrices_linea")
+    matriz = levanto_tabla_sql_local("matrices_linea")
     # nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
 
     matriz.loc[matriz["hour_min"].notna(), "rango"] = (
@@ -1039,7 +1040,8 @@ with st.expander("Matriz OD por linea"):
     matriz = matriz[matriz.rango == st.session_state["rango"]]
 
     if len(matriz) > 0:
-        st.write(matriz)
+        if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos3"):
+            st.write(matriz)
         if st.checkbox("Normalizar", value=True):
             values = "prop"
         else:
@@ -1122,7 +1124,7 @@ with st.expander("Oferta por segmento de recorrido"):
     st.subheader("Parámetros")
     col1, col2 = st.columns([1, 1])
 
-    lineas = levanto_tabla_sql("supply_stats_by_section_id")
+    lineas = levanto_tabla_sql_local("supply_stats_by_section_id")
     lineas = lineas[
         (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
     ]
