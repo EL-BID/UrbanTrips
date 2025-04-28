@@ -1098,7 +1098,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
         zonificaciones = pd.concat(
             [zonificaciones, h3_zona], ignore_index=True)
 
-    zonas = res_vars + zonas_cols
+    # zonas = res_vars + zonas_cols
+    zonas = zonas_cols
+    print('Zonas', zonas)
 
     for id_polygon in polygons_h3.id_polygon.unique():
 
@@ -1872,7 +1874,7 @@ def proceso_lineas_deseo(check_configs=False):
 
     preparo_etapas_agregadas(etapas.copy(), viajes.copy())
 
-    preparo_lineas_deseo(etapas, viajes, res=[6, 8])
+    preparo_lineas_deseo(etapas, viajes, res=[6]) #, 8
 
     resumen_x_linea(etapas, viajes)
 

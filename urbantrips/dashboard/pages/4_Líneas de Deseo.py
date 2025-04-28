@@ -111,7 +111,7 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
                 break
         if latlon is None:
             latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
-
+    latlon = [-34.6037, -58.3816]
     # 🗺️ Crear el mapa
     m = folium.Map(location=latlon, zoom_start=12, tiles='cartodbpositron')
 
@@ -325,10 +325,13 @@ with st.expander('Líneas de Deseo', expanded=True):
         st.session_state.transferencias_seleccionado = col3.checkbox(
             ':red[Transferencias]', value=False)
         
-        zonificacion_seleccion = col3.checkbox(
-            'Mostrar zonificación', value=True)
-        if zonificacion_seleccion:
-            zonif = zonificaciones[zonificaciones.zona == zona_seleccionada]
+        # zonificacion_seleccion = col3.checkbox(
+        #     'Mostrar zonificación', value=True)
+        
+        zona_mostrar = col3.selectbox('Mostrar zonificación', options=valores_zonas+['Ninguna'], index=index_zona)
+        # if zonificacion_seleccion:
+        if zona_mostrar != 'Ninguna':
+            zonif = zonificaciones[zonificaciones.zona == zona_mostrar]
         else:
             zonif = ''
 
@@ -355,7 +358,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                             'destinos_seleccionado': st.session_state.destinos_seleccionado,
                             'vi_et_seleccion': vi_et_seleccion,
                             'transferencias_seleccionado': st.session_state.transferencias_seleccionado,
-                            'zonificacion_seleccion': zonificacion_seleccion, 
+                            'zona_mostrar': zona_mostrar, 
                             'mtabla': mtabla}
         
         # Solo cargar datos si hay cambios en los filtros
@@ -552,7 +555,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                     | (len(st.session_state.origenes) > 0)       \
                     | (len(st.session_state.destinos) > 0)       \
                     | (len(st.session_state.transferencias) > 0))\
-                    | (zonificacion_seleccion):
+                    | (len(zona_mostrar)>0):
 
                     latlon = bring_latlon()
                     
