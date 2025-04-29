@@ -1087,19 +1087,21 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
     res_vars = []
     for i in res:
         res_vars += [f'res_{i}']
-        h3_vals = pd.concat([etapas_selec.loc[etapas_selec.h3_o.notna(),
-                                              ['h3_o']].rename(columns={'h3_o': 'h3'}),
-                             etapas_selec.loc[etapas_selec.h3_d.notna(),
-                                              ['h3_d']].rename(columns={'h3_d': 'h3'})]).drop_duplicates()
-        h3_vals['h3_res'] = h3_vals['h3'].apply(h3toparent, res=i)
-        h3_zona = create_h3_gdf(h3_vals.h3_res.tolist()).rename(
-            columns={'hexagon_id': 'id'}).drop_duplicates()
-        h3_zona['zona'] = f'res_{i}'
-        zonificaciones = pd.concat(
-            [zonificaciones, h3_zona], ignore_index=True)
+        if not f'res_{i}' in zonificaciones.zona.unique().tolist():
+            h3_vals = pd.concat([etapas_selec.loc[etapas_selec.h3_o.notna(),
+                                                  ['h3_o']].rename(columns={'h3_o': 'h3'}),
+                                 etapas_selec.loc[etapas_selec.h3_d.notna(),
+                                                  ['h3_d']].rename(columns={'h3_d': 'h3'})]).drop_duplicates()
+            h3_vals['h3_res'] = h3_vals['h3'].apply(h3toparent, res=i)
+            
+            h3_zona = create_h3_gdf(h3_vals.h3_res.tolist()).rename(
+                columns={'hexagon_id': 'id'}).drop_duplicates()
+            h3_zona['zona'] = f'res_{i}'        
+            zonificaciones = pd.concat(
+                [zonificaciones, h3_zona], ignore_index=True)
 
-    # zonas = res_vars + zonas_cols
-    zonas = zonas_cols
+    zonas_cols = [x for x in zonas_cols if 'res' not in x]
+    zonas = zonas_cols + res_vars
     print('Zonas', zonas)
 
     for id_polygon in polygons_h3.id_polygon.unique():
@@ -1669,6 +1671,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                 viajes_matrices = viajes_matrices.drop(
                     ['poly_inicio', 
                      'poly_fin'], axis=1)
+
+
+                print(zona, etapas_agrupadas_zon.factor_expansion_linea.sum())
                 
                 guardar_tabla_sql(etapas_agrupadas_zon, 
                                   'agg_etapas', 
@@ -1848,7 +1853,7 @@ def proceso_poligonos(check_configs=True):
         etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
             etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=res)
 
-        preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6])
+        preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6, 7])
 
         indicadores = construyo_indicadores(viajes_selec, poligonos=True)
 
@@ -1859,8 +1864,6 @@ def proceso_poligonos(check_configs=True):
 
 @duracion
 def proceso_lineas_deseo(check_configs=False):
-
-    print('Procesa etapas')
 
     if check_configs:
         check_config()
@@ -1874,7 +1877,7 @@ def proceso_lineas_deseo(check_configs=False):
 
     preparo_etapas_agregadas(etapas.copy(), viajes.copy())
 
-    preparo_lineas_deseo(etapas, viajes, res=[6]) #, 8
+    preparo_lineas_deseo(etapas, viajes, res=[6, 7]) #, 8
 
     resumen_x_linea(etapas, viajes)
 

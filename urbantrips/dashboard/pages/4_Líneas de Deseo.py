@@ -74,6 +74,7 @@ def obtener_clases_fisherjenks(df: pd.DataFrame, var_fex: str, max_clases: int =
     return [df[var_fex].min() - 1, df[var_fex].max()]
 
 
+
 def simplificar_geometrias(df: pd.DataFrame, tolerance: float = 0.001):
     """Simplifica las geometrías para mejorar el rendimiento."""
     if 'geometry' in df.columns:
@@ -102,18 +103,19 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
     Retorna:
         - folium.Map: Mapa interactivo.
     """
-    # 📍 Coordenadas Iniciales
-    if latlon is None:
-        datasets = [df_etapas, df_viajes, origenes, destinos, transferencias]
-        for df in datasets:
-            if len(df) > 0:
-                latlon = [df.geometry.y.mean(), df.geometry.x.mean()]
-                break
-        if latlon is None:
-            latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
+
+    if len(df_viajes)>0:
+        df_viajes = df_viajes[df_viajes['geometry'].notna()]
+
+    if len(df_etapas)>0:
+        df_etapas = df_etapas[df_etapas['geometry'].notna()]
+
+
+    # if latlon is None:
+    #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
     latlon = [-34.6037, -58.3816]
     # 🗺️ Crear el mapa
-    m = folium.Map(location=latlon, zoom_start=12, tiles='cartodbpositron')
+    m = folium.Map(location=latlon, zoom_start=9, tiles='cartodbpositron')
 
     # 🔄 Preprocesamiento de Datos
     for df in [df_etapas, df_viajes, origenes, destinos, transferencias]:
@@ -256,7 +258,9 @@ with st.expander('Líneas de Deseo', expanded=True):
     if len(st.session_state.lista_etapas) > 0:
 
         zonificaciones = levanto_tabla_sql('zonificaciones')
+
         equivalencia_zonas = levanto_tabla_sql('equivalencia_zonas', 'dash')
+            
         socio_indicadores = levanto_tabla_sql('socio_indicadores')
         
         lista_tipo_dia = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
@@ -439,7 +443,7 @@ with st.expander('Líneas de Deseo', expanded=True):
 
             query_etapas = query + conditions_etapas1 + conditions_etapas2
             query_matrices = query + conditions_matrices1 + conditions_matrices2
-            
+
             if ((filtro_seleccion1 != 'Todos')|(filtro_seleccion2 != 'Todos'))&((zona_seleccionada!=zona_filtro_seleccion1)|(zona_seleccionada!=zona_filtro_seleccion2)):
                 #Cuando la zonificación de los filtros es diferente a la zonificación del mapa
 
@@ -452,6 +456,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                     st.session_state.etapas_all = pd.DataFrame([])
                     st.session_state.matrices_all = pd.DataFrame([])
                 else:
+
                     agg_etapas, agg_matrices = traigo_tablas_con_filtros(mes_seleccionado, 
                                                                          tipo_dia_seleccionado, 
                                                                          zona_seleccionada, 
@@ -558,7 +563,6 @@ with st.expander('Líneas de Deseo', expanded=True):
                     | (len(zona_mostrar)>0):
 
                     latlon = bring_latlon()
-                    
                     st.session_state.map = crear_mapa_lineas_deseo(df_viajes=st.session_state.viajes,
                                                       df_etapas=st.session_state.etapas,
                                                       zonif=zonif,

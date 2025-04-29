@@ -189,19 +189,26 @@ def guardo_zonificaciones():
             zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
 
             if len(zonificaciones) > 0:
-                zonificaciones_disolved = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_8', 'Zona_voi']))].copy()
+                zonificaciones_disolved = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_7', 'res_8', 'Zona_voi']))].copy()
                 zonificaciones_disolved['all'] = 1
                 zonificaciones_disolved = zonificaciones_disolved[['all', 'geometry']].dissolve(by='all')
                 
                 # Agrego res_6 y res_8 en zonificaciones
-                res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)    
-                
+                res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)                    
                 res_6['zona'] = 'res_6'
                 res_6['orden'] = 0
                 res_6 = res_6.rename(columns={'h3_index':'id'})
                 res_6 = res_6[['zona', 'id', 'orden','geometry']]
                 zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
-    
+
+                res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7)                    
+                res_7['zona'] = 'res_7'
+                res_7['orden'] = 0
+                res_7 = res_7.rename(columns={'h3_index':'id'})
+                res_7 = res_7[['zona', 'id', 'orden','geometry']]
+                zonificaciones = pd.concat([zonificaciones, res_7], ignore_index=True)
+
+                
                 # res_8 = upscale_h3_resolution(res_6, 8)
                 # res_8['zona'] = 'res_8'
                 # res_8['orden'] = 0
@@ -222,12 +229,16 @@ def guardo_zonificaciones():
                 
                 zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
                 zonas = zonas.drop(['geometry'], axis=1)
-                guardar_tabla_sql(zonas, 'equivalencia_zonas', 'dash')
 
+                zonas.to_sql("equivalencia_zonas",
+                         conn_dash, if_exists="replace", index=False)
+                
                 # Guardo zonificaciones
                 zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
                 zonificaciones = zonificaciones.drop(['geometry'], axis=1)
                 zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+
+                print(zonificaciones.zona.unique())
                 
                 zonificaciones.to_sql("zonificaciones",
                          conn_insumos, if_exists="replace", index=False,)
@@ -345,6 +356,7 @@ def create_zones_table():
                 pass
 
     zonas["res_8"] = zonas.apply(h3_from_row, axis=1, args=(8, "latitud", "longitud"))
+    zonas["res_7"] = zonas.apply(h3_from_row, axis=1, args=(7, "latitud", "longitud"))
     zonas["res_6"] = zonas.apply(h3_from_row, axis=1, args=(6, "latitud", "longitud"))
 
     zonas = zonas.drop(["geometry"], axis=1)
