@@ -130,12 +130,6 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
         range_bins = range(0, len(bins)-1)
         bins_labels = [f'{int(bins[n])} a {int(bins[n+1])}' for n in range_bins]
 
-        # colormap = COLORMAPS.get(cmap, linear.viridis).scale(df[var_fex].min(), df[var_fex].max())
-        # col2.write(cmap)
-        # col2.write(COLORMAPS.get(cmap, linear.viridis))
-        # col2.write(colormap)
-        # colormap.caption = f"Escala {nombre}"
-        # colormap.add_to(m)
         colors = extract_hex_colors_from_cmap(
                     cmap='viridis_r', n=k_jenks)
 
@@ -806,7 +800,13 @@ with st.expander('Viajes entre zonas', expanded=True):
         ## Etapas
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
-        query = f"SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:            
+            query = f"SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        else:
+            query = f"""SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND
+                        ((({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values}))) AND 
+                         (({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values}))));"""
+
         etapas = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query)
 
         if len(etapas) > 0:
@@ -835,8 +835,15 @@ with st.expander('Viajes entre zonas', expanded=True):
         ## Viajes
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
-        query = f"SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:
+            query = f"SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        else:
+            query = f"""SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND 
+                        (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) 
+                           AND ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
+            
         viajes = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query)
+        
         if len(viajes) > 0:
         
             viajes['Zona_1'] = ''
@@ -868,8 +875,16 @@ with st.expander('Viajes entre zonas', expanded=True):
       # Transferencias
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
-        query = f"SELECT * FROM transferencias_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:            
+            query = f"SELECT * FROM transferencias_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+        else:
+            query = f"""SELECT * FROM transferencias_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND 
+            (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) AND
+             ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
+
+        
         transferencias = levanto_tabla_sql_local('transferencias_agregadas', tabla_tipo='dash', query=query)
+
         
         if len(transferencias) > 0:
     
