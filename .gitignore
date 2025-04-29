@@ -161,3 +161,4 @@ configs/configuraciones_generales.yaml
 data/data_ciudad/partidos.geojson
 data/data_ciudad/partidos.geojson
 configs/configuraciones_generales.yaml
+*.yaml

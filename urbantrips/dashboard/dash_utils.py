@@ -866,10 +866,12 @@ def traigo_tablas_con_filtros(
     zonas,
     zonificaciones,
 ):
+    
+    lst1 = zonas[zonas[var_filtro1] == det_filtro1][var_zonif].unique().tolist()
+    lst2 = zonas[zonas[var_filtro2] == det_filtro2][var_zonif].unique().tolist()
 
-    lst1 = zonas[zonas[var_filtro1] == det_filtro1].h3.unique().tolist()
-    lst2 = zonas[zonas[var_filtro2] == det_filtro2].h3.unique().tolist()
-
+    zonas = zonas.groupby([var_zonif], as_index=False)[['latitud', 'longitud']].mean()
+   
     conn = iniciar_conexion_db(tipo="dash")
 
     # Crear marcadores de posición para SQL
@@ -882,7 +884,7 @@ def traigo_tablas_con_filtros(
     # Consulta SQL
     query = f"""
     SELECT * FROM agg_etapas 
-    WHERE zona = 'res_8'
+    WHERE zona = '{var_zonif}'
     AND mes = ? 
     AND tipo_dia = ? 
     AND (
@@ -891,24 +893,27 @@ def traigo_tablas_con_filtros(
         (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
     );
     """
+
     # Ejecutar consulta
     agg_etapas = pd.read_sql_query(query, conn, params=params)
 
-    if len(agg_etapas) > 0:
-        zonas_renamed = zonas[["h3", "latitud", "longitud", var_zonif]]
 
+    if len(agg_etapas) > 0:
+        zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
         for i, z in enumerate(["inicio", "transfer1", "transfer2", "fin"], start=1):
+
             zonas_temp = zonas_renamed.rename(
                 columns={
-                    "h3": f"{z}_norm",
+                    var_zonif: f"{z}_norm",
                     "latitud": f"lat{i}",
-                    "longitud": f"lon{i}",
-                    var_zonif: z,
+                    "longitud": f"lon{i}",                 
                 }
             )
+            zonas_temp[z] = zonas_temp[f"{z}_norm"]
             agg_etapas = agg_etapas.merge(zonas_temp, how="left")
-            agg_etapas[z] = agg_etapas[z].fillna("")
-
+            agg_etapas[f"{z}"] = agg_etapas[f"{z}"].fillna("")
+        
+    
         # Filtros innecesarios en un solo paso
         agg_etapas = agg_etapas[
             ~(
@@ -987,7 +992,7 @@ def traigo_tablas_con_filtros(
 
     query = f"""
     SELECT * FROM agg_matrices 
-    WHERE zona = 'res_8'
+    WHERE zona = '{var_zonif}'
     AND mes = ? 
     AND tipo_dia = ? 
         AND (
@@ -1000,16 +1005,17 @@ def traigo_tablas_con_filtros(
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_matrices) > 0:
-        zonas_renamed = zonas[["h3", var_zonif, "latitud", "longitud"]]
+        zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
         for i, z in enumerate(["inicio", "fin"], start=1):
             zonas_temp = zonas_renamed.rename(
-                columns={
-                    "h3": f"{z}",
+                columns={                    
                     "latitud": f"lat{i}_new",
                     "longitud": f"lon{i}_new",
                     var_zonif: f"{z}_new",
                 }
             )
+
+            zonas_temp[z] = zonas_temp[f"{z}_new"]
             agg_matrices = agg_matrices.merge(zonas_temp, how="left")
             agg_matrices[z] = agg_matrices[z].fillna("")
 

@@ -134,6 +134,10 @@ def guardo_zonificaciones():
     alias = leer_alias()
     matriz_zonas = []
     vars_zona = []
+
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    conn_insumos = iniciar_conexion_db(tipo='insumos')
+
     
     if configs["zonificaciones"]:
         print('Actualizo zonificaciones en db')
@@ -183,68 +187,65 @@ def guardo_zonificaciones():
             zonif['orden'] = 0
             zonif = zonif[['zona', 'orden', 'id', 'geometry']]        
             zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
-        
-        if len(zonificaciones) > 0:
-            conn_dash = iniciar_conexion_db(tipo='dash')
-            conn_insumos = iniciar_conexion_db(tipo='insumos')
-            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
-            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
-            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
-            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
-    
-            zonificaciones.to_sql("zonificaciones",
-                                 conn_insumos, if_exists="replace", index=False,)
-            zonificaciones.to_sql("zonificaciones",
-                         conn_dash, if_exists="replace", index=False,)
-            
-            zonificaciones = levanto_tabla_sql('zonificaciones', 'insumos')
-            zonificaciones = zonificaciones[zonificaciones.zona!='Zona_voi']
-            zonificaciones['all'] = 1
-            zonificaciones = zonificaciones[['all', 'geometry']].dissolve(by='all')
-            
-            zonas = create_zones_table()
-            
-            zonas = zonas.drop(['fex'], axis=1)
-            
-            # Añadir geometrías al DataFrame
-            zonas['geometry'] = zonas['h3'].apply(h3_to_polygon)
-            
-            # Convertir a GeoDataFrame
-            zonas = gpd.GeoDataFrame(zonas, geometry='geometry', crs='EPSG:4326')
-            
-            # Mostrar el GeoDataFrame
-            
-            zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
-            zonas = zonas.drop(['geometry'], axis=1)
-            guardar_tabla_sql(zonas, 'equivalencia_zonas', 'dash')
-            
-            # Agrego res_6 y res_8 en zonificaciones
-            zonificaciones = levanto_tabla_sql('zonificaciones', 'insumos')
-            zonificaciones = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_8']))]
 
-            res_6 = generate_h3_hexagons_within_polygon(zonificaciones, 6)    
-            res_8 = upscale_h3_resolution(res_6, 8)
-            res_6['zona'] = 'res_6'
-            res_6['orden'] = 0
-            res_6 = res_6.rename(columns={'h3_index':'id'})
-            res_6 = res_6[['zona', 'id', 'orden','geometry']]
-            res_8['zona'] = 'res_8'
-            res_8['orden'] = 0
-            res_8 = res_8.rename(columns={'h3_index':'id'})
-            res_8 = res_8[['zona', 'id', 'orden','geometry']]
-            zonificaciones = pd.concat([zonificaciones, res_6, res_8], ignore_index=True)
+            if len(zonificaciones) > 0:
+                zonificaciones_disolved = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_7', 'res_8', 'Zona_voi']))].copy()
+                zonificaciones_disolved['all'] = 1
+                zonificaciones_disolved = zonificaciones_disolved[['all', 'geometry']].dissolve(by='all')
+                
+                # Agrego res_6 y res_8 en zonificaciones
+                res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)                    
+                res_6['zona'] = 'res_6'
+                res_6['orden'] = 0
+                res_6 = res_6.rename(columns={'h3_index':'id'})
+                res_6 = res_6[['zona', 'id', 'orden','geometry']]
+                zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
 
-            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
-            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
-            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+                res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7)                    
+                res_7['zona'] = 'res_7'
+                res_7['orden'] = 0
+                res_7 = res_7.rename(columns={'h3_index':'id'})
+                res_7 = res_7[['zona', 'id', 'orden','geometry']]
+                zonificaciones = pd.concat([zonificaciones, res_7], ignore_index=True)
 
-            zonificaciones.to_sql("zonificaciones",
-                     conn_insumos, if_exists="replace", index=False,)
-            zonificaciones.to_sql("zonificaciones",
-                         conn_dash, if_exists="replace", index=False,)
+                
+                # res_8 = upscale_h3_resolution(res_6, 8)
+                # res_8['zona'] = 'res_8'
+                # res_8['orden'] = 0
+                # res_8 = res_8.rename(columns={'h3_index':'id'})
+                # res_8 = res_8[['zona', 'id', 'orden','geometry']]
+                # zonificaciones = pd.concat([zonificaciones, res_8], ignore_index=True)
+
+                zonas = create_zones_table()            
+                zonas = zonas.drop(['fex'], axis=1)
+                    
+                # Añadir geometrías al DataFrame
+                zonas['geometry'] = zonas['h3'].apply(h3_to_polygon)
+                
+                # Convertir a GeoDataFrame
+                zonas = gpd.GeoDataFrame(zonas, geometry='geometry', crs='EPSG:4326')
+                
+                # Mostrar el GeoDataFrame
+                
+                zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
+                zonas = zonas.drop(['geometry'], axis=1)
+
+                zonas.to_sql("equivalencia_zonas",
+                         conn_dash, if_exists="replace", index=False)
+                
+                # Guardo zonificaciones
+                zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
+                zonificaciones = zonificaciones.drop(['geometry'], axis=1)
+                zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+
+                print(zonificaciones.zona.unique())
+                
+                zonificaciones.to_sql("zonificaciones",
+                         conn_insumos, if_exists="replace", index=False,)
+                zonificaciones.to_sql("zonificaciones",
+                             conn_dash, if_exists="replace", index=False,)
             
-            conn_insumos.close()
-            conn_dash.close()
+            
             
     if configs['poligonos']:
         
@@ -254,8 +255,6 @@ def guardo_zonificaciones():
 
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
-            conn_dash = iniciar_conexion_db(tipo='dash')
-            conn_insumos = iniciar_conexion_db(tipo='insumos')
             poly['wkt'] = poly.geometry.to_wkt()
             poly = poly.drop(['geometry'], axis=1)
         
@@ -265,8 +264,8 @@ def guardo_zonificaciones():
                          conn_dash, if_exists="replace", index=False,)
         
         
-            conn_insumos.close()
-            conn_dash.close()
+    conn_insumos.close()
+    conn_dash.close()
         
 
 def create_zones_table():
@@ -357,6 +356,7 @@ def create_zones_table():
                 pass
 
     zonas["res_8"] = zonas.apply(h3_from_row, axis=1, args=(8, "latitud", "longitud"))
+    zonas["res_7"] = zonas.apply(h3_from_row, axis=1, args=(7, "latitud", "longitud"))
     zonas["res_6"] = zonas.apply(h3_from_row, axis=1, args=(6, "latitud", "longitud"))
 
     zonas = zonas.drop(["geometry"], axis=1)
