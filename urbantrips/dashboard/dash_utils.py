@@ -867,9 +867,10 @@ def traigo_tablas_con_filtros(
     zonificaciones,
 ):
     
-    zonas = zonas.groupby(['Zona', 'Partido', var_zonif], as_index=False)[['latitud', 'longitud']].mean()
     lst1 = zonas[zonas[var_filtro1] == det_filtro1][var_zonif].unique().tolist()
     lst2 = zonas[zonas[var_filtro2] == det_filtro2][var_zonif].unique().tolist()
+
+    zonas = zonas.groupby([var_zonif], as_index=False)[['latitud', 'longitud']].mean()
    
     conn = iniciar_conexion_db(tipo="dash")
 
