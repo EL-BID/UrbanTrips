@@ -863,8 +863,10 @@ def traigo_tablas_con_filtros(
     det_filtro1,
     var_filtro2,
     det_filtro2,
+    tipo_filtro,
     zonas,
     zonificaciones,
+    
 ):
     
     lst1 = zonas[zonas[var_filtro1] == det_filtro1][var_zonif].unique().tolist()
@@ -879,20 +881,64 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))  # Para lista destino
 
     # Parámetros de la consulta
-    params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
-
+    
+    
     # Consulta SQL
-    query = f"""
-    SELECT * FROM agg_etapas 
-    WHERE zona = '{var_zonif}'
-    AND mes = ? 
-    AND tipo_dia = ? 
-    AND (
-        (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-        AND 
-        (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-    );
-    """
+    if tipo_filtro == 'OD y Transferencias':
+        if det_filtro1 != det_filtro2:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                AND 
+                (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+            );
+            """
+            params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
+        else:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                    (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN transfer1_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN transfer2_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
+                ) >= 2;
+            """
+            params = [mes, tipo_dia] + lst1 * 4
+
+    else:
+        if det_filtro1 != det_filtro2:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                AND 
+                (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+            );
+            """
+            params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+        else:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                    (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
+                ) >= 2;
+            """
+            params = [mes, tipo_dia] + lst1 * 2
 
     # Ejecutar consulta
     agg_etapas = pd.read_sql_query(query, conn, params=params)
@@ -988,20 +1034,33 @@ def traigo_tablas_con_filtros(
     # Crear una lista de valores para la cláusula IN de forma segura
     placeholders1 = ", ".join(["?"] * len(lst1))
     placeholders2 = ", ".join(["?"] * len(lst2))
-    params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
-
-    query = f"""
-    SELECT * FROM agg_matrices 
-    WHERE zona = '{var_zonif}'
-    AND mes = ? 
-    AND tipo_dia = ? 
+    
+    if det_filtro1 != det_filtro2:
+        query = f"""
+        SELECT * FROM agg_matrices 
+        WHERE zona = '{var_zonif}'
+        AND mes = ? 
+        AND tipo_dia = ? 
+            AND (
+            (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+            AND 
+            (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+        );
+        """
+        params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+    else:
+        query = f"""
+        SELECT * FROM agg_matrices 
+        WHERE zona = '{var_zonif}'
+        AND mes = ? 
+        AND tipo_dia = ? 
         AND (
-        (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
-        AND 
-        (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
-    );
-    """
-
+                (CASE WHEN inicio IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                (CASE WHEN fin IN ({placeholders1}) THEN 1 ELSE 0 END)
+            ) >= 2;
+        """
+        params = [mes, tipo_dia] + lst1 * 2
+        
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_matrices) > 0:
