@@ -1042,20 +1042,29 @@ def preparo_etapas_agregadas(etapas, viajes):
         v_agg = v_agg.merge(zonas, how='left')
         transfers = transfers.merge(zonas, how='left')
 
-    guardar_tabla_sql(e_agg, 
-                  'etapas_agregadas', 
-                  'dash', 
-                  {'mes': e_agg.mes.unique().tolist()})
+    # guardar_tabla_sql(e_agg, 
+    #               'etapas_agregadas', 
+    #               'dash', 
+    #               {'mes': e_agg.mes.unique().tolist()})
 
-    guardar_tabla_sql(v_agg, 
-                  'viajes_agregados', 
-                  'dash', 
-                  {'mes': v_agg.mes.unique().tolist()})
+    # guardar_tabla_sql(v_agg, 
+    #               'viajes_agregados', 
+    #               'dash', 
+    #               {'mes': v_agg.mes.unique().tolist()})
 
-    guardar_tabla_sql(transfers, 
-              'transferencias_agregadas', 
-              'dash', 
-              {'mes': v_agg.mes.unique().tolist()})
+    # guardar_tabla_sql(transfers, 
+    #           'transferencias_agregadas', 
+    #           'dash', 
+    #           {'mes': v_agg.mes.unique().tolist()})
+    conn_dash = iniciar_conexion_db(tipo='dash')
+    e_agg.to_sql("etapas_agregadas",
+             conn_dash, if_exists="replace", index=False,)
+    v_agg.to_sql("viajes_agregados",
+             conn_dash, if_exists="replace", index=False,)
+    transfers.to_sql("transferencias_agregadas",
+             conn_dash, if_exists="replace", index=False,)
+
+    conn_dash.close()
 
 
 def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6):
