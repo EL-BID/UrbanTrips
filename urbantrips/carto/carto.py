@@ -246,6 +246,7 @@ def guardo_zonificaciones():
                          conn_dash, if_exists="replace", index=False,)
             
             
+
             
     if configs['poligonos']:
         
