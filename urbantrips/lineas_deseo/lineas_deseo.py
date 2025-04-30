@@ -1869,9 +1869,9 @@ def proceso_lineas_deseo(check_configs=False):
         check_config()
         carto.guardo_zonificaciones()
 
-    zonificaciones = levanto_tabla_sql('zonificaciones')
-    zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
-    zonificaciones['lon'] = zonificaciones.geometry.representative_point().x
+    # zonificaciones = levanto_tabla_sql('zonificaciones')
+    # zonificaciones['lat'] = zonificaciones.geometry.representative_point().y
+    # zonificaciones['lon'] = zonificaciones.geometry.representative_point().x
 
     etapas, viajes = load_and_process_data()
 
