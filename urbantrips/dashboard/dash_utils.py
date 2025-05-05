@@ -37,20 +37,41 @@ def leer_alias(tipo="dash"):
     y devuelve el alias seteado en el archivo de congifuracion
     """
     configs = leer_configs_generales()
-    # Setear el tipo de key en base al tipo de datos
-    if tipo == "data":
-        key = "alias_db_data"
-    elif tipo == "insumos":
-        key = "alias_db_insumos"
-    elif tipo == "dash":
-        key = "alias_db_dashboard"
-    else:
-        raise ValueError("tipo invalido: %s" % tipo)
-    # Leer el alias
     try:
-        alias = configs[key] + "_"
-    except KeyError:
-        alias = ""
+        alias_dash_lista = configs['dash_configs']['alias_dash_lista']
+        alias_data_lista = configs['dash_configs']['alias_data_lista']
+        alias_insumos_lista = configs['dash_configs']['alias_insumos_lista']
+    except:
+        alias_dash_lista = []
+
+    if len(alias_dash_lista) > 0:
+        posicion = alias_dash_lista.index(st.session_state.dia_seleccionado)
+
+        # Setear el tipo de key en base al tipo de datos
+        if tipo == "data":
+            alias = alias_dash_lista[posicion] + "_"            
+        elif tipo == "insumos":
+            alias = alias_insumos_lista[posicion] + "_"            
+        elif tipo == "dash":
+            alias = alias_dash_lista[posicion] + "_"                        
+
+    else:
+    
+        # Setear el tipo de key en base al tipo de datos
+        if tipo == "data":
+            key = "alias_db_data"
+        elif tipo == "insumos":
+            key = "alias_db_insumos"
+        elif tipo == "dash":
+            key = "alias_db_dashboard"
+        else:
+            raise ValueError("tipo invalido: %s" % tipo)
+        # Leer el alias
+        try:
+            alias = configs[key] + "_"
+        except KeyError:
+            alias = ""
+    
     return alias
 
 
@@ -1118,3 +1139,39 @@ def traigo_tablas_con_filtros(
     conn.close()
 
     return agg_etapas, agg_matrices
+
+@st.cache_data
+def traer_dias_disponibles():
+    configs = leer_configs_generales()
+    try:
+        lista = configs['dash_configs']['alias_dash_lista']
+    except:
+        lista = []
+    return lista
+
+def configurar_selector_dia():
+    # dias_disponibles = ["metropol", "amba_2024_15_10"]
+    dias_disponibles = traer_dias_disponibles()
+
+    if len(dias_disponibles) > 0:
+
+        # Inicialización una única vez
+        if "dia_seleccionado" not in st.session_state:
+            st.session_state.dia_seleccionado = dias_disponibles[0]
+            st.session_state.dia_anterior = dias_disponibles[0]
+    
+        # Sidebar con lógica aislada, sin pisar valores
+        with st.sidebar:
+            seleccion = st.selectbox(
+                "Seleccioná un día",
+                dias_disponibles,
+                index=dias_disponibles.index(st.session_state.dia_seleccionado),
+                key="__selector_dia"  # distinto del nombre en session_state
+            )
+    
+        # Si la selección cambió, actualizar estado y reiniciar app
+        if seleccion != st.session_state.dia_anterior:
+            st.session_state.dia_seleccionado = seleccion
+            st.session_state.dia_anterior = seleccion
+            st.cache_data.clear()
+            st.rerun()

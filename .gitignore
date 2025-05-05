@@ -162,3 +162,4 @@ data/data_ciudad/partidos.geojson
 data/data_ciudad/partidos.geojson
 configs/configuraciones_generales.yaml
 *.yaml
+etapas_caba.csv

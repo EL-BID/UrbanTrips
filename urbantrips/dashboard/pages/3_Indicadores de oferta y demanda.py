@@ -19,7 +19,8 @@ from dash_utils import (
     create_squared_polygon,
     get_epsg_m,
     extract_hex_colors_from_cmap,
-    levanto_tabla_sql_local
+    levanto_tabla_sql_local,
+    configurar_selector_dia
 )
 
 try:
@@ -784,6 +785,8 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
+
+configurar_selector_dia()
 
 st.write(
     "Si recién procesó nuevas líneas con Herramientas interactivas, limpie el caché desde el ícono superior derecho de la pantalla"

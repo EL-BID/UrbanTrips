@@ -189,9 +189,13 @@ def guardo_zonificaciones():
             zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
 
         if len(zonificaciones) > 0:
+
+            crs_val = configs['epsg_m']
+            crs_actual = zonificaciones.crs
+            
             zonificaciones_disolved = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_7', 'res_8', 'Zona_voi']))].copy()
             zonificaciones_disolved['all'] = 1
-            zonificaciones_disolved = zonificaciones_disolved[['all', 'geometry']].dissolve(by='all')
+            zonificaciones_disolved = zonificaciones_disolved[['all', 'geometry']].dissolve(by='all').to_crs(crs_val).buffer(2000).to_crs(crs_actual)
             
             # Agrego res_6 y res_8 en zonificaciones
             res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)                    

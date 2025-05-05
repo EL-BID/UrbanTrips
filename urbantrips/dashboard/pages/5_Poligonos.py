@@ -12,7 +12,8 @@ from dash_utils import (
     create_data_folium, traigo_indicadores,
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
-    traigo_lista_zonas
+    traigo_lista_zonas,
+    configurar_selector_dia
 )
 
 from streamlit_folium import folium_static
@@ -282,6 +283,8 @@ def hay_cambios_en_filtros(current, last):
 st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
+
+configurar_selector_dia()
 
 with st.expander('Líneas de Deseo', expanded=True):
 

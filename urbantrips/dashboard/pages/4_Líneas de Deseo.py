@@ -15,7 +15,8 @@ from dash_utils import (
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
     bring_latlon, traigo_lista_zonas, get_h3_indices_in_geometry,
-    traigo_tablas_con_filtros
+    traigo_tablas_con_filtros,
+    configurar_selector_dia
 )
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.geometry import mapping
@@ -205,6 +206,8 @@ def hay_cambios_en_filtros(current, last):
     return current != last
 
 st.set_page_config(layout="wide")
+
+configurar_selector_dia()
 
 logo = get_logo()
 st.image(logo)

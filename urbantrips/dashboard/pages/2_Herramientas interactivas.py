@@ -2,7 +2,8 @@ import pandas as pd
 import streamlit as st
 from dash_utils import (
     levanto_tabla_sql,
-    get_logo,
+    get_logo, 
+    configurar_selector_dia
 )
 
 
@@ -75,6 +76,8 @@ def seleccionar_linea(key_input, key_select):
 
 st.set_page_config(layout="wide")
 
+
+
 logo = get_logo()
 st.image(logo)
 try:
@@ -95,6 +98,9 @@ except ValueError as e:
         f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página"
     )
     st.stop()
+
+
+configurar_selector_dia()
 
 for var in [
     "id_linea_7",
