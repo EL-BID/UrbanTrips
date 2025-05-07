@@ -182,18 +182,18 @@ tiempos_viaje_estaciones: "travel_time_stations.csv"               # Especificar
 
 dash_configs: 
     alias_dash_lista: [                                                   
-                "metropol",
                 "amba_2024_15_10",
+                "amba_2024_16_10",
                       ]
 
     alias_data_lista: [                                                   
-                "metropol",
                 "amba_2024_15_10",
+                "amba_2024_16_10",
                       ]
 
     alias_insumos_lista: [                                                   
-                "metropol",
                 "amba_2024_15_10",
+                "amba_2024_10",
                       ]
 
 

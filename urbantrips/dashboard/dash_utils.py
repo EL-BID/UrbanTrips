@@ -44,7 +44,7 @@ def leer_alias(tipo="dash"):
     except:
         alias_dash_lista = []
 
-    if len(alias_dash_lista) > 0:
+    if alias_dash_lista:
         posicion = alias_dash_lista.index(st.session_state.dia_seleccionado)
 
         # Setear el tipo de key en base al tipo de datos
@@ -1153,7 +1153,7 @@ def configurar_selector_dia():
     # dias_disponibles = ["metropol", "amba_2024_15_10"]
     dias_disponibles = traer_dias_disponibles()
 
-    if len(dias_disponibles) > 0:
+    if dias_disponibles:
 
         # Inicialización una única vez
         if "dia_seleccionado" not in st.session_state:
