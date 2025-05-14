@@ -1039,18 +1039,18 @@ def assign_stations_od():
             .dropna(subset=["id_station_o", "id_station_d"])
         )
 
-        print(
-            "Etapas clasificadas en la misma estación OD",
-            round(
-                len(
-                    travel_times[travel_times.id_station_o == travel_times.id_station_d]
-                )
-                / len(travel_times)
-                * 100,
-                1,
-            ),
-            "%",
-        )
+        if len(travel_times) == 0:
+            print("No hay etapas con estaciones OD asignadas.")
+        else:
+            print(
+                "Etapas clasificadas en la misma estación OD",
+                round(
+                    len(travel_times[travel_times.id_station_o == travel_times.id_station_d])
+                    / len(travel_times) * 100,
+                    1,
+                ),
+                "%",
+            )
 
         travel_times = travel_times.loc[
             travel_times.id_station_o != travel_times.id_station_d, :
