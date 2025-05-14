@@ -293,6 +293,8 @@ def traigo_nombre_lineas(df):
 
 st.set_page_config(layout="wide")
 
+alias_seleccionado = configurar_selector_dia()
+
 logo = get_logo()
 st.image(logo)
 

@@ -207,7 +207,7 @@ def hay_cambios_en_filtros(current, last):
 
 st.set_page_config(layout="wide")
 
-configurar_selector_dia()
+alias_seleccionado = configurar_selector_dia()
 
 logo = get_logo()
 st.image(logo)
@@ -239,6 +239,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             'rango_hora_seleccionado', 
             'distancia', 
             'socio_indicadores_all', 
+            'alias_seleccionado',
         ]
         
     variables_bool = ['etapas_seleccionada',
@@ -287,7 +288,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                 'filtro_seleccion1':'Todos',
                 'filtro_seleccion2':'Todos',
                 'zona_filtro_seleccion1': None,
-                'zona_filtro_seleccion2': None
+                'zona_filtro_seleccion2': None,
+                'alias_seleccionado': alias_seleccionado
             }
             
         if 'data_cargada' not in st.session_state:
@@ -361,6 +363,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             'zona_filtro_seleccion1': zona_filtro_seleccion1,
             'zona_filtro_seleccion2': zona_filtro_seleccion2,
             'tipo_filtro': tipo_filtro,
+            'alias_seleccionado': alias_seleccionado, 
         }
 
         current_options = { 'etapas_seleccionada': st.session_state.etapas_seleccionada,
@@ -383,7 +386,9 @@ with st.expander('Líneas de Deseo', expanded=True):
                                           &(key != 'zona_filtro_seleccion1')
                                           &(key != 'zona_filtro_seleccion2')
                                           &(key != 'zona_filtro_seleccion1')
-                                          &(key != 'tipo_filtro'))
+                                          &(key != 'tipo_filtro')
+                                          &(key != 'alias_seleccionado')
+                                     )
             if conditions:
                 query += f" WHERE {conditions}"
 

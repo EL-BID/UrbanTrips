@@ -1175,3 +1175,4 @@ def configurar_selector_dia():
             st.session_state.dia_anterior = seleccion
             st.cache_data.clear()
             st.rerun()
+    return seleccion

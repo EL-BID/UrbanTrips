@@ -67,7 +67,7 @@ def main():
     logo = get_logo()
     st.image(logo)
 
-    configurar_selector_dia()
+    alias_seleccionado = configurar_selector_dia()
 
     latlon = bring_latlon()
     mes_lst, tipo_dia_lst = traigo_mes_dia()

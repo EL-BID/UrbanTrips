@@ -786,7 +786,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-configurar_selector_dia()
+alias_seleccionado = configurar_selector_dia()
 
 st.write(
     "Si recién procesó nuevas líneas con Herramientas interactivas, limpie el caché desde el ícono superior derecho de la pantalla"

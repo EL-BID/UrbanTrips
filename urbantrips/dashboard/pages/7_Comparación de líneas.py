@@ -99,7 +99,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-configurar_selector_dia()
+alias_seleccionado = configurar_selector_dia()
 
 try:
     # --- Cargar configuraciones y conexiones en session_state ---

@@ -100,7 +100,7 @@ except ValueError as e:
     st.stop()
 
 
-configurar_selector_dia()
+alias_seleccionado = configurar_selector_dia()
 
 for var in [
     "id_linea_7",
