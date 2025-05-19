@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from dash_utils import get_logo
+from dash_utils import get_logo, configurar_selector_dia
 
 try:
     from urbantrips.utils.utils import iniciar_conexion_db
@@ -98,6 +98,8 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
 st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
+
+alias_seleccionado = configurar_selector_dia()
 
 try:
     # --- Cargar configuraciones y conexiones en session_state ---

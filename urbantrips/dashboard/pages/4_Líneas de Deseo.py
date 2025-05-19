@@ -4,6 +4,7 @@ import numpy as np
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium, folium_static
+from folium import GeoJson, GeoJsonTooltip
 import mapclassify
 import plotly.express as px
 from folium import Figure
@@ -14,7 +15,8 @@ from dash_utils import (
     extract_hex_colors_from_cmap,
     iniciar_conexion_db, normalize_vars,
     bring_latlon, traigo_lista_zonas, get_h3_indices_in_geometry,
-    traigo_tablas_con_filtros
+    traigo_tablas_con_filtros,
+    configurar_selector_dia
 )
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.geometry import mapping
@@ -181,7 +183,13 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
         GeoJson(
             data=zonif.__geo_interface__,
             name="Zonificación",
-            style_function=lambda x: {'fillColor': 'blue', 'color': 'navy', 'weight': 2, 'fillOpacity': 0}
+            style_function=lambda x: {'fillColor': 'blue', 'color': 'navy', 'weight': 2, 'fillOpacity': 0},
+            tooltip=GeoJsonTooltip(
+                    fields=['id'],
+                    aliases=['ID:'],
+                    labels=True,
+                    sticky=True
+                )
         ).add_to(m)
 
     folium.LayerControl().add_to(m)
@@ -198,6 +206,8 @@ def hay_cambios_en_filtros(current, last):
     return current != last
 
 st.set_page_config(layout="wide")
+
+alias_seleccionado = configurar_selector_dia()
 
 logo = get_logo()
 st.image(logo)
@@ -229,6 +239,7 @@ with st.expander('Líneas de Deseo', expanded=True):
             'rango_hora_seleccionado', 
             'distancia', 
             'socio_indicadores_all', 
+            'alias_seleccionado',
         ]
         
     variables_bool = ['etapas_seleccionada',
@@ -277,7 +288,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                 'filtro_seleccion1':'Todos',
                 'filtro_seleccion2':'Todos',
                 'zona_filtro_seleccion1': None,
-                'zona_filtro_seleccion2': None
+                'zona_filtro_seleccion2': None,
+                'alias_seleccionado': alias_seleccionado
             }
             
         if 'data_cargada' not in st.session_state:
@@ -312,6 +324,8 @@ with st.expander('Líneas de Deseo', expanded=True):
         zona_filtro_seleccion2 = col3.selectbox('Zona Filtro 2', options=valores_zonas, key='zon2', index=index_zona)
         lista_zonas_all = ['Todos'] + lista_zonas[lista_zonas.zona == zona_filtro_seleccion2].Nombre.unique().tolist()
         filtro_seleccion2 = col3.selectbox('Filtro 2', options=lista_zonas_all, key='filtro2')
+
+        tipo_filtro = col3.selectbox('Tipo de Filtro', options=['OD y Transferencias', 'Solo OD'])
         
         col3.write('Mostrar:')
         st.session_state.origenes_seleccionado = col3.checkbox(
@@ -348,6 +362,8 @@ with st.expander('Líneas de Deseo', expanded=True):
             'filtro_seleccion2': None if filtro_seleccion2 == 'Todos' else filtro_seleccion2,   
             'zona_filtro_seleccion1': zona_filtro_seleccion1,
             'zona_filtro_seleccion2': zona_filtro_seleccion2,
+            'tipo_filtro': tipo_filtro,
+            'alias_seleccionado': alias_seleccionado, 
         }
 
         current_options = { 'etapas_seleccionada': st.session_state.etapas_seleccionada,
@@ -363,7 +379,16 @@ with st.expander('Líneas de Deseo', expanded=True):
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
             
             query = ""
-            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() if (value is not None)&(key != 'filtro_seleccion1')&(key != 'filtro_seleccion2')&(key != 'zona_filtro_seleccion1')&(key != 'zona_filtro_seleccion2'))
+            conditions = " AND ".join(f"{key} = '{value}'" for key, value in current_filters.items() 
+                                      if (value is not None)
+                                          &(key != 'filtro_seleccion1')
+                                          &(key != 'filtro_seleccion2')
+                                          &(key != 'zona_filtro_seleccion1')
+                                          &(key != 'zona_filtro_seleccion2')
+                                          &(key != 'zona_filtro_seleccion1')
+                                          &(key != 'tipo_filtro')
+                                          &(key != 'alias_seleccionado')
+                                     )
             if conditions:
                 query += f" WHERE {conditions}"
 
@@ -373,7 +398,11 @@ with st.expander('Líneas de Deseo', expanded=True):
 
             if filtro_seleccion1 != 'Todos':
                 
-                conditions_etapas1 = f" AND (inicio_norm = '{filtro_seleccion1}' OR transfer1_norm = '{filtro_seleccion1}' OR transfer2_norm = '{filtro_seleccion1}' OR fin_norm = '{filtro_seleccion1}')"
+                if tipo_filtro == 'OD y Transferencias':
+                    conditions_etapas1 = f" AND (inicio_norm = '{filtro_seleccion1}' OR transfer1_norm = '{filtro_seleccion1}' OR transfer2_norm = '{filtro_seleccion1}' OR fin_norm = '{filtro_seleccion1}')"
+                else:
+                    conditions_etapas1 = f" AND (inicio_norm = '{filtro_seleccion1}' OR fin_norm = '{filtro_seleccion1}')"
+                
                 conditions_matrices1 = f" AND (inicio = '{filtro_seleccion1}' OR fin = '{filtro_seleccion1}')"
 
                 # Obtener la geometría filtrada
@@ -408,7 +437,11 @@ with st.expander('Líneas de Deseo', expanded=True):
             st.session_state['zona_2'] = []
             
             if filtro_seleccion2 != 'Todos':
-                conditions_etapas2 = f" AND (inicio_norm = '{filtro_seleccion2}' OR transfer1_norm = '{filtro_seleccion2}' OR transfer2_norm = '{filtro_seleccion2}' OR fin_norm = '{filtro_seleccion2}')"
+                if tipo_filtro == 'OD y Transferencias':
+                    conditions_etapas2 = f" AND (inicio_norm = '{filtro_seleccion2}' OR transfer1_norm = '{filtro_seleccion2}' OR transfer2_norm = '{filtro_seleccion2}' OR fin_norm = '{filtro_seleccion2}')"
+                else:
+                    conditions_etapas2 = f" AND (inicio_norm = '{filtro_seleccion2}' OR fin_norm = '{filtro_seleccion2}')"
+                
                 conditions_matrices2 = f" AND (inicio = '{filtro_seleccion2}' OR fin = '{filtro_seleccion2}')"
                 geometry = zonificaciones[
                     (zonificaciones.zona == zona_filtro_seleccion2) & 
@@ -458,8 +491,10 @@ with st.expander('Líneas de Deseo', expanded=True):
                                                                          filtro_seleccion1, 
                                                                          zona_filtro_seleccion2, 
                                                                          filtro_seleccion2, 
+                                                                         tipo_filtro,
                                                                          equivalencia_zonas,
-                                                                         zonificaciones)
+                                                                         zonificaciones,
+                                                                         )
                     st.session_state.etapas_all = agg_etapas.copy()
                     st.session_state.matrices_all = agg_matrices.copy()
 

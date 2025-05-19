@@ -10,7 +10,7 @@ import json
 from folium import plugins
 from shapely import wkt
 from dash_utils import (
-    iniciar_conexion_db, get_logo, bring_latlon, get_h3_indices_in_geometry
+    iniciar_conexion_db, get_logo, bring_latlon, get_h3_indices_in_geometry, configurar_selector_dia
 )
 from streamlit_folium import folium_static
 pd.options.display.float_format = '{:,.0f}'.format
@@ -66,6 +66,8 @@ def main():
     st.set_page_config(layout="wide")
     logo = get_logo()
     st.image(logo)
+
+    alias_seleccionado = configurar_selector_dia()
 
     latlon = bring_latlon()
     mes_lst, tipo_dia_lst = traigo_mes_dia()

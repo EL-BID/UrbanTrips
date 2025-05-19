@@ -37,20 +37,41 @@ def leer_alias(tipo="dash"):
     y devuelve el alias seteado en el archivo de congifuracion
     """
     configs = leer_configs_generales()
-    # Setear el tipo de key en base al tipo de datos
-    if tipo == "data":
-        key = "alias_db_data"
-    elif tipo == "insumos":
-        key = "alias_db_insumos"
-    elif tipo == "dash":
-        key = "alias_db_dashboard"
-    else:
-        raise ValueError("tipo invalido: %s" % tipo)
-    # Leer el alias
     try:
-        alias = configs[key] + "_"
-    except KeyError:
-        alias = ""
+        alias_dash_lista = configs['dash_configs']['alias_dash_lista']
+        alias_data_lista = configs['dash_configs']['alias_data_lista']
+        alias_insumos_lista = configs['dash_configs']['alias_insumos_lista']
+    except:
+        alias_dash_lista = []
+
+    if alias_dash_lista:
+        posicion = alias_dash_lista.index(st.session_state.dia_seleccionado)
+
+        # Setear el tipo de key en base al tipo de datos
+        if tipo == "data":
+            alias = alias_dash_lista[posicion] + "_"            
+        elif tipo == "insumos":
+            alias = alias_insumos_lista[posicion] + "_"            
+        elif tipo == "dash":
+            alias = alias_dash_lista[posicion] + "_"                        
+
+    else:
+    
+        # Setear el tipo de key en base al tipo de datos
+        if tipo == "data":
+            key = "alias_db_data"
+        elif tipo == "insumos":
+            key = "alias_db_insumos"
+        elif tipo == "dash":
+            key = "alias_db_dashboard"
+        else:
+            raise ValueError("tipo invalido: %s" % tipo)
+        # Leer el alias
+        try:
+            alias = configs[key] + "_"
+        except KeyError:
+            alias = ""
+    
     return alias
 
 
@@ -863,8 +884,10 @@ def traigo_tablas_con_filtros(
     det_filtro1,
     var_filtro2,
     det_filtro2,
+    tipo_filtro,
     zonas,
     zonificaciones,
+    
 ):
     
     lst1 = zonas[zonas[var_filtro1] == det_filtro1][var_zonif].unique().tolist()
@@ -879,20 +902,64 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))  # Para lista destino
 
     # Parámetros de la consulta
-    params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
-
+    
+    
     # Consulta SQL
-    query = f"""
-    SELECT * FROM agg_etapas 
-    WHERE zona = '{var_zonif}'
-    AND mes = ? 
-    AND tipo_dia = ? 
-    AND (
-        (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-        AND 
-        (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-    );
-    """
+    if tipo_filtro == 'OD y Transferencias':
+        if det_filtro1 != det_filtro2:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                AND 
+                (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+            );
+            """
+            params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
+        else:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                    (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN transfer1_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN transfer2_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
+                ) >= 2;
+            """
+            params = [mes, tipo_dia] + lst1 * 4
+
+    else:
+        if det_filtro1 != det_filtro2:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                AND 
+                (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+            );
+            """
+            params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+        else:
+            query = f"""
+            SELECT * FROM agg_etapas 
+            WHERE zona = '{var_zonif}'
+            AND mes = ? 
+            AND tipo_dia = ? 
+            AND (
+                    (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                    (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
+                ) >= 2;
+            """
+            params = [mes, tipo_dia] + lst1 * 2
 
     # Ejecutar consulta
     agg_etapas = pd.read_sql_query(query, conn, params=params)
@@ -988,20 +1055,33 @@ def traigo_tablas_con_filtros(
     # Crear una lista de valores para la cláusula IN de forma segura
     placeholders1 = ", ".join(["?"] * len(lst1))
     placeholders2 = ", ".join(["?"] * len(lst2))
-    params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
-
-    query = f"""
-    SELECT * FROM agg_matrices 
-    WHERE zona = '{var_zonif}'
-    AND mes = ? 
-    AND tipo_dia = ? 
+    
+    if det_filtro1 != det_filtro2:
+        query = f"""
+        SELECT * FROM agg_matrices 
+        WHERE zona = '{var_zonif}'
+        AND mes = ? 
+        AND tipo_dia = ? 
+            AND (
+            (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+            AND 
+            (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+        );
+        """
+        params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+    else:
+        query = f"""
+        SELECT * FROM agg_matrices 
+        WHERE zona = '{var_zonif}'
+        AND mes = ? 
+        AND tipo_dia = ? 
         AND (
-        (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
-        AND 
-        (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
-    );
-    """
-
+                (CASE WHEN inicio IN ({placeholders1}) THEN 1 ELSE 0 END) +
+                (CASE WHEN fin IN ({placeholders1}) THEN 1 ELSE 0 END)
+            ) >= 2;
+        """
+        params = [mes, tipo_dia] + lst1 * 2
+        
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_matrices) > 0:
@@ -1059,3 +1139,40 @@ def traigo_tablas_con_filtros(
     conn.close()
 
     return agg_etapas, agg_matrices
+
+@st.cache_data
+def traer_dias_disponibles():
+    configs = leer_configs_generales()
+    try:
+        lista = configs['dash_configs']['alias_dash_lista']
+    except:
+        lista = []
+    return lista
+
+def configurar_selector_dia():
+    # dias_disponibles = ["metropol", "amba_2024_15_10"]
+    dias_disponibles = traer_dias_disponibles()
+
+    if dias_disponibles:
+
+        # Inicialización una única vez
+        if "dia_seleccionado" not in st.session_state:
+            st.session_state.dia_seleccionado = dias_disponibles[0]
+            st.session_state.dia_anterior = dias_disponibles[0]
+    
+        # Sidebar con lógica aislada, sin pisar valores
+        with st.sidebar:
+            seleccion = st.selectbox(
+                "Seleccioná un día",
+                dias_disponibles,
+                index=dias_disponibles.index(st.session_state.dia_seleccionado),
+                key="__selector_dia"  # distinto del nombre en session_state
+            )
+    
+        # Si la selección cambió, actualizar estado y reiniciar app
+        if seleccion != st.session_state.dia_anterior:
+            st.session_state.dia_seleccionado = seleccion
+            st.session_state.dia_anterior = seleccion
+            st.cache_data.clear()
+            st.rerun()
+    return seleccion

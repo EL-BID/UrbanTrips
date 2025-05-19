@@ -1491,6 +1491,9 @@ def normalize_vars(tabla):
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
+    if alias_db:
+        alias_db = f'{alias_db}_'
+    
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
     cursor = conn.cursor()

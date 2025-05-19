@@ -8,7 +8,7 @@ import mapclassify
 import plotly.express as px
 from folium import Figure
 from dash_utils import (levanto_tabla_sql, get_logo,
-                        create_linestring_od, extract_hex_colors_from_cmap)
+                        create_linestring_od, extract_hex_colors_from_cmap, configurar_selector_dia)
 
 from itertools import combinations
 import squarify
@@ -295,6 +295,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
+alias_seleccionado = configurar_selector_dia()
 
 with st.expander('Partición modal', True):
 
