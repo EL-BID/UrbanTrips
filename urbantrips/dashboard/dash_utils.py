@@ -38,9 +38,9 @@ def leer_alias(tipo="dash"):
     """
     configs = leer_configs_generales()
     try:
-        alias_dash_lista = configs['dash_configs']['alias_dash_lista']
-        alias_data_lista = configs['dash_configs']['alias_data_lista']
-        alias_insumos_lista = configs['dash_configs']['alias_insumos_lista']
+        alias_dash_lista = configs["dash_configs"]["alias_dash_lista"]
+        alias_data_lista = configs["dash_configs"]["alias_data_lista"]
+        alias_insumos_lista = configs["dash_configs"]["alias_insumos_lista"]
     except:
         alias_dash_lista = []
 
@@ -49,14 +49,14 @@ def leer_alias(tipo="dash"):
 
         # Setear el tipo de key en base al tipo de datos
         if tipo == "data":
-            alias = alias_dash_lista[posicion] + "_"            
+            alias = alias_dash_lista[posicion] + "_"
         elif tipo == "insumos":
-            alias = alias_insumos_lista[posicion] + "_"            
+            alias = alias_insumos_lista[posicion] + "_"
         elif tipo == "dash":
-            alias = alias_dash_lista[posicion] + "_"                        
+            alias = alias_dash_lista[posicion] + "_"
 
     else:
-    
+
         # Setear el tipo de key en base al tipo de datos
         if tipo == "data":
             key = "alias_db_data"
@@ -71,7 +71,7 @@ def leer_alias(tipo="dash"):
             alias = configs[key] + "_"
         except KeyError:
             alias = ""
-    
+
     return alias
 
 
@@ -887,14 +887,13 @@ def traigo_tablas_con_filtros(
     tipo_filtro,
     zonas,
     zonificaciones,
-    
 ):
-    
+
     lst1 = zonas[zonas[var_filtro1] == det_filtro1][var_zonif].unique().tolist()
     lst2 = zonas[zonas[var_filtro2] == det_filtro2][var_zonif].unique().tolist()
 
-    zonas = zonas.groupby([var_zonif], as_index=False)[['latitud', 'longitud']].mean()
-   
+    zonas = zonas.groupby([var_zonif], as_index=False)[["latitud", "longitud"]].mean()
+
     conn = iniciar_conexion_db(tipo="dash")
 
     # Crear marcadores de posición para SQL
@@ -902,10 +901,9 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))  # Para lista destino
 
     # Parámetros de la consulta
-    
-    
+
     # Consulta SQL
-    if tipo_filtro == 'OD y Transferencias':
+    if tipo_filtro == "OD y Transferencias":
         if det_filtro1 != det_filtro2:
             query = f"""
             SELECT * FROM agg_etapas 
@@ -964,7 +962,6 @@ def traigo_tablas_con_filtros(
     # Ejecutar consulta
     agg_etapas = pd.read_sql_query(query, conn, params=params)
 
-
     if len(agg_etapas) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
         for i, z in enumerate(["inicio", "transfer1", "transfer2", "fin"], start=1):
@@ -973,14 +970,13 @@ def traigo_tablas_con_filtros(
                 columns={
                     var_zonif: f"{z}_norm",
                     "latitud": f"lat{i}",
-                    "longitud": f"lon{i}",                 
+                    "longitud": f"lon{i}",
                 }
             )
             zonas_temp[z] = zonas_temp[f"{z}_norm"]
             agg_etapas = agg_etapas.merge(zonas_temp, how="left")
             agg_etapas[f"{z}"] = agg_etapas[f"{z}"].fillna("")
-        
-    
+
         # Filtros innecesarios en un solo paso
         agg_etapas = agg_etapas[
             ~(
@@ -1055,7 +1051,7 @@ def traigo_tablas_con_filtros(
     # Crear una lista de valores para la cláusula IN de forma segura
     placeholders1 = ", ".join(["?"] * len(lst1))
     placeholders2 = ", ".join(["?"] * len(lst2))
-    
+
     if det_filtro1 != det_filtro2:
         query = f"""
         SELECT * FROM agg_matrices 
@@ -1081,14 +1077,14 @@ def traigo_tablas_con_filtros(
             ) >= 2;
         """
         params = [mes, tipo_dia] + lst1 * 2
-        
+
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_matrices) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
         for i, z in enumerate(["inicio", "fin"], start=1):
             zonas_temp = zonas_renamed.rename(
-                columns={                    
+                columns={
                     "latitud": f"lat{i}_new",
                     "longitud": f"lon{i}_new",
                     var_zonif: f"{z}_new",
@@ -1140,14 +1136,16 @@ def traigo_tablas_con_filtros(
 
     return agg_etapas, agg_matrices
 
+
 @st.cache_data
 def traer_dias_disponibles():
     configs = leer_configs_generales()
     try:
-        lista = configs['dash_configs']['alias_dash_lista']
+        lista = configs["dash_configs"]["alias_dash_lista"]
     except:
         lista = []
     return lista
+
 
 def configurar_selector_dia():
     # dias_disponibles = ["metropol", "amba_2024_15_10"]
@@ -1159,20 +1157,22 @@ def configurar_selector_dia():
         if "dia_seleccionado" not in st.session_state:
             st.session_state.dia_seleccionado = dias_disponibles[0]
             st.session_state.dia_anterior = dias_disponibles[0]
-    
+
         # Sidebar con lógica aislada, sin pisar valores
         with st.sidebar:
             seleccion = st.selectbox(
                 "Seleccioná un día",
                 dias_disponibles,
                 index=dias_disponibles.index(st.session_state.dia_seleccionado),
-                key="__selector_dia"  # distinto del nombre en session_state
+                key="__selector_dia",  # distinto del nombre en session_state
             )
-    
+
         # Si la selección cambió, actualizar estado y reiniciar app
         if seleccion != st.session_state.dia_anterior:
             st.session_state.dia_seleccionado = seleccion
             st.session_state.dia_anterior = seleccion
             st.cache_data.clear()
             st.rerun()
+    else:
+        seleccion = dias_disponibles
     return seleccion
