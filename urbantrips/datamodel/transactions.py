@@ -924,6 +924,8 @@ def compute_distance_km_gps(gps, use_pandana=False):
     gps["h3_lag"] = (
         gps.reindex(columns=reindex_cols).groupby(reindex_cols[:-1]).shift(1)
     )
+    # fill h3_lag with h3 so distance are 0
+    gps.h3_lag = gps.h3_lag.combine_first(gps.h3)
     gps = gps.dropna(subset=["h3", "h3_lag"])
     gps["delta_fecha"] = (
         gps.reindex(columns=order_cols).groupby(order_cols[:-1]).diff().fillna(0)

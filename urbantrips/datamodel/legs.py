@@ -66,10 +66,14 @@ def create_legs_from_transactions(trx_order_params):
         legs, trx_order_params, dias_ultima_corrida
     )
 
-    # elminar casos de nuevas tarjetas con trx unica
-    # legs = eliminar_tarjetas_trx_unica(legs)
-    # No borrar transacciones únicas (quedan en estas con fex=0)
-
+    # crear columna delta nuevamente para los nuevos ids tarjeta
+    if trx_order_params["criterio"] == "orden_trx":
+        legs["delta"] = None
+    elif trx_order_params["criterio"] == "fecha_completa":
+        legs = crear_delta_trx(legs)
+    else:
+        raise ValueError("ordenamiento_transacciones mal especificado")
+    
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
 
@@ -202,7 +206,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
 def pago_doble_tarjeta(trx, trx_order_params):
     """
     Takes a transaction dataframe with a time delta and
-    a time window for duplciates in minutes,
+    a time window for duplicates in minutes,
     detects duplicated transactions and assigns a new card id
 
     Parameters
@@ -244,12 +248,6 @@ def pago_doble_tarjeta(trx, trx_order_params):
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
 
-    # trx["interno2"] = trx["interno"]
-    # trx["interno2"] = trx["interno2"].fillna(0)
-
-    # trx = trx.sort_values(
-    #     ["dia", "id_tarjeta", "id_linea", "interno2", "fecha_aux", "orden_trx"]
-    # ).reset_index(drop=True)
     trx = trx.sort_values(
         ["dia", "id_tarjeta", "id_linea", "fecha_aux", "orden_trx"]
     ).reset_index(drop=True)
@@ -258,9 +256,6 @@ def pago_doble_tarjeta(trx, trx_order_params):
 
     trx["diff_datetime"] = (trx.fecha_aux - trx.datetime_proximo).abs()
 
-    # trx["diff_datetime2"] = trx.groupby(
-    #     ["dia", "id_tarjeta", "id_linea", "interno2"]
-    # ).diff_datetime.shift(+1)
     trx["diff_datetime2"] = trx.groupby(
         ["dia", "id_tarjeta", "id_linea"]
     ).diff_datetime.shift(+1)
@@ -271,9 +266,6 @@ def pago_doble_tarjeta(trx, trx_order_params):
     ] = 0
 
     while len(trx[trx.nro.isna()]) > 0:
-        # trx["nro2"] = (
-        #     trx.groupby(["dia", "id_tarjeta", "id_linea", "interno2"]).nro.shift(+1) + 1
-        # )
         trx["nro2"] = (
             trx.groupby(["dia", "id_tarjeta", "id_linea"]).nro.shift(+1) + 1
         )

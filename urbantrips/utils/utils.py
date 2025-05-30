@@ -1230,6 +1230,7 @@ def create_kpi_tables():
                 (
                 id_linea int not null,
                 dia text not null,
+                id_ramal int,
                 interno text not null,
                 service_id int not null,
                 hora_inicio float,
@@ -1265,6 +1266,7 @@ def create_kpi_tables():
                 (
                 dia text not null,
                 id_linea int not null,
+                id_ramal int,
                 interno int not null,
                 hora int  not null,
                 tot_pax float,
