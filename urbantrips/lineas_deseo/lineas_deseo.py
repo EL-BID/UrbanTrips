@@ -12,7 +12,7 @@ from urbantrips.utils.utils import leer_alias, leer_configs_generales, duracion
 from urbantrips.carto import carto
 
 
-def load_and_process_data():
+def load_and_process_data(alias_data="", alias_insumos=""):
     """
     Load and process data from databases, returning the etapas and viajes DataFrames.
 
@@ -23,8 +23,8 @@ def load_and_process_data():
 
     print('Prepara etapas y viajes')
     # Establish connections to different databases for input data and operational data
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
-    conn_data = iniciar_conexion_db(tipo='data')
+    conn_insumos = iniciar_conexion_db(tipo='insumos', alias_db=alias_insumos)
+    conn_data = iniciar_conexion_db(tipo='data', alias_db=alias_data)
 
     # Load distance data from 'distancias' table in 'insumos' database
     q_distancias = """

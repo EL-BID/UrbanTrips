@@ -108,6 +108,7 @@ def traigo_db_path(tipo="data", alias_db=""):
         raise ValueError("tipo invalido: %s" % tipo)
     if len(alias_db) == 0:
         alias_db = leer_alias(tipo)
+    if not alias_db.endswith('_'): alias_db += '_'
     db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
@@ -118,6 +119,7 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
+    if not alias_db.endswith('_'): alias_db += '_'
     db_path = traigo_db_path(tipo, alias_db)
 
     conn = sqlite3.connect(db_path, timeout=10)
@@ -1494,7 +1496,7 @@ def normalize_vars(tabla):
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
     if alias_db:
-        alias_db = f'{alias_db}_'
+        if not alias_db.endswith('_'): alias_db += '_'
     
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
