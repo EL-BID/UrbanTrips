@@ -1184,9 +1184,7 @@ def run_basic_kpi():
         "of",
         "speed_kmh",
     ]
-
     kpi_by_veh = kpi_by_veh.reindex(columns=cols)
-
     kpi_by_veh.to_sql(
         "basic_kpi_by_vehicle_hr",
         conn_data,

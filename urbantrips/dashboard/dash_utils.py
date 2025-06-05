@@ -100,7 +100,6 @@ def iniciar_conexion_db(tipo="dash"):
         db_path
     ), f"No existe la base de datos para el dashboard en {db_path}"
     conn = sqlite3.connect(db_path, timeout=10)
-
     return conn
 
 

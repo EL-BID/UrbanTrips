@@ -119,6 +119,7 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
+    if len(alias_db) == 0: alias_db = leer_alias(tipo)
     if not alias_db.endswith('_'): alias_db += '_'
     db_path = traigo_db_path(tipo, alias_db)
 
