@@ -170,3 +170,4 @@ etapas_caba_gcba_20241016.csv
 configs/configuraciones_generales.yaml
 *.csv
 matrices_etapas.xlsx
+*.code-workspace
