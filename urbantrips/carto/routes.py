@@ -78,6 +78,8 @@ def process_routes_geoms():
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
     print("Subiendo tabla de recorridos")
+    
+    # TODO: create line geoms in h3 series of cells
 
     # Upload geoms
     lines_routes.to_sql(
@@ -107,17 +109,7 @@ def infer_routes_geoms(plotear_lineas=False):
     etapas = pd.read_sql(q, conn_data)
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
-    """
-    from urbantrips.viz.viz import plotear_recorrido_lowess
 
-    if plotear_lineas:
-        print("Imprimiento bosquejos de lineas")
-        alias = leer_alias()
-        [
-            plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-            for id_linea in recorridos_lowess.id_linea
-        ]
-    """
     print("Subiendo recorridos a la db...")
     recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
 
