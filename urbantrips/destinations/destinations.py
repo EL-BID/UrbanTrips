@@ -98,6 +98,8 @@ def infer_destinations():
     etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
     etapas['h3_d'] = etapas['h3_d'].fillna('')
 
+    # TODO: validar que no tengan OD mismo h3
+    
     # calcular indicador de imputacion de destinos
     calcular_indicadores_destinos_etapas(etapas)
 
