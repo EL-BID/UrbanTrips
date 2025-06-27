@@ -182,10 +182,8 @@ def normalize_vars(tabla):
 @st.cache_data
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
 
-    if alias_db and not alias_db.endswith("_"):
-        alias_db += "_"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
         if len(query) == 0:
@@ -212,10 +210,7 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
 
-    if alias_db and not alias_db.endswith("_"):
-        alias_db += "_"
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
         if len(query) == 0:
