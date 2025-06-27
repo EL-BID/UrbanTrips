@@ -1585,7 +1585,15 @@ def delete_data_from_table_run_days(table_name):
     conn_data.commit()
     conn_data.close()
 
-
+def tabla_existe(conn, table_name):
+    try:
+        conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
+        return True
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return False
+        else:
+            raise
 def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     """
     Guarda un DataFrame en una base de datos SQLite.
@@ -1601,11 +1609,7 @@ def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
-    cursor = conn.cursor()
-    cursor.execute(
-        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
-    )
-    table_exists = cursor.fetchone() is not None
+    table_exists = tabla_existe(conn, table_name)
 
     # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
     if table_exists and filtros:
