@@ -1494,11 +1494,9 @@ def normalize_vars(tabla):
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-    print(datetime.now())
     
-    if alias_db:
-        if not alias_db.endswith("_"):
-            alias_db += "_"
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
 
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
@@ -1515,9 +1513,7 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
     print(datetime.now())
     conn.close()
 
-    if len(tabla) > 0:
-        print('wkt', datetime.now())
-        if "wkt" in tabla.columns:
+    if "wkt" in tabla.columns and not tabla.empty:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla, crs=4326)
             tabla = tabla.drop(["wkt"], axis=1)
