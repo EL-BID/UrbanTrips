@@ -1480,10 +1480,6 @@ def traigo_tabla_zonas():
 
 
 def normalize_vars(tabla):
-    # if "dia" in tabla.columns:
-    #     tabla["dia"] = ""
-    #     tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
-    #     tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
     if "day_type" in tabla.columns:
         tabla.loc[tabla.day_type == "weekday", "day_type"] = "Día hábil"
         tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"
@@ -1498,34 +1494,29 @@ def normalize_vars(tabla):
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-
+    print(datetime.now())
+    
     if alias_db:
         if not alias_db.endswith("_"):
             alias_db += "_"
 
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
-    cursor = conn.cursor()
-    cursor.execute(
-        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tabla_sql}'"
-    )
-    table_exists = cursor.fetchone() is not None
-
-    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
-    if not table_exists:
-        print(f"{tabla_sql} no existe")
-        tabla = pd.DataFrame([])
-    else:
+    try:
         if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
+            query = f"SELECT * FROM {tabla_sql}"
         tabla = pd.read_sql_query(query, conn)
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            tabla = pd.DataFrame([])
+        else:
+            print('Hay un error levantando la base')
 
+    print(datetime.now())
     conn.close()
 
     if len(tabla) > 0:
+        print('wkt', datetime.now())
         if "wkt" in tabla.columns:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla, crs=4326)
