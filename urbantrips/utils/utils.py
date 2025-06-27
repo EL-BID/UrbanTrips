@@ -1504,13 +1504,13 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
         if len(query) == 0:
             query = f"SELECT * FROM {tabla_sql}"
         tabla = pd.read_sql_query(query, conn)
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
         if "no such table" in str(e):
+            print(f"La tabla '{tabla_sql}' no existe.")
             tabla = pd.DataFrame([])
         else:
-            print('Hay un error levantando la base')
+            raise
 
-    print(datetime.now())
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
