@@ -170,9 +170,4 @@ etapas_caba_gcba_20241016.csv
 configs/configuraciones_generales.yaml
 *.csv
 matrices_etapas.xlsx
-configs/configuraciones_generales.yaml
-configs/configuraciones_generales.yaml
-*.geojson
-*.png
-*.yaml
-urbantrips/run_all.py
+*.code-workspace

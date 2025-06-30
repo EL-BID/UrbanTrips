@@ -2476,47 +2476,6 @@ def save_zones():
         conn_dash.close()
 
 
-# def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
-
-#     particion_viajes = (
-#         viajes_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-#     )
-#     particion_viajes["modal"] = (
-#         particion_viajes["factor_expansion_linea"]
-#         / viajes_dia.factor_expansion_linea.sum()
-#         * 100
-#     ).round()
-#     particion_viajes = particion_viajes.sort_values("modal", ascending=False).drop(
-#         ["factor_expansion_linea"], axis=1
-#     )
-#     particion_viajes["tipo"] = "viajes"
-#     particion_viajes["tipo_dia"] = tipo_dia
-#     particion_viajes["desc_dia"] = desc_dia
-#     particion_etapas = (
-#         etapas_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-#     )
-
-#     particion_etapas["modal"] = (
-#         particion_etapas["factor_expansion_linea"]
-#         / etapas_dia.factor_expansion_linea.sum()
-#         * 100
-#     ).round()
-#     particion_etapas = particion_etapas.sort_values("modal", ascending=False).drop(
-#         ["factor_expansion_linea"], axis=1
-#     )
-#     particion_etapas["tipo"] = "etapas"
-#     particion_etapas["desc_dia"] = desc_dia
-#     particion_etapas["tipo_dia"] = tipo_dia
-#     particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
-
-#     conn_dash = iniciar_conexion_db(tipo="dash")
-
-#     query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
-#     conn_dash.execute(query)
-#     conn_dash.commit()
-#     particion["modo"] = particion.modo.str.capitalize()
-#     particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
-#     conn_dash.close()
 
 
 def plot_dispatched_services_wrapper():
@@ -2535,7 +2494,7 @@ def plot_dispatched_services_wrapper():
     conn_data.close()
 
 
-def plot_dispatched_services_by_line_day(df):
+def plot_dispatched_services_by_line_day(df, save_fig = False):
     """
     Reads services' data and plots how many services
     by line, type of day (weekday weekend), and hour.
@@ -2591,10 +2550,6 @@ def plot_dispatched_services_by_line_day(df):
             f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
             fontdict={"fontsize": 11},
         )
-        # ax.set_title(
-        #     f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
-        #     fontdict={"fontsize": 11},
-        # )
 
         ax.spines.right.set_visible(False)
         ax.spines.top.set_visible(False)
@@ -2605,11 +2560,12 @@ def plot_dispatched_services_by_line_day(df):
 
         ax.grid(axis="y")
 
-        for frm in ["png", "pdf"]:
-            archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-            db_path = os.path.join("resultados", frm, archivo)
-            f.savefig(db_path, dpi=300)
-            plt.close()
+        if save_fig:
+            for frm in ["png", "pdf"]:
+                archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
+                db_path = os.path.join("resultados", frm, archivo)
+                f.savefig(db_path, dpi=300)
+                plt.close()
     except:
         print("ERROR")
 
@@ -3177,33 +3133,6 @@ def create_visualizations():
             (etapas.yr == i.yr) & (etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)
         ]
 
-        # print("Imprimiendo tabla de matrices OD")
-        # # Impirmir tablas con matrices OD
-        # imprimir_matrices_od(
-        #     viajes=viajes_dia,
-        #     var_fex="factor_expansion_linea",
-        #     title=f"Matriz OD {desc_dia}",
-        #     savefile=f"{desc_dia_file}",
-        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-        #     tipo_dia=i.tipo_dia,
-        # )
-
-        # print("Imprimiendo mapas de lí­neas de deseo")
-        # # Imprimir lineas de deseo
-        # imprime_lineas_deseo(
-        #     df=viajes_dia,
-        #     h3_o="",
-        #     h3_d="",
-        #     var_fex="factor_expansion_linea",
-        #     title=f"Lí­neas de deseo {desc_dia}",
-        #     savefile=f"{desc_dia_file}",
-        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-        #     tipo_dia=i.tipo_dia,
-        # )
-
-        # partición modal
-        # particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
-
         print("Imprimiendo gráficos")
         titulo = f"Cantidad de viajes en transporte público {desc_dia}"
         imprime_graficos_hora(
@@ -3215,43 +3144,13 @@ def create_visualizations():
             tipo_dia=i.tipo_dia,
         )
 
-        # print("Imprimiendo mapas de burbujas")
-        # viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-        # imprime_burbujas(
-        #     viajes_n,
-        #     res=7,
-        #     h3_o="h3_o",
-        #     alpha=0.4,
-        #     cmap="rocket_r",
-        #     var_fex="factor_expansion_linea",
-        #     porc_viajes=100,
-        #     title=f"Destinos de los viajes {desc_dia}",
-        #     savefile=f"{desc_dia_file}_burb_destinos",
-        #     show_fig=False,
-        #     k_jenks=5,
-        # )
-
-        # viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-        # imprime_burbujas(
-        #     viajes_n,
-        #     res=7,
-        #     h3_o="h3_o",
-        #     alpha=0.4,
-        #     cmap="flare",
-        #     var_fex="factor_expansion_linea",
-        #     porc_viajes=100,
-        #     title=f"Hogares {desc_dia}",
-        #     savefile=f"{desc_dia_file}_burb_hogares",
-        #     show_fig=False,
-        #     k_jenks=5,
-        # )
-
     save_zones()
 
     print("Indicadores para dash")
     indicadores_dash()
 
-    # plor dispatched services
+    #TODO: just for a few lines
+    # plot dispatched services
     plot_dispatched_services_wrapper()
 
     # plot basic kpi if exists

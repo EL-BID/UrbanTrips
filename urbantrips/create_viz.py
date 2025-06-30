@@ -101,9 +101,6 @@ def main():
     # Prduce main viz
     viz.create_visualizations()
 
-    # # Produce ppt
-    # viz_ppt_utils.create_ppt()
-
     proceso_poligonos()
     proceso_lineas_deseo()
 

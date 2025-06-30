@@ -58,6 +58,9 @@ def main():
     # Update destination validation matrix
     carto.update_stations_catchment_area(ring_size=ring_size)
 
+    # TODO: remove legs with origin far away from any station
+    # when stations or lines exists
+    
     # Infer legs destinations
     dest.infer_destinations()
 
