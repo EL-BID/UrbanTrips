@@ -1,5 +1,6 @@
 # Data files
-#data/*
+data/db/*.sqlite
+
 # Config file 
 configs/*
 
@@ -146,3 +147,4 @@ dmypy.json
 *.ini
 
 *.code-workspace
+data/data_ciudad/zona_voi.geojson
