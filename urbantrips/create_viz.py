@@ -1,7 +1,6 @@
 import pandas as pd
 from urbantrips.viz import viz
 from urbantrips.kpi import kpi
-from urbantrips.viz_ppt_utils import viz_ppt_utils
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.utils import leer_configs_generales
@@ -45,6 +44,12 @@ def main():
             """
     top_line_ids = pd.read_sql(q, conn_data)
     top_line_ids = top_line_ids.id_linea.to_list()
+
+    # plot dispatched services
+    viz.plot_dispatched_services_wrapper(top_line_ids)
+
+    # plot basic kpi if exists
+    viz.plot_basic_kpi_wrapper(top_line_ids)
 
     print("Computar carga por tramo de estas lineas y visualizar")
 

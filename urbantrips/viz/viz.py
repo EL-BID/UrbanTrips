@@ -24,6 +24,7 @@ from matplotlib import colors as mcolors
 from matplotlib.text import Text
 from requests.exceptions import ConnectionError as r_ConnectionError
 from pandas.io.sql import DatabaseError
+from folium import Figure
 
 from urbantrips.kpi import kpi
 from urbantrips.geo import geo
@@ -343,11 +344,6 @@ def viz_etapas_x_tramo_recorrido(
         raise Exception("Indicador stat debe ser 'cantidad_etapas' o 'prop_etapas'")
 
     print("Produciendo grafico de ocupacion por tramos", line_id)
-
-    # set a expansion factor for viz purposes
-    # df["buff_factor"] = df[indicator_col] * factor
-    # Set a minimum for each section to be displated in map
-    # df["buff_factor"] = np.where(df["buff_factor"] <= factor_min, factor_min, df["buff_factor"])
 
     df["buff_factor"] = standarize_size(
         series=df[indicator_col], min_size=factor_min, max_size=factor
@@ -750,7 +746,6 @@ def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
 
         # Display figura temporal
         fig = Figure(figsize=(13.5, 13.5), dpi=70)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
         hexs.to_crs(3857).plot(markersize=hexs["fex"] / 500, ax=ax)
         hexs2.to_crs(3857).boundary.plot(ax=ax, lw=0.3)
@@ -794,8 +789,8 @@ def imprimir_matrices_od(
     )
 
     conn_insumos.close()
-    zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
 
     df, matriz_zonas = traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d")
 
@@ -996,8 +991,8 @@ def imprime_lineas_deseo(
 
     conn_insumos.close()
 
-    zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -1207,7 +1202,7 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
             conn_data,
         )
     except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola...")
+        print("No existe la tabla indicadores, construyendola..", e)
         indicadores = pd.DataFrame([])
 
     ind_horas = pd.DataFrame([])
@@ -1459,7 +1454,6 @@ def imprime_graficos_hora(
     ):
 
         fig = Figure(figsize=(10, 3), dpi=100)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         for i in viajesxhora.modo.unique():
@@ -1632,7 +1626,6 @@ def imprime_burbujas(
         multip = df_agg[var_fex].head(1).values[0] / 500
 
         fig = Figure(figsize=(13.5, 13.5), dpi=100)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         zonas[zonas["h3"].isin(df[h3_o].unique())].to_crs(3857).plot(ax=ax, alpha=0)
@@ -1716,12 +1709,12 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
         vars_zona = ["Zona_voi"]
 
     if res_agg:
-        zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-        zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+        zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
+        zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
 
-        matriz_zonas += [["", f"h3_r6", ""], ["", f"h3_r7", ""]]
-        vars_zona += [f"h3_r6"]
-        vars_zona += [f"h3_r7"]
+        matriz_zonas += [["", "h3_r6", ""], ["", "h3_r7", ""]]
+        vars_zona += ["h3_r6"]
+        vars_zona += ["h3_r7"]
 
     if configs["zonificaciones"]:
         for n in range(0, 5):
@@ -1899,7 +1892,6 @@ def imprime_od(
             facecolors_anterior = ax.findobj(QuadMesh)[0].get_facecolors()
 
         fig = Figure(figsize=figsize_tuple, dpi=150)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         sns.heatmap(
@@ -1996,7 +1988,8 @@ def imprime_od(
                                 facecolors[ii] = fill_value
                                 i.set_color("white")
 
-                    except:
+                    except Exception as e:
+                        print("Error al procesar el texto:", e)
                         pass
                 ii += 1
 
@@ -2200,7 +2193,6 @@ def lineas_deseo(
             multip = df_agg[var_fex].head(1).values[0] / 10
 
             fig = Figure(figsize=(13.5, 13.5), dpi=150)
-            canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
 
             zonas[zonas["h3"].isin(df[h3_o].unique())].to_crs(3857).plot(ax=ax, alpha=0)
@@ -2327,6 +2319,7 @@ def lineas_deseo(
                 print(e)
 
         except ValueError as e:
+            print("Error al crear líneas de deseo:", e)
             pass
 
 
@@ -2390,8 +2383,6 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile, k_jenks=5):
     range_bins = range(0, len(bins) - 1)
     bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
-
-    from folium import Figure
 
     fig = Figure(width=800, height=800)
     m = folium.Map(
@@ -2476,16 +2467,15 @@ def save_zones():
         conn_dash.close()
 
 
-
-
-def plot_dispatched_services_wrapper():
+def plot_dispatched_services_wrapper(top_line_ids):
     conn_data = iniciar_conexion_db(tipo="data")
+    line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     q = """
     select *
     from services_by_line_hour
-    where dia = 'weekday';
     """
+    q = q + line_ids_where + "and dia = 'weekday'" + ";"
     service_data = pd.read_sql(q, conn_data)
 
     if len(service_data) > 0:
@@ -2494,7 +2484,7 @@ def plot_dispatched_services_wrapper():
     conn_data.close()
 
 
-def plot_dispatched_services_by_line_day(df, save_fig = False):
+def plot_dispatched_services_by_line_day(df, save_fig=False):
     """
     Reads services' data and plots how many services
     by line, type of day (weekday weekend), and hour.
@@ -2523,7 +2513,7 @@ def plot_dispatched_services_by_line_day(df, save_fig = False):
 
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
-    s = f"select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
+    s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
     conn_insumos.close()
 
@@ -2544,7 +2534,7 @@ def plot_dispatched_services_by_line_day(df, save_fig = False):
         ax.set_xlabel("Hora")
         ax.set_ylabel("Cantidad de servicios despachados")
 
-        f.suptitle(f"Cantidad de servicios despachados por hora y día")
+        f.suptitle("Cantidad de servicios despachados por hora y día")
 
         ax.set_title(
             f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
@@ -2566,30 +2556,23 @@ def plot_dispatched_services_by_line_day(df, save_fig = False):
                 db_path = os.path.join("resultados", frm, archivo)
                 f.savefig(db_path, dpi=300)
                 plt.close()
-    except:
-        print("ERROR")
+    except Exception as e:
+        print("ERROR", e)
 
 
-def plot_basic_kpi_wrapper():
+def plot_basic_kpi_wrapper(top_line_ids):
     sns.set_style("whitegrid")
 
-    configs = leer_configs_generales()
     conn_data = iniciar_conexion_db(tipo="data")
-    lineas_principales = configs["imprimir_lineas_principales"]
+    line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     # get top trx id_lines
     q = """
         select *
         from basic_kpi_by_line_hr
-        where dia = 'weekday';
+        
         """
-
-    kpi_data = pd.read_sql(q, conn_data)
-
-    if lineas_principales != "All":
-        top_lines = list(kpi_data.id_linea.value_counts().index[:lineas_principales])
-        kpi_data = kpi_data.loc[kpi_data.id_linea.isin(top_lines)]
-
+    q = q + line_ids_where + "and dia = 'weekday'" + ";"
     kpi_data = pd.read_sql(q, conn_data)
 
     if len(kpi_data) > 0:
@@ -2706,7 +2689,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         ax.set_xlabel("Hora")
         ax.set_ylabel(ylabel_str)
 
-        f.suptitle(f"Indicadores de oferta y demanda estadarizados")
+        f.suptitle("Indicadores de oferta y demanda estadarizados")
 
         ax.set_title(
             f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
@@ -3148,10 +3131,3 @@ def create_visualizations():
 
     print("Indicadores para dash")
     indicadores_dash()
-
-    #TODO: just for a few lines
-    # plot dispatched services
-    plot_dispatched_services_wrapper()
-
-    # plot basic kpi if exists
-    plot_basic_kpi_wrapper()
