@@ -69,9 +69,6 @@ def create_directories():
     db_path = os.path.join("resultados", "html")
     os.makedirs(db_path, exist_ok=True)
 
-    db_path = os.path.join("resultados", "ppts")
-    os.makedirs(db_path, exist_ok=True)
-
     db_path = os.path.join("resultados", "geojson")
     os.makedirs(db_path, exist_ok=True)
 

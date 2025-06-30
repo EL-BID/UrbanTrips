@@ -8,12 +8,14 @@ import warnings
 # Filter and suppress specific warnings
 warnings.filterwarnings("ignore")
 
+
 def main():
 
     initialize_environment.main()
     process_transactions.main()
     run_postprocessing.main()
     create_viz.main()
-    
+
+
 if __name__ == "__main__":
     main()
