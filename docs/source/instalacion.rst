@@ -8,7 +8,8 @@ Para poder instalar la librería se aconseja crear un ambiente y luego instalar 
 
     $ virtualenv venv --python=python3.10
     $ source venv/bin/activate
-    (.venv) $ pip install urbantrips
+    $ pip install --upgrade pip setuptools wheel
+    (venv) $ pip install -e .
     
 Si desea hacerlo con `conda` entonces:
 
