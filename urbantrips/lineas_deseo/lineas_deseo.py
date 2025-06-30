@@ -1211,7 +1211,9 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
         # Guardo las coordenadas de los H3
         h3_coords = etapas_all.groupby(
             'h3', as_index=False).id_viaje.count().drop(['id_viaje'], axis=1)
-        h3_coords[['lat', 'lon']] = h3_coords.h3.apply(h3_to_lat_lon)
+        # h3_coords[['lat', 'lon']] = h3_coords.h3.apply(h3_to_lat_lon)
+        h3_coords[['lat', 'lon']] = h3_coords.h3.apply(lambda x: pd.Series(h3_to_lat_lon(x)))
+
 
         # Preparo cada etapa de viaje para poder hacer la agrupación y tener inicio, transferencias y destino en un mismo registro
         inicio = etapas_all.loc[etapas_all.tipo_viaje == 'Inicio', ['dia',
