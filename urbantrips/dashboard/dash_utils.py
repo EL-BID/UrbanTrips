@@ -182,24 +182,23 @@ def normalize_vars(tabla):
 @st.cache_data
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
 
+
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
         if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
-
+            query = f"SELECT * FROM {tabla_sql}"
         tabla = pd.read_sql_query(query, conn)
-    except:
-        print(f"{tabla_sql} no existe")
-        tabla = pd.DataFrame([])
+    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
+        if "no such table" in str(e):
+            print(f"La tabla '{tabla_sql}' no existe.")
+            tabla = pd.DataFrame([])
+        else:
+            raise
 
     conn.close()
 
-    if len(tabla) > 0:
-        if "wkt" in tabla.columns:
+    if "wkt" in tabla.columns and not tabla.empty:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla, crs=4326)
             tabla = tabla.drop(["wkt"], axis=1)
@@ -215,20 +214,18 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
 
     try:
         if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
-
+            query = f"SELECT * FROM {tabla_sql}"
         tabla = pd.read_sql_query(query, conn)
-    except:
-        print(f"{tabla_sql} no existe")
-        tabla = pd.DataFrame([])
+    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
+        if "no such table" in str(e):
+            print(f"La tabla '{tabla_sql}' no existe.")
+            tabla = pd.DataFrame([])
+        else:
+            raise
 
     conn.close()
 
-    if len(tabla) > 0:
-        if "wkt" in tabla.columns:
+    if "wkt" in tabla.columns and not tabla.empty:
             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
             tabla = gpd.GeoDataFrame(tabla, crs=4326)
             tabla = tabla.drop(["wkt"], axis=1)
