@@ -16,9 +16,9 @@ from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
     get_stop_hex_ring,
-    h3togeo, h3_from_row,
+    h3togeo,
+    h3_from_row,
     add_geometry,
-    create_voronoi,
     normalizo_lat_lon,
     h3dist,
     bring_latlon,
@@ -28,7 +28,9 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    leer_alias, levanto_tabla_sql, guardar_tabla_sql
+    leer_alias,
+    levanto_tabla_sql,
+    guardar_tabla_sql,
 )
 
 import subprocess
@@ -124,387 +126,192 @@ def update_stations_catchment_area(ring_size):
         )
     return None
 
+
 def h3_to_polygon(h3_index):
     # Obtener las coordenadas del hexágono
     boundary = h3.h3_to_geo_boundary(h3_index, geo_json=True)
     return Polygon(boundary)
 
+
 def guardo_zonificaciones():
-    configs = leer_configs_generales()
-    alias = leer_alias()
-    matriz_zonas = []
-    vars_zona = []
+    """
+    Processes and updates zoning information in the database based on configuration
+    files and geospatial data.
+    This function performs the following tasks:
+    - Reads general configuration settings to determine zoning files and variables.
+    - Loads and processes multiple zoning GeoJSON files, extracting relevant columns
+      and standardizing their format.
+    - Optionally merges ordering information into the zoning data.
+    - Cleans and standardizes zone identifiers.
+    - Dissolves certain zones to create a unified polygon, then generates H3 hexagon
+      grids at resolutions 6 and 7 within this polygon, adding them as new zoning
+      layers.
+    - Creates a zones equivalence table, associates geometries, and filters zones
+      within the unified zoning geometry.
+    - Saves the processed zoning and equivalence tables to the "dash" and "insumos"
+      databases.
+    - Optionally processes and saves additional polygon data if specified in the
+      configuration.
+    Returns:
+        None
+    """
 
-    conn_dash = iniciar_conexion_db(tipo='dash')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    configs = leer_configs_generales(autogenerado=False)
+    alias = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias)
 
-    
+    # Lee las 5 posibles configuraciones de zonificaciones
     if configs["zonificaciones"]:
-        print('Actualizo zonificaciones en db')
+        print("Crear zonificaciones en db")
         zonificaciones = pd.DataFrame([])
         for n in range(0, 5):
             try:
                 file_zona = configs["zonificaciones"][f"geo{n+1}"]
                 var_zona = configs["zonificaciones"][f"var{n+1}"]
-    
+
                 try:
                     matriz_order = configs["zonificaciones"][f"orden{n+1}"]
                 except KeyError:
                     matriz_order = ""
-    
+
                 if matriz_order is None:
                     matriz_order = ""
-    
+
+                # Si existe un archivo para esa zona, lo lee
                 if file_zona:
                     db_path = os.path.join("data", "data_ciudad", file_zona)
                     if os.path.exists(db_path):
                         zonif = gpd.read_file(db_path)
-                        zonif = zonif[[var_zona, 'geometry']]
-                        zonif.columns = ['id', 'geometry']
-                        zonif['zona'] = var_zona
-                        zonif = zonif[['zona', 'id', 'geometry']]
-                        
+                        zonif = zonif[[var_zona, "geometry"]]
+                        zonif.columns = ["id", "geometry"]
+                        zonif["zona"] = var_zona
+                        zonif = zonif[["zona", "id", "geometry"]]
+
                         if len(matriz_order) > 0:
-                            order = pd.DataFrame(matriz_order, columns=['id']).reset_index().rename(columns={'index':'orden'})
-                            zonif = zonif.merge(order, how='left')    
+                            order = (
+                                pd.DataFrame(matriz_order, columns=["id"])
+                                .reset_index()
+                                .rename(columns={"index": "orden"})
+                            )
+                            zonif = zonif.merge(order, how="left")
                         else:
-                            zonif['orden'] = 0
+                            zonif["orden"] = 0
 
-                        zonif['id'] = zonif['id'].astype(str)    
-                        zonif.loc[zonif['id'].str[-2:] == '.0', 'id'] = zonif.loc[zonif['id'].str[-2:] == '.0', 'id'].str[:-2]    
+                        zonif["id"] = zonif["id"].astype(str)
+                        zonif.loc[zonif["id"].str[-2:] == ".0", "id"] = zonif.loc[
+                            zonif["id"].str[-2:] == ".0", "id"
+                        ].str[:-2]
 
-                        zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)    
-    
+                        zonificaciones = pd.concat(
+                            [zonificaciones, zonif], ignore_index=True
+                        )
+
             except KeyError:
                 pass
-    
-        db_path = os.path.join("resultados", f'{alias}Zona_voi.geojson')
-        if os.path.exists(db_path):
-            zonif = gpd.read_file(db_path)
-            zonif = zonif[['Zona_voi', 'geometry']]
-            zonif.columns = ['id', 'geometry']
-            zonif['zona'] = 'Zona_voi'
-            zonif['orden'] = 0
-            zonif = zonif[['zona', 'orden', 'id', 'geometry']]        
-            zonificaciones = pd.concat([zonificaciones, zonif], ignore_index=True)
 
         if len(zonificaciones) > 0:
 
-            crs_val = configs['epsg_m']
+            crs_val = configs["epsg_m"]
             crs_actual = zonificaciones.crs
-            
-            zonificaciones_disolved = zonificaciones[~(zonificaciones.zona.isin(['res_6', 'res_7', 'res_8', 'Zona_voi']))].copy()
-            zonificaciones_disolved['all'] = 1
-            zonificaciones_disolved = zonificaciones_disolved[['all', 'geometry']].dissolve(by='all').to_crs(crs_val).buffer(2000).to_crs(crs_actual)
-            
+
+            zonificaciones_disolved = zonificaciones[
+                ~(zonificaciones.zona.isin(["res_6", "res_7", "res_8"]))
+            ].copy()
+            zonificaciones_disolved["all"] = 1
+            zonificaciones_disolved = (
+                zonificaciones_disolved[["all", "geometry"]]
+                .dissolve(by="all")
+                .to_crs(crs_val)
+                .buffer(2000)
+                .to_crs(crs_actual)
+            )
+
             # Agrego res_6 y res_8 en zonificaciones
-            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)                    
-            res_6['zona'] = 'res_6'
-            res_6['orden'] = 0
-            res_6 = res_6.rename(columns={'h3_index':'id'})
-            res_6 = res_6[['zona', 'id', 'orden','geometry']]
+            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)
+            res_6["zona"] = "res_6"
+            res_6["orden"] = 0
+            res_6 = res_6.rename(columns={"h3_index": "id"})
+            res_6 = res_6[["zona", "id", "orden", "geometry"]]
             zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
 
-            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7)                    
-            res_7['zona'] = 'res_7'
-            res_7['orden'] = 0
-            res_7 = res_7.rename(columns={'h3_index':'id'})
-            res_7 = res_7[['zona', 'id', 'orden','geometry']]
+            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7)
+            res_7["zona"] = "res_7"
+            res_7["orden"] = 0
+            res_7 = res_7.rename(columns={"h3_index": "id"})
+            res_7 = res_7[["zona", "id", "orden", "geometry"]]
             zonificaciones = pd.concat([zonificaciones, res_7], ignore_index=True)
 
-            
-            # res_8 = upscale_h3_resolution(res_6, 8)
-            # res_8['zona'] = 'res_8'
-            # res_8['orden'] = 0
-            # res_8 = res_8.rename(columns={'h3_index':'id'})
-            # res_8 = res_8[['zona', 'id', 'orden','geometry']]
-            # zonificaciones = pd.concat([zonificaciones, res_8], ignore_index=True)
+            # Crear una tabla de equivalencias para cada h3 de urbantrips a las zonificaciones
+            full_area_res_urbantrips = generate_h3_hexagons_within_polygon(
+                zonificaciones_disolved, configs.get("resolucion_h3")
+            )
+            full_area_res_urbantrips.geometry = (
+                full_area_res_urbantrips.geometry.centroid
+            )
 
-            zonas = create_zones_table()            
-            zonas = zonas.drop(['fex'], axis=1)
-                
-            # Añadir geometrías al DataFrame
-            zonas['geometry'] = zonas['h3'].apply(h3_to_polygon)
-            
-            # Convertir a GeoDataFrame
-            zonas = gpd.GeoDataFrame(zonas, geometry='geometry', crs='EPSG:4326')
-            
-            # Mostrar el GeoDataFrame
-            
-            zonas = zonas[zonas.geometry.within(zonificaciones.geometry.unary_union)]
-            zonas = zonas.drop(['geometry'], axis=1)
+            equivalencias_zonas = gpd.sjoin(
+                full_area_res_urbantrips,
+                zonificaciones,
+                how="inner",
+                predicate="intersects",
+            )
+            equivalencias_zonas["latitud"] = equivalencias_zonas.geometry.y
+            equivalencias_zonas["longitud"] = equivalencias_zonas.geometry.x
+            equivalencias_zonas = (
+                equivalencias_zonas.reindex(
+                    columns=["h3_index", "latitud", "longitud", "zona", "id"]
+                )
+                .pivot_table(
+                    index=["h3_index", "latitud", "longitud"],
+                    columns="zona",
+                    values="id",
+                    aggfunc="first",
+                )
+                .reset_index()
+                .rename(columns={"h3_index": "h3"})
+            )
 
-            zonas.to_sql("equivalencia_zonas",
-                     conn_dash, if_exists="replace", index=False)
-            
             # Guardo zonificaciones
-            zonificaciones['wkt'] = zonificaciones.geometry.to_wkt()
-            zonificaciones = zonificaciones.drop(['geometry'], axis=1)
-            zonificaciones = zonificaciones.sort_values(['zona', 'orden', 'id']).reset_index(drop=True)
+            zonificaciones["wkt"] = zonificaciones.geometry.to_wkt()
+            zonificaciones = zonificaciones.drop(["geometry"], axis=1)
+            zonificaciones = zonificaciones.sort_values(
+                ["zona", "orden", "id"]
+            ).reset_index(drop=True)
 
             print(zonificaciones.zona.unique())
-            
-            zonificaciones.to_sql("zonificaciones",
-                     conn_insumos, if_exists="replace", index=False,)
-            zonificaciones.to_sql("zonificaciones",
-                         conn_dash, if_exists="replace", index=False,)
-            
-            
 
-            
-    if configs['poligonos']:
-        
-        poly_file = configs['poligonos']
+            zonificaciones.to_sql(
+                "zonificaciones",
+                conn_insumos,
+                if_exists="replace",
+                index=False,
+            )
+            equivalencias_zonas.to_sql(
+                "equivalencias_zonas",
+                conn_insumos,
+                if_exists="replace",
+                index=False,
+            )
+
+    if configs["poligonos"]:
+
+        poly_file = configs["poligonos"]
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
 
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
-            poly['wkt'] = poly.geometry.to_wkt()
-            poly = poly.drop(['geometry'], axis=1)
-        
-            poly.to_sql("poligonos",
-                                 conn_insumos, if_exists="replace", index=False,)
-            poly.to_sql("poligonos",
-                         conn_dash, if_exists="replace", index=False,)
-        
-        
+            poly["wkt"] = poly.geometry.to_wkt()
+            poly = poly.drop(["geometry"], axis=1)
+
+            poly.to_sql(
+                "poligonos",
+                conn_insumos,
+                if_exists="replace",
+                index=False,
+            )
+
     conn_insumos.close()
-    conn_dash.close()
-        
-
-def create_zones_table():
-    """
-    This function takes orign geo data from etapas and geoms from zones
-    in the config file and produces a table with the corresponding zone
-    for each h3 with data in etapas
-    """
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # leer origenes de la tabla etapas
-    etapas = pd.read_sql_query(
-        """
-        SELECT id, h3_o as h3, latitud, longitud, factor_expansion_linea
-        from etapas
-        where od_validado == 1
-        """,
-        conn_data,
-    )
-
-    # Lee la tabla zonas o la crea
-    try:
-        zonas_ant = pd.read_sql_query(
-            """
-            SELECT * from zonas
-            """,
-            conn_insumos,
-        )
-    except DatabaseError:
-        print("No existe la tabla zonas en la base")
-        zonas_ant = pd.DataFrame([])
-
-    # A partir de los origenes de etapas, crea una nueva tabla zonas
-    # con el promedio de la latitud y longitud
-    zonas = (
-        etapas.groupby(
-            "h3",
-            as_index=False,
-        )
-        .agg({"factor_expansion_linea": "sum", "latitud": "mean", "longitud": "mean"})
-        .rename(columns={"factor_expansion_linea": "fex"})
-    )
-    # TODO: redo how geoms are created here
-    zonas = pd.concat([zonas, zonas_ant], ignore_index=True)
-    agg_dict = {
-        "fex": "mean",
-        "latitud": "mean",
-        "longitud": "mean",
-    }
-    zonas = zonas.groupby(
-        "h3",
-        as_index=False,
-    ).agg(agg_dict)
-
-    # Crea la latitud y la longitud en base al h3
-    zonas["origin"] = zonas["h3"].apply(h3togeo)
-    zonas["lon"] = zonas["origin"].apply(bring_latlon, latlon="lon")
-    zonas["lat"] = zonas["origin"].apply(bring_latlon, latlon="lat")
-
-    zonas = gpd.GeoDataFrame(
-        zonas,
-        geometry=gpd.points_from_xy(zonas["lon"], zonas["lat"]),
-        crs=4326,
-    )
-    zonas = zonas.drop(["origin", "lon", "lat"], axis=1)
-
-    # Suma a la tabla las zonificaciones del config
-    configs = leer_configs_generales()
-    if configs["zonificaciones"]:
-
-        for n in range(0, 5):
-            try:
-                file_geo = configs["zonificaciones"][f"geo{n+1}"]
-                var_geo = configs["zonificaciones"][f"var{n+1}"]
-                zn_path = os.path.join("data", "data_ciudad", file_geo)
-                zn = gpd.read_file(zn_path)
-                zn = zn.drop_duplicates()
-                zn = zn[[var_geo, "geometry"]]
-                if zn[var_geo].dtype != 'O':
-                    zn.loc[zn[var_geo].notna(), var_geo] = zn.loc[zn[var_geo].notna(), var_geo].astype(int).astype(str)                   
-
-                zonas = gpd.sjoin(zonas, zn, how="left")
-                zonas = zonas.drop(["index_right"], axis=1)
-
-            except (KeyError, TypeError):
-                pass
-
-    zonas["res_8"] = zonas.apply(h3_from_row, axis=1, args=(8, "latitud", "longitud"))
-    zonas["res_7"] = zonas.apply(h3_from_row, axis=1, args=(7, "latitud", "longitud"))
-    zonas["res_6"] = zonas.apply(h3_from_row, axis=1, args=(6, "latitud", "longitud"))
-
-    zonas = zonas.drop(["geometry"], axis=1)
-    zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
-    conn_insumos.close()
-    print("Graba zonas en sql lite")
-    return zonas
-
-@duracion
-def create_voronoi_zones(res=8, max_zonas=15, show_map=False):
-    """
-    This function creates transport zones based on the points in the dataset
-    """
-
-    alias = leer_alias()
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-
-    # Leer informacion en tabla zonas
-    try:
-        zonas = pd.read_sql_query(
-            """
-            SELECT *
-            FROM zonas
-            """,
-            conn_insumos,
-        )
-    except DatabaseError:
-            print("No existe la tabla zonas en la base")
-            zonas = pd.DataFrame([])        
-
-    if len(zonas) > 0:
-        # Si existe la columna de zona voronoi la elimina
-        if "Zona_voi" in zonas.columns:
-            zonas.drop(["Zona_voi"], axis=1, inplace=True)
-    
-        # agrega datos a un hexagono mas grande
-        zonas["h3_r"] = zonas["h3"].apply(h3.h3_to_parent, res=res)
-    
-        # Computa para ese hexagono el promedio ponderado de latlong
-        zonas_for_hexs = zonas.loc[zonas.fex != 0, :]
-    
-        hexs = zonas_for_hexs.groupby("h3_r", as_index=False).fex.sum()
-    
-        hexs = hexs.merge(
-            zonas_for_hexs.groupby("h3_r")
-            .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-            .reset_index()
-            .rename(columns={0: "longitud"}),
-            how="left",
-        )
-    
-        hexs = hexs.merge(
-            zonas_for_hexs.groupby("h3_r")
-            .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-            .reset_index()
-            .rename(columns={0: "latitud"}),
-            how="left",
-        )
-    
-        hexs = gpd.GeoDataFrame(
-            hexs,
-            geometry=gpd.points_from_xy(hexs["longitud"], hexs["latitud"]),
-            crs=4326,
-        )
-    
-        cant_zonas = len(hexs) + 10
-        k_ring = 1
-    
-        if cant_zonas <= max_zonas:
-            hexs2 = hexs.copy()
-    
-        while cant_zonas > max_zonas:
-            # Construye un set de hexagonos aun mas grandes
-            hexs2 = hexs.copy()
-            hexs2["h3_r2"] = hexs2.h3_r.apply(h3.h3_to_parent, res=res - 1)
-            hexs2["geometry"] = hexs2.h3_r2.apply(add_geometry)
-            hexs2 = hexs2.sort_values(["h3_r2", "fex"], ascending=[True, False])
-            hexs2["orden"] = hexs2.groupby(["h3_r2"]).cumcount()
-            hexs2 = hexs2[hexs2.orden == 0]
-    
-            hexs2 = hexs2.sort_values("fex", ascending=False)
-            hexs["cambiado"] = 0
-            for i in hexs2.h3_r.tolist():
-                vecinos = h3.k_ring(i, k_ring)
-                hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "h3_r"] = i
-                hexs.loc[(hexs.h3_r.isin(vecinos)) & (hexs.cambiado == 0), "cambiado"] = 1
-    
-            hexs_tmp = hexs.groupby("h3_r", as_index=False).fex.sum()
-            hexs_tmp = hexs_tmp.merge(
-                hexs[hexs.fex != 0]
-                .groupby("h3_r")
-                .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-                .reset_index()
-                .rename(columns={0: "longitud"}),
-                how="left",
-            )
-            hexs_tmp = hexs_tmp.merge(
-                hexs[hexs.fex != 0]
-                .groupby("h3_r")
-                .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-                .reset_index()
-                .rename(columns={0: "latitud"}),
-                how="left",
-            )
-            hexs_tmp = gpd.GeoDataFrame(
-                hexs_tmp,
-                geometry=gpd.points_from_xy(hexs_tmp["longitud"], hexs_tmp["latitud"]),
-                crs=4326,
-            )
-    
-            hexs = hexs_tmp.copy()
-    
-            if cant_zonas == len(hexs):
-                k_ring += 1
-            else:
-                cant_zonas = len(hexs)
-    
-        voi = create_voronoi(hexs)
-        voi = gpd.sjoin(voi, hexs[["fex", "geometry"]], how="left")
-        voi = voi.sort_values("fex", ascending=False)
-        voi = voi.drop(["Zona", "index_right"], axis=1)
-        voi = voi.reset_index(drop=True).reset_index().rename(columns={"index": "Zona_voi"})
-        voi["Zona_voi"] = voi["Zona_voi"] + 1
-        voi["Zona_voi"] = voi["Zona_voi"].astype(str)
-    
-        file = os.path.join("data", "data_ciudad", "zona_voi.geojson")
-        voi[["Zona_voi", "geometry"]].to_file(file)
-    
-        zonas = zonas.drop(["h3_r"], axis=1)
-        zonas["geometry"] = zonas["h3"].apply(add_geometry)
-    
-        zonas = gpd.GeoDataFrame(zonas, geometry="geometry", crs=4326)
-        zonas["geometry"] = zonas["geometry"].representative_point()
-    
-        zonas = gpd.sjoin(zonas, voi[["Zona_voi", "geometry"]], how="left")
-    
-        zonas = zonas.drop(["index_right", "geometry"], axis=1)
-        zonas.to_sql("zonas", conn_insumos, if_exists="replace", index=False)
-        conn_insumos.close()
-        print("Graba zonas en sql lite")
-    
-        # Plotea geoms de voronoi
-        viz.plot_voronoi_zones(voi, hexs, hexs2, show_map, alias)
 
 
 @duracion
@@ -801,12 +608,16 @@ def compute_distances_osm(
                 try:
                     # computing distances with pandana
                     df = compute_distances_pandana(df=df, mode=mode)
-                    break  
-                except Exception as e:  # Captura excepciones específicas si es necesario
+                    break
+                except (
+                    Exception
+                ) as e:  # Captura excepciones específicas si es necesario
                     retries += 1
                     print(f"Intento {retries} con Pandana falló: {e}")
                     if retries == max_retries:
-                        print("No se pudo computar distancias con Pandana después de varios intentos. Recurriendo a OSMNX.")
+                        print(
+                            "No se pudo computar distancias con Pandana después de varios intentos. Recurriendo a OSMNX."
+                        )
 
                         library_name = "Pandana"
                         version = get_library_version(library_name)
@@ -822,7 +633,9 @@ def compute_distances_osm(
                         else:
                             print(f"{library_name} is not installed.")
                         return pd.DataFrame([])
-                        df = compute_distances_osmx(df=df, mode=mode, use_parallel=use_parallel)
+                        df = compute_distances_osmx(
+                            df=df, mode=mode, use_parallel=use_parallel
+                        )
 
     var_distances += [f"distance_osm_{mode}"]
     df[f"distance_osm_{mode}"] = (df[f"distance_osm_{mode}"] / 1000).round(2)
@@ -924,6 +737,7 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
         out = np.nan
     return out
 
+
 def generate_h3_hexagons_within_polygon(geo_df, resolution):
     """
     Genera un GeoDataFrame con hexágonos H3 dentro del polígono dado.
@@ -946,7 +760,9 @@ def generate_h3_hexagons_within_polygon(geo_df, resolution):
         # Combinar en un único polígono si hay varios
         polygon = max(polygon.geoms, key=lambda p: p.area)  # Seleccionar el más grande
     elif not isinstance(polygon, Polygon):
-        raise ValueError("La geometría proporcionada debe ser un Polygon o MultiPolygon.")
+        raise ValueError(
+            "La geometría proporcionada debe ser un Polygon o MultiPolygon."
+        )
 
     # Obtener los hexágonos que cubren el polígono
     hexagons = list(h3.polyfill_geojson(polygon.__geo_interface__, resolution))
@@ -959,10 +775,22 @@ def generate_h3_hexagons_within_polygon(geo_df, resolution):
             hexagon_geometries.append(hex_polygon)
 
     # Crear un GeoDataFrame con los hexágonos seleccionados
-    hexagon_gdf = gpd.GeoDataFrame({"h3_index": [h for h in hexagons if Polygon(h3.h3_to_geo_boundary(h, geo_json=True)).centroid.within(polygon)]},
-                                   geometry=hexagon_geometries, crs="EPSG:4326")
+    hexagon_gdf = gpd.GeoDataFrame(
+        {
+            "h3_index": [
+                h
+                for h in hexagons
+                if Polygon(h3.h3_to_geo_boundary(h, geo_json=True)).centroid.within(
+                    polygon
+                )
+            ]
+        },
+        geometry=hexagon_geometries,
+        crs="EPSG:4326",
+    )
 
     return hexagon_gdf
+
 
 def upscale_h3_resolution(hexagon_gdf, target_resolution):
     """
@@ -978,7 +806,9 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     # Validar que la resolución objetivo sea mayor que la resolución actual
     current_resolution = h3.h3_get_resolution(hexagon_gdf["h3_index"].iloc[0])
     if target_resolution <= current_resolution:
-        raise ValueError("La resolución objetivo debe ser mayor que la resolución actual.")
+        raise ValueError(
+            "La resolución objetivo debe ser mayor que la resolución actual."
+        )
 
     # Generar los hijos para cada hexágono
     hexagon_children = []
