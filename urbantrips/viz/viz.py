@@ -706,73 +706,6 @@ def viz_etapas_x_tramo_recorrido(
         return gdf_d0, gdf_d1
 
 
-def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
-    fig = Figure(figsize=(13.5, 13.5), dpi=100)
-    canvas = FigureCanvas(fig)
-    ax = fig.add_subplot(111)
-    plt.rcParams.update({"axes.facecolor": "#d4dadc", "figure.facecolor": "#d4dadc"})
-    voi = voi.to_crs(3857)
-    voi.geometry.boundary.plot(edgecolor="grey", linewidth=0.5, ax=ax)
-    # ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-    #                 attribution=None, attribution_size=10)
-
-    try:
-        cx.add_basemap(
-            ax,
-            source=ctx.providers.CartoDB.Positron,
-            attribution=None,
-            attribution_size=10,
-        )
-    except (r_ConnectionError, ValueError):
-        pass
-
-    voi["coords"] = voi["geometry"].apply(lambda x: x.representative_point().coords[:])
-    voi["coords"] = [coords[0] for coords in voi["coords"]]
-    voi.apply(
-        lambda x: ax.annotate(
-            text=x["Zona_voi"],
-            xy=x.geometry.centroid.coords[0],
-            ha="center",
-            color="darkblue",
-        ),
-        axis=1,
-    )
-    ax.set_title("Zonificación", fontsize=12)
-    ax.axis("off")
-
-    if show_map:
-
-        display(fig)
-
-        # Display figura temporal
-        fig = Figure(figsize=(13.5, 13.5), dpi=70)
-        ax = fig.add_subplot(111)
-        hexs.to_crs(3857).plot(markersize=hexs["fex"] / 500, ax=ax)
-        hexs2.to_crs(3857).boundary.plot(ax=ax, lw=0.3)
-        try:
-            ctx.add_basemap(
-                ax,
-                source=ctx.providers.CartoDB.Positron,
-                attribution=None,
-                attribution_size=10,
-            )
-        except (r_ConnectionError, ValueError):
-            pass
-        ax.axis("off")
-
-    # graba resultados
-    file_path = os.path.join("resultados", "png", f"{alias}Zona_voi_map.png")
-    fig.savefig(file_path, dpi=300)
-    print("Zonificación guardada en", file_path)
-
-    file_path = os.path.join("resultados", "pdf", f"{alias}Zona_voi_map.pdf")
-    fig.savefig(file_path, dpi=300)
-    voi = voi.to_crs(4326)
-
-    file_path = os.path.join("resultados", f"{alias}Zona_voi.geojson")
-    voi[["Zona_voi", "geometry"]].to_file(file_path)
-
-
 def imprimir_matrices_od(
     viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
 ):
@@ -1697,16 +1630,6 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
 
     matriz_zonas = []
     vars_zona = []
-    if "Zona_voi" in zonas.columns:
-
-        matriz_zonas = [
-            [
-                "",
-                "Zona_voi",
-                [str(x) for x in list(range(1, len(zonas.Zona_voi.unique()) + 1))],
-            ]
-        ]
-        vars_zona = ["Zona_voi"]
 
     if res_agg:
         zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
@@ -2434,7 +2357,7 @@ def save_zones():
     except KeyError:
         zonificaciones = []
 
-    geo_files = [["zona_voi.geojson", "Zona_voi"]]
+    geo_files = []
 
     if zonificaciones:
         for n in range(0, 5):
