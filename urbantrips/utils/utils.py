@@ -101,7 +101,7 @@ def traigo_db_path(tipo="data", alias_db=""):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ("data", "insumos", "dash"):
+    if tipo not in ("data", "insumos", "dash", "general"):
         raise ValueError("tipo invalido: %s" % tipo)
     if len(alias_db) == 0:
         alias_db = leer_alias(tipo)
@@ -122,39 +122,69 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
     db_path = traigo_db_path(tipo, alias_db)
-
+    print("DB_PATH:", db_path)
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
 
 @duracion
-def create_db():
-    print("Creando bases de datos")
+def create_insumos_general_dbs():
+    print("Creando bases para insumos")
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    alias_db = configs_usuario.get("alias_db", "")
+
+    # Recorridos y paradas
+    create_stops_and_routes_carto_tables(alias_db)
+
+    # Otros insumos
+    create_other_inputs_tables(alias_db)
+
+    # Crear una tabla general para todas las corridas
+    create_general_db(alias_db)
+
+
+def create_general_db(alias_db):
+    """
+    Crea la base de datos general para UrbanTrips
+    """
+    conn_general = iniciar_conexion_db(tipo="general", alias_db=alias_db)
+    conn_general.execute(
+        """
+        CREATE TABLE IF NOT EXISTS corridas
+        (corrida text PRIMARY KEY NOT NULL,
+         process text NOT NULL,
+         date text NOT NULL
+        )
+        ;
+        """
+    )
+    conn_general.close()
+
+
+@duracion
+def create_data_dash_dbs(alias_db):
+    print("Creando bases para data para {alias_db}".format(alias_db=alias_db))
 
     # create basic tables
-    create_basic_data_model_tables()
-
-    # other inpus tables
-    create_other_inputs_tables()
-
-    # stops and routes
-    create_stops_and_routes_carto_tables()
+    create_basic_data_model_tables(alias_db)
 
     # create services and gps tables
-    create_gps_table()
+    create_gps_table(alias_db)
 
     # create KPI tables
-    create_kpi_tables()
+    create_kpi_tables(alias_db)
 
     # dashborad tables
-    create_dash_tables()
+    create_dash_tables(alias_db)
 
     print("Fin crear base")
     print("Todas las tablas creadas")
 
 
-def create_other_inputs_tables():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+def create_other_inputs_tables(alias_db):
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS distancias
@@ -276,8 +306,8 @@ def create_other_inputs_tables():
     conn_insumos.close()
 
 
-def create_dash_tables():
-    conn_dash = iniciar_conexion_db(tipo="dash")
+def create_dash_tables(alias_db):
+    conn_dash = iniciar_conexion_db(tipo="dash", alias_db=alias_db)
 
     conn_dash.execute(
         """
@@ -521,8 +551,11 @@ def create_dash_tables():
     conn_dash.close()
 
 
-def create_stops_and_routes_carto_tables():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+def create_stops_and_routes_carto_tables(alias_db):
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
+    # Crear tablas de insumos para paradas y rutas
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms
@@ -596,8 +629,8 @@ def create_stops_and_routes_carto_tables():
     conn_insumos.close()
 
 
-def create_basic_data_model_tables():
-    conn_data = iniciar_conexion_db(tipo="data")
+def create_basic_data_model_tables(alias_db):
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
@@ -867,12 +900,14 @@ def create_basic_data_model_tables():
     conn_data.close()
 
 
-def leer_configs_generales():
+def leer_configs_generales(autogenerado=True):
     """
     Esta funcion lee los configs generales
     """
-    path = os.path.join("configs", "configuraciones_generales.yaml")
-
+    if autogenerado:
+        path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
+    else:
+        path = os.path.join("configs", "configuraciones_generales.yaml")
     try:
         with open(path, "r", encoding="utf8") as file:
             config = yaml.safe_load(file)
@@ -947,9 +982,9 @@ def crear_tablas_geolocalizacion():
     conn_data.close()
 
 
-def create_gps_table():
+def create_gps_table(alias_db):
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
 
     conn_data.execute(
         """
@@ -1199,12 +1234,12 @@ def eliminar_tarjetas_trx_unica(trx):
     return trx
 
 
-def create_kpi_tables():
+def create_kpi_tables(alias_db):
     """
     Creates KPI tables in the data db
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
 
     conn_data.execute(
         """
@@ -1466,11 +1501,11 @@ def create_branch_ids_sql_filter(branch_ids):
 
 def traigo_tabla_zonas():
 
-    zonas = levanto_tabla_sql("zonas", "insumos")
+    zonas = levanto_tabla_sql("equivalencias_zonas", "insumos")
     zonas_cols = []
     if len(zonas) > 0:
         zonas_cols = [
-            i for i in zonas.columns if i not in ["h3", "fex", "latitud", "longitud"]
+            i for i in zonas.columns if i not in ["h3", "latitud", "longitud"]
         ]
 
     return zonas, zonas_cols
@@ -1491,7 +1526,7 @@ def normalize_vars(tabla):
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-    
+
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
@@ -1511,9 +1546,9 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -1582,6 +1617,7 @@ def delete_data_from_table_run_days(table_name):
     conn_data.commit()
     conn_data.close()
 
+
 def tabla_existe(conn, table_name):
     try:
         conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
@@ -1591,6 +1627,8 @@ def tabla_existe(conn, table_name):
             return False
         else:
             raise
+
+
 def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     """
     Guarda un DataFrame en una base de datos SQLite.
@@ -1605,7 +1643,7 @@ def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     # Verifica si la tabla existe en la base de datos
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
-
+    cursor = conn.cursor()
     table_exists = tabla_existe(conn, table_name)
 
     # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
