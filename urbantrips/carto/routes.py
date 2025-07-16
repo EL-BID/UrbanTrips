@@ -31,7 +31,10 @@ def process_routes_geoms():
     # Deletes old data
     delete_old_route_geoms_data()
 
-    configs = leer_configs_generales()
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     if route_geoms_not_present(configs):
         print(
@@ -45,10 +48,8 @@ def process_routes_geoms():
 
     branches_present = configs["lineas_contienen_ramales"]
 
-    # Checl columns
+    # Check columns
     check_route_geoms_columns(geojson_data, branches_present)
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # if data has lines and branches, split them
     if branches_present:
@@ -78,7 +79,7 @@ def process_routes_geoms():
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
     print("Subiendo tabla de recorridos")
-    
+
     # TODO: create line geoms in h3 series of cells
 
     # Upload geoms
@@ -252,7 +253,10 @@ def check_route_geoms_columns(geojson_data, branches_present):
 
 
 def delete_old_route_geoms_data():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     conn_insumos.execute("DELETE FROM lines_geoms;")
     conn_insumos.execute("DELETE FROM branches_geoms;")
@@ -284,15 +288,15 @@ def process_routes_metadata():
     with routes metadata, check if lines and branches are present
     and uploads metadata to the db
     """
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     # Deletes old data
     conn_insumos.execute("DELETE FROM metadata_lineas;")
     conn_insumos.execute("DELETE FROM metadata_ramales;")
     conn_insumos.commit()
-
-    configs = leer_configs_generales()
 
     try:
         tabla_lineas = configs["nombre_archivo_informacion_lineas"]
