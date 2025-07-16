@@ -3,9 +3,9 @@ import os
 import pandas as pd
 import geopandas as gpd
 import warnings
-from urbantrips.carto.carto import compute_distances_osm
-
+import datetime
 from shapely.geometry import Point
+from urbantrips.carto.carto import compute_distances_osm
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     leer_configs_generales,
@@ -442,7 +442,6 @@ def eliminar_trx_fuera_bbox(trx):
     original = len(trx)
 
     zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo="insumos")
-    zonificaciones = zonificaciones[zonificaciones.zona != "Zona_voi"]
     if len(zonificaciones) > 0:
         trx["geometry"] = trx.apply(
             lambda row: Point(row["longitud"], row["latitud"]), axis=1
@@ -966,3 +965,20 @@ def compute_distance_km_gps(gps, use_pandana=False):
     gps = gps.drop(["h3_lag", "delta_fecha"], axis=1)
 
     return gps
+
+
+def write_transactions_to_db(corrida):
+    """
+    This function reads the transactions from the database and writes them to the
+    transactions table in the database.
+    """
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    alias_db = configs_usuario.get("alias_db", "")
+    conn = iniciar_conexion_db(tipo="general", alias_db=alias_db)
+    query = f"""
+        INSERT INTO corridas (corrida, process, date)
+        VALUES ("{corrida}", "transactions_completed", "{datetime.datetime.now()}")
+    """
+    conn.execute(query)
+    conn.commit()
+    conn.close()
