@@ -1,3 +1,4 @@
+import argparse
 from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
 from urbantrips.datamodel import services
@@ -8,10 +9,12 @@ from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 
 
-def main():
+def main(args):
+    # Obtener el parametro de corrida
+    corrida = args.corrida
 
-    # Check config file consistency
-    check_config()
+    # Chequear consistencia y crear configuracion
+    check_config(corrida)
 
     # Read config file
     configs = utils.leer_configs_generales()
@@ -60,7 +63,7 @@ def main():
 
     # TODO: remove legs with origin far away from any station
     # when stations or lines exists
-    
+
     # Infer legs destinations
     dest.infer_destinations()
 
@@ -95,6 +98,12 @@ def main():
     # Build final routes from official an inferred sources
     routes.build_routes_from_official_inferred()
 
+    # write information about transactions in the database
+    trx.write_transactions_to_db(corrida)
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Initialize UrbanTrips environment.")
+    parser.add_argument("--corrida", type=str, required=True, help="Corrida identifier")
+    args = parser.parse_args()
+    main(args)
