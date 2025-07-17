@@ -14,6 +14,7 @@ from matplotlib import colors as mcolors
 from folium import Figure
 from shapely.geometry import LineString, Point, Polygon, shape, mapping
 import h3
+from datetime import datetime
 
 
 def leer_configs_generales():
@@ -75,32 +76,34 @@ def leer_alias(tipo="dash"):
     return alias
 
 
-def traigo_db_path(tipo="dash"):
+def traigo_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
     if tipo not in ("data", "insumos", "dash"):
         raise ValueError("tipo invalido: %s" % tipo)
-
-    alias = leer_alias(tipo)
-
-    db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
+    db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
 
 
-def iniciar_conexion_db(tipo="dash"):
+def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
-    db_path = traigo_db_path(tipo)
-    assert os.path.isfile(
-        db_path
-    ), f"No existe la base de datos para el dashboard en {db_path}"
-    conn = sqlite3.connect(db_path, timeout=10)
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
+    db_path = traigo_db_path(tipo, alias_db)
 
+    conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
 
@@ -522,6 +525,7 @@ def create_data_folium(
         transferencias = pd.DataFrame([])
 
     if etapas_seleccionada | transferencias_seleccionado:
+
         etapas = calculate_weighted_means_ods(
             etapas,
             agg_cols_etapas,
@@ -579,14 +583,19 @@ def create_data_folium(
             0
         )
 
+        etapas = etapas[(etapas.inicio_norm != etapas.fin_norm)].sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True).copy()            
+        if len(etapas) >= 2000:
+            print('Se muestran las etapas con más viajes')
+            etapas = etapas.head(2000)
+        
+        etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
+
+        
         etapas = df_to_linestrings(
             etapas,
             lat_cols=["lat1_norm", "lat2_norm", "lat3_norm", "lat4_norm"],
             lon_cols=["lon1_norm", "lon2_norm", "lon3_norm", "lon4_norm"],
         )
-
-        etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
-        etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
 
     if viajes_seleccionado:
         viajes = calculate_weighted_means_ods(
@@ -607,14 +616,19 @@ def create_data_folium(
         if "id_polygon" not in viajes_matrices.columns:
             viajes_matrices["id_polygon"] = "NONE"
 
+        viajes = viajes[(viajes.inicio_norm != viajes.fin_norm)].sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True).copy()            
+        if len(etapas) >= 1500:
+            print('Se muestran las lineas con más viajes')
+            viajes = viajes.head(1500)
+            
+        # viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+        viajes["factor_expansion_linea"] = viajes["factor_expansion_linea"].round(0)
+        
         viajes = df_to_linestrings(
             viajes,
             lat_cols=["lat1_norm", "lat4_norm"],
             lon_cols=["lon1_norm", "lon4_norm"],
         )
-
-        viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
-        viajes["factor_expansion_linea"] = viajes["factor_expansion_linea"].round(0)
     else:
         viajes = pd.DataFrame([])
 
@@ -1173,3 +1187,56 @@ def configurar_selector_dia():
     else:
         seleccion = dias_disponibles
     return seleccion
+
+
+def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"):
+    """
+    Guarda un DataFrame en una base de datos SQLite.
+
+    Parámetros:
+    df (pd.DataFrame): DataFrame que se desea guardar.
+    table_name (str): Nombre de la tabla en la base de datos.
+    tabla_tipo (str): Tipo de conexión a la base de datos.
+    alias_db (str): Alias para identificar el archivo de base de datos.
+    filtros (dict, optional): Filtros para eliminar registros si modo='append'. Las claves son los nombres
+                               de los campos y los valores pueden ser un valor único o una lista de valores.
+    modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
+    """
+    # Conectar a la base de datos
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    cursor = conn.cursor()
+
+    if modo == "replace":
+        # Reemplaza completamente la tabla
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Tabla '{table_name}' reemplazada exitosamente.")
+    else:
+        table_exists = tabla_existe(conn, table_name)
+
+        # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
+        if table_exists and filtros:
+            condiciones = []
+            valores = []
+
+            for campo, valor in filtros.items():
+                if isinstance(valor, list):
+                    condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                    valores.extend(valor)
+                else:
+                    condiciones.append(f"{campo} = ?")
+                    valores.append(valor)
+
+            where_clause = " AND ".join(condiciones)
+            cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+            conn.commit()
+
+        # Agrega los datos al final de la tabla
+        df.to_sql(table_name, conn, if_exists="append", index=False)
+        print(f"Datos agregados exitosamente en '{table_name}'.")
+
+    # Cierra conexión
+    cursor.close()
+    conn.close()

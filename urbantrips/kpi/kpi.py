@@ -26,6 +26,7 @@ from urbantrips.utils.utils import (
 # KPI WRAPPER
 
 
+
 @duracion
 def compute_kpi():
     """

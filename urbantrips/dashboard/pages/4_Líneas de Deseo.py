@@ -20,7 +20,7 @@ from dash_utils import (
 )
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.geometry import mapping
-
+from datetime import datetime
 
 
 import folium
@@ -29,6 +29,7 @@ import numpy as np
 from branca.colormap import linear
 from folium import Map, LayerControl, CircleMarker, PolyLine, GeoJson, Popup, FeatureGroup
 import mapclassify
+
 
 
 # 🎨 Mapeo de colormaps válidos
@@ -108,10 +109,8 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
 
     if len(df_viajes)>0:
         df_viajes = df_viajes[df_viajes['geometry'].notna()]
-
     if len(df_etapas)>0:
         df_etapas = df_etapas[df_etapas['geometry'].notna()]
-
 
     # if latlon is None:
     #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
@@ -120,8 +119,12 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
     m = folium.Map(location=latlon, zoom_start=9, tiles='cartodbpositron')
 
     # 🔄 Preprocesamiento de Datos
-    for df in [df_etapas, df_viajes, origenes, destinos, transferencias]:
-        simplificar_geometrias(df)
+    print(datetime.now(), 'simplificar geometrias', len(df_viajes), len(df_etapas))
+    df_etapas, df_viajes, origenes, destinos, transferencias = [
+        simplificar_geometrias(df) for df in [df_etapas, df_viajes, origenes, destinos, transferencias]
+    ]
+
+    print(datetime.now(), 'fin simplificar geometrias', len(df_viajes), len(df_etapas))
     
     # 🔗 Agregar capas de líneas
     def agregar_capa_lineas(df, nombre, var_fex, cmap, weight_base=.5):
@@ -256,12 +259,10 @@ with st.expander('Líneas de Deseo', expanded=True):
         if var not in st.session_state:
             st.session_state[var] = False
     
-    
-    st.session_state.lista_etapas = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT mes FROM agg_etapas;')
+    st.session_state.lista_etapas = levanto_tabla_sql('socio_indicadores', 'dash', 'SELECT DISTINCT mes FROM socio_indicadores;')
     st.session_state.lista_etapas = ['Todos'] + st.session_state.lista_etapas.mes.unique().tolist()        
    
     if len(st.session_state.lista_etapas) > 0:
-
         zonificaciones = levanto_tabla_sql('zonificaciones')
 
         equivalencia_zonas = levanto_tabla_sql('equivalencia_zonas', 'dash')
@@ -483,7 +484,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                     st.session_state.etapas_all = pd.DataFrame([])
                     st.session_state.matrices_all = pd.DataFrame([])
                 else:
-
+                    
                     agg_etapas, agg_matrices = traigo_tablas_con_filtros(mes_seleccionado, 
                                                                          tipo_dia_seleccionado, 
                                                                          zona_seleccionada, 
@@ -499,7 +500,9 @@ with st.expander('Líneas de Deseo', expanded=True):
                     st.session_state.matrices_all = agg_matrices.copy()
 
             else:
+
                 st.session_state.etapas_all = levanto_tabla_sql_local('agg_etapas', tabla_tipo='dash', query=f"SELECT * FROM agg_etapas{query_etapas}")
+                print(query_matrices)
                 st.session_state.matrices_all = levanto_tabla_sql_local('agg_matrices', tabla_tipo='dash', query=f"SELECT * FROM agg_matrices{query_matrices}")    
 
             if len(st.session_state.matrices_all)!=0:
@@ -509,12 +512,11 @@ with st.expander('Líneas de Deseo', expanded=True):
         
                 else:
                     st.session_state.socio_indicadores_all = socio_indicadores[(socio_indicadores.tipo_dia==tipo_dia_seleccionado)].copy()
-    
+
                 st.session_state.socio_indicadores_all = st.session_state.socio_indicadores_all.groupby(["tabla", "tipo_dia", "Genero", "Tarifa", "Modo"], as_index=False)[[
                                     "Distancia", "Tiempo de viaje", "Velocidad", "Etapas promedio", "Viajes promedio", "Tiempo entre viajes", "factor_expansion_linea"
                                     ]] .mean().round(2)
     
-                
                 if transfer_seleccionado == 'Todos':
                     st.session_state.desc_transfers = True
                 else:
@@ -592,6 +594,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                     | (len(zona_mostrar)>0):
 
                     latlon = bring_latlon()
+
                     st.session_state.map = crear_mapa_lineas_deseo(df_viajes=st.session_state.viajes,
                                                       df_etapas=st.session_state.etapas,
                                                       zonif=zonif,
