@@ -19,7 +19,6 @@ from shapely.geometry import LineString
 
 from dash_utils import levanto_tabla_sql, get_logo, traigo_indicadores, configurar_selector_dia
 
-
 st.set_page_config(layout="wide")
 
 st.sidebar.success('Seleccione página')

@@ -17,6 +17,7 @@ import h3
 from datetime import datetime
 
 
+
 def leer_configs_generales():
     """
     Esta funcion lee los configs generales
