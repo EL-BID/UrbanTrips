@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from pathlib import Path
 from dash_utils import (
     levanto_tabla_sql,
     guardar_tabla_sql,
@@ -63,113 +64,177 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                     st.warning("Ya existe un merge con este archivo.")
                     if st.button("Reemplazar merge anterior"):
                         st.session_state["tabla_mergeada"] = pd.merge(kpis, tabla_externa, on=merge_keys, how="left")
+                        st.session_state["archivo_anterior"] = archivo.name
+                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas", 'dash', modo='replace')
                         st.success("Merge reemplazado con éxito.")
+                        st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
                 else:
                     if st.button("Hacer merge"):
                         st.session_state["tabla_mergeada"] = pd.merge(kpis, tabla_externa, on=merge_keys, how="left")
                         st.session_state["archivo_anterior"] = archivo.name
+                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas", 'dash', modo='replace')
                         st.success("Merge realizado con éxito.")
+                        st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
+
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
 
 
+# ---------- Cargar KPIs y base ----------
+if "kpis" not in st.session_state:
+    st.session_state["kpis"] = levanto_tabla_sql("kpis_lineas", "dash")
+
+if "tabla_mergeada" in st.session_state and st.session_state["tabla_mergeada"] is not None:
+    df_base = st.session_state["tabla_mergeada"]
+else:
+    df_base = st.session_state["kpis"]
 
 
-# from dash_utils import guarda_tabla_sql, levanto_tabla_sql
-# import pandas as pd
-# import streamlit as st
-from dash_utils import levanto_tabla_sql_local
-# ---------- helpers ----------
-def load_escenarios() -> list[dict]:
-    """
-    Lee la tabla escenarios_clusterizacion de la BD.
-    Devuelve una lista de diccionarios con llaves 'nombre' y 'variables'.
-    Si la tabla no existe o está vacía, devuelve [].
-    """
-    try:
-        df = levanto_tabla_sql_local("escenarios_clusterizacion", "insumos")
-        if df.empty:
-            return []
-        # Nos aseguramos de que 'variables' quede como string (por si viene lista/None)
-        df["variables"] = df["variables"].astype(str)
-        return df.to_dict(orient="records")
-    except Exception as e:
-        st.error(f"Error al leer escenarios_clusterizacion: {e}")
-        return []
-
-def save_escenarios(lista_escenarios: list[dict]):
-    """Sobrescribe la tabla en la BD con el contenido actual."""
-    df_guardar = pd.DataFrame(lista_escenarios)
-
+def save_escenarios(lista: list[dict]):
+    df_guardar = pd.DataFrame(lista)
     if df_guardar.empty:
         st.warning("No hay escenarios para guardar.")
         return
-
-    # Validación extra: columnas correctas
-    df_guardar = df_guardar[["nombre", "variables"]].copy()
-
+    columnas = ["nombre", "variables", "cant_clusters", "max_clusters_clase", "cant_clusters_recluster"]
+    df_guardar = df_guardar[columnas]
     guardar_tabla_sql(df_guardar, "escenarios_clusterizacion", "insumos", modo="replace")
 
+# UI
+with st.expander("🗂️ Escenarios de clusterización", expanded=True):
 
-# ---------- estado ----------
-# Cargamos SIEMPRE desde la base en cada rerun; así reflejamos cambios externos.
-st.session_state["escenarios"] = load_escenarios()
-
-# ---------- UI ----------
-with st.expander("🗂️ Escenarios de selección de variables", expanded=True):
-
-    df_base = (
-        st.session_state.get("tabla_mergeada")
-        if st.session_state.get("tabla_mergeada") is not None
-        else kpis
-    )
     columnas_numericas = df_base.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
     # -------- crear nuevo escenario --------
     with st.form("formulario_escenario"):
         st.markdown("### Crear nuevo escenario")
+
         nombre_escenario = st.text_input("Nombre del escenario")
         variables_seleccionadas = st.multiselect(
-            "Seleccioná variables numéricas para este escenario",
-            options=columnas_numericas,
+            "Seleccioná variables",
+            options=columnas_numericas
         )
-        submit_escenario = st.form_submit_button("Guardar escenario")
 
-    if submit_escenario:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            cant_clusters = st.number_input("Cantidad de clusters", min_value=1, step=1, value=6)
+        with col2:
+            max_clusters_clase = st.number_input("Máx. elementos por clase", min_value=1, step=1, value=80)
+        with col3:
+            cant_clusters_recluster = st.number_input("Clusters (reclasterización)", min_value=1, step=1, value=3)
+
+        submit = st.form_submit_button("Guardar escenario")
+
+    if submit:
         if not nombre_escenario:
-            st.warning("Debés ingresar un nombre para el escenario.")
+            st.warning("Debés ingresar un nombre.")
         elif not variables_seleccionadas:
             st.warning("Debés seleccionar al menos una variable.")
-        elif nombre_escenario in [e["nombre"] for e in st.session_state["escenarios"]]:
-            st.error("Ya existe un escenario con ese nombre.")
         else:
-            nuevo = {
-                "nombre": nombre_escenario,
-                "variables": ", ".join(variables_seleccionadas),
-            }
-            st.session_state["escenarios"].append(nuevo)
-            save_escenarios(st.session_state["escenarios"])
-            st.success(f"Escenario '{nombre_escenario}' guardado.")
+            # Leer los existentes desde la base para chequear duplicados
+            existentes = levanto_tabla_sql("escenarios_clusterizacion", "insumos")
+            if not existentes.empty and nombre_escenario in existentes["nombre"].astype(str).tolist():
+                st.error("Ya existe un escenario con ese nombre.")
+            else:
+                nuevo = {
+                    "nombre": nombre_escenario,
+                    "variables": ", ".join(variables_seleccionadas),
+                    "cant_clusters": int(cant_clusters),
+                    "max_clusters_clase": int(max_clusters_clase),
+                    "cant_clusters_recluster": int(cant_clusters_recluster)
+                }
+                lista_actualizada = existentes.to_dict(orient="records") if not existentes.empty else []
+                lista_actualizada.append(nuevo)
+                save_escenarios(lista_actualizada)
+                st.cache_data.clear() 
+                st.success(f"Escenario '{nombre_escenario}' guardado.")
+                st.rerun()
 
-    # -------- mostrar escenarios --------
-    if st.session_state["escenarios"]:
+    # -------- mostrar y eliminar escenarios --------
+    df_escenarios = levanto_tabla_sql("escenarios_clusterizacion", "insumos")
+    if not df_escenarios.empty:
+        df_escenarios["variables"] = df_escenarios["variables"].astype(str)
+        for col, default in [
+            ("cant_clusters", 6),
+            ("max_clusters_clase", 80),
+            ("cant_clusters_recluster", 3)
+        ]:
+            if col not in df_escenarios.columns:
+                df_escenarios[col] = default
+
         st.markdown("### Escenarios guardados")
-        st.dataframe(pd.DataFrame(st.session_state["escenarios"]))
+        st.dataframe(df_escenarios)
 
-        # -------- eliminar escenario --------
         a_borrar = st.selectbox(
             "Seleccioná un escenario para eliminar",
-            options=[e["nombre"] for e in st.session_state["escenarios"]],
-            key="select_borrar",
+            options=df_escenarios["nombre"].astype(str).tolist(),
+            key="select_borrar"
         )
+
         if st.button("Eliminar escenario seleccionado"):
-            st.session_state["escenarios"] = [
-                e for e in st.session_state["escenarios"] if e["nombre"] != a_borrar
-            ]
-            save_escenarios(st.session_state["escenarios"])
+            df_filtrado = df_escenarios[df_escenarios["nombre"].astype(str) != a_borrar]
+            guardar_tabla_sql(df_filtrado, "escenarios_clusterizacion", "insumos", modo="replace")
+            st.cache_data.clear()
             st.success(f"Escenario '{a_borrar}' eliminado.")
-            st.rerun()()
+            st.rerun()
     else:
         st.info("Aún no hay escenarios guardados.")
+
+
+# -------------------------------------------------------------------
+# EXPANDER: Clusterizar
+# -------------------------------------------------------------------
+
+from clusters_utils import correr_clusters
+
+with st.expander("🧩 Clusterizar", expanded=False):
+
+    # 1) ¿Hay datos en kpis_lineas?
+    df_kpis = st.session_state["kpis"]            # ya lo cargaste al inicio
+    kpis_ok = not df_kpis.empty
+
+    # 2) ¿Hay al menos un escenario?
+    df_escenarios = levanto_tabla_sql("escenarios_clusterizacion", "insumos")
+    escenarios_ok = not df_escenarios.empty
+
+    # Mensajes de estado
+    if not kpis_ok:
+        st.error("La tabla **kpis_lineas** está vacía. Primero cargá datos.")
+    if not escenarios_ok:
+        st.error("No existe ningún escenario guardado. Creá al menos uno.")
+
+    # Botón habilitado sólo si ambos requisitos se cumplen
+    cluster_btn = st.button(
+        "🚀 Clusterizar escenarios",
+        disabled=not (kpis_ok and escenarios_ok)
+    )
+
+    if cluster_btn:
+        # ------------------------------------------------------------------
+        # Llamá aquí tu función real de clustering
+        # ------------------------------------------------------------------
+        st.info("Ejecutando clustering. Esto puede tardar unos segundos…")
+        try:
+            resultados = correr_clusters()  # <- tu función
+            st.success("¡Clustering completado!")
+            # Podés mostrar o guardar `resultados` como necesites:
+            st.markdown("### 📁 Carpeta de resultados:")
+            resultados_dir = Path.cwd() / "data" / "clusters" / "resultados"
+            st.markdown("---")
+                        
+            # Enlace clicable (funciona en navegadores locales)
+            if resultados_dir.exists():
+                st.code(str(resultados_dir), language="bash")
+                st.markdown(
+                    f"[📂 Abrir carpeta de resultados]({resultados_dir.as_uri()})",
+                    unsafe_allow_html=True
+                )
+
+
+            
+            st.dataframe(resultados)
+        except Exception as e:
+            st.error(f"Error al clusterizar: {e}")
+        
+
