@@ -16,6 +16,7 @@ from urbantrips.utils.utils import (
     agrego_indicador,
     delete_data_from_table_run_days,
 )
+from urbantrips.kpi.kpi import add_distances_to_legs
 
 
 @duracion
@@ -73,7 +74,7 @@ def create_legs_from_transactions(trx_order_params):
         legs = crear_delta_trx(legs)
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
-    
+
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
 
@@ -266,9 +267,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
     ] = 0
 
     while len(trx[trx.nro.isna()]) > 0:
-        trx["nro2"] = (
-            trx.groupby(["dia", "id_tarjeta", "id_linea"]).nro.shift(+1) + 1
-        )
+        trx["nro2"] = trx.groupby(["dia", "id_tarjeta", "id_linea"]).nro.shift(+1) + 1
 
         trx.loc[trx.nro.isna() & (trx.nro2.notna()), "nro"] = trx.loc[
             trx.nro.isna() & (trx.nro2.notna()), "nro2"
@@ -628,8 +627,11 @@ def assign_gps_destination():
     if nombre_archivo_gps is not None:
         print("Clasificando etapas en su gps de destino")
         conn_data = iniciar_conexion_db(tipo="data")
-        conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+        alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+        conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
         configs = leer_configs_generales()
+
         legs_h3_res = configs["resolucion_h3"]
 
         # read stops zone of incluence
@@ -807,7 +809,6 @@ def assign_gps_destination():
                     # Agregar resultado a la lista
                     etapas_result_list.append(etapas_tx)
 
-
         # Concatenar todos los resultados acumulados
         etapas_result = pd.concat(etapas_result_list, ignore_index=True)
 
@@ -882,7 +883,8 @@ def assign_stations_od():
     if tiempos_viaje_estaciones is not None:
 
         conn_data = iniciar_conexion_db(tipo="data")
-        conn_insumos = iniciar_conexion_db(tipo="insumos")
+        alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+        conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
         # read legs without travel time in gps and distances
         q = """
@@ -1037,8 +1039,13 @@ def assign_stations_od():
             print(
                 "Etapas clasificadas en la misma estación OD",
                 round(
-                    len(travel_times[travel_times.id_station_o == travel_times.id_station_d])
-                    / len(travel_times) * 100,
+                    len(
+                        travel_times[
+                            travel_times.id_station_o == travel_times.id_station_d
+                        ]
+                    )
+                    / len(travel_times)
+                    * 100,
                     1,
                 ),
                 "%",
@@ -1082,3 +1089,65 @@ def assign_stations_od():
         travel_times.to_sql(
             "travel_times_stations", conn_data, if_exists="append", index=False
         )
+
+
+def add_distance_and_travel_time():
+    """
+    This function reads legs data and adds distances and travel times
+    from the distances table.
+    It also computes the travel speed.
+    """
+
+    print("Agregando distancias y tiempos de viaje a las etapas")
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    # read unprocessed data from legs
+
+    q = """
+        select id, h3_d, h3_o
+        from etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
+        where od_validado = 1
+        ;
+    """
+    print("Leyendo datos de demanda")
+    legs = pd.read_sql(q, conn_data)
+    legs = add_distances_to_legs(legs=legs)
+
+    legs.to_sql(
+        "temp_distancias",
+        conn_data,
+        if_exists="replace",
+        index=False,
+    )
+    print("Actualizando distancias a etapas")
+
+    q_update = """
+    UPDATE etapas
+    SET distancia = temp_distancias.distance
+    FROM temp_distancias
+    WHERE etapas.id = temp_distancias.id;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    print("Actualizando tiempos de viaje a etapas")
+
+    q_update = """
+    UPDATE etapas
+    SET travel_time_min = travel_times_legs.travel_time_min
+    FROM travel_times_legs
+    WHERE etapas.id = travel_times_legs.id;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    q = """
+    drop table temp_distancias;
+    """
+    cur.execute(q)
+    conn_data.commit()
+    conn_data.close()
