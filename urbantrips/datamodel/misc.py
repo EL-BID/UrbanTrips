@@ -6,6 +6,7 @@ from urbantrips.utils.utils import (
     leer_alias,
     agrego_indicador,
     duracion,
+    leer_configs_generales,
 )
 
 
@@ -17,37 +18,10 @@ def persist_datamodel_tables():
     y las guarda en csv
     """
 
-    alias = leer_alias()
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
     conn_data = iniciar_conexion_db(tipo="data")
-
-    # Leer tablas etapas, viajes, usuarios
-    q = """
-    select
-        h3_o,h3_d,distance_osm_drive,distance_osm_walk,distance_h3
-    from
-        distancias
-    """
-    distancias = pd.read_sql_query(q, conn_insumos)
-
-    try:
-        zonas = pd.read_sql_query(
-            """
-                                select * from equivalencias_zonas
-                                  """,
-            conn_insumos,
-        )
-        zonas = zonas.drop(["latitud", "longitud"], axis=1)
-        zonas_o = zonas.copy()
-        zonas_d = zonas.copy()
-        cols_o = zonas.columns.copy() + "_o"
-        cols_d = zonas.columns.copy() + "_d"
-        zonas_o.columns = cols_o
-        zonas_d.columns = cols_d
-
-    except DatabaseError:
-        print("No existe la tabla zonas en la base")
-        zonas = pd.DataFrame([])
 
     q = """
         SELECT *
@@ -55,49 +29,6 @@ def persist_datamodel_tables():
         where e.od_validado==1
     """
     etapas = pd.read_sql_query(q, conn_data)
-    if len(zonas) > 0:
-        etapas = etapas.merge(zonas_o, how="left").merge(zonas_d, how="left")
-    etapas = etapas.merge(distancias, how="left")
-
-    viajes = pd.read_sql_query(
-        """
-                                select *
-                                from viajes
-                                where od_validado==1
-                               """,
-        conn_data,
-    )
-    if len(zonas) > 0:
-        viajes = viajes.merge(zonas_o, how="left").merge(zonas_d, how="left")
-    viajes = viajes.merge(distancias, how="left")
-
-    print("Leyendo informacion de usuarios...")
-    usuarios = pd.read_sql_query(
-        """
-                                SELECT *
-                                from usuarios
-                                where od_validado==1
-                                """,
-        conn_data,
-    )
-
-    # Grabo resultados en tablas .csv
-    print("Guardando informacion de etapas...")
-    etapas.to_csv(
-        os.path.join("resultados", "data", f"{alias}etapas.csv"),
-        index=False,
-    )
-    print("Guardando informacion de viajes...")
-    viajes.to_csv(
-        os.path.join("resultados", "data", f"{alias}viajes.csv"),
-        index=False,
-    )
-
-    print("Guardando informacion de usuarios...")
-    usuarios.to_csv(
-        os.path.join("resultados", "data", f"{alias}usuarios.csv"),
-        index=False,
-    )
 
     agrego_indicador(etapas, "Cantidad total de etapas", "etapas_expandidas", 0)
 
@@ -106,13 +37,42 @@ def persist_datamodel_tables():
             etapas.loc[etapas.modo == i], f"Etapas {i}", "etapas_expandidas", 1
         )
 
+    agrego_indicador(
+        etapas.groupby(
+            ["dia", "id_tarjeta"], as_index=False
+        ).factor_expansion_linea.sum(),
+        "Cantidad de tarjetas finales",
+        "usuarios",
+        0,
+        var_fex="",
+    )
+
+    agrego_indicador(
+        etapas.groupby(
+            ["dia", "id_tarjeta"], as_index=False
+        ).factor_expansion_linea.min(),
+        "Cantidad total de usuarios",
+        "usuarios expandidos",
+        0,
+    )
+
+    # VIAJES
+    viajes = pd.read_sql_query(
+        """
+                                select *
+                                from viajes
+                                where od_validado==1
+                               """,
+        conn_data,
+    )
+
     agrego_indicador(viajes, "Cantidad de registros en viajes", "viajes", 0, var_fex="")
 
     agrego_indicador(
         viajes, "Cantidad total de viajes expandidos", "viajes expandidos", 0
     )
     agrego_indicador(
-        viajes[(viajes.distance_osm_drive <= 5)],
+        viajes[(viajes.distancia <= 5)],
         "Cantidad de viajes cortos (<5kms)",
         "viajes expandidos",
         1,
@@ -181,6 +141,17 @@ def persist_datamodel_tables():
         aggfunc="mean",
     )
 
+    # USUARIOS
+    print("Leyendo informacion de usuarios...")
+    usuarios = pd.read_sql_query(
+        """
+                                SELECT *
+                                from usuarios
+                                where od_validado==1
+                                """,
+        conn_data,
+    )
+
     agrego_indicador(
         usuarios,
         "Cantidad promedio de viajes por tarjeta",
@@ -190,79 +161,5 @@ def persist_datamodel_tables():
         aggfunc="mean",
     )
 
-    agrego_indicador(
-        etapas.groupby(
-            ["dia", "id_tarjeta"], as_index=False
-        ).factor_expansion_linea.sum(),
-        "Cantidad de tarjetas finales",
-        "usuarios",
-        0,
-        var_fex="",
-    )
-
-    agrego_indicador(
-        etapas.groupby(
-            ["dia", "id_tarjeta"], as_index=False
-        ).factor_expansion_linea.min(),
-        "Cantidad total de usuarios",
-        "usuarios expandidos",
-        0,
-    )
-
-    print(
-        "Resultados:",
-        "{:,}".format(len(etapas)).replace(",", "."),
-        "(etapas)",
-        "{:,}".format(len(viajes)).replace(",", "."),
-        "(viajes)",
-        "{:,}".format(len(usuarios)).replace(",", "."),
-        "(usuarios)",
-    )
-
-    print(
-        "Validados :",
-        "{:,}".format(len(etapas)).replace(",", "."),
-        "(etapas)",
-        "{:,}".format(len(viajes)).replace(",", "."),
-        "(viajes)",
-        "{:,}".format(len(usuarios)).replace(",", "."),
-        "(usuarios)",
-    )
-
-    print(
-        "    %     :",
-        "{:,}".format(round(len(etapas) / len(etapas) * 100)).replace(",", ".") + "%",
-        "(etapas)",
-        "{:,}".format(round(len(viajes) / len(viajes) * 100)).replace(",", ".") + "%",
-        "(viajes)",
-        "{:,}".format(round(len(usuarios) / len(usuarios) * 100)).replace(",", ".")
-        + "%",
-        "(usuarios)",
-    )
-
     conn_data.close()
     conn_insumos.close()
-    tabla_indicadores()
-
-
-def tabla_indicadores():
-    alias = leer_alias()
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    try:
-        indicadores = pd.read_sql_query(
-            """
-            SELECT *
-            FROM indicadores
-            """,
-            conn_data,
-        )
-    except DatabaseError:
-        indicadores = pd.DataFrame([])
-
-    db_path = os.path.join("resultados", "tablas", f"{alias}indicadores.xlsx")
-    indicadores[["dia", "detalle", "indicador", "porcentaje"]].to_excel(
-        db_path, index=False
-    )
-
-    conn_data.close()
