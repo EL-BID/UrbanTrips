@@ -7,6 +7,7 @@ from urbantrips.utils.utils import (
     levanto_tabla_sql,
     guardar_tabla_sql,
 )
+from urbantrips.kpi.kpi import add_distances_to_legs
 
 
 @duracion
@@ -485,3 +486,68 @@ def compute_trips_travel_time():
     """
     conn_data.execute(q)
     conn_data.commit()
+
+
+def add_distance_and_travel_time():
+    """
+    This function reads trips data and adds distances and travel times
+    from the distances table. It also computes the travel speed.
+    """
+
+    print("Agregando distancias y tiempos de viaje a los viajes")
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    # read unprocessed data from legs
+
+    q = """
+        select v.id_tarjeta, v.id_viaje, v.dia, v.h3_d, v.h3_o
+        from viajes v
+        JOIN dias_ultima_corrida d
+        ON v.dia = d.dia
+        where od_validado = 1
+        ;
+    """
+    print("Leyendo datos de demanda")
+    trips = pd.read_sql(q, conn_data)
+    trips = add_distances_to_legs(legs=trips)
+
+    trips.to_sql(
+        "temp_distancias",
+        conn_data,
+        if_exists="replace",
+        index=False,
+    )
+    print("Actualizando distancias a etapas")
+
+    q_update = """
+    UPDATE viajes
+    SET distancia = temp_distancias.distance
+    FROM temp_distancias
+    WHERE viajes.id_tarjeta = temp_distancias.id_tarjeta
+    AND viajes.id_viaje = temp_distancias.id_viaje
+    AND viajes.dia = temp_distancias.dia;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    print("Actualizando tiempos de viaje a etapas")
+
+    q_update = """
+    UPDATE viajes
+    SET travel_time_min = travel_times_legs.travel_time_min
+    FROM travel_times_legs
+    WHERE viajes.id_tarjeta = travel_times_legs.id_tarjeta
+    AND viajes.id_viaje = travel_times_legs.id_viaje
+    AND viajes.dia = travel_times_legs.dia;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    q = """
+    drop table temp_distancias;
+    """
+    cur.execute(q)
+    conn_data.commit()
+    conn_data.close()
