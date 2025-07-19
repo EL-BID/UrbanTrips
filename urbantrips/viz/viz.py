@@ -304,7 +304,8 @@ def viz_etapas_x_tramo_recorrido(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     line_id = df.id_linea.unique().item()
     n_sections = df.n_sections.unique().item()
@@ -372,7 +373,8 @@ def viz_etapas_x_tramo_recorrido(
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
@@ -706,80 +708,14 @@ def viz_etapas_x_tramo_recorrido(
         return gdf_d0, gdf_d1
 
 
-def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
-    fig = Figure(figsize=(13.5, 13.5), dpi=100)
-    canvas = FigureCanvas(fig)
-    ax = fig.add_subplot(111)
-    plt.rcParams.update({"axes.facecolor": "#d4dadc", "figure.facecolor": "#d4dadc"})
-    voi = voi.to_crs(3857)
-    voi.geometry.boundary.plot(edgecolor="grey", linewidth=0.5, ax=ax)
-    # ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-    #                 attribution=None, attribution_size=10)
-
-    try:
-        cx.add_basemap(
-            ax,
-            source=ctx.providers.CartoDB.Positron,
-            attribution=None,
-            attribution_size=10,
-        )
-    except (r_ConnectionError, ValueError):
-        pass
-
-    voi["coords"] = voi["geometry"].apply(lambda x: x.representative_point().coords[:])
-    voi["coords"] = [coords[0] for coords in voi["coords"]]
-    voi.apply(
-        lambda x: ax.annotate(
-            text=x["Zona_voi"],
-            xy=x.geometry.centroid.coords[0],
-            ha="center",
-            color="darkblue",
-        ),
-        axis=1,
-    )
-    ax.set_title("Zonificación", fontsize=12)
-    ax.axis("off")
-
-    if show_map:
-
-        display(fig)
-
-        # Display figura temporal
-        fig = Figure(figsize=(13.5, 13.5), dpi=70)
-        ax = fig.add_subplot(111)
-        hexs.to_crs(3857).plot(markersize=hexs["fex"] / 500, ax=ax)
-        hexs2.to_crs(3857).boundary.plot(ax=ax, lw=0.3)
-        try:
-            ctx.add_basemap(
-                ax,
-                source=ctx.providers.CartoDB.Positron,
-                attribution=None,
-                attribution_size=10,
-            )
-        except (r_ConnectionError, ValueError):
-            pass
-        ax.axis("off")
-
-    # graba resultados
-    file_path = os.path.join("resultados", "png", f"{alias}Zona_voi_map.png")
-    fig.savefig(file_path, dpi=300)
-    print("Zonificación guardada en", file_path)
-
-    file_path = os.path.join("resultados", "pdf", f"{alias}Zona_voi_map.pdf")
-    fig.savefig(file_path, dpi=300)
-    voi = voi.to_crs(4326)
-
-    file_path = os.path.join("resultados", f"{alias}Zona_voi.geojson")
-    voi[["Zona_voi", "geometry"]].to_file(file_path)
-
-
 def imprimir_matrices_od(
     viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
 ):
 
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -980,7 +916,8 @@ def imprime_lineas_deseo(
     pd.options.mode.chained_assignment = None
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -1593,7 +1530,8 @@ def imprime_burbujas(
     alias = leer_alias()
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -1697,16 +1635,6 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
 
     matriz_zonas = []
     vars_zona = []
-    if "Zona_voi" in zonas.columns:
-
-        matriz_zonas = [
-            [
-                "",
-                "Zona_voi",
-                [str(x) for x in list(range(1, len(zonas.Zona_voi.unique()) + 1))],
-            ]
-        ]
-        vars_zona = ["Zona_voi"]
 
     if res_agg:
         zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
@@ -2434,7 +2362,7 @@ def save_zones():
     except KeyError:
         zonificaciones = []
 
-    geo_files = [["zona_voi.geojson", "Zona_voi"]]
+    geo_files = []
 
     if zonificaciones:
         for n in range(0, 5):
@@ -2511,7 +2439,8 @@ def plot_dispatched_services_by_line_day(df, save_fig=False):
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
@@ -2596,7 +2525,8 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     s = (
         f"select nombre_linea from metadata_lineas"
@@ -2767,7 +2697,8 @@ def get_branch_geoms_from_line(id_linea):
     Takes a line id and returns a geoSeries with
     all branches' geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     branch_geoms_query = f"""
         select * from branches_geoms bg 
@@ -3049,7 +2980,8 @@ def create_visualizations():
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     viajes = pd.read_sql_query(
         """

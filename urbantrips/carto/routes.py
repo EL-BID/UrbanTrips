@@ -31,7 +31,10 @@ def process_routes_geoms():
     # Deletes old data
     delete_old_route_geoms_data()
 
-    configs = leer_configs_generales()
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     if route_geoms_not_present(configs):
         print(
@@ -45,10 +48,8 @@ def process_routes_geoms():
 
     branches_present = configs["lineas_contienen_ramales"]
 
-    # Checl columns
+    # Check columns
     check_route_geoms_columns(geojson_data, branches_present)
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
     # if data has lines and branches, split them
     if branches_present:
@@ -78,7 +79,7 @@ def process_routes_geoms():
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
     print("Subiendo tabla de recorridos")
-    
+
     # TODO: create line geoms in h3 series of cells
 
     # Upload geoms
@@ -100,7 +101,11 @@ def infer_routes_geoms(plotear_lineas=False):
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
     # traer la coordenadas de las etapas con suficientes datos
     q = """
     select e.id_linea,e.longitud,e.latitud
@@ -133,7 +138,8 @@ def infer_routes_geoms(plotear_lineas=False):
 @duracion
 def build_routes_from_official_inferred():
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Delete old data
     conn_insumos.execute("DELETE FROM lines_geoms;")
@@ -252,7 +258,10 @@ def check_route_geoms_columns(geojson_data, branches_present):
 
 
 def delete_old_route_geoms_data():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     conn_insumos.execute("DELETE FROM lines_geoms;")
     conn_insumos.execute("DELETE FROM branches_geoms;")
@@ -284,15 +293,15 @@ def process_routes_metadata():
     with routes metadata, check if lines and branches are present
     and uploads metadata to the db
     """
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     # Deletes old data
     conn_insumos.execute("DELETE FROM metadata_lineas;")
     conn_insumos.execute("DELETE FROM metadata_ramales;")
     conn_insumos.commit()
-
-    configs = leer_configs_generales()
 
     try:
         tabla_lineas = configs["nombre_archivo_informacion_lineas"]
@@ -408,9 +417,11 @@ def create_line_g(line_id):
         Graph with the branch route id by node_id and ordered
         by stops order
     """
-    conn = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
     query = f"select * from stops where id_linea = {line_id}"
-    line_stops = pd.read_sql(query, conn)
+    line_stops = pd.read_sql(query, conn_insumos)
 
     branches_id = line_stops.id_ramal.unique()
 
@@ -499,7 +510,8 @@ def read_branch_routes(branch_ids):
     This function take a list of branch ids and returns a geodataframe
     with route geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     line_ids_where = create_branch_ids_sql_filter(branch_ids)
     q_route_geoms = "select * from branches_geoms" + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
@@ -527,7 +539,8 @@ def read_routes(route_ids, route_type):
     geopandas.GeoDataFrame
         GeoDataFrame with route geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     if route_type == "branches":
         ids_where = create_branch_ids_sql_filter(route_ids)
     else:
@@ -546,7 +559,8 @@ def read_routes(route_ids, route_type):
 
 def get_route_geoms_with_sections_data(line_ids_where, section_meters, n_sections):
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     q_route_geoms = "select * from lines_geoms"
     q_route_geoms = q_route_geoms + line_ids_where
@@ -597,7 +611,8 @@ def check_exists_route_section_points_table(route_geoms):
     for those lines and n_sections in the route geoms gdf
     """
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     q = """
     select distinct id_linea,n_sections, 1 as section_exists from routes_section_id_coords
     """
@@ -626,7 +641,8 @@ def upload_route_section_points_table(route_geoms, delete_old_data=False):
         routes geom GeoDataFrame with geometry, n_sections and line id
 
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # delete old records
     if delete_old_data:
@@ -651,7 +667,8 @@ def delete_old_routes_section_id_coords_data_q(route_geoms):
     """
     Deletes old data in table routes_section_id_coords
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # create a df with n sections for each line
     delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])

@@ -106,6 +106,7 @@ def main():
     # Prduce main viz
     viz.create_visualizations()
 
+    # TODO: ver esto con guardo_zonificaciones()
     proceso_poligonos()
     proceso_lineas_deseo()
 

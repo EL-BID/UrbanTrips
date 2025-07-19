@@ -529,7 +529,8 @@ def add_distances_to_legs(legs):
     h3_original_res = configs["resolucion_h3"]
     min_distance = h3.edge_length(resolution=h3_original_res, unit="km")
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     print("Leyendo distancias")
     distances = pd.read_sql_query(
@@ -846,7 +847,7 @@ def compute_kpi_by_service():
 
     # compute demand stats
     service_demand_stats = service_demand.groupby(
-        ["dia", "id_linea","id_ramal" ,"interno", "service_id"], as_index=False
+        ["dia", "id_linea", "id_ramal", "interno", "service_id"], as_index=False
     ).apply(demand_stats)
 
     # read supply service data
@@ -863,7 +864,7 @@ def compute_kpi_by_service():
     service_stats = service_supply.merge(
         service_demand_stats,
         how="left",
-        on=["dia", "id_linea","id_ramal", "interno", "service_id"],
+        on=["dia", "id_linea", "id_ramal", "interno", "service_id"],
     )
     service_stats.tot_pax = service_stats.tot_pax.fillna(0)
 
@@ -960,10 +961,10 @@ def compute_speed_by_day_veh_hour():
     conn_data.close()
 
     # create a lag in date
-    gps_df = gps_df.sort_values(["dia", "id_linea","id_ramal", "interno", "fecha"])
+    gps_df = gps_df.sort_values(["dia", "id_linea", "id_ramal", "interno", "fecha"])
     gps_df["fecha_lag"] = (
-        gps_df.reindex(columns=["dia", "id_linea","id_ramal", "interno", "fecha"])
-        .groupby(["dia", "id_linea","id_ramal", "interno"])
+        gps_df.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "fecha"])
+        .groupby(["dia", "id_linea", "id_ramal", "interno"])
         .shift(-1)
     )
 
@@ -979,9 +980,16 @@ def compute_speed_by_day_veh_hour():
     # get mean speed by day, linea, veh
     speed_vehicle_hour_gps = (
         gps_df.reindex(
-            columns=["dia", "id_linea","id_ramal", "interno", "hora", "speed_kmh_veh_h"]
+            columns=[
+                "dia",
+                "id_linea",
+                "id_ramal",
+                "interno",
+                "hora",
+                "speed_kmh_veh_h",
+            ]
         )
-        .groupby(["dia", "id_linea","id_ramal", "interno", "hora"], as_index=False)
+        .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
         .mean()
     )
 
@@ -1050,7 +1058,7 @@ def run_basic_kpi():
             }
         )
         speed_vehicle_hour = (
-            legs.reindex(columns=["dia", "id_linea","id_ramal", "interno"])
+            legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno"])
             .drop_duplicates()
             .merge(speed_vehicle_hour, on=["id_linea"], how="left")
         )
@@ -1070,9 +1078,9 @@ def run_basic_kpi():
 
             print("Calculando velocidades comerciales")
             # compute vehicle speed per hour
-            speed_vehicle_hour = legs.groupby(["dia", "id_linea","id_ramal", "interno"]).apply(
-                compute_speed_by_veh_hour
-            )
+            speed_vehicle_hour = legs.groupby(
+                ["dia", "id_linea", "id_ramal", "interno"]
+            ).apply(compute_speed_by_veh_hour)
 
             speed_vehicle_hour = speed_vehicle_hour.droplevel(4).reset_index()
 
@@ -1087,16 +1095,16 @@ def run_basic_kpi():
     print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
-    speed_dev = speed_vehicle_hour.groupby(["dia", "id_linea","id_ramal"], as_index=False).agg(
-        mean=("speed_kmh_veh_h", "mean"), std=("speed_kmh_veh_h", "std")
-    )
+    speed_dev = speed_vehicle_hour.groupby(
+        ["dia", "id_linea", "id_ramal"], as_index=False
+    ).agg(mean=("speed_kmh_veh_h", "mean"), std=("speed_kmh_veh_h", "std"))
     speed_dev["speed_min"] = speed_dev["mean"] - (2 * speed_dev["std"]).map(
         lambda x: max(1, x)
     )
-    speed_dev = speed_dev.reindex(columns=["dia", "id_linea","id_ramal", "speed_min"])
+    speed_dev = speed_dev.reindex(columns=["dia", "id_linea", "id_ramal", "speed_min"])
 
     speed_vehicle_hour = speed_vehicle_hour.merge(
-        speed_dev, on=["dia", "id_linea","id_ramal"], how="left"
+        speed_dev, on=["dia", "id_linea", "id_ramal"], how="left"
     )
 
     speed_mask = (speed_vehicle_hour.speed_kmh_veh_h < speed_max) & (
@@ -1104,19 +1112,20 @@ def run_basic_kpi():
     )
 
     speed_vehicle_hour = speed_vehicle_hour.loc[
-        speed_mask, ["dia", "id_linea","id_ramal", "interno", "hora", "speed_kmh_veh_h"]
+        speed_mask,
+        ["dia", "id_linea", "id_ramal", "interno", "hora", "speed_kmh_veh_h"],
     ]
 
     # compute by hour to fill nans in vehicle speed
     speed_line_hour = (
-        speed_vehicle_hour.drop(["id_ramal","interno"], axis=1)
+        speed_vehicle_hour.drop(["id_ramal", "interno"], axis=1)
         .groupby(["dia", "id_linea", "hora"], as_index=False)
         .mean()
         .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_h"})
     )
 
     speed_line_day = (
-        speed_vehicle_hour.drop(["id_ramal","interno","hora"], axis=1)
+        speed_vehicle_hour.drop(["id_ramal", "interno", "hora"], axis=1)
         .groupby(["dia", "id_linea"], as_index=False)
         .mean()
         .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_day"})
@@ -1124,7 +1133,9 @@ def run_basic_kpi():
 
     # add commercial speed to demand data
     legs = legs.merge(
-        speed_vehicle_hour, on=["dia", "id_linea","id_ramal", "interno", "hora"], how="left"
+        speed_vehicle_hour,
+        on=["dia", "id_linea", "id_ramal", "interno", "hora"],
+        how="left",
     ).merge(speed_line_hour, on=["dia", "id_linea", "hora"], how="left")
 
     legs["speed_kmh"] = legs.speed_kmh_veh_h.combine_first(legs.speed_kmh_line_h)
@@ -1146,15 +1157,15 @@ def run_basic_kpi():
                 "factor_expansion_linea",
                 "eq_pax",
                 "distance",
-                "speed_kmh"
+                "speed_kmh",
             ]
         )
-        .groupby(["dia", "id_linea","id_ramal", "interno", "hora"], as_index=False)
+        .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
         .agg(
             tot_pax=("factor_expansion_linea", "sum"),
             eq_pax=("eq_pax", "sum"),
             dmt=("distance", "mean"),
-            speed_kmh = ("speed_kmh", "mean"),
+            speed_kmh=("speed_kmh", "mean"),
         )
     )
 
@@ -1165,10 +1176,12 @@ def run_basic_kpi():
     print("Eliminando casos atipicos en pasajeros equivalentes")
 
     of_threshold = 120
-    of_mask = kpi_by_veh['of']>of_threshold
-    print(f"Hay un {round(of_mask.sum()/ len(kpi_by_veh) * 100,1)} % de vehiculos con OF atipicos")
-    
-    kpi_by_veh.loc[of_mask, 'of'] = None
+    of_mask = kpi_by_veh["of"] > of_threshold
+    print(
+        f"Hay un {round(of_mask.sum()/ len(kpi_by_veh) * 100,1)} % de vehiculos con OF atipicos"
+    )
+
+    kpi_by_veh.loc[of_mask, "of"] = None
 
     print("Subiendo a la base de datos")
     # set schema and upload to db
@@ -1207,7 +1220,7 @@ def run_basic_kpi():
 
     # compute supply as unique vehicles day per hour
     supply = (
-        legs.reindex(columns=["dia", "id_linea","id_ramal", "interno", "hora"])
+        legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "hora"])
         .drop_duplicates()
         .groupby(["dia", "id_linea", "hora"])
         .size()
@@ -1263,7 +1276,7 @@ def run_basic_kpi():
 
     # compute supply as unique vehicles day
     daily_supply = (
-        legs.reindex(columns=["dia", "id_linea","id_ramal", "interno"])
+        legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno"])
         .drop_duplicates()
         .groupby(["dia", "id_linea"])
         .size()

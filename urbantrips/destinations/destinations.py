@@ -8,7 +8,8 @@ from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
     leer_configs_generales,
-    agrego_indicador)
+    agrego_indicador,
+)
 
 
 @duracion
@@ -35,8 +36,9 @@ def infer_destinations():
 
     print(mensaje)
 
-    conn_data = iniciar_conexion_db(tipo='data')
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    conn_data = iniciar_conexion_db(tipo="data")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     dias_ultima_corrida = pd.read_sql_query(
         """
@@ -64,15 +66,14 @@ def infer_destinations():
         conn_insumos,
     )
 
-    etapas = etapas.merge(metadata_lineas[['id_linea',
-                                           'id_linea_agg']],
-                          how='left',
-                          on='id_linea')
+    etapas = etapas.merge(
+        metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
+    )
 
-    if 'od_validado' in etapas.columns:
-        etapas = etapas.drop(['od_validado'], axis=1)
-    if 'h3_d' in etapas.columns:
-        etapas = etapas.drop(['h3_d'], axis=1)
+    if "od_validado" in etapas.columns:
+        etapas = etapas.drop(["od_validado"], axis=1)
+    if "h3_d" in etapas.columns:
+        etapas = etapas.drop(["h3_d"], axis=1)
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
 
@@ -80,42 +81,40 @@ def infer_destinations():
         print("Imputando destinos por minimizacion de distancias...")
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial)
         # no usar h3_d que en este caso es el potencial, las coords siguientes
-        etapas = etapas.drop('h3_d', axis=1)
-        etapas = etapas.merge(destinos, on='id', how='left')
+        etapas = etapas.drop("h3_d", axis=1)
+        etapas = etapas.merge(destinos, on="id", how="left")
 
     else:
         print("Imputando destinos por siguiente etapa...")
         destinos = validar_destinos(etapas_destinos_potencial)
 
-        etapas = etapas.merge(
-            destinos, on=['id', 'h3_d'], how='left')
+        etapas = etapas.merge(destinos, on=["id", "h3_d"], how="left")
 
-    etapas = etapas\
-        .sort_values(
-            ['dia', 'id_tarjeta', 'id_viaje', 'id_etapa', 'hora', 'tiempo'])\
-        .reset_index(drop=True)
+    etapas = etapas.sort_values(
+        ["dia", "id_tarjeta", "id_viaje", "id_etapa", "hora", "tiempo"]
+    ).reset_index(drop=True)
 
-    etapas['od_validado'] = etapas['od_validado'].fillna(0).astype(int)
-    etapas['h3_d'] = etapas['h3_d'].fillna('')
+    # validar que no tengan OD mismo h3
+    etapas_mismo_od = etapas.h3_o == etapas.h3_d
+    print("Eliminando destinos de etapas con OD mismo h3:", etapas_mismo_od.sum())
+    etapas.loc[etapas_mismo_od, "h3_d"] = np.nan
+    etapas.loc[etapas_mismo_od, "od_validado"] = 0
 
-    # TODO: validar que no tengan OD mismo h3
-    
+    etapas["od_validado"] = etapas["od_validado"].fillna(0).astype(int)
+    etapas["h3_d"] = etapas["h3_d"].fillna("")
+
     # calcular indicador de imputacion de destinos
     calcular_indicadores_destinos_etapas(etapas)
 
     # borro si ya existen etapas de una corrida anterior
-    values = ', '.join([f"'{val}'" for val in dias_ultima_corrida['dia']])
+    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
     conn_data.execute(query)
     conn_data.commit()
 
-    etapas = etapas.drop(['id_linea_agg'],
-                         axis=1)
+    etapas = etapas.drop(["id_linea_agg"], axis=1)
 
-    etapas.to_sql("etapas",
-                  conn_data,
-                  if_exists="append",
-                  index=False)
+    etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
 
     conn_data.close()
     conn_insumos.close()
@@ -153,59 +152,67 @@ def imputar_destino_potencial(etapas):
     etapas.h3_d = etapas.h3_d.combine_first(primera_trx)
 
     # when od is the same for that leg, set it to nan
-    etapas.loc[(etapas.h3_o == etapas.h3_d), 'h3_d'] = np.nan
+    etapas.loc[(etapas.h3_o == etapas.h3_d), "h3_d"] = np.nan
 
     return etapas
 
 
 def imputar_destino_min_distancia(etapas):
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     matriz_validacion = pd.read_sql_query(
-        """SELECT * from matriz_validacion""",
-        conn_insumos)
+        """SELECT * from matriz_validacion""", conn_insumos
+    )
     n_cores = max(int(multiprocessing.cpu_count() / 2), 1)
     if n_cores > 4:
         n_cores = 4
     print("Usando", n_cores, "cores para paralelizar")
     # crear un df con el id de cada etapa, la linea que uso y la etapa
     # siguiente
-    lag_etapas = etapas.copy().reindex(columns=['id', 'id_linea_agg', 'h3_d'])\
-        .rename(columns={'h3_d': 'lag_etapa'})
+    lag_etapas = (
+        etapas.copy()
+        .reindex(columns=["id", "id_linea_agg", "h3_d"])
+        .rename(columns={"h3_d": "lag_etapa"})
+    )
     del etapas
 
     # Obtener las paradas candidatas que compartan la misma linea
     # y esten dentro del area de influencia
     lag_etapas_no_dups = lag_etapas.reindex(
-        columns=['id_linea_agg', 'lag_etapa']).drop_duplicates()
-    lag_etapas_no_dups['id'] = range(len(lag_etapas_no_dups))
+        columns=["id_linea_agg", "lag_etapa"]
+    ).drop_duplicates()
+    lag_etapas_no_dups["id"] = range(len(lag_etapas_no_dups))
 
     paradas_candidatas = pd.DataFrame()
     numero_corte = 5000000
     iteraciones = ceil(len(lag_etapas_no_dups) / numero_corte)
-    iteraciones = list(range(0, iteraciones+1))
+    iteraciones = list(range(0, iteraciones + 1))
 
     for i in iteraciones:
         filas_principio = i * numero_corte
-        filas_fin = (i+1) * numero_corte
+        filas_fin = (i + 1) * numero_corte
 
-        print('Running from row', filas_principio, 'to', filas_fin)
+        print("Running from row", filas_principio, "to", filas_fin)
 
-        paradas_candidatas_sample = (
-            lag_etapas_no_dups.iloc[filas_principio:filas_fin, :].copy())
+        paradas_candidatas_sample = lag_etapas_no_dups.iloc[
+            filas_principio:filas_fin, :
+        ].copy()
 
         if len(paradas_candidatas_sample) > 0:
             paradas_candidatas_sample = parallelize_dataframe(
                 paradas_candidatas_sample,
                 minimizar_distancia_parada_candidata,
                 matriz_validacion,
-                n_cores=n_cores)
+                n_cores=n_cores,
+            )
 
-            paradas_candidatas = pd.concat([paradas_candidatas,
-                                            paradas_candidatas_sample])
-            paradas_candidatas = paradas_candidatas.drop(['id'], axis=1)
+            paradas_candidatas = pd.concat(
+                [paradas_candidatas, paradas_candidatas_sample]
+            )
+            paradas_candidatas = paradas_candidatas.drop(["id"], axis=1)
             paradas_candidatas = lag_etapas.merge(
-                paradas_candidatas, on=['id_linea_agg', 'lag_etapa'],
-                how='left')
+                paradas_candidatas, on=["id_linea_agg", "lag_etapa"], how="left"
+            )
 
     # Imprimir estadisticos de las distancias
     print("Promedios de distancia entre la etapa siguiente  y ")
@@ -213,11 +220,11 @@ def imputar_destino_min_distancia(etapas):
     print(paradas_candidatas.distancias.describe())
 
     # Volver a unir con la tabla etapas
-    out = paradas_candidatas.reindex(columns=['id', 'h3_d'])
-    out['od_validado'] = out.h3_d.notna().astype("int")
+    out = paradas_candidatas.reindex(columns=["id", "h3_d"])
+    out["od_validado"] = out.h3_d.notna().astype("int")
     out = out.reindex(columns=["id", "h3_d", "od_validado"])
 
-    print('fin')
+    print("fin")
     return out
 
 
@@ -230,41 +237,47 @@ def parallelize_dataframe(df, func, matriz_validacion, n_cores=4):
     """
     df_split = np.array_split(df, n_cores)
     pool = multiprocessing.Pool(n_cores)
-    df = pd.concat(pool.starmap(
-        func, zip(df_split, repeat(matriz_validacion))))
+    df = pd.concat(pool.starmap(func, zip(df_split, repeat(matriz_validacion))))
     pool.close()
     pool.join()
     return df
 
 
-def minimizar_distancia_parada_candidata(
-        paradas_candidatas, matriz_validacion):
+def minimizar_distancia_parada_candidata(paradas_candidatas, matriz_validacion):
     """
     This function takes a dataframe with a set of legs' origins and possible
     destinations and a stops' catchment area validation matrix and returns
     the stops that minimices the distances to all possible stops from that line
     """
-    paradas_candidatas_sample = paradas_candidatas\
-        .merge(matriz_validacion, left_on=['id_linea_agg', 'lag_etapa'],
-               right_on=['id_linea_agg', 'area_influencia'])\
-        .rename(columns={'parada': 'h3_d'})\
-        .drop(['area_influencia',
-               ], axis=1)
-    p_dict = paradas_candidatas_sample.to_dict('records')
+    paradas_candidatas_sample = (
+        paradas_candidatas.merge(
+            matriz_validacion,
+            left_on=["id_linea_agg", "lag_etapa"],
+            right_on=["id_linea_agg", "area_influencia"],
+        )
+        .rename(columns={"parada": "h3_d"})
+        .drop(
+            [
+                "area_influencia",
+            ],
+            axis=1,
+        )
+    )
+    p_dict = paradas_candidatas_sample.to_dict("records")
     # calcular distancia de cada parada posible al lag etapa
     distancias = list(map(h3_distance_stops, p_dict))
     del p_dict
-    paradas_candidatas_sample['distancias'] = distancias
+    paradas_candidatas_sample["distancias"] = distancias
     # quedarse con la de menor distancia
-    paradas_candidatas_sample = paradas_candidatas_sample\
-        .sort_values(['id', 'distancias'])\
-        .drop_duplicates(subset=['id'], keep='first')
+    paradas_candidatas_sample = paradas_candidatas_sample.sort_values(
+        ["id", "distancias"]
+    ).drop_duplicates(subset=["id"], keep="first")
 
     return paradas_candidatas_sample
 
 
 def h3_distance_stops(row):
-    return h3.h3_distance(row['lag_etapa'], row['h3_d'])
+    return h3.h3_distance(row["lag_etapa"], row["h3_d"])
 
 
 def validar_destinos(destinos):
@@ -273,7 +286,9 @@ def validar_destinos(destinos):
     y los evalua contra la matriz de evaluacion que contiene los h3
     de la linea con los adyacentes
     """
-    conn_insumos = iniciar_conexion_db(tipo='insumos')
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
     q = """
     SELECT distinct id_linea_agg, area_influencia from matriz_validacion
     """
@@ -293,8 +308,7 @@ def validar_destinos(destinos):
         left_on=["id_linea_agg", "h3_d"],
         right_on=["id_linea_agg", "area_influencia"],
     )
-    pares_od_linea["od_validado"] = pares_od_linea['area_influencia'].notna(
-    ).fillna(0)
+    pares_od_linea["od_validado"] = pares_od_linea["area_influencia"].notna().fillna(0)
 
     # Pasar de pares od a cada etapa
     pares_od_linea = pares_od_linea.reindex(
@@ -317,8 +331,10 @@ def calcular_indicadores_destinos_etapas(etapas):
     """
     print("Calculando indicadores de etapas con destinos")
 
-    agrego_indicador(etapas[etapas.od_validado == 1],
-                     'Cantidad de etapas con destinos validados',
-                     'etapas',
-                     1,
-                     var_fex='')
+    agrego_indicador(
+        etapas[etapas.od_validado == 1],
+        "Cantidad de etapas con destinos validados",
+        "etapas",
+        1,
+        var_fex="",
+    )

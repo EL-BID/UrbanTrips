@@ -1,3 +1,4 @@
+import argparse
 from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
 from urbantrips.datamodel import services
@@ -6,12 +7,16 @@ from urbantrips.geo import geo
 from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
+from urbantrips.kpi.kpi import compute_kpi
+from urbantrips.datamodel.misc import persist_datamodel_tables
 
 
-def main():
+def main(args):
+    # Obtener el parametro de corrida
+    corrida = args.corrida
 
-    # Check config file consistency
-    check_config()
+    # Chequear consistencia y crear configuracion
+    check_config(corrida)
 
     # Read config file
     configs = utils.leer_configs_generales()
@@ -60,15 +65,9 @@ def main():
 
     # TODO: remove legs with origin far away from any station
     # when stations or lines exists
-    
+
     # Infer legs destinations
     dest.infer_destinations()
-
-    # Fix trips with same OD
-    trips.rearrange_trip_id_same_od()
-
-    # Produce trips and users tables from legs
-    trips.create_trips_from_legs()
 
     # Create distances table
     carto.create_distances_table(use_parallel=False)
@@ -86,8 +85,19 @@ def main():
         # Assign stations to legs for travel times
         legs.assign_stations_od()
 
+    # Add distances and travel times to legs
+    legs.add_distance_and_travel_time()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
     # compute travel time for trips
     trips.compute_trips_travel_time()
+
+    trips.add_distance_and_travel_time()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms()
@@ -95,6 +105,17 @@ def main():
     # Build final routes from official an inferred sources
     routes.build_routes_from_official_inferred()
 
+    # write information about transactions in the database
+    trx.write_transactions_to_db(corrida)
+
+    # Compute KPI
+    compute_kpi()
+
+    persist_datamodel_tables()
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Initialize UrbanTrips environment.")
+    parser.add_argument("--corrida", type=str, required=True, help="Corrida identifier")
+    args = parser.parse_args()
+    main(args)
