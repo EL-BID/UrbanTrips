@@ -59,7 +59,9 @@ def update_stations_catchment_area(ring_size):
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Leer las paradas en base a las etapas
     q = """
@@ -317,26 +319,20 @@ def guardo_zonificaciones():
 @duracion
 def create_distances_table(use_parallel=False):
     """
-    Esta tabla toma los h3 de la tablas de etapas y viajes
+    Esta tabla toma los h3 de la tablas de etapas
     y calcula diferentes distancias para cada par que no tenga
     """
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     conn_data = iniciar_conexion_db(tipo="data")
 
     print("Verifica viajes sin distancias calculadas")
 
     q = """
     select distinct h3_o,h3_d
-    from viajes
+    from etapas
     WHERE h3_d != ''
-    union
-    select distinct h3_o,h3_d
-    from (
-            SELECT h3_o,h3_d
-            from etapas
-            WHERE h3_d != ''
-    )
     """
 
     pares_h3_data = pd.read_sql_query(q, conn_data)
@@ -443,7 +439,6 @@ def create_distances_table(use_parallel=False):
                 )
 
                 conn_insumos.close()
-                conn_insumos = iniciar_conexion_db(tipo="insumos")
 
         conn_insumos.close()
         conn_data.close()
