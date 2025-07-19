@@ -156,7 +156,9 @@ def aggregate_demand_data(
 
     configs = utils.leer_configs_generales()
     use_branches = configs["lineas_contienen_ramales"]
-    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    alias_insumos = utils.leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     line_metadata = pd.read_sql(
         f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_line_id},{comp_line_id})",
@@ -407,7 +409,11 @@ def compute_supply_overlapping(
 
     if use_branches:
         # get line id base on branch
-        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+        alias_insumos = utils.leer_configs_generales(autogenerado=False).get(
+            "alias_db", ""
+        )
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
         metadata = pd.read_sql(
             f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
             conn_insumos,
@@ -446,7 +452,11 @@ def compute_supply_overlapping(
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
 
-        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+        alias_insumos = utils.leer_configs_generales(autogenerado=False).get(
+            "alias_db", ""
+        )
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
         metadata = pd.read_sql(
             f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
             conn_insumos,
@@ -565,7 +575,9 @@ def get_route_combinations(base_line_id, comp_line_id):
     # Obtiene del archivo de configuración si se deben usar ramales o lineas
     configs = utils.leer_configs_generales()
     use_branches = configs["lineas_contienen_ramales"]
-    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    alias_insumos = utils.leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Lee los datos de los ramales
     metadata = pd.read_sql(
