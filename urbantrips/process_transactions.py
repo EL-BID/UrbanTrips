@@ -7,6 +7,8 @@ from urbantrips.geo import geo
 from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
+from urbantrips.kpi.kpi import compute_kpi
+from urbantrips.datamodel.misc import persist_datamodel_tables
 
 
 def main(args):
@@ -67,12 +69,6 @@ def main(args):
     # Infer legs destinations
     dest.infer_destinations()
 
-    # Fix trips with same OD
-    trips.rearrange_trip_id_same_od()
-
-    # Produce trips and users tables from legs
-    trips.create_trips_from_legs()
-
     # Create distances table
     carto.create_distances_table(use_parallel=False)
 
@@ -89,8 +85,19 @@ def main(args):
         # Assign stations to legs for travel times
         legs.assign_stations_od()
 
+    # Add distances and travel times to legs
+    legs.add_distance_and_travel_time()
+
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Produce trips and users tables from legs
+    trips.create_trips_from_legs()
+
     # compute travel time for trips
     trips.compute_trips_travel_time()
+
+    trips.add_distance_and_travel_time()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms()
@@ -100,6 +107,11 @@ def main(args):
 
     # write information about transactions in the database
     trx.write_transactions_to_db(corrida)
+
+    # Compute KPI
+    compute_kpi()
+
+    persist_datamodel_tables()
 
 
 if __name__ == "__main__":
