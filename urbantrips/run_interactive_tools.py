@@ -37,6 +37,8 @@ use_branches = configs["lineas_contienen_ramales"]
 metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
     ["id_linea", "nombre_linea"]
 ]
+
+
 conn_insumos = iniciar_conexion_db(tipo="insumos")
 
 # --- Inicializar variables en session_state ---
