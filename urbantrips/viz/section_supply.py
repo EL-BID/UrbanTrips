@@ -113,7 +113,8 @@ def viz_route_section_frequency(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     indicator_col = "frequency_interval"
 
     line_id = df.id_linea.unique().item()
@@ -169,7 +170,8 @@ def viz_route_section_frequency(
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
@@ -383,7 +385,8 @@ def viz_route_section_speed(
         geodataframe with section load data and sections geoms.
     """
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     indicator_col = "speed_interval"
 
     line_id = df.id_linea.unique().item()
@@ -439,7 +442,8 @@ def viz_route_section_speed(
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 

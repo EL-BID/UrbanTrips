@@ -304,7 +304,8 @@ def viz_etapas_x_tramo_recorrido(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     line_id = df.id_linea.unique().item()
     n_sections = df.n_sections.unique().item()
@@ -372,7 +373,8 @@ def viz_etapas_x_tramo_recorrido(
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
@@ -712,7 +714,8 @@ def imprimir_matrices_od(
 
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -913,7 +916,8 @@ def imprime_lineas_deseo(
     pd.options.mode.chained_assignment = None
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -1526,7 +1530,8 @@ def imprime_burbujas(
     alias = leer_alias()
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -2434,7 +2439,8 @@ def plot_dispatched_services_by_line_day(df, save_fig=False):
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
@@ -2519,7 +2525,8 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     s = (
         f"select nombre_linea from metadata_lineas"
@@ -2690,7 +2697,8 @@ def get_branch_geoms_from_line(id_linea):
     Takes a line id and returns a geoSeries with
     all branches' geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     branch_geoms_query = f"""
         select * from branches_geoms bg 
@@ -2972,7 +2980,8 @@ def create_visualizations():
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     viajes = pd.read_sql_query(
         """
