@@ -122,7 +122,6 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
     db_path = traigo_db_path(tipo, alias_db)
-    print("DB_PATH:", db_path)
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
@@ -151,7 +150,7 @@ def create_general_db(alias_db):
     conn_general.execute(
         """
         CREATE TABLE IF NOT EXISTS corridas
-        (corrida text PRIMARY KEY NOT NULL,
+        (corrida text NOT NULL,
          process text NOT NULL,
          date text NOT NULL
         )
@@ -687,12 +686,28 @@ def create_basic_data_model_tables(alias_db):
             od_validado int,
             factor_expansion_original float,
             factor_expansion_linea float,
-            factor_expansion_tarjeta float
+            factor_expansion_tarjeta float,
+            distancia float,
+            travel_time_min float
             )
         ;
         """
     )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS etapas_dia_idx ON etapas (
+        "dia"
+        );
+        """
+    )
 
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS etapas_idx ON etapas (
+        "id"
+        );
+        """
+    )
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS viajes
@@ -718,7 +733,10 @@ def create_basic_data_model_tables(alias_db):
             tarifa text,
             od_validado int,
             factor_expansion_linea,
-            factor_expansion_tarjeta
+            factor_expansion_tarjeta,
+            distancia float, 
+            travel_time_min float
+
             )
         ;
         """
