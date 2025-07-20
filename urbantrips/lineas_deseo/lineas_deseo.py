@@ -1029,6 +1029,11 @@ def crea_socio_indicadores(etapas, viajes):
     
     socio_indicadores['genero_agregado'] = socio_indicadores['genero_agregado'].fillna('')
     socio_indicadores['tarifa_agregada'] = socio_indicadores['tarifa_agregada'].fillna('')
+
+    # socio_indicadores['genero_agregado'] = socio_indicadores['genero_agregado'].fillna('')
+    # socio_indicadores['tarifa_agregada'] = socio_indicadores['tarifa_agregada'].fillna('')
+
+    
     socio_indicadores['Modo'] = socio_indicadores['Modo'].fillna('')
 
     socio_indicadores = socio_indicadores.sort_values(['tabla', 'mes', 'tipo_dia'])
