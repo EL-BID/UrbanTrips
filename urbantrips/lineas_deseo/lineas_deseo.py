@@ -1821,8 +1821,10 @@ def resumen_x_linea(etapas, viajes):
     lineas = lineas[['id_linea', 'nombre_linea', 'empresa']].sort_values(['id_linea'])
     
     trx = levanto_tabla_sql('transacciones', 'data')
-    trx['tarifa_agregada'] = trx['tarifa_agregada'].fillna('')
-    trx['genero_agregado'] = trx['genero_agregado'].fillna('')
+    if 'tarifa_agregada' in trx.columns:
+        trx['tarifa_agregada'] = trx['tarifa_agregada'].fillna('')
+    if 'genero_agregado' in trx.columns:
+        trx['genero_agregado'] = trx['genero_agregado'].fillna('')
 
     #Agrego líneas
     all = agrego_lineas(['dia', 'id_linea'], trx, etapas, gps, servicios, kpis, lineas)

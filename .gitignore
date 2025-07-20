@@ -174,3 +174,6 @@ matrices_etapas.xlsx
 urbantrips/kpi/kpi_lineas-Copy1.py
 urbantrips/run_all.py
 configs/configuraciones_generales.yaml
+urbantrips/dashboard/pages/.~9_Clusterización.py
+urbantrips/dashboard/.~clusters_utils.py
+urbantrips/lineas_deseo/.~lineas_deseo.py
