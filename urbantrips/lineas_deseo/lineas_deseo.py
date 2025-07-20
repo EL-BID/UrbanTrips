@@ -86,7 +86,6 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     viajes['tarifa_agregada'] = clasificar_tarifa_agregada_social(viajes['tarifa'])    
     viajes['genero_agregado'] = clasificar_genero_agregado(viajes['genero'])
     
-    
     # ── 2. traer SOLO distancias necesarias ─────────────────────────
     keys = (pd.concat([etapas[['h3_o', 'h3_d']],
                        viajes[['h3_o', 'h3_d']]], ignore_index=True)
