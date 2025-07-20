@@ -268,6 +268,8 @@ with st.expander('Líneas de Deseo', expanded=True):
         equivalencia_zonas = levanto_tabla_sql('equivalencia_zonas', 'dash')
             
         socio_indicadores = levanto_tabla_sql('socio_indicadores')
+        if 'Genero' not in socio_indicadores.columns: socio_indicadores['Genero'] = '-'
+        if 'Tarifa' not in socio_indicadores.columns: socio_indicadores['Tarifa'] = '-'
         
         lista_tipo_dia = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
         lista_zonas = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT zona FROM agg_etapas;').sort_values('zona')
