@@ -1944,7 +1944,7 @@ def preparo_indicadores_dash(check_configs=True, lineas_deseo=True, poligonos=Tr
                              zonificaciones=zonificaciones)
     if poligonos:
         print('Proceso Polígonos')
-        proceso_lineas_deseo(etapas=etapas, viajes=viajes, zonificaciones=zonificaciones)
+        proceso_poligonos(etapas=etapas, viajes=viajes, zonificaciones=zonificaciones)
 
     if kpis:
         print('Proceso kpis')
