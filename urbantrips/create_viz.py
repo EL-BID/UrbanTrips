@@ -1,13 +1,13 @@
 import pandas as pd
 from urbantrips.viz import viz
 from urbantrips.kpi import kpi
-from urbantrips.viz_ppt_utils import viz_ppt_utils
+# from urbantrips.viz_ppt_utils import viz_ppt_utils
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.utils import leer_configs_generales
 from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
 from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
-from urbantrips.lineas_deseo.lineas_deseo import proceso_poligonos, proceso_lineas_deseo
+from urbantrips.lineas_deseo.lineas_deseo import preparo_indicadores_dash
 from urbantrips.viz.section_supply import (
     get_route_section_supply_data,
     viz_route_section_speed,
@@ -101,8 +101,11 @@ def main():
     # Prduce main viz
     viz.create_visualizations()
 
-    proceso_poligonos()
-    proceso_lineas_deseo()
+    # proceso_poligonos()
+    # proceso_lineas_deseo()
+    
+    preparo_indicadores_dash(check_configs=False, lineas_deseo=True, poligonos=True, kpis=True)
+    
 
 
 if __name__ == "__main__":
