@@ -84,6 +84,8 @@ def leer_alias(tipo="data"):
         key = "alias_db_data"
     elif tipo == "insumos":
         key = "alias_db_insumos"
+    elif tipo == "general":
+        key = "alias_db_insumos"
     elif tipo == "dash":
         key = "alias_db_dashboard"
     else:
@@ -110,7 +112,6 @@ def traigo_db_path(tipo="data", alias_db=""):
     db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
-
 
 def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
@@ -382,18 +383,6 @@ def create_dash_tables(alias_db):
         orden int,
         Indicador text,
         Valor text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS zonas
-        (
-        zona text not null,
-        tipo_zona text not null,
-        wkt text
         )
         ;
         """
@@ -927,7 +916,7 @@ def leer_configs_generales(autogenerado=True):
     else:
         path = os.path.join("configs", "configuraciones_generales.yaml")
     try:
-        with open(path, "r", encoding="utf8") as file:
+        with open(path, "r") as file:
             config = yaml.safe_load(file)
     except yaml.YAMLError as error:
         print(f"Error al leer el archivo de configuracion: {error}")
@@ -1647,45 +1636,54 @@ def tabla_existe(conn, table_name):
             raise
 
 
-def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
+def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"):
     """
     Guarda un DataFrame en una base de datos SQLite.
 
     Parámetros:
     df (pd.DataFrame): DataFrame que se desea guardar.
-    conn (sqlite3.Connection): Conexión a la base de datos SQLite.
     table_name (str): Nombre de la tabla en la base de datos.
-    filtros (dict, optional): Diccionario de filtros para eliminar registros. Las claves son los nombres
-                              de los campos y los valores pueden ser un valor único o una lista de valores.
+    tabla_tipo (str): Tipo de conexión a la base de datos.
+    alias_db (str): Alias para identificar el archivo de base de datos.
+    filtros (dict, optional): Filtros para eliminar registros si modo='append'. Las claves son los nombres
+                               de los campos y los valores pueden ser un valor único o una lista de valores.
+    modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
     """
-    # Verifica si la tabla existe en la base de datos
+    # Conectar a la base de datos
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
     cursor = conn.cursor()
-    table_exists = tabla_existe(conn, table_name)
 
-    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
-    if table_exists and filtros:
-        condiciones = []
-        valores = []
+    if modo == "replace":
+        # Reemplaza completamente la tabla
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Tabla '{table_name}' reemplazada exitosamente.")
+    else:
+        table_exists = tabla_existe(conn, table_name)
 
-        # Construir las condiciones y los valores para cada filtro
-        for campo, valor in filtros.items():
-            if isinstance(valor, list):
-                # Si el valor es una lista, usamos la cláusula IN
-                condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
-                valores.extend(valor)
-            else:
-                # Si el valor es único, usamos una condición simple
-                condiciones.append(f"{campo} = ?")
-                valores.append(valor)
+        # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
+        if table_exists and filtros:
+            condiciones = []
+            valores = []
 
-        # Ejecutar la eliminación con las condiciones construidas
-        where_clause = " AND ".join(condiciones)
-        cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
-        conn.commit()
+            for campo, valor in filtros.items():
+                if isinstance(valor, list):
+                    condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                    valores.extend(valor)
+                else:
+                    condiciones.append(f"{campo} = ?")
+                    valores.append(valor)
 
-    # Guarda el DataFrame en la base de datos, crea la tabla si no existe
-    df.to_sql(table_name, conn, if_exists="append", index=False)
+            where_clause = " AND ".join(condiciones)
+            cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+            conn.commit()
+
+        # Agrega los datos al final de la tabla
+        df.to_sql(table_name, conn, if_exists="append", index=False)
+        print(f"Datos agregados exitosamente en '{table_name}'.")
+
+    # Cierra conexión
+    cursor.close()
     conn.close()
-    print(f"Datos guardados exitosamente {table_name}.")

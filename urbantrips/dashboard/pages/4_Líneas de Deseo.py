@@ -20,7 +20,7 @@ from dash_utils import (
 )
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.geometry import mapping
-
+from datetime import datetime
 
 
 import folium
@@ -29,6 +29,7 @@ import numpy as np
 from branca.colormap import linear
 from folium import Map, LayerControl, CircleMarker, PolyLine, GeoJson, Popup, FeatureGroup
 import mapclassify
+
 
 
 # 🎨 Mapeo de colormaps válidos
@@ -108,10 +109,8 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
 
     if len(df_viajes)>0:
         df_viajes = df_viajes[df_viajes['geometry'].notna()]
-
     if len(df_etapas)>0:
         df_etapas = df_etapas[df_etapas['geometry'].notna()]
-
 
     # if latlon is None:
     #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
@@ -120,8 +119,12 @@ def crear_mapa_lineas_deseo(df_viajes: pd.DataFrame,
     m = folium.Map(location=latlon, zoom_start=9, tiles='cartodbpositron')
 
     # 🔄 Preprocesamiento de Datos
-    for df in [df_etapas, df_viajes, origenes, destinos, transferencias]:
-        simplificar_geometrias(df)
+    print(datetime.now(), 'simplificar geometrias', len(df_viajes), len(df_etapas))
+    df_etapas, df_viajes, origenes, destinos, transferencias = [
+        simplificar_geometrias(df) for df in [df_etapas, df_viajes, origenes, destinos, transferencias]
+    ]
+
+    print(datetime.now(), 'fin simplificar geometrias', len(df_viajes), len(df_etapas))
     
     # 🔗 Agregar capas de líneas
     def agregar_capa_lineas(df, nombre, var_fex, cmap, weight_base=.5):
@@ -231,13 +234,13 @@ with st.expander('Líneas de Deseo', expanded=True):
             'general', 
             'modal', 
             'distancia_seleccionada', 
-            'mes', 
+            'dia', 
             'tipo_dia', 
             'zona', 
             'transferencia', 
             'modo_agregado', 
             'rango_hora_seleccionado', 
-            'distancia', 
+            'distancia_agregada', 
             'socio_indicadores_all', 
             'alias_seleccionado',
         ]
@@ -256,19 +259,19 @@ with st.expander('Líneas de Deseo', expanded=True):
         if var not in st.session_state:
             st.session_state[var] = False
     
-    
-    st.session_state.lista_etapas = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT mes FROM agg_etapas;')
-    st.session_state.lista_etapas = ['Todos'] + st.session_state.lista_etapas.mes.unique().tolist()        
+    st.session_state.lista_etapas = levanto_tabla_sql('socio_indicadores', 'dash', 'SELECT DISTINCT dia FROM socio_indicadores;')
+    st.session_state.lista_etapas = ['Todos'] + st.session_state.lista_etapas.dia.unique().tolist()        
    
     if len(st.session_state.lista_etapas) > 0:
+        zonificaciones = levanto_tabla_sql('zonificaciones', "insumos")
 
-        zonificaciones = levanto_tabla_sql('zonificaciones')
-
-        equivalencia_zonas = levanto_tabla_sql('equivalencia_zonas', 'dash')
+        equivalencia_zonas = levanto_tabla_sql('equivalencia_zonas', 'insumos')
             
-        socio_indicadores = levanto_tabla_sql('socio_indicadores')
+        socio_indicadores = levanto_tabla_sql('socio_indicadores', "dash")
+        if 'Genero' not in socio_indicadores.columns: socio_indicadores['Genero'] = '-'
+        if 'Tarifa' not in socio_indicadores.columns: socio_indicadores['Tarifa'] = '-'
         
-        lista_tipo_dia = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
+        # lista_tipo_dia = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
         lista_zonas = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT zona FROM agg_etapas;').sort_values('zona')
         lista_modos_agregados = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT modo_agregado FROM agg_etapas;')
         lista_rango_hora = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT rango_hora FROM agg_etapas;')
@@ -278,8 +281,7 @@ with st.expander('Líneas de Deseo', expanded=True):
         # Inicializar valores de `st.session_state` solo si no existen
         if 'last_filters' not in st.session_state:
             st.session_state.last_filters = {
-                'mes': 'Todos',
-                'tipo_dia': None,
+                'dia': 'Todos',
                 'zona': None,
                 'transferencia': 'Todos',
                 'modo_agregado': 'Todos',
@@ -303,8 +305,8 @@ with st.expander('Líneas de Deseo', expanded=True):
         
         
         # Opciones de los filtros en Streamlit        
-        mes_seleccionado = col1.selectbox('Mes', options=st.session_state.lista_etapas, index=1)        
-        tipo_dia_seleccionado = col1.selectbox('Tipo día', options=lista_tipo_dia.tipo_dia.unique())        
+        dia_seleccionado = col1.selectbox('Día', options=st.session_state.lista_etapas, index=1)        
+        # tipo_dia_seleccionado = col1.selectbox('Tipo día', options=lista_tipo_dia.tipo_dia.unique())        
         zona_seleccionada = col1.selectbox('Zonificación', options=valores_zonas)        
         transfer_seleccionado = col1.selectbox('Transferencias', options=lista_transfer)                
         modo_seleccionado = col1.selectbox('Modos', options=[text for text in lista_modos])                
@@ -342,6 +344,7 @@ with st.expander('Líneas de Deseo', expanded=True):
         
         zona_mostrar = col3.selectbox('Mostrar zonificación', options=valores_zonas+['Ninguna'], index=index_zona)
         # if zonificacion_seleccion:
+
         if zona_mostrar != 'Ninguna':
             zonif = zonificaciones[zonificaciones.zona == zona_mostrar]
         else:
@@ -351,13 +354,12 @@ with st.expander('Líneas de Deseo', expanded=True):
         
         # Construye el diccionario de filtros actual
         current_filters = {
-            'mes': None if mes_seleccionado == 'Todos' else mes_seleccionado,
-            'tipo_dia': tipo_dia_seleccionado,
+            'dia': None if dia_seleccionado == 'Todos' else dia_seleccionado,
             'zona': None if zona_seleccionada == 'Todos' else zona_seleccionada,
             'transferencia': None if transfer_seleccionado == 'Todos' else (1 if transfer_seleccionado == 'Con transferencia' else 0),
             'modo_agregado': None if modo_seleccionado == 'Todos' else modo_seleccionado,
             'rango_hora': None if rango_hora_seleccionado == 'Todos' else rango_hora_seleccionado,
-            'distancia': None if distancia_seleccionada == 'Todas' else distancia_seleccionada,
+            'distancia_agregada': None if distancia_seleccionada == 'Todas' else distancia_seleccionada,
             'filtro_seleccion1': None if filtro_seleccion1 == 'Todos' else filtro_seleccion1,            
             'filtro_seleccion2': None if filtro_seleccion2 == 'Todos' else filtro_seleccion2,   
             'zona_filtro_seleccion1': zona_filtro_seleccion1,
@@ -483,9 +485,8 @@ with st.expander('Líneas de Deseo', expanded=True):
                     st.session_state.etapas_all = pd.DataFrame([])
                     st.session_state.matrices_all = pd.DataFrame([])
                 else:
-
-                    agg_etapas, agg_matrices = traigo_tablas_con_filtros(mes_seleccionado, 
-                                                                         tipo_dia_seleccionado, 
+                    
+                    agg_etapas, agg_matrices = traigo_tablas_con_filtros(dia_seleccionado, 
                                                                          zona_seleccionada, 
                                                                          zona_filtro_seleccion1, 
                                                                          filtro_seleccion1, 
@@ -499,22 +500,23 @@ with st.expander('Líneas de Deseo', expanded=True):
                     st.session_state.matrices_all = agg_matrices.copy()
 
             else:
+
                 st.session_state.etapas_all = levanto_tabla_sql_local('agg_etapas', tabla_tipo='dash', query=f"SELECT * FROM agg_etapas{query_etapas}")
+                print(query_matrices)
                 st.session_state.matrices_all = levanto_tabla_sql_local('agg_matrices', tabla_tipo='dash', query=f"SELECT * FROM agg_matrices{query_matrices}")    
 
             if len(st.session_state.matrices_all)!=0:
 
-                if mes_seleccionado != 'Todos':            
-                    st.session_state.socio_indicadores_all = socio_indicadores[(socio_indicadores.mes==mes_seleccionado)&(socio_indicadores.tipo_dia==tipo_dia_seleccionado)].copy()
+                if dia_seleccionado != 'Todos':            
+                    st.session_state.socio_indicadores_all = socio_indicadores[(socio_indicadores.dia==dia_seleccionado)].copy()
         
                 else:
-                    st.session_state.socio_indicadores_all = socio_indicadores[(socio_indicadores.tipo_dia==tipo_dia_seleccionado)].copy()
-    
-                st.session_state.socio_indicadores_all = st.session_state.socio_indicadores_all.groupby(["tabla", "tipo_dia", "Genero", "Tarifa", "Modo"], as_index=False)[[
+                    st.session_state.socio_indicadores_all = socio_indicadores.copy()
+
+                st.session_state.socio_indicadores_all = st.session_state.socio_indicadores_all.groupby(["tabla", "Genero", "Tarifa", "Modo"], as_index=False)[[
                                     "Distancia", "Tiempo de viaje", "Velocidad", "Etapas promedio", "Viajes promedio", "Tiempo entre viajes", "factor_expansion_linea"
                                     ]] .mean().round(2)
     
-                
                 if transfer_seleccionado == 'Todos':
                     st.session_state.desc_transfers = True
                 else:
@@ -543,14 +545,14 @@ with st.expander('Líneas de Deseo', expanded=True):
                                                    'transferencia',
                                                    'modo_agregado',
                                                    'rango_hora',
-                                                   'distancia']
+                                                   'distancia_agregada']
                 st.session_state.agg_cols_viajes = ['zona',
                                                    'inicio_norm',
                                                    'fin_norm',
                                                    'transferencia',
                                                    'modo_agregado',
                                                    'rango_hora',
-                                                   'distancia']
+                                                   'distancia_agregada']
                 
         if len(st.session_state.etapas_all)==0:
             col2.write('No hay datos para mostrar')
@@ -592,6 +594,7 @@ with st.expander('Líneas de Deseo', expanded=True):
                     | (len(zona_mostrar)>0):
 
                     latlon = bring_latlon()
+
                     st.session_state.map = crear_mapa_lineas_deseo(df_viajes=st.session_state.viajes,
                                                       df_etapas=st.session_state.etapas,
                                                       zonif=zonif,
@@ -645,15 +648,15 @@ with st.expander('Matrices'):
             normalize = col1.checkbox('Normalizar', value=True)
 
         mmatriz = col1.checkbox('Mostrar tabla', value=False, key='mmatriz')
-        col1.write(f'Mes: {mes_seleccionado}')
-        col1.write(f'Tipo día: {tipo_dia_seleccionado}')
+        col1.write(f'Día: {dia_seleccionado}')
+        # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
         col1.write(f'Transferencias: {transfer_seleccionado}')
         col1.write(f'Modos: {modo_seleccionado}')
         col1.write(f'Rango hora: {rango_hora_seleccionado}')
         col1.write(f'Distancias: {distancia_seleccionada}')        
     
         if tipo_matriz == 'Distancia promedio (kms)':
-            var_matriz = 'distance_osm_drive'
+            var_matriz = 'distancia'
         if tipo_matriz == 'Tiempo promedio (min)':
             var_matriz = 'travel_time_min'
         if tipo_matriz == 'Velocidad promedio (km/h)':
@@ -704,14 +707,14 @@ with st.expander('Zonas', expanded=False):
     zona2 = st.session_state['zona_2']
 
     if len(zona1) > 0:
-        query1 = f"SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_filtro_seleccion1}_o = '{filtro_seleccion1}');"     
+        query1 = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_filtro_seleccion1}_o = '{filtro_seleccion1}');"     
         etapas1 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query1)
 
         if len(etapas1) > 0:
             etapas1['Zona_1'] = 'Zona 1'
 
             ## Viajes
-            query1 = f"SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND {zona_filtro_seleccion1}_o = '{filtro_seleccion1}';"
+            query1 = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND {zona_filtro_seleccion1}_o = '{filtro_seleccion1}';"
             viajes1 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query1)
             viajes1['Zona_1'] = 'Zona 1'
 
@@ -760,7 +763,7 @@ with st.expander('Zonas', expanded=False):
     
     if len(zona2) > 0:
 
-        query2 = f"SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_filtro_seleccion2}_o = '{filtro_seleccion2}');"     
+        query2 = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_filtro_seleccion2}_o = '{filtro_seleccion2}');"     
         etapas2 = levanto_tabla_sql_local('etapas_agregadas', tabla_tipo='dash', query=query2)
 
         if len(etapas2) > 0:
@@ -770,7 +773,7 @@ with st.expander('Zonas', expanded=False):
                 etapas2['Zona_2'] = 'Zona 2'
                 
                 ## Viajes                
-                query2 = f"SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND {zona_filtro_seleccion2}_o = '{filtro_seleccion2}';"
+                query2 = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND {zona_filtro_seleccion2}_o = '{filtro_seleccion2}';"
                 viajes2 = levanto_tabla_sql_local('viajes_agregados', tabla_tipo='dash', query=query2)
                 viajes2['Zona_2'] = 'Zona 2'
     
@@ -827,8 +830,8 @@ with st.expander('Viajes entre zonas', expanded=True):
     
     if len(zona1) > 0 and len(zona2) > 0:
 
-        col1.write(f'Mes: {mes_seleccionado}')
-        col1.write(f'Tipo día: {tipo_dia_seleccionado}')
+        col1.write(f'Día: {dia_seleccionado}')
+        # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
         col1.write(f'Zona 1: {filtro_seleccion1}')
         col1.write(f'Zona 2: {filtro_seleccion2}')
 
@@ -836,9 +839,9 @@ with st.expander('Viajes entre zonas', expanded=True):
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
         if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:            
-            query = f"SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+            query = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
         else:
-            query = f"""SELECT * FROM etapas_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND
+            query = f"""SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND
                         ((({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values}))) AND 
                          (({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values}))));"""
 
@@ -871,9 +874,9 @@ with st.expander('Viajes entre zonas', expanded=True):
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
         if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:
-            query = f"SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+            query = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
         else:
-            query = f"""SELECT * FROM viajes_agregados WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND 
+            query = f"""SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND 
                         (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) 
                            AND ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
             
@@ -911,9 +914,9 @@ with st.expander('Viajes entre zonas', expanded=True):
         h3_values = [filtro_seleccion1, filtro_seleccion2]
         h3_values = ', '.join(f"'{valor}'" for valor in h3_values)
         if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:            
-            query = f"SELECT * FROM transferencias_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
+            query = f"SELECT * FROM transferencias_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
         else:
-            query = f"""SELECT * FROM transferencias_agregadas WHERE mes = '{mes_seleccionado}' AND tipo_dia = '{tipo_dia_seleccionado}' AND 
+            query = f"""SELECT * FROM transferencias_agregadas WHERE dia = '{dia_seleccionado}' AND 
             (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) AND
              ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
 

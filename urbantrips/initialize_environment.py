@@ -1,5 +1,5 @@
 import os
-from urbantrips.utils.check_configs import check_config, replace_tabs_with_spaces
+from urbantrips.utils.check_configs import check_config
 from urbantrips.carto.routes import process_routes_metadata, process_routes_geoms
 from urbantrips.carto.stops import create_stops_table
 from urbantrips.carto.carto import guardo_zonificaciones
@@ -14,10 +14,7 @@ from urbantrips.utils.utils import (
 def main():
 
     # Leer las corridas en el archivo de configuracion
-    replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
-
     configs_usuario = leer_configs_generales(autogenerado=False)
-    print(configs_usuario)
     corridas = configs_usuario.get("corridas", None)
     if corridas is None or len(corridas) == 0:
         raise ValueError("No se han definido corridas en el archivo de configuracion.")
