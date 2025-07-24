@@ -244,15 +244,32 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
     for i in ['Femenino', 'Masculino', 'No informado', 'educacion_jubilacion', 'tarifa_social', 'sin_descuento']:
         if i not in all.columns:
             all[i] = 0
+
+    all["vehiculos_operativos"] = (
+        all["cant_internos_en_gps"].where(all["cant_internos_en_gps"] > 0, all["cant_internos_en_trx"])
+        .fillna(all["flota"])
+        .astype("Int64")
+    )            
     
     all = all[['dia', 'mes', 'id_linea',
        'nombre_linea', 'empresa', 'modo', 'transacciones', 'Femenino', 'Masculino',
        'No informado', 'educacion_jubilacion', 'sin_descuento',
        'tarifa_social', 'travel_time_min',
-       'travel_speed', 'cant_internos_en_gps', 'cant_internos_en_trx', 'flota', 'velocidad_comercial',
+       'travel_speed', 'cant_internos_en_gps', 'cant_internos_en_trx', 'flota', 'vehiculos_operativos', 'velocidad_comercial',
        'velocidad_comercial_am', 'velocidad_comercial_pm',
        'distancia_media_veh', 'tot_km', 'distancia_media_pax', 'dmt_mean',
-       'dmt_median', 'pvd', 'kvd', 'ipk', 'fo_mean', 'fo_median', 'factor_expansion_linea']]
+       'dmt_median', 'pvd', 'kvd', 'ipk', 'fo_mean', 'fo_median']]
+
+    for i in ['dia', 'mes', 'id_linea', 'nombre_linea', 'empresa', 'modo']:
+        all[i] = all[i].fillna("").astype(str)
+    lista = [x for x in all.columns.tolist() if x not in ['dia', 'mes', 'id_linea', 'nombre_linea', 'empresa', 'modo']]
+    for i in lista:
+        if i in ['transacciones', 'Femenino', 'Masculino',
+                   'No informado', 'educacion_jubilacion', 'sin_descuento',
+                   'tarifa_social']:
+            all[i] = all[i].fillna(0).astype(int)
+        else:
+            all[i] = all[i].astype(float).round(1)
     
     return all
 
@@ -265,6 +282,19 @@ def calculo_kpi_lineas(alias_data='', alias_dash='', alias_insumos='', etapas=[]
                       table_name='kpis_lineas', 
                       tabla_tipo='general', 
                       alias_db=alias_dash, 
-                      filtros={"mes": kpis.dia.unique().tolist()},
+                      filtros={"dia": kpis.dia.unique().tolist()},
                       modo="append")
-    return kpis
+    
+    df = levanto_tabla_sql("kpis_lineas", "general")
+    tot = df.drop(["dia", "mes"], axis=1) .groupby(["id_linea", "nombre_linea", "empresa", "modo" ], as_index=False).mean()
+    tot["dia"]="Promedios"
+    tot["mes"]=""
+    df = pd.concat([df, tot], ignore_index=True)
+    guardar_tabla_sql(df, 
+                  table_name='kpis_lineas', 
+                  tabla_tipo='general', 
+                  alias_db=alias_dash, 
+                  filtros={"dia": df.dia.unique().tolist()},
+                  modo="append")
+
+    return df

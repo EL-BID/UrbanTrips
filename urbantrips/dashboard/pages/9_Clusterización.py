@@ -16,12 +16,16 @@ st.image(logo)
 alias_seleccionado = configurar_selector_dia()
 
 # Cargar KPIs
-kpis = levanto_tabla_sql("kpis_lineas", "dash")
+kpis = levanto_tabla_sql("kpis_lineas", "general")
+kpis_merge = levanto_tabla_sql("kpis_lineas_merge", "general")
+
 
 # Inicializar sesión
 if "tabla_mergeada" not in st.session_state:
     st.session_state["tabla_mergeada"] = None
     st.session_state["archivo_anterior"] = None
+if len(kpis_merge) > 0:
+    st.session_state["tabla_mergeada"] = kpis_merge.copy()
 
 # 1. Mostrar tabla original
 with st.expander("📄 Ver tabla original de KPIs", expanded=True):
@@ -65,7 +69,7 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                     if st.button("Reemplazar merge anterior"):
                         st.session_state["tabla_mergeada"] = pd.merge(kpis, tabla_externa, on=merge_keys, how="left")
                         st.session_state["archivo_anterior"] = archivo.name
-                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas", 'dash', modo='replace')
+                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas_merge", 'general', modo='replace')
                         st.success("Merge reemplazado con éxito.")
                         st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
@@ -73,7 +77,7 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                     if st.button("Hacer merge"):
                         st.session_state["tabla_mergeada"] = pd.merge(kpis, tabla_externa, on=merge_keys, how="left")
                         st.session_state["archivo_anterior"] = archivo.name
-                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas", 'dash', modo='replace')
+                        guardar_tabla_sql(st.session_state["tabla_mergeada"], "kpis_lineas_merge", 'general', modo='replace')
                         st.success("Merge realizado con éxito.")
                         st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
@@ -84,7 +88,12 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
 
 # ---------- Cargar KPIs y base ----------
 if "kpis" not in st.session_state:
-    st.session_state["kpis"] = levanto_tabla_sql("kpis_lineas", "dash")
+    st.session_state["kpis"] = levanto_tabla_sql("kpis_lineas", "general")
+
+# Inicializar sesión
+if "tabla_mergeada" not in st.session_state:
+    st.session_state["tabla_mergeada"] = levanto_tabla_sql("kpis_lineas_merge", "general")
+
 
 if "tabla_mergeada" in st.session_state and st.session_state["tabla_mergeada"] is not None:
     df_base = st.session_state["tabla_mergeada"]
@@ -205,6 +214,9 @@ with st.expander("🧩 Clusterizar", expanded=False):
         st.error("No existe ningún escenario guardado. Creá al menos uno.")
 
     # Botón habilitado sólo si ambos requisitos se cumplen
+    days = sorted(df_kpis["dia"].dropna().unique())
+    days = [x for x in days if x not in ["Promedios"]]
+    day_sel = st.selectbox("Día", ["Promedios"] + days, index=0)
     cluster_btn = st.button(
         "🚀 Clusterizar escenarios",
         disabled=not (kpis_ok and escenarios_ok)
@@ -216,9 +228,10 @@ with st.expander("🧩 Clusterizar", expanded=False):
         # ------------------------------------------------------------------
         st.info("Ejecutando clustering. Esto puede tardar unos segundos…")
         try:
-            resultados = correr_clusters()  # <- tu función
+            df_kpis = df_kpis[df_kpis.dia==day_sel]
+            resultados = correr_clusters(df_kpis)  # <- tu función
             st.success("¡Clustering completado!")
-            # Podés mostrar o guardar `resultados` como necesites:
+
             st.markdown("### 📁 Carpeta de resultados:")
             resultados_dir = Path.cwd() / "data" / "clusters" / "resultados"
             st.markdown("---")
