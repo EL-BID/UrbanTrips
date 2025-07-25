@@ -12,6 +12,9 @@ from urbantrips.utils.utils import leer_alias, leer_configs_generales, duracion
 from urbantrips.carto import carto
 from urbantrips.kpi.kpi_lineas import calculo_kpi_lineas
 import unidecode
+import gc
+from datetime import datetime
+
 
 def clasificar_tarifa_agregada_social(serie_tarifa_agregada):
     """
@@ -63,11 +66,6 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     """
 
     print('Levanto Data Etapas y Viajes')
-    
-    # ── import internos ─────────────────────────────────────────────
-    import pandas as pd, numpy as np, gc
-    from datetime import datetime
-    from urbantrips.utils.utils import iniciar_conexion_db
 
     # ── conexiones ──────────────────────────────────────────────────
     conn_ins = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
@@ -226,7 +224,7 @@ def format_dataframe(df):
     return df
 
 
-def construyo_indicadores(viajes, poligonos=False):
+def construyo_indicadores(viajes, poligonos=False, alias_db=''):
 
     if poligonos:
         nombre_tabla = 'poly_indicadores'
@@ -341,7 +339,7 @@ def construyo_indicadores(viajes, poligonos=False):
             WHERE dia NOT IN {tupla_dia}
         """
 
-    indicadores_ant = levanto_tabla_sql(nombre_tabla, 'dash', query=query)
+    indicadores_ant = levanto_tabla_sql(nombre_tabla, 'dash', query=query, alias_db=alias_db)
 
     indicadores = pd.concat([indicadores[['id_polygon', 'dia', 'mes', 'tipo_dia', 'Tipo', 'Indicador', 'type_val', 'Valor']], 
                                          indicadores_ant], ignore_index=True)
@@ -360,12 +358,14 @@ def construyo_indicadores(viajes, poligonos=False):
         guardar_tabla_sql(indicadores, 
                           'poly_indicadores', 
                           'dash', 
-                          {'dia': indicadores.dia.unique().tolist()})
+                          {'dia': indicadores.dia.unique().tolist()}, 
+                         alias_db=alias_db)
     else:
         guardar_tabla_sql(indicadores, 
                           'agg_indicadores', 
                           'dash', 
-                          {'dia': indicadores.dia.unique().tolist()})
+                          {'dia': indicadores.dia.unique().tolist()},
+                         alias_db=alias_db)
 
 
 
@@ -442,11 +442,10 @@ def select_cases_from_polygons(etapas, viajes, polygons, res=8):
         gdf_hexs = select_h3_from_polygon(poly,
                                           res=res,
                                           viz=False)
-        
 
         gdf_hexs = gdf_hexs[['id', 'h3']].rename(
             columns={'h3': 'h3_o', 'id': 'id_polygon'})
-
+        
         seleccionar = etapas.merge(gdf_hexs, on='h3_o')[
             ['dia', 'id_tarjeta', 'id_viaje', 'id_polygon']] 
         seleccionar = seleccionar.groupby(['dia', 'id_tarjeta', 'id_viaje', 'id_polygon'], as_index=False).size()
@@ -771,11 +770,11 @@ def agg_matriz(df,
 
     return df
 
-def imprimo_matrices_od():
+def imprimo_matrices_od(alias_db=''):
     print('Imprimo matrices OD')
     alias = leer_alias()
     
-    matrices_all = levanto_tabla_sql('agg_matrices', "dash")
+    matrices_all = levanto_tabla_sql('agg_matrices', "dash", alias_db=alias_db)
     
     agg_transferencias=True
     agg_modo=True
@@ -869,7 +868,7 @@ def imprimo_matrices_od():
 
         print(db_path, '---', db_path2)
 
-def crea_socio_indicadores(etapas, viajes):
+def crea_socio_indicadores(etapas, viajes, alias_db=''):
     print('Creo indicadores de género y tarifa_agregada')
 
     socio_indicadores = pd.DataFrame([])
@@ -979,7 +978,14 @@ def crea_socio_indicadores(etapas, viajes):
     userx = userx.rename(columns={'tarifa_agregada': 'tarifa_agregada_agg'})
     userx.loc[userx.tarifa_agregada_agg=='', 'tarifa_agregada_agg'] = '-'
     userx = viajes.merge(userx, how='left')
-    userx = userx.groupby(['dia', 'mes', 'tipo_dia', 'id_tarjeta', 'genero_agregado', 'tarifa_agregada_agg'], as_index=False).agg({'factor_expansion_tarjeta':'count', 'factor_expansion_linea':'mean'}).rename(columns={'factor_expansion_tarjeta':'cant_viajes'}).rename(columns={'tarifa_agregada_agg':'tarifa_agregada'})
+    userx = userx.groupby(['dia', 
+                           'mes', 
+                           'tipo_dia', 
+                           'id_tarjeta', 
+                           'genero_agregado', 
+                           'tarifa_agregada_agg'], 
+                              as_index=False).agg({'factor_expansion_tarjeta':'count', 
+                                   'factor_expansion_linea':'mean'}).rename(columns={'factor_expansion_tarjeta':'cant_viajes'}).rename(columns={'tarifa_agregada_agg':'tarifa_agregada'})
     
     userx = calculate_weighted_means(userx,
                                     aggregate_cols=['dia', 'mes', 'tipo_dia', 'genero_agregado', 'tarifa_agregada'],
@@ -1015,11 +1021,12 @@ def crea_socio_indicadores(etapas, viajes):
     guardar_tabla_sql(socio_indicadores, 
                       'socio_indicadores', 
                       'dash', 
-                      {'dia': socio_indicadores.mes.unique().tolist()})
+                      {'dia': socio_indicadores.dia.unique().tolist()},
+                     alias_db=alias_db)
 
     
 
-def preparo_etapas_agregadas(etapas, viajes):
+def preparo_etapas_agregadas(etapas, viajes, equivalencias_zonas, alias_db=''):
 
     e_agg = etapas.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.sum()
     # e_agg = e_agg.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'id_linea'], as_index=False).factor_expansion_linea.mean()
@@ -1046,40 +1053,26 @@ def preparo_etapas_agregadas(etapas, viajes):
     transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.sum()
     # transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
 
-    zonas = levanto_tabla_sql('equivalencias_zonas', 'insumos')
-    if len(zonas) > 0:
-        zonas_cols = zonas.columns.tolist()
+
+    if len(equivalencias_zonas) > 0:
+        zonas_cols = equivalencias_zonas.columns.tolist()
         zonas_cols = [item for item in zonas_cols if item not in ['fex', 'latitud', 'longitud']]
-        zonas = zonas[zonas_cols]
+        equivalencias_zonas = equivalencias_zonas[zonas_cols]
         
         zonas_cols_o = [f'{item}_o' for item in zonas_cols]
         zonas_cols_d = [f'{item}_d' for item in zonas_cols]
         
-        zonas.columns = zonas_cols_o
-        e_agg = e_agg.merge(zonas, how='left')
-        v_agg = v_agg.merge(zonas, how='left')
-        transfers = transfers.merge(zonas, how='left')
+        equivalencias_zonas.columns = zonas_cols_o
+        e_agg = e_agg.merge(equivalencias_zonas, how='left')
+        v_agg = v_agg.merge(equivalencias_zonas, how='left')
+        transfers = transfers.merge(equivalencias_zonas, how='left')
         
-        zonas.columns = zonas_cols_d
-        e_agg = e_agg.merge(zonas, how='left')
-        v_agg = v_agg.merge(zonas, how='left')
-        transfers = transfers.merge(zonas, how='left')
+        equivalencias_zonas.columns = zonas_cols_d
+        e_agg = e_agg.merge(equivalencias_zonas, how='left')
+        v_agg = v_agg.merge(equivalencias_zonas, how='left')
+        transfers = transfers.merge(equivalencias_zonas, how='left')
 
-    # guardar_tabla_sql(e_agg, 
-    #               'etapas_agregadas', 
-    #               'dash', 
-    #               {'mes': e_agg.mes.unique().tolist()})
-
-    # guardar_tabla_sql(v_agg, 
-    #               'viajes_agregados', 
-    #               'dash', 
-    #               {'mes': v_agg.mes.unique().tolist()})
-
-    # guardar_tabla_sql(transfers, 
-    #           'transferencias_agregadas', 
-    #           'dash', 
-    #           {'mes': v_agg.mes.unique().tolist()})
-    conn_dash = iniciar_conexion_db(tipo='dash')
+    conn_dash = iniciar_conexion_db(tipo='dash', alias_db=alias_db)
     e_agg.to_sql("etapas_agregadas",
              conn_dash, if_exists="replace", index=False,)
     v_agg.to_sql("viajes_agregados",
@@ -1090,7 +1083,7 @@ def preparo_etapas_agregadas(etapas, viajes):
     conn_dash.close()
 
 
-def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6, zonificaciones=[]):
+def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='', res=6, zonificaciones=[], alias_db=''):
 # etapas_selec = etapas.copy()
 # viajes_selec = viajes.copy()
 # polygons_h3=''
@@ -1714,29 +1707,33 @@ def preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3='', poligonos='
                                   'agg_etapas', 
                                   'dash', 
                                   {'dia': etapas_agrupadas_zon.dia.unique().tolist(),                                      
-                                  'zona': etapas_agrupadas_zon.zona.unique().tolist()})
+                                  'zona': etapas_agrupadas_zon.zona.unique().tolist()},
+                                 alias_db=alias_db)
                 
                 guardar_tabla_sql(viajes_matrices, 
                                   'agg_matrices', 
                                   'dash', 
                                   {'dia': viajes_matrices.dia.unique().tolist(),                                      
-                                  'zona': viajes_matrices.zona.unique().tolist()})
+                                  'zona': viajes_matrices.zona.unique().tolist()},
+                                 alias_db=alias_db)
             else:
                 guardar_tabla_sql(etapas_agrupadas_zon, 
                                   'poly_etapas', 
                                   'dash', 
                                   {'dia': etapas_agrupadas_zon.dia.unique().tolist(),
                                   'zona': etapas_agrupadas_zon.zona.unique().tolist(),
-                                  'id_polygon': etapas_agrupadas_zon.id_polygon.unique().tolist()})
+                                  'id_polygon': etapas_agrupadas_zon.id_polygon.unique().tolist()},
+                                 alias_db=alias_db)
         
                 guardar_tabla_sql(viajes_matrices, 
                                   'poly_matrices', 
                                   'dash', 
                                   {'dia': viajes_matrices.dia.unique().tolist(),
                                   'zona': viajes_matrices.zona.unique().tolist(),
-                                  'id_polygon': viajes_matrices.id_polygon.unique().tolist()})
+                                  'id_polygon': viajes_matrices.id_polygon.unique().tolist()},
+                                 alias_db=alias_db)
 
-def guarda_particion_modal(etapas):
+def guarda_particion_modal(etapas, alias_db=''):
     df_dummies = pd.get_dummies(etapas.modo)
     etapas = pd.concat([etapas, df_dummies], axis=1)
     cols_dummies = df_dummies.columns.tolist()
@@ -1749,7 +1746,11 @@ def guarda_particion_modal(etapas):
     for i in cols_dummies:
         etapas_modos = etapas_modos.rename(columns={i:i.capitalize()})
         
-    guardar_tabla_sql(etapas_modos, 'datos_particion_modal', filtros={'dia': etapas_modos.dia.unique().tolist()})
+    guardar_tabla_sql(etapas_modos, 
+                      'datos_particion_modal', 
+                      'dash',
+                      filtros={'dia': etapas_modos.dia.unique().tolist()},
+                      alias_db=alias_db)
 
 
 def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
@@ -1792,15 +1793,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
     all['tot_pax'] = all['tot_pax'].round(0)
     return all
 
-def resumen_x_linea(etapas, viajes):
-    gps = levanto_tabla_sql('gps', 'data')
+def resumen_x_linea(etapas, viajes, alias_db=''):
+    gps = levanto_tabla_sql('gps', 'data', alias_db=alias_db)
     gps['fecha'] = pd.to_datetime(gps['fecha'], unit='s')
     lineas = levanto_tabla_sql('metadata_lineas', 'insumos')
-    kpis = levanto_tabla_sql('kpi_by_day_line', tabla_tipo='data')
-    servicios = levanto_tabla_sql('services', tabla_tipo='data')
+    kpis = levanto_tabla_sql('kpi_by_day_line', tabla_tipo='data', alias_db=alias_db)
+    servicios = levanto_tabla_sql('services', tabla_tipo='data', alias_db=alias_db)
     lineas = lineas[['id_linea', 'nombre_linea', 'empresa']].sort_values(['id_linea'])
     
-    trx = levanto_tabla_sql('transacciones', 'data')
+    trx = levanto_tabla_sql('transacciones', 'data', alias_db=alias_db)
     if 'tarifa_agregada' in trx.columns:
         trx['tarifa_agregada'] = trx['tarifa_agregada'].fillna('')
     if 'genero_agregado' in trx.columns:
@@ -1832,7 +1833,8 @@ def resumen_x_linea(etapas, viajes):
     guardar_tabla_sql(all, 
                       'resumen_lineas', 
                       'dash', 
-                      {'dia': all.dia.unique().tolist()})
+                      {'dia': all.dia.unique().tolist()},
+                     alias_db=alias_db)
 
     #Agrego líneas y Ramal
     all = agrego_lineas(['dia', 'id_linea', 'id_ramal'], trx, etapas, gps, servicios, kpis, lineas)
@@ -1866,10 +1868,11 @@ def resumen_x_linea(etapas, viajes):
     guardar_tabla_sql(all, 
                       'resumen_lineas_ramal', 
                       'dash', 
-                      {'dia': all.dia.unique().tolist()})
+                      {'dia': all.dia.unique().tolist()},
+                     alias_db=alias_db)
 
 @duracion
-def proceso_poligonos(etapas=[], viajes=[], zonificaciones=[]):
+def proceso_poligonos(etapas=[], viajes=[], zonificaciones=[], alias_db=''):
 
     print('Procesa polígonos')
     poligonos = levanto_tabla_sql('poligonos', "insumos")
@@ -1882,54 +1885,72 @@ def proceso_poligonos(etapas=[], viajes=[], zonificaciones=[]):
         print('identifica viajes en polígonos')
         # Select cases based fron polygon
         etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
-            etapas[etapas.od_validado == 1], viajes[viajes.od_validado == 1], poligonos, res=res)
+                                                                            etapas, 
+                                                                            viajes, 
+                                                                            poligonos, 
+                                                                            res=res)
 
-        preparo_lineas_deseo(etapas_selec, viajes_selec, polygons_h3, poligonos=poligonos, res=[6, 7], zonificaciones=zonificaciones)
+        preparo_lineas_deseo(etapas_selec, 
+                             viajes_selec, 
+                             polygons_h3, 
+                             poligonos=poligonos, 
+                             res=[6], 
+                             zonificaciones=zonificaciones, 
+                             alias_db=alias_db)
 
-        construyo_indicadores(viajes_selec, poligonos=True)
+        construyo_indicadores(viajes_selec, poligonos=True, alias_db=alias_db)
 
 
 
 @duracion
-def proceso_lineas_deseo(etapas=[], viajes=[], zonificaciones=[]):
+def proceso_lineas_deseo(etapas=[], viajes=[], zonificaciones=[], equivalencias_zonas=[], alias_data=''):
 
-    preparo_etapas_agregadas(etapas.copy(), viajes.copy())
+    preparo_etapas_agregadas(etapas.copy(), 
+                             viajes.copy(), 
+                             equivalencias_zonas.copy(), 
+                             alias_db=alias_data)
 
-    preparo_lineas_deseo(etapas, viajes, res=[6, 7], zonificaciones=zonificaciones) #, 8
+    preparo_lineas_deseo(etapas, viajes, res=[6], zonificaciones=zonificaciones, alias_db=alias_data) #, 8
 
-    resumen_x_linea(etapas, viajes)
+    resumen_x_linea(etapas, viajes, alias_db=alias_data)
 
-    construyo_indicadores(viajes, poligonos=False)
+    construyo_indicadores(viajes, poligonos=False, alias_db=alias_data)
 
-    crea_socio_indicadores(etapas, viajes)
+    crea_socio_indicadores(etapas, viajes, alias_db=alias_data)
     
     print('Guardo datos para dashboard')
 
-    guarda_particion_modal(etapas)
+    guarda_particion_modal(etapas, alias_db=alias_data)
     
-    # imprimo_matrices_od()
+    # imprimo_matrices_od(alias_db=alias_data))
 
 @duracion
-def preparo_indicadores_dash(check_configs=False, lineas_deseo=True, poligonos=True, kpis=True):
-    if check_configs: ### ver como va a cambiar esto
-        check_config()
-        carto.guardo_zonificaciones()
+def preparo_indicadores_dash(lineas_deseo=True, poligonos=True, kpis=True, corrida = ""):
 
     zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
+    equivalencias_zonas = levanto_tabla_sql('equivalencias_zonas', 'insumos')
+    # Habría que hacer una verificación de zonificaciones y zonas
 
-    etapas, viajes = load_and_process_data()
+    etapas, viajes = load_and_process_data(alias_data=corrida)
 
     if lineas_deseo:
         print('Proceso lineas de deseo')
-        proceso_lineas_deseo(etapas=etapas, 
-                             viajes=viajes, 
-                             zonificaciones=zonificaciones)
+        proceso_lineas_deseo(etapas=etapas.copy(), 
+                             viajes=viajes.copy(), 
+                             zonificaciones=zonificaciones.copy(),
+                             equivalencias_zonas=equivalencias_zonas.copy(),
+                             alias_data=corrida)
     if poligonos:
         print('Proceso Polígonos')
-        proceso_poligonos(etapas=etapas, viajes=viajes, zonificaciones=zonificaciones)
+        proceso_poligonos(etapas=etapas.copy(), 
+                          viajes=viajes.copy(), 
+                          zonificaciones=zonificaciones.copy(),
+                          alias_db=corrida)
 
     if kpis:
         print('Proceso kpis')
-        kpis = calculo_kpi_lineas(etapas=etapas, viajes=viajes)
+        kpis = calculo_kpi_lineas(etapas=etapas.copy(), 
+                                  viajes=viajes.copy(),
+                                  alias_data=corrida)
 
 

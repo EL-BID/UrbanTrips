@@ -97,7 +97,9 @@ def levanto_data(alias_data, alias_insumos, etapas=[], viajes=[]):
         query='SELECT DISTINCT id_linea, nombre_linea, empresa FROM metadata_lineas ORDER BY id_linea'
     )
 
-    kpis = levanto_tabla_sql('kpi_by_day_line', tabla_tipo='data', alias_db=alias_data)
+    kpis = levanto_tabla_sql('kpi_by_day_line', 
+                             tabla_tipo='data', 
+                             alias_db=alias_data)
 
     servicios = levanto_tabla_sql(
         'services',
@@ -274,14 +276,13 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
     return all
 
 @duracion
-def calculo_kpi_lineas(alias_data='', alias_dash='', alias_insumos='', etapas=[], viajes=[]):
+def calculo_kpi_lineas(alias_data='', alias_insumos='', etapas=[], viajes=[]):
     print('calculo kpi lineas')
     trx, etapas, gps, servicios, kpis_varios, lineas = levanto_data(alias_data, alias_insumos, etapas=etapas, viajes=viajes)
     kpis = agrego_lineas(['dia', 'id_linea'], trx, etapas, gps, servicios, kpis_varios, lineas)    
     guardar_tabla_sql(kpis, 
                       table_name='kpis_lineas', 
                       tabla_tipo='general', 
-                      alias_db=alias_dash, 
                       filtros={"dia": kpis.dia.unique().tolist()},
                       modo="append")
     
@@ -293,7 +294,6 @@ def calculo_kpi_lineas(alias_data='', alias_dash='', alias_insumos='', etapas=[]
     guardar_tabla_sql(df, 
                   table_name='kpis_lineas', 
                   tabla_tipo='general', 
-                  alias_db=alias_dash, 
                   filtros={"dia": df.dia.unique().tolist()},
                   modo="append")
 
