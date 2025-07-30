@@ -20,7 +20,7 @@ from dash_utils import (
     get_epsg_m,
     extract_hex_colors_from_cmap,
     levanto_tabla_sql_local,
-    configurar_selector_dia
+    configurar_selector_dia,
 )
 
 try:

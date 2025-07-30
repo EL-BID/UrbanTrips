@@ -86,9 +86,17 @@ def plot_venn_diagram(etapas_modos):
     cols_dummies = [
         x
         for x in etapas_modos.columns.tolist()
-        if x not in ["dia", "mes", "tipo_dia", "genero_agregado", "Modos", "factor_expansion_linea"]
+        if x
+        not in [
+            "dia",
+            "mes",
+            "tipo_dia",
+            "genero_agregado",
+            "Modos",
+            "factor_expansion_linea",
+        ]
     ]
-    
+
     cols_tmp = []
     for i in cols_dummies:
         etapas_modos[f"{i}_tmp"] = (
@@ -136,7 +144,7 @@ def plot_venn_diagram(etapas_modos):
     modal_etapas = pd.DataFrame(
         list(absolute_values.items()), columns=["Modes", "Cantidad"]
     ).round(0)
-    
+
     modal_etapas[cols_dummies] = pd.DataFrame(
         modal_etapas["Modes"].tolist(), index=modal_etapas.index
     )
@@ -324,7 +332,9 @@ def traigo_socio_indicadores(socio_indicadores):
 
     if len(socio_indicadores) > 0:
 
-        df = socio_indicadores[socio_indicadores.tabla == "viajes-genero_agregado-tarifa_agregada"].copy()
+        df = socio_indicadores[
+            socio_indicadores.tabla == "viajes-genero_agregado-tarifa_agregada"
+        ].copy()
         totals = (
             pd.crosstab(
                 values=df.factor_expansion_linea,
@@ -575,9 +585,9 @@ with st.expander("Partición modal", True):
     desc_dia = col1.selectbox(
         "Día", options=particion_modal.dia.unique(), key="desc_dia"
     )
-#     desc_tipo_dia = col1.selectbox(
-#         "Tipo de día", options=particion_modal.tipo_dia.unique(), key="desc_tipo_dia"
-#     )
+    #     desc_tipo_dia = col1.selectbox(
+    #         "Tipo de día", options=particion_modal.tipo_dia.unique(), key="desc_tipo_dia"
+    #     )
 
     list_genero = particion_modal.genero_agregado.unique()
     list_genero = ["Todos" if item == "-" else item for item in list_genero]
@@ -652,7 +662,7 @@ with st.expander("Partición modal", True):
 #     #         }
 #     #         </style>
 #     #         <div class='big-font'>
-#     #             No hay datos para mostrar            
+#     #             No hay datos para mostrar
 #     #         </div>
 #     #         """
 #     #     col2.markdown(texto_html, unsafe_allow_html=True)
@@ -664,7 +674,7 @@ with st.expander("Partición modal", True):
 #     #         }
 #     #         </style>
 #     #         <div class='big-font'>
-#     #             Verifique que los procesos se corrieron correctamente            
+#     #             Verifique que los procesos se corrieron correctamente
 #     #         </div>
 #     #         """
 #     #     col2.markdown(texto_html, unsafe_allow_html=True)
@@ -716,7 +726,7 @@ with st.expander("Género y tarifas"):
     if desc_dia != "Todos":
         st.session_state.socio_indicadores_ = socio_indicadores[
             (socio_indicadores.dia == desc_dia)
-                    ].copy()
+        ].copy()
 
     else:
         st.session_state.socio_indicadores_ = socio_indicadores[

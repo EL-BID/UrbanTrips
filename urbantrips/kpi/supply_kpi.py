@@ -1,4 +1,6 @@
 import pandas as pd
+import geopandas as gpd
+
 from urbantrips.carto.routes import (
     get_route_geoms_with_sections_data,
     check_exists_route_section_points_table,
@@ -15,9 +17,6 @@ from urbantrips.utils.utils import (
     create_line_ids_sql_filter,
     is_date_string,
 )
-
-
-import geopandas as gpd
 
 
 @duracion

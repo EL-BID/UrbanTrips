@@ -51,11 +51,12 @@ except Exception:
 # Carga de datos
 # -----------------------------------------------------------------------------
 
+
 @st.cache_data(show_spinner=False)
 def load_kpis() -> pd.DataFrame:
     df = levanto_tabla_sql("kpis_lineas", "general")
     return df
-    
+
 
 kpis_df = load_kpis()
 
@@ -96,10 +97,13 @@ TOTAL_SLOTS = 6  # columnas fijas por fila
 # Funciones auxiliares
 # -----------------------------------------------------------------------------
 
+
 def fmt(val, col):
     if pd.isna(val):
         return "–"
-    if col in INT_DISPLAY_COLS or (isinstance(val, (int, float)) and float(val).is_integer()):
+    if col in INT_DISPLAY_COLS or (
+        isinstance(val, (int, float)) and float(val).is_integer()
+    ):
         return f"{int(round(val)):,}"
     return f"{val:,.2f}"
 
@@ -125,7 +129,10 @@ def weighted_means(df: pd.DataFrame) -> pd.Series:
     w = df["transacciones"]
     wtot = w.sum()
     num_cols = df.select_dtypes("number").columns.difference(["transacciones"])
-    return pd.Series({c: (df[c] * w).sum() / wtot if wtot else float("nan") for c in num_cols})
+    return pd.Series(
+        {c: (df[c] * w).sum() / wtot if wtot else float("nan") for c in num_cols}
+    )
+
 
 # -----------------------------------------------------------------------------
 # 1. KPIs por línea
@@ -136,8 +143,14 @@ with st.expander("KPIs por línea", expanded=True):
 
     with col_filt:
 
-        lines = kpis_df[["id_linea", "nombre_linea"]].drop_duplicates().sort_values("id_linea")
-        lines["label"] = lines.apply(lambda x: f"{x.id_linea} – {x.nombre_linea}", axis=1)
+        lines = (
+            kpis_df[["id_linea", "nombre_linea"]]
+            .drop_duplicates()
+            .sort_values("id_linea")
+        )
+        lines["label"] = lines.apply(
+            lambda x: f"{x.id_linea} – {x.nombre_linea}", axis=1
+        )
         line_label = st.selectbox("Línea", lines["label"], index=0)
         line_id = lines.set_index("label").loc[line_label, "id_linea"]
         days = sorted(kpis_df["dia"].dropna().unique())
@@ -147,17 +160,17 @@ with st.expander("KPIs por línea", expanded=True):
         df_line = kpis_df[kpis_df["id_linea"] == line_id]
         df_line = df_line[df_line["dia"] == day_sel]
 
-        if  df_line.empty:            
+        if df_line.empty:
             st.warning("Sin datos para los filtros seleccionados.")
         else:
             st.markdown("#### Generales")
             metric_row(df_line, GENERAL_COLS)
             st.divider()
-    
+
             st.markdown("#### Género y tipo de tarifa")
             metric_row(df_line, DEMO_COLS, pct=True)
             st.divider()
-    
+
             st.markdown("#### Operativos")
             metric_row(df_line, OPERATIVE_COLS1)
             metric_row(df_line, OPERATIVE_COLS2)
@@ -174,15 +187,19 @@ with st.expander("Totales y promedios del sistema", expanded=False):
         mode_sel = st.selectbox("Modo", mode_options, index=0)
 
     with col_out:
-        df_sel = kpis_df if mode_sel == "Todos" else kpis_df[kpis_df["modo"] == mode_sel]
+        df_sel = (
+            kpis_df if mode_sel == "Todos" else kpis_df[kpis_df["modo"] == mode_sel]
+        )
 
         # Totales
         st.markdown("### Totales")
-        tot_df = pd.DataFrame({
-            "vehiculos_operativos": [df_sel["vehiculos_operativos"].sum()],
-            "transacciones": [df_sel["transacciones"].sum()],
-            "tot_km": [df_sel["tot_km"].sum()],
-        })
+        tot_df = pd.DataFrame(
+            {
+                "vehiculos_operativos": [df_sel["vehiculos_operativos"].sum()],
+                "transacciones": [df_sel["transacciones"].sum()],
+                "tot_km": [df_sel["tot_km"].sum()],
+            }
+        )
         metric_row(tot_df, GENERAL_COLS + ["tot_km"])
         st.divider()
         demo_tot = df_sel[DEMO_COLS].sum().to_frame().T
@@ -192,10 +209,12 @@ with st.expander("Totales y promedios del sistema", expanded=False):
 
         # Promedios ponderados
         st.markdown("### Promedios ponderados por transacciones")
-        gen_avg = pd.DataFrame({
-            "vehiculos_operativos": [df_sel["vehiculos_operativos"].mean()],
-            "transacciones": [df_sel["transacciones"].mean()],
-        })
+        gen_avg = pd.DataFrame(
+            {
+                "vehiculos_operativos": [df_sel["vehiculos_operativos"].mean()],
+                "transacciones": [df_sel["transacciones"].mean()],
+            }
+        )
         metric_row(gen_avg, GENERAL_COLS)
         st.divider()
         demo_wp = df_sel[DEMO_COLS].sum().to_frame().T

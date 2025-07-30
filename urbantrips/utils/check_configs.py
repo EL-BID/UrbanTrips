@@ -423,7 +423,7 @@ def check_lineas(config_default, alias_default):
                 & (config_default.subvar == "autobus"),
                 "default",
             ].values[0]
-            lineas[modo_trx] = autobus  
+            lineas[modo_trx] = autobus
             lineas = lineas.rename(columns={id_linea_trx: "id_linea", modo_trx: "modo"})
         if ramales:
             lineas.columns = ["id_linea", "id_ramal", "modo"]

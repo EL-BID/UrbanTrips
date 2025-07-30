@@ -30,7 +30,7 @@ def h3_from_row(row, res, lat, lng):
 
     return h3.latlng_to_cell(row[lat], row[lng], res=res)
 
-    
+
 def convert_h3_to_resolution(h3_index, target_resolution):
     try:
         # Get the geographic center of the original H3 index

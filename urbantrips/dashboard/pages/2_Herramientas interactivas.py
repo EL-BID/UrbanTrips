@@ -1,10 +1,6 @@
 import pandas as pd
 import streamlit as st
-from dash_utils import (
-    levanto_tabla_sql,
-    get_logo, 
-    configurar_selector_dia
-)
+from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_dia
 
 
 try:
@@ -16,7 +12,7 @@ try:
     from urbantrips.viz.section_supply import visualize_route_section_supply_data
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
-    
+
 except ImportError as e:
     st.error(
         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -75,7 +71,6 @@ def seleccionar_linea(key_input, key_select):
 
 
 st.set_page_config(layout="wide")
-
 
 
 logo = get_logo()
@@ -250,7 +245,6 @@ if st.button("Comenzar a procesar"):
         st.write(
             "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
         )
-
 
     else:
         st.write("No hay datos para mostrar")
