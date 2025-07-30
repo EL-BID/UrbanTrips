@@ -45,7 +45,7 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, "r", encoding="latin1") as file:
+    with open(file_path, "r") as file:
         content = file.read()
 
     # Check if the file contains tabs
@@ -240,7 +240,7 @@ def revise_configs(configs):
 def write_config(config_default):
     path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
 
-    with open(path, "w", encoding="utf8") as file:
+    with open(path, "w") as file:
 
         file.write("# Archivo de configuración para urbantrips\n\n")
 
@@ -367,6 +367,8 @@ def check_lineas(config_default, alias_default):
     Returns:
         pd.DataFrame: The updated configuration DataFrame.
     """
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    ramales = configs_usuario.get("lineas_contienen_ramales", False)
 
     if not config_default.loc[
         config_default.variable == "nombre_archivo_informacion_lineas", "default"
@@ -396,20 +398,20 @@ def check_lineas(config_default, alias_default):
         "data", "data_ciudad", nombre_archivo_informacion_lineas
     )
     if not os.path.isfile(path_archivo_lineas):
+
         print("Creo archivo con información de líneas")
-        nombre_archivo_trx = config_default.loc[
-            config_default.variable == "nombre_archivo_trx", "default"
-        ].values[0]
-        modo_trx = config_default.loc[
-            config_default.subvar == "modo_trx", "default"
-        ].values[0]
-        id_linea_trx = config_default.loc[
-            config_default.subvar == "id_linea_trx", "default"
-        ].values[0]
+        corrida = configs_usuario.get("corridas", [])[0]
+        nombre_archivo_trx = f"{corrida}_trx.csv"
+        nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
+        modo_trx = nombre_variables_trx.get("modo_trx", None)
+        id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
         trx = pd.read_csv(ruta)
 
         cols = [id_linea_trx]
+        if ramales:
+            id_ramal_trx = nombre_variables_trx.get("id_ramal_trx", None)
+            cols += [id_ramal_trx]
         if modo_trx:
             cols += [modo_trx]
         lineas = trx.groupby(cols, as_index=False).size().drop(["size"], axis=1)
@@ -417,13 +419,16 @@ def check_lineas(config_default, alias_default):
         if not modo_trx:
             modo_trx = "modo_trx"
             autobus = config_default.loc[
-                (config_default.variable == "modos")
+                (config_default.variable == "mo dos")
                 & (config_default.subvar == "autobus"),
                 "default",
             ].values[0]
-            lineas[modo_trx] = autobus
+            lineas[modo_trx] = autobus  
             lineas = lineas.rename(columns={id_linea_trx: "id_linea", modo_trx: "modo"})
-        lineas.columns = ["id_linea", "modo"]
+        if ramales:
+            lineas.columns = ["id_linea", "id_ramal", "modo"]
+        else:
+            lineas.columns = ["id_linea", "modo"]
     else:
         lineas = pd.read_csv(path_archivo_lineas)
 
@@ -434,10 +439,13 @@ def check_lineas(config_default, alias_default):
         ].values[0]
     if not "nombre_linea" in lineas:
         lineas["nombre_linea"] = ""
+    if ramales and not "nombre_ramal" in lineas:
+        lineas["nombre_ramal"] = ""
     if not "id_linea_agg" in lineas:
         lineas["id_linea_agg"] = ""
     if not "nombre_linea_agg" in lineas:
         lineas["nombre_linea_agg"] = ""
+
     lineas = lineas.fillna("")
     lineas.to_csv(path_archivo_lineas, index=False)
 

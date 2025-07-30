@@ -3,7 +3,6 @@ import pandas as pd
 import geopandas as gpd
 from shapely import line_interpolate_point
 import libpysal
-from urbantrips.carto import carto
 from urbantrips.geo import geo
 from urbantrips.utils.utils import duracion, iniciar_conexion_db, leer_configs_generales
 

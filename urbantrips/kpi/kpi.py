@@ -527,7 +527,7 @@ def add_distances_to_legs(legs):
     """
     configs = leer_configs_generales()
     h3_original_res = configs["resolucion_h3"]
-    min_distance = h3.edge_length(resolution=h3_original_res, unit="km")
+    min_distance = h3.average_hexagon_edge_length(res=h3_original_res, unit="km")
 
     alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
@@ -1430,7 +1430,7 @@ def compute_speed_by_veh_hour(legs_vehicle):
             return None
 
         res = 11
-        distance_between_hex = h3.edge_length(resolution=res, unit="m")
+        distance_between_hex = h3.average_hexagon_edge_length(res=res, unit="m")
         distance_between_hex = distance_between_hex * 2
 
         speed = legs_vehicle.reindex(
@@ -1457,7 +1457,7 @@ def compute_speed_by_veh_hour(legs_vehicle):
         )
 
         speed["meters"] = (
-            speed.apply(lambda row: h3.h3_distance(row["h3"], row["h3_lag"]), axis=1)
+            speed.apply(lambda row: h3.grid_distance(row["h3"], row["h3_lag"]), axis=1)
             * distance_between_hex
         )
 

@@ -277,7 +277,7 @@ def minimizar_distancia_parada_candidata(paradas_candidatas, matriz_validacion):
 
 
 def h3_distance_stops(row):
-    return h3.h3_distance(row["lag_etapa"], row["h3_d"])
+    return h3.grid_distance(row["lag_etapa"], row["h3_d"])
 
 
 def validar_destinos(destinos):

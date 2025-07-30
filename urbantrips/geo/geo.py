@@ -6,7 +6,7 @@ from urbantrips.utils.utils import leer_configs_generales
 from itertools import repeat
 import h3
 from math import ceil
-from shapely.geometry import Polygon, Point, LineString, LinearRing
+from shapely.geometry import Polygon, Point, LineString, shape
 import libpysal
 import statsmodels.api as sm
 
@@ -16,7 +16,7 @@ def referenciar_h3(df, res, nombre_h3, lat="latitud", lon="longitud"):
     Esta funcion toma un DF con latitud y longitud y georeferencia
     sus coordenadas en grillas hexagonales h3
     """
-    out = list(map(h3.geo_to_h3, df[lat], df[lon], repeat(res)))
+    out = list(map(h3.latlng_to_cell, df[lat], df[lon], repeat(res)))
     df[nombre_h3] = out
     return df
 
@@ -28,15 +28,15 @@ def h3_from_row(row, res, lat, lng):
     y devuelve un id de indice h3
     """
 
-    return h3.geo_to_h3(row[lat], row[lng], resolution=res)
+    return h3.latlng_to_cell(row[lat], row[lng], res=res)
 
-
+    
 def convert_h3_to_resolution(h3_index, target_resolution):
     try:
         # Get the geographic center of the original H3 index
-        center_geo = h3.h3_to_geo(h3_index)
+        center_geo = h3.cell_to_latlng(h3_index)
         # Convert the geographic center to the target resolution H3 index
-        result = h3.geo_to_h3(center_geo[0], center_geo[1], target_resolution)
+        result = h3.latlng_to_cell(center_geo[0], center_geo[1], target_resolution)
     except:
         result = np.nan
     return result
@@ -47,7 +47,7 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     Esta funcion toma una resolucion h3 y una tolerancia en metros
     y calcula la cantidad de h3 tolerancia en para alcanzar esa tolerancia
     """
-    lado = round(h3.edge_length(resolution=resolucion_h3, unit="m"))
+    lado = round(h3.average_hexagon_edge_length(res=resolucion_h3, unit="m"))
 
     if buffer_meters < lado:
         ring_size = 0
@@ -76,14 +76,14 @@ def get_stop_hex_ring(h, ring_size):
     a h3 ring size, and returns a DataFrame with that stops and all the
     hexs within that ring
     """
-    rings = list(h3.k_ring(h, ring_size))
+    rings = list(h3.grid_disk(h, ring_size))
     df = pd.DataFrame({"parada": [h] * (len(rings)), "area_influencia": rings})
     return df
 
 
 def h3togeo(x):
     try:
-        result = str(h3.h3_to_geo(x)[0]) + ", " + str(h3.h3_to_geo(x)[1])
+        result = str(h3.cell_to_latlng(x)[0]) + ", " + str(h3.cell_to_latlng(x)[1])
     except (TypeError, ValueError):
         result = ""
     return result
@@ -92,9 +92,9 @@ def h3togeo(x):
 def h3togeo_latlon(x, latlon="lat"):
     try:
         if latlon == "lat":
-            result = h3.h3_to_geo(x)[1]
+            result = h3.cell_to_latlng(x)[1]
         else:
-            result = h3.h3_to_geo(x)[0]
+            result = h3.cell_to_latlng(x)[0]
     except (TypeError, ValueError):
         result = np.nan
     return result
@@ -107,12 +107,18 @@ def h3dist(x, distancia_entre_hex=1, h3_o="", h3_d=""):
         h3_d = "h3_d"
 
     try:
-        x = round(h3.h3_distance(x[h3_o], x[h3_d]) * distancia_entre_hex, 2)
+        x = round(h3.grid_distance(x[h3_o], x[h3_d]) * distancia_entre_hex, 2)
     # except (H3CellError, TypeError) as e:
     except TypeError as e:
         print(e)
         x = np.nan
     return x
+
+
+def h3_to_polygon(h3_index):
+    # Obtener las coordenadas del hexágono
+    geom = shape(h3.cells_to_h3shape([h3_index]).__geo_interface__)
+    return geom
 
 
 def add_geometry(row, bring="polygon"):
@@ -126,9 +132,8 @@ def add_geometry(row, bring="polygon"):
 
     Salida: geometry resultado
     """
-    points = h3.h3_to_geo_boundary(row, True)
+    points = h3_to_polygon(row)
 
-    points = Polygon(points)
     if bring == "lat":
         points = points.representative_point().y
     if bring == "lon":
@@ -231,7 +236,7 @@ def normalizo_lat_lon(df, h3_o="h3_o", h3_d="h3_d", origen="", destino=""):
 
 def h3_to_lat_lon(h3_hex):
     try:
-        lat, lon = h3.h3_to_geo(h3_hex)
+        lat, lon = h3.cell_to_latlng(h3_hex)
     except Exception as e:  # Catch specific exceptions if possible
         lat, lon = np.nan, np.nan
     return pd.Series((lat, lon))
@@ -242,8 +247,8 @@ def h3_to_lat_lon(h3_hex):
 
 def h3toparent(x, res=6):
     try:
-        x = h3.h3_to_parent(x, res)
-    except:
+        x = h3.cell_to_parent(x, res)
+    except Exception as e:
         x = ""
     return x
 
@@ -259,12 +264,7 @@ def h3_to_geodataframe(h3_indexes, var_h3=""):
         h3_indexes = h3_indexes[var_h3].unique()
 
     # Convert H3 indexes to polygons
-    polygons = []
-    for index in h3_indexes:
-        boundary_lat_lng = h3.h3_to_geo_boundary(index)
-        # Swap lat-lon to lon-lat for each coordinate
-        boundary_lon_lat = [(lon, lat) for lat, lon in boundary_lat_lng]
-        polygons.append(Polygon(boundary_lon_lat))
+    polygons = [h3_to_polygon(h) for h in h3_indexes]
 
     # Create GeoDataFrame
     gdf = gpd.GeoDataFrame({var_h3: h3_indexes, "geometry": polygons}, crs=4326)
@@ -275,7 +275,7 @@ def h3_to_geodataframe(h3_indexes, var_h3=""):
 def point_to_h3(row, resolution):
     # Extract the latitude and longitude from the point
     x, y = row.geometry.x, row.geometry.y
-    return h3.geo_to_h3(y, x, resolution)  # Note: lat, lon order
+    return h3.latlng_to_cell(y, x, resolution)  # Note: lat, lon order
 
 
 # Calculate weighted mean, handling division by zero or empty inputs
@@ -289,21 +289,9 @@ def weighted_mean(series, weights):
     return result
 
 
-# Function to convert H3 hex id to a polygon
-
-
-def hex_to_polygon(hex_id):
-    try:
-        vertices = h3.h3_to_geo_boundary(hex_id, geo_json=True)
-        return Polygon(vertices)
-    except ValueError:
-        print(f"Skipping invalid H3 ID: {hex_id}")
-        return None
-
-
 def create_h3_gdf(hexagon_ids):
     # Convert H3 hexagons to polygons
-    polygons = [hex_to_polygon(hex_id) for hex_id in hexagon_ids if hex_id]
+    polygons = [h3_to_polygon(hex_id) for hex_id in hexagon_ids if hex_id]
 
     # Filter out None values if any invalid hexagons were skipped
     valid_data = [
@@ -325,7 +313,7 @@ def create_h3_gdf(hexagon_ids):
 
 
 def create_point_from_h3(h):
-    return Point(h3.h3_to_geo(h)[::-1])
+    return Point(h3.cell_to_latlng(h)[::-1])
 
 
 def crear_linestring(df, lon_o, lat_o, lon_d, lat_d):
@@ -426,7 +414,7 @@ def distancia_h3(row, *args, **kwargs):
 
     """
     try:
-        out = h3.h3_distance(row["h3"], row["h3_lag"])
+        out = h3.grid_distance(row["h3"], row["h3_lag"])
     except ValueError as e:
         out = None
     return out
@@ -497,7 +485,7 @@ def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False
         stations = stations.loc[stations.id_ramal == legs_branch_id, :]
 
     # create legs geoms
-    lat, lon = zip(*legs[leg_h3_field].map(h3.h3_to_geo).tolist())
+    lat, lon = zip(*legs[leg_h3_field].map(h3.cell_to_latlng).tolist())
 
     legs_geom = gpd.GeoDataFrame(
         legs.reindex(columns=["dia", "id"]),

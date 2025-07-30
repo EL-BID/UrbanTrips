@@ -113,6 +113,7 @@ def traigo_db_path(tipo="data", alias_db=""):
 
     return db_path
 
+
 def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
     Esta funcion toma un tipo de datos (data o insumos)
@@ -1636,7 +1637,9 @@ def tabla_existe(conn, table_name):
             raise
 
 
-def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"):
+def guardar_tabla_sql(
+    df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
+):
     """
     Guarda un DataFrame en una base de datos SQLite.
 
