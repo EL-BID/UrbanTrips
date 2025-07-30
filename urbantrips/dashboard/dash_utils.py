@@ -16,6 +16,7 @@ from shapely.geometry import LineString, Point, Polygon, shape, mapping
 import h3
 from datetime import datetime
 
+
 def leer_configs_generales(autogenerado=True):
     """
     Esta funcion lee los configs generales
@@ -43,7 +44,7 @@ def leer_alias(tipo="dash"):
 
     configs_orig = leer_configs_generales(autogenerado=False)
     corridas = configs_orig["corridas"]
-    if (len(corridas)>1) & ("dia_seleccionado" in st.session_state):
+    if (len(corridas) > 1) & ("dia_seleccionado" in st.session_state):
         posicion = corridas.index(st.session_state.dia_seleccionado)
 
         # Setear el tipo de key en base al tipo de datos
@@ -72,7 +73,7 @@ def leer_alias(tipo="dash"):
             alias = configs[key] + "_"
         except KeyError:
             alias = ""
-    
+
     return alias
 
 
@@ -87,10 +88,11 @@ def traigo_db_path(tipo="data", alias_db=""):
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    
+
     db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
+
 
 def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
@@ -181,6 +183,7 @@ def normalize_vars(tabla):
         tabla["modo"] = tabla["modo"].str.capitalize()
     return tabla
 
+
 @st.cache_data
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
@@ -212,7 +215,6 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
     return tabla
 
 
-    
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
     if alias_db and not alias_db.endswith("_"):
@@ -455,7 +457,6 @@ def create_data_folium(
     transferencias_seleccionado=False,
 ):
 
-
     if transferencias_seleccionado:
 
         t1 = etapas.loc[
@@ -589,14 +590,18 @@ def create_data_folium(
             0
         )
 
-        etapas = etapas[(etapas.inicio_norm != etapas.fin_norm)].sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True).copy()            
+        etapas = (
+            etapas[(etapas.inicio_norm != etapas.fin_norm)]
+            .sort_values("factor_expansion_linea", ascending=False)
+            .reset_index(drop=True)
+            .copy()
+        )
         if len(etapas) >= 2000:
-            print('Se muestran las etapas con más viajes')
+            print("Se muestran las etapas con más viajes")
             etapas = etapas.head(2000)
-        
+
         etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
 
-        
         etapas = df_to_linestrings(
             etapas,
             lat_cols=["lat1_norm", "lat2_norm", "lat3_norm", "lat4_norm"],
@@ -622,14 +627,19 @@ def create_data_folium(
         if "id_polygon" not in viajes_matrices.columns:
             viajes_matrices["id_polygon"] = "NONE"
 
-        viajes = viajes[(viajes.inicio_norm != viajes.fin_norm)].sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True).copy()            
+        viajes = (
+            viajes[(viajes.inicio_norm != viajes.fin_norm)]
+            .sort_values("factor_expansion_linea", ascending=False)
+            .reset_index(drop=True)
+            .copy()
+        )
         if len(etapas) >= 1500:
-            print('Se muestran las lineas con más viajes')
+            print("Se muestran las lineas con más viajes")
             viajes = viajes.head(1500)
-            
+
         # viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
         viajes["factor_expansion_linea"] = viajes["factor_expansion_linea"].round(0)
-        
+
         viajes = df_to_linestrings(
             viajes,
             lat_cols=["lat1_norm", "lat4_norm"],
@@ -850,13 +860,6 @@ def traigo_lista_zonas(tipo="etapas"):
     )
 
     return zonas_values
-
-
-# Convert geometry to H3 indices
-def get_h3_indices_in_geometry(geometry, resolution):
-    geojson = mapping(geometry)
-    h3_indices = list(h3.polyfill(geojson, resolution, geo_json_conformant=True))
-    return h3_indices
 
 
 def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2_col):
@@ -1156,13 +1159,16 @@ def traigo_tablas_con_filtros(
 
 @st.cache_data
 def traer_dias_disponibles():
-    return levanto_tabla_sql("corridas", "general", query="select corrida from corridas").corrida.values.tolist()
+    return levanto_tabla_sql(
+        "corridas", "general", query="select corrida from corridas"
+    ).corrida.values.tolist()
+
 
 def configurar_selector_dia():
 
     dias_disponibles = traer_dias_disponibles()
 
-    if (len(dias_disponibles)>1):
+    if len(dias_disponibles) > 1:
 
         # Inicialización una única vez
         if "dia_seleccionado" not in st.session_state:
@@ -1189,7 +1195,9 @@ def configurar_selector_dia():
     return seleccion
 
 
-def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"):
+def guardar_tabla_sql(
+    df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
+):
     """
     Guarda un DataFrame en una base de datos SQLite.
 

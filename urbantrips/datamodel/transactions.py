@@ -952,7 +952,7 @@ def compute_distance_km_gps(gps, use_pandana=False):
 
     else:
         # compute h3 distance
-        distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+        distancia_entre_hex = h3.average_hexagon_edge_length(res=res, unit="km")
         distancia_entre_hex = distancia_entre_hex * 2
         gps_dict = gps.to_dict("records")
         gps.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))

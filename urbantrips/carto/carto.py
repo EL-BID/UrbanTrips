@@ -11,7 +11,7 @@ import itertools
 import os
 import geopandas as gpd
 import h3
-from shapely.geometry import Point, MultiPolygon, Polygon
+from shapely.geometry import Point, MultiPolygon, Polygon, shape
 from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
@@ -22,8 +22,9 @@ from urbantrips.geo.geo import (
     normalizo_lat_lon,
     h3dist,
     bring_latlon,
+    h3_to_polygon,
 )
-from urbantrips.viz import viz
+
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -127,12 +128,6 @@ def update_stations_catchment_area(ring_size):
             + " en base a la informacion existente en la tabla de etapas"
         )
     return None
-
-
-def h3_to_polygon(h3_index):
-    # Obtener las coordenadas del hexágono
-    boundary = h3.h3_to_geo_boundary(h3_index, geo_json=True)
-    return Polygon(boundary)
 
 
 def guardo_zonificaciones():
@@ -651,9 +646,8 @@ def compute_distances_osm(
     df = df[cols + var_distances].copy()
 
     # get distance between h3 cells
-    configs = leer_configs_generales()
-    h3_res = configs["resolucion_h3"]
-    distance_between_hex = h3.edge_length(resolution=h3_res, unit="km")
+    resolution = h3.get_resolution(df[h3_o].iloc[0])
+    distance_between_hex = h3.average_hexagon_edge_length(resolution, unit="km")
     distance_between_hex = distance_between_hex * 2
 
     if (len(h3_o) > 0) & (len(h3_d) > 0):
@@ -733,6 +727,14 @@ def get_network_distance_osmnx(par, G, *args, **kwargs):
     return out
 
 
+# Convert geometry to H3 indices
+def get_h3_indices_in_geometry(geometry, resolution):
+    poly = h3.geo_to_h3shape(geometry)
+    h3_indices = list(h3.h3shape_to_cells(poly, res=resolution))
+
+    return h3_indices
+
+
 def generate_h3_hexagons_within_polygon(geo_df, resolution):
     """
     Genera un GeoDataFrame con hexágonos H3 dentro del polígono dado.
@@ -760,27 +762,18 @@ def generate_h3_hexagons_within_polygon(geo_df, resolution):
         )
 
     # Obtener los hexágonos que cubren el polígono
-    hexagons = list(h3.polyfill_geojson(polygon.__geo_interface__, resolution))
+    hexagons = pd.Series(get_h3_indices_in_geometry(polygon, resolution))
+    hexagons_geoms = gpd.GeoSeries([h3_to_polygon(h) for h in hexagons], crs=4326)
 
-    # Crear un GeoDataFrame con los hexágonos dentro del polígono
-    hexagon_geometries = []
-    for h in hexagons:
-        hex_polygon = Polygon(h3.h3_to_geo_boundary(h, geo_json=True))
-        if polygon.contains(hex_polygon.centroid):
-            hexagon_geometries.append(hex_polygon)
+    # Filtrar los hexágonos que están dentro del polígono
+    mask = hexagons_geoms.centroid.within(polygon).values
+    hexagons = hexagons[mask]
+    hexagons_geoms = hexagons_geoms[mask]
 
     # Crear un GeoDataFrame con los hexágonos seleccionados
     hexagon_gdf = gpd.GeoDataFrame(
-        {
-            "h3_index": [
-                h
-                for h in hexagons
-                if Polygon(h3.h3_to_geo_boundary(h, geo_json=True)).centroid.within(
-                    polygon
-                )
-            ]
-        },
-        geometry=hexagon_geometries,
+        {"h3_index": hexagons},
+        geometry=hexagons_geoms,
         crs="EPSG:4326",
     )
 
@@ -799,7 +792,10 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
         GeoDataFrame: GeoDataFrame con los hexágonos en la resolución objetivo.
     """
     # Validar que la resolución objetivo sea mayor que la resolución actual
-    current_resolution = h3.h3_get_resolution(hexagon_gdf["h3_index"].iloc[0])
+    current_resolution = h3.get_resolution(hexagon_gdf["h3_index"].iloc[0])
+    print(
+        f"Resolución actual: {current_resolution}, Resolución objetivo: {target_resolution}"
+    )
     if target_resolution <= current_resolution:
         raise ValueError(
             "La resolución objetivo debe ser mayor que la resolución actual."
@@ -808,9 +804,10 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     # Generar los hijos para cada hexágono
     hexagon_children = []
     for h3_index in hexagon_gdf["h3_index"]:
-        children = h3.h3_to_children(h3_index, target_resolution)
+        children = h3.cell_to_children(h3_index, target_resolution)
+
         for child in children:
-            hex_polygon = Polygon(h3.h3_to_geo_boundary(child, geo_json=True))
+            hex_polygon = h3_to_polygon(child)
             hexagon_children.append({"h3_index": child, "geometry": hex_polygon})
 
     # Crear el nuevo GeoDataFrame

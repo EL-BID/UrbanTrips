@@ -9,6 +9,7 @@ from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
 from urbantrips.carto.routes import read_routes, floor_rounding
+from urbantrips.carto.carto import get_h3_indices_in_geometry
 
 
 def from_linestring_to_h3(linestring, h3_res=8):
@@ -17,11 +18,8 @@ def from_linestring_to_h3(linestring, h3_res=8):
     returns all h3 hecgrid cells that intersect that linestring
     """
     linestring_buffer = linestring.buffer(0.002)
-    linestring_buffer_geojson = eval(shapely.to_geojson(linestring_buffer))
-
-    linestring_h3 = h3.polyfill(linestring_buffer_geojson, 10, geo_json_conformant=True)
-
-    linestring_h3 = {h3.h3_to_parent(h, h3_res) for h in linestring_h3}
+    linestring_h3 = get_h3_indices_in_geometry(linestring_buffer, 10)
+    linestring_h3 = {h3.cell_to_parent(h, h3_res) for h in linestring_h3}
     return pd.Series(list(linestring_h3)).drop_duplicates()
 
 
@@ -74,7 +72,7 @@ def get_demand_data(
     ) = None,  # Not used as % of demand is not related to hour range
 ) -> pd.DataFrame:
 
-    h3_res = h3.h3_get_resolution(supply_gdf.h3.iloc[0])
+    h3_res = h3.get_resolution(supply_gdf.h3.iloc[0])
 
     # get demand data
     line_ids_where = kpi.create_line_ids_sql_filter(line_ids=[line_id])
@@ -216,7 +214,7 @@ def aggregate_demand_data(
         base_branch_id,
         comp_line_id,
         comp_branch_id,
-        res_h3=h3.h3_get_resolution(supply_gdf.h3.iloc[0]),
+        res_h3=h3.get_resolution(supply_gdf.h3.iloc[0]),
         base_v_comp=shared_demand,
     )
     return {"data": legs_within_branch, "output_text": output_text}
@@ -508,7 +506,7 @@ def compute_demand_overlapping(
     comp_gdf,
 ):
     configs = utils.leer_configs_generales()
-    comp_h3_resolution = h3.h3_get_resolution(comp_gdf.h3.iloc[0])
+    comp_h3_resolution = h3.get_resolution(comp_gdf.h3.iloc[0])
     configs_resolution = configs["resolucion_h3"]
 
     if comp_h3_resolution > configs_resolution:

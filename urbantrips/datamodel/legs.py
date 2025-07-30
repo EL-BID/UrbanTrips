@@ -641,7 +641,7 @@ def assign_gps_destination():
         """
         matriz = pd.read_sql(q, conn_insumos)
         matriz["ring"] = matriz.apply(
-            lambda row: h3.h3_distance(row.parada, row.area_influencia), axis=1
+            lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
         matriz = matriz[matriz.ring < 3]
 
@@ -690,7 +690,7 @@ def assign_gps_destination():
         gps = pd.read_sql(q, conn_data)
         print("len gps", len(gps))
         # get h3 res for gps
-        gps_h3_res = h3.h3_get_resolution(gps["h3"].sample().item())
+        gps_h3_res = h3.get_resolution(gps["h3"].sample().item())
 
         # geocode gps with same h3 res than legs
         gps = referenciar_h3(
@@ -866,7 +866,7 @@ def assign_gps_destination():
 
 
 def distancia_h3_gps_leg(row):
-    return h3.h3_distance(row["h3_d_gps_res"], row["h3"])
+    return h3.grid_distance(row["h3_d_gps_res"], row["h3"])
 
 
 @duracion

@@ -37,6 +37,8 @@ from urbantrips.utils.utils import (
     duracion,
     create_line_ids_sql_filter,
 )
+from urbantrips.carto.carto import get_h3_indices_in_geometry
+
 import warnings
 
 
@@ -725,8 +727,8 @@ def imprimir_matrices_od(
     )
 
     conn_insumos.close()
-    zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
     df, matriz_zonas = traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d")
 
@@ -928,8 +930,8 @@ def imprime_lineas_deseo(
 
     conn_insumos.close()
 
-    zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -1637,8 +1639,8 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
     vars_zona = []
 
     if res_agg:
-        zonas["h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-        zonas["h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+        zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+        zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
         matriz_zonas += [["", "h3_r6", ""], ["", "h3_r7", ""]]
         vars_zona += ["h3_r6"]
@@ -2253,7 +2255,7 @@ def lineas_deseo(
 
 def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7):
 
-    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.h3_to_parent, res=res)
+    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.cell_to_parent, res=res)
 
     hexs = (
         zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
@@ -2280,7 +2282,7 @@ def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7)
         how="left",
     )
 
-    df["h3_o_tmp"] = df[h3_o].apply(h3.h3_to_parent, res=res)
+    df["h3_o_tmp"] = df[h3_o].apply(h3.cell_to_parent, res=res)
 
     # Agrego a res de gráfico latlong
     df_agg = df.groupby(["dia", "h3_o_tmp"], as_index=False).agg({var_fex: "sum"})
@@ -2932,13 +2934,11 @@ def viz_travel_times_poly(polygon):
 
     conn_data = iniciar_conexion_db(tipo="data")
 
-    poly_geojson = shapely.to_geojson(polygon)
-    poly_geojson = json.loads(poly_geojson)
-    poly_h3 = h3.polyfill(poly_geojson, res=h3_res, geo_json_conformant=True)
+    poly_h3 = get_h3_indices_in_geometry(polygon, h3_res)
 
     if len(poly_h3) == 0:
-        poly_h3 = h3.polyfill(poly_geojson, res=h3_res + 1, geo_json_conformant=True)
-        poly_h3 = set(map(h3.h3_to_parent, poly_h3))
+        poly_h3 = get_h3_indices_in_geometry(polygon, h3_res + 1)
+        poly_h3 = set(map(h3.cell_to_parent, poly_h3))
 
     poly_str = "','".join(poly_h3)
 
