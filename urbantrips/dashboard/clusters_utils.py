@@ -626,9 +626,8 @@ def guardar_tabla_como_png(df, nombre_archivo, titulo, filepath = Path() / 'data
     plt.close()
 
 
-def correr_clusters():
+def correr_clusters(data):
 
-    data = levanto_tabla_sql('kpis_lineas', 'dash')
     carto = levanto_tabla_sql("lines_geoms", "insumos")
     escenarios_clusterizacion = levanto_tabla_sql("escenarios_clusterizacion", "insumos")
     data = data[data.modo=='Autobus']

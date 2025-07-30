@@ -54,11 +54,6 @@ except Exception:
 @st.cache_data(show_spinner=False)
 def load_kpis() -> pd.DataFrame:
     df = levanto_tabla_sql("kpis_lineas", "general")
-    df["vehiculos_operativos"] = (
-        df["cant_internos_en_gps"].where(df["cant_internos_en_gps"] > 0, df["cant_internos_en_trx"])
-        .fillna(df["flota"])
-        .astype("Int64")
-    )
     return df
     
 
@@ -146,23 +141,23 @@ with st.expander("KPIs por línea", expanded=True):
         line_label = st.selectbox("Línea", lines["label"], index=0)
         line_id = lines.set_index("label").loc[line_label, "id_linea"]
         days = sorted(kpis_df["dia"].dropna().unique())
-        day_sel = st.selectbox("Día", ["Todos"] + days, index=0)
+        day_sel = st.selectbox("Día", ["Promedios"] + days, index=0)
 
     with col_met:
         df_line = kpis_df[kpis_df["id_linea"] == line_id]
-        if day_sel != "Todos":
-            df_line = df_line[df_line["dia"] == day_sel]
-        if df_line.empty:
+        df_line = df_line[df_line["dia"] == day_sel]
+
+        if  df_line.empty:            
             st.warning("Sin datos para los filtros seleccionados.")
         else:
             st.markdown("#### Generales")
             metric_row(df_line, GENERAL_COLS)
             st.divider()
-
+    
             st.markdown("#### Género y tipo de tarifa")
             metric_row(df_line, DEMO_COLS, pct=True)
             st.divider()
-
+    
             st.markdown("#### Operativos")
             metric_row(df_line, OPERATIVE_COLS1)
             metric_row(df_line, OPERATIVE_COLS2)
