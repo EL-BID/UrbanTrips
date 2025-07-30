@@ -1,8 +1,8 @@
+from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 
 
 def main():
-
-    # TODO: que sumar a la tabla general como post proceso para varias corridas
+    preparo_indicadores_dash(corrida="", resoluciones=[6, 7])
 
 
 if __name__ == "__main__":
