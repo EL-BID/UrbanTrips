@@ -4,7 +4,6 @@ import numpy as np
 from pathlib import Path
 from urbantrips.utils import utils
 from urbantrips.utils.utils import levanto_tabla_sql, guardar_tabla_sql, duracion
-import unidecode
 from datetime import datetime
 
 

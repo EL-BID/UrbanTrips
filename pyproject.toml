@@ -46,7 +46,8 @@ dependencies = [
     "platformdirs==4.2.2",
     "typing_extensions==4.12.2",
     "squarify",
-    "matplotlib_venn"
+    "matplotlib_venn",
+    "unidecode"
 ]
 
 [project.optional-dependencies]
