@@ -788,9 +788,6 @@ st.image(logo)
 
 alias_seleccionado = configurar_selector_dia()
 
-st.write(
-    "Si recién procesó nuevas líneas con Herramientas interactivas, limpie el caché desde el ícono superior derecho de la pantalla"
-)
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
@@ -830,12 +827,16 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("Periodo")
 
-    kpi_lineas = levanto_tabla_sql_local("basic_kpi_by_line_hr")
-    day_type_kpi = col1.selectbox("Tipo de dia  ", options=kpi_lineas.dia.unique())
+    kpi_lineas = levanto_tabla_sql_local("agg_indicadores")
+    if len(kpi_lineas) == 0:
+        months = None
+    else:
+        months = kpi_lineas.mes.unique()
+
+    dias = ["Hábil", "Fin de semana"]
+    day_type_kpi = col1.selectbox("Tipo de dia  ", options=dias)
     # add month and year
-    yr_mo_kpi = col1.selectbox(
-        "Periodo  ", options=kpi_lineas.yr_mo.unique(), key="year_month"
-    )
+    yr_mo_kpi = col1.selectbox("Periodo  ", options=months, key="year_month")
     st.session_state["day_type_kpi"] = day_type_kpi
     st.session_state["yr_mo_kpi"] = yr_mo_kpi
 
@@ -846,13 +847,19 @@ with col2:
     nombre_linea = st.session_state["nombre_linea"]
 
 with st.expander("Factor de ocupación por horas"):
+    basic_kpi_lineas = levanto_tabla_sql_local(
+        "basic_kpi_by_line_hr", tabla_tipo="data"
+    )
+
     nombre_linea_kpi = st.session_state["nombre_linea"]
     id_linea_kpi = st.session_state["id_linea"]
-    kpi_stats_line_plot = kpi_lineas[
-        (kpi_lineas.id_linea == st.session_state["id_linea"])
-        & (kpi_lineas.dia == st.session_state["day_type_kpi"])
-        & (kpi_lineas.yr_mo == st.session_state["yr_mo_kpi"])
+
+    kpi_stats_line_plot = basic_kpi_lineas[
+        (basic_kpi_lineas.id_linea == st.session_state["id_linea"])
+        & (basic_kpi_lineas.dia == st.session_state["day_type_kpi"])
+        & (basic_kpi_lineas.yr_mo == st.session_state["yr_mo_kpi"])
     ]
+
     if len(kpi_stats_line_plot) > 0:
 
         # Grafico Factor de Oocupación
@@ -947,12 +954,12 @@ with st.expander("Demanda por segmento de recorrido"):
 
     st.session_state["secciones"] = n_sections
     st.session_state["rango"] = rango
+
     lineas = lineas[
         (lineas.day_type == st.session_state["day_type_kpi"])
         & (lineas.n_sections == st.session_state["secciones"])
         & (lineas.rango == st.session_state["rango"])
     ]
-
     if len(lineas) > 0:
         if st.checkbox("Mostrar datos", value=False):
             st.write(lineas)
