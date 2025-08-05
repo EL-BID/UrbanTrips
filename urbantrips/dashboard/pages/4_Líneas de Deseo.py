@@ -22,10 +22,11 @@ from dash_utils import (
     traigo_lista_zonas,
     traigo_tablas_con_filtros,
     configurar_selector_dia,
+    get_h3_indices_in_geometry
 )
 from shapely.geometry import Polygon, MultiPolygon
 from datetime import datetime
-from urbantrips.carto.carto import get_h3_indices_in_geometry
+# from urbantrips.carto.carto import get_h3_indices_in_geometry
 
 import folium
 import pandas as pd
@@ -130,7 +131,9 @@ def crear_mapa_lineas_deseo(
 
     # if latlon is None:
     #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
-    latlon = [-34.6037, -58.3816]
+    
+
+    
     # 🗺️ Crear el mapa
     m = folium.Map(location=latlon, zoom_start=9, tiles="cartodbpositron")
 
@@ -293,7 +296,7 @@ with st.expander("Líneas de Deseo", expanded=True):
     if len(st.session_state.lista_etapas) > 0:
         zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
 
-        equivalencia_zonas = levanto_tabla_sql("equivalencia_zonas", "insumos")
+        equivalencias_zonas = levanto_tabla_sql("equivalencias_zonas", "insumos")
 
         socio_indicadores = levanto_tabla_sql("socio_indicadores", "dash")
         if "Genero" not in socio_indicadores.columns:
@@ -592,7 +595,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         zona_filtro_seleccion2,
                         filtro_seleccion2,
                         tipo_filtro,
-                        equivalencia_zonas,
+                        equivalencias_zonas,
                         zonificaciones,
                     )
                     st.session_state.etapas_all = agg_etapas.copy()

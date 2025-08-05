@@ -150,3 +150,6 @@ dmypy.json
 data/data_ciudad/zona_voi.geojson
 *.csv
 *.geojson
+data/db/AMBA_2019_11_21_dash (1).sqlite-journal
+configs/configuraciones_generales.yaml
+configs/configuraciones_generales.yaml

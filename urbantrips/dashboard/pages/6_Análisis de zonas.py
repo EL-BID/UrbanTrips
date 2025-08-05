@@ -14,9 +14,11 @@ from dash_utils import (
     get_logo,
     bring_latlon,
     configurar_selector_dia,
+    get_h3_indices_in_geometry,
+    h3_to_polygon
 )
-from urbantrips.carto.carto import get_h3_indices_in_geometry
-from urbantrips.geo.geo import h3_to_polygon
+# from urbantrips.carto.carto import get_h3_indices_in_geometry
+# from urbantrips.geo.geo import h3_to_polygon
 from streamlit_folium import folium_static
 
 pd.options.display.float_format = "{:,.0f}".format

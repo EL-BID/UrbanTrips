@@ -208,6 +208,8 @@ def guardo_zonificaciones():
 
         if len(zonificaciones) > 0:
 
+            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
+
             crs_val = configs["epsg_m"]
             crs_actual = zonificaciones.crs
 
@@ -224,14 +226,14 @@ def guardo_zonificaciones():
             )
 
             # Agrego res_6 y res_8 en zonificaciones
-            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6)
+            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6, crs_val)
             res_6["zona"] = "res_6"
             res_6["orden"] = 0
             res_6 = res_6.rename(columns={"h3_index": "id"})
             res_6 = res_6[["zona", "id", "orden", "geometry"]]
             zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
 
-            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7)
+            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7, crs_val)
             res_7["zona"] = "res_7"
             res_7["orden"] = 0
             res_7 = res_7.rename(columns={"h3_index": "id"})
@@ -240,10 +242,10 @@ def guardo_zonificaciones():
 
             # Crear una tabla de equivalencias para cada h3 de urbantrips a las zonificaciones
             full_area_res_urbantrips = generate_h3_hexagons_within_polygon(
-                zonificaciones_disolved, configs.get("resolucion_h3")
+                zonificaciones_disolved, configs.get("resolucion_h3"), crs_val
             )
             full_area_res_urbantrips.geometry = (
-                full_area_res_urbantrips.geometry.centroid
+                full_area_res_urbantrips.geometry.representative_point()
             )
 
             equivalencias_zonas = gpd.sjoin(
@@ -269,6 +271,7 @@ def guardo_zonificaciones():
             )
 
             # Guardo zonificaciones
+            
             zonificaciones["wkt"] = zonificaciones.geometry.to_wkt()
             zonificaciones = zonificaciones.drop(["geometry"], axis=1)
             zonificaciones = zonificaciones.sort_values(
@@ -735,7 +738,7 @@ def get_h3_indices_in_geometry(geometry, resolution):
     return h3_indices
 
 
-def generate_h3_hexagons_within_polygon(geo_df, resolution):
+def generate_h3_hexagons_within_polygon(geo_df, resolution, crs_val):
     """
     Genera un GeoDataFrame con hexágonos H3 dentro del polígono dado.
 
@@ -766,7 +769,7 @@ def generate_h3_hexagons_within_polygon(geo_df, resolution):
     hexagons_geoms = gpd.GeoSeries([h3_to_polygon(h) for h in hexagons], crs=4326)
 
     # Filtrar los hexágonos que están dentro del polígono
-    mask = hexagons_geoms.centroid.within(polygon).values
+    mask = hexagons_geoms.representative_point().within(polygon).values
     hexagons = hexagons[mask]
     hexagons_geoms = hexagons_geoms[mask]
 

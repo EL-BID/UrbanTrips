@@ -620,6 +620,7 @@ def create_data_folium(
             agg_distancia=agg_distancia,
             zero_to_nan=["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
         )
+        
         viajes[["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]] = viajes[
             ["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]
         ].fillna(0)
@@ -645,6 +646,7 @@ def create_data_folium(
             lat_cols=["lat1_norm", "lat4_norm"],
             lon_cols=["lon1_norm", "lon4_norm"],
         )
+
     else:
         viajes = pd.DataFrame([])
 
@@ -897,8 +899,7 @@ def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2
 
 
 def traigo_tablas_con_filtros(
-    mes,
-    tipo_dia,
+    dia,
     var_zonif,
     var_filtro1,
     det_filtro1,
@@ -928,21 +929,19 @@ def traigo_tablas_con_filtros(
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                 (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
                 AND 
                 (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
             );
             """
-            params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
+            params = [dia] + lst1 * 4 + lst2 * 4
         else:
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
                     (CASE WHEN transfer1_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
@@ -950,34 +949,32 @@ def traigo_tablas_con_filtros(
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [mes, tipo_dia] + lst1 * 4
+            params = [dia] + lst1 * 4
 
     else:
         if det_filtro1 != det_filtro2:
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                 (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
                 AND 
                 (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
             );
             """
-            params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+            params = [dia] + lst1 * 2 + lst2 * 2
         else:
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [mes, tipo_dia] + lst1 * 2
+            params = [dia] + lst1 * 2
 
     # Ejecutar consulta
     agg_etapas = pd.read_sql_query(query, conn, params=params)
@@ -1008,8 +1005,7 @@ def traigo_tablas_con_filtros(
         ]
 
         aggregate_cols = [
-            "mes",
-            "tipo_dia",
+            "dia",
             "inicio",
             "transfer1",
             "transfer2",
@@ -1018,8 +1014,8 @@ def traigo_tablas_con_filtros(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "genero",
-            "tarifa",
+            "genero_agregado",
+            "tarifa_agregada",
             "coincidencias",
             "distancia_agregada",
         ]
@@ -1076,27 +1072,25 @@ def traigo_tablas_con_filtros(
         query = f"""
         SELECT * FROM agg_matrices 
         WHERE zona = '{var_zonif}'
-        AND mes = ? 
-        AND tipo_dia = ? 
+        AND dia = ? 
             AND (
             (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
             AND 
             (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
         );
         """
-        params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+        params = [dia] + lst1 * 2 + lst2 * 2
     else:
         query = f"""
         SELECT * FROM agg_matrices 
         WHERE zona = '{var_zonif}'
-        AND mes = ? 
-        AND tipo_dia = ? 
+        AND dia = ? 
         AND (
                 (CASE WHEN inicio IN ({placeholders1}) THEN 1 ELSE 0 END) +
                 (CASE WHEN fin IN ({placeholders1}) THEN 1 ELSE 0 END)
             ) >= 2;
         """
-        params = [mes, tipo_dia] + lst1 * 2
+        params = [dia] + lst1 * 2
 
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
@@ -1140,15 +1134,31 @@ def traigo_tablas_con_filtros(
             )
         )
 
-        agg_matrices["Origen"] = (
-            agg_matrices.orden_inicio.astype(int).astype(str).str.zfill(3)
-            + "_"
-            + agg_matrices.inicio
+        agg_matrices["orden_inicio"] = (
+            pd.to_numeric(agg_matrices["orden_inicio"], errors="coerce")
+            .fillna(0)
+            .replace([np.inf, -np.inf], 0)
+            .astype(int)
         )
-        agg_matrices["Destino"] = (
-            agg_matrices.orden_fin.astype(int).astype(str).str.zfill(3)
+        
+        agg_matrices["orden_fin"] = (
+            pd.to_numeric(agg_matrices["orden_fin"], errors="coerce")
+            .fillna(0)
+            .replace([np.inf, -np.inf], 0)
+            .astype(int)
+        )
+        
+        # Construcción de columnas Origen y Destino
+        agg_matrices["Origen"] = (
+            agg_matrices["orden_inicio"].astype(str).str.zfill(3)
             + "_"
-            + agg_matrices.fin
+            + agg_matrices["inicio"]
+        )
+        
+        agg_matrices["Destino"] = (
+            agg_matrices["orden_fin"].astype(str).str.zfill(3)
+            + "_"
+            + agg_matrices["fin"]
         )
         agg_matrices = agg_matrices.drop(["orden_inicio", "orden_fin"], axis=1)
 
@@ -1248,3 +1258,75 @@ def guardar_tabla_sql(
     # Cierra conexión
     cursor.close()
     conn.close()
+# Convert geometry to H3 indices
+def get_h3_indices_in_geometry(geometry, resolution):
+    poly = h3.geo_to_h3shape(geometry)
+    h3_indices = list(h3.h3shape_to_cells(poly, res=resolution))
+
+    return h3_indices
+
+def h3_to_polygon(h3_index):
+    # Obtener las coordenadas del hexágono
+    geom = shape(h3.cells_to_h3shape([h3_index]).__geo_interface__)
+    return geom
+
+import mapclassify
+
+def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
+    """
+    Aplica Fisher–Jenks para generar cortes y asigna la columna de categorías:
+      - Si hay un solo valor único, asigna ese valor como etiqueta única.
+      - Si hay >1 valor, intenta k=k_max…2; si falla, usa [mínimo, máximo].
+      - Limpia duplicados consecutivos en los bins.
+      - Añade en la copia del DataFrame una columna `cut_col` con los intervalos.
+    """
+    valores = df_viajes[var_fex]
+    if valores.isnull().any():
+        raise ValueError(f"La columna {var_fex} contiene valores nulos")
+    valores = valores.astype(float)
+
+    # Caso único
+    if valores.nunique() == 1:
+        único = int(valores.iloc[0])
+        df = df_viajes.copy()
+        df[cut_col] = str(único)
+        return df
+
+    v_min, v_max = valores.min(), valores.max()
+    raw_bins = None
+
+    # Generar bins
+    for k in range(k_max, 1, -1):
+        try:
+            clasif = mapclassify.FisherJenks(valores, k=k)
+            raw_bins = [v_min] + clasif.bins.tolist()
+            break
+        except ValueError:
+            continue
+    if raw_bins is None:
+        raw_bins = [v_min, v_max]
+
+    # Limpiar duplicados consecutivos
+    bins = []
+    for b in raw_bins:
+        if not bins or b != bins[-1]:
+            bins.append(b)
+
+    # Asignar categorías
+    df = df_viajes.copy()
+    if len(bins) > 1:
+        labels = [
+            f"{int(bins[i])} a {int(bins[i+1])}"
+            for i in range(len(bins)-1)
+        ]
+        df[cut_col] = pd.cut(
+            valores,
+            bins=bins,
+            labels=labels,
+            include_lowest=True
+        )
+    else:
+        etiqueta = str(int(bins[0]))
+        df[cut_col] = etiqueta
+
+    return df, labels
