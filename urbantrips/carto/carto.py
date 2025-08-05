@@ -273,8 +273,8 @@ def guardo_zonificaciones():
 
             # Guardo zonificaciones
             
-            guardar_tabla_sql(zonificaciones, 'insumos', modo='replace')       
-            guardar_tabla_sql(equivalencias_zonas, 'insumos', modo='replace')  
+            guardar_tabla_sql(zonificaciones, 'zonificaciones', 'insumos', modo='replace')       
+            guardar_tabla_sql(equivalencias_zonas, 'equivalencias_zonas', 'insumos', modo='replace')  
                 
     if configs["poligonos"]:
 
