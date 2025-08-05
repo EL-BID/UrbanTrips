@@ -823,15 +823,14 @@ def bring_latlon():
         latlon = levanto_tabla_sql(
             "agg_etapas",
             "dash",
-            "SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY RANDOM() LIMIT 100;",
+            "SELECT lat1, lon1 FROM agg_viajes ORDER BY factor_expansion_linea DESC LIMIT 1000;",
         )
-        lat = latlon["lat1_norm"].mean()
-        lon = latlon["lon1_norm"].mean()
+        lat = latlon["lat1"].mean()
+        lon = latlon["lon1"].mean()
         latlon = [lat, lon]
     except:
         latlon = [-34.593, -58.451]
     return latlon
-
 
 @st.cache_data
 def traigo_lista_zonas(tipo="etapas"):

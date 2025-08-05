@@ -132,8 +132,6 @@ def crear_mapa_lineas_deseo(
     # if latlon is None:
     #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
     
-
-    
     # 🗺️ Crear el mapa
     m = folium.Map(location=latlon, zoom_start=9, tiles="cartodbpositron")
 
