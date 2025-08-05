@@ -11,7 +11,7 @@ import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
-
+from shapely.geometry import base as shapely_geom
 
 def duracion(f):
     @wraps(f)
@@ -1637,11 +1637,7 @@ def tabla_existe(conn, table_name):
             raise
 
 
-import pandas as pd
-from shapely.geometry import base as shapely_geom
 
-import pandas as pd
-from shapely.geometry import base as shapely_geom
 
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"

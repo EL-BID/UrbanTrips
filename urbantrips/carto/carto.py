@@ -155,7 +155,6 @@ def guardo_zonificaciones():
 
     configs = leer_configs_generales(autogenerado=False)
     alias = configs.get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias)
 
     # Lee las 5 posibles configuraciones de zonificaciones
     if configs["zonificaciones"]:
@@ -207,7 +206,9 @@ def guardo_zonificaciones():
                 pass
 
         if len(zonificaciones) > 0:
-
+            zonificaciones['orden'] = zonificaciones['orden'].fillna(0)
+            zonificaciones['zona'] = zonificaciones['zona'].fillna('')
+            zonificaciones['id'] = zonificaciones['id'].fillna('')
             zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
 
             crs_val = configs["epsg_m"]
@@ -272,27 +273,9 @@ def guardo_zonificaciones():
 
             # Guardo zonificaciones
             
-            zonificaciones["wkt"] = zonificaciones.geometry.to_wkt()
-            zonificaciones = zonificaciones.drop(["geometry"], axis=1)
-            zonificaciones = zonificaciones.sort_values(
-                ["zona", "orden", "id"]
-            ).reset_index(drop=True)
-
-            print(zonificaciones.zona.unique())
-
-            zonificaciones.to_sql(
-                "zonificaciones",
-                conn_insumos,
-                if_exists="replace",
-                index=False,
-            )
-            equivalencias_zonas.to_sql(
-                "equivalencias_zonas",
-                conn_insumos,
-                if_exists="replace",
-                index=False,
-            )
-
+            guardar_tabla_sql(zonificaciones, 'insumos', modo='replace')       
+            guardar_tabla_sql(equivalencias_zonas, 'insumos', modo='replace')  
+                
     if configs["poligonos"]:
 
         poly_file = configs["poligonos"]
@@ -301,18 +284,7 @@ def guardo_zonificaciones():
 
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
-            poly["wkt"] = poly.geometry.to_wkt()
-            poly = poly.drop(["geometry"], axis=1)
-
-            poly.to_sql(
-                "poligonos",
-                conn_insumos,
-                if_exists="replace",
-                index=False,
-            )
-
-    conn_insumos.close()
-
+            guardar_tabla_sql(poly, 'poligonos', 'insumos', modo='replace')            
 
 @duracion
 def create_distances_table(use_parallel=False):
