@@ -1019,7 +1019,7 @@ def gps_table_exists():
 
 
 @duracion
-def run_basic_kpi():
+def run_basic_kpi(id_linea=[]):
     conn_data = iniciar_conexion_db(tipo="data")
 
     # read already process days
@@ -1032,8 +1032,11 @@ def run_basic_kpi():
         from etapas
         where od_validado = 1
         and dia not in ({processed_days})
-        ;
     """
+    if len(id_linea) > 0:
+        id_linea_str = ", ".join(map(str, id_linea))
+        q += f" and id_linea in ({id_linea_str})"
+    q += ";"
     print("Leyendo datos de demanda")
     legs = pd.read_sql(q, conn_data)
 
