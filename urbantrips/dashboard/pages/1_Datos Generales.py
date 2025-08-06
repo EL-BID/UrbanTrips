@@ -607,113 +607,82 @@ with st.expander("Partición modal", True):
     col4.write("Viajes")
     col4.dataframe(modal_viajes.set_index("Modo"), height=300, width=300)
 
-# with st.expander("Distancias de viajes"):
+with st.expander("Distancias de viajes"):
 
-#     col1, col2 = st.columns([1, 4])
+    col1, col2 = st.columns([1, 4])
 
-#     # hist_values = levanto_tabla_sql("distribucion")
-
-#     # if len(hist_values) > 0:
-#     #     hist_values.columns = [
-#     #         "desc_dia",
-#     #         "tipo_dia",
-#     #         "Distancia (kms)",
-#     #         "Viajes",
-#     #         "Modo",
-#     #     ]
-#     #     hist_values = hist_values[hist_values["Distancia (kms)"] <= 60]
-#     #     hist_values = hist_values.sort_values(["Modo", "Distancia (kms)"])
-
-#     #     if col2.checkbox("Ver datos: distribución de viajes"):
-#     #         col2.write(hist_values)
-
-#     #     dist = hist_values.Modo.unique().tolist()
-#     #     dist.remove("Todos")
-#     #     dist = ["Todos"] + dist
-#     #     modo_d = col1.selectbox("Modo", options=dist)
-#     #     col1.write(f"Dia: {desc_dia}")
-#     #     # col1.write(f"Tipo de día: {desc_tipo_dia}")
-
-#     #     hist_values = hist_values[
-#     #         (hist_values.desc_dia == desc_dia)
-#     #         & (hist_values.tipo_dia.str.lower() == desc_tipo_dia.lower())
-#     #         & (hist_values.Modo == modo_d)
-#     #     ]
-
-#     #     fig = px.histogram(
-#     #         hist_values, x="Distancia (kms)", y="Viajes", nbins=len(hist_values)
-#     #     )
-#     #     fig.update_xaxes(type="category")
-#     #     fig.update_yaxes(title_text="Viajes")
-
-#     #     fig.update_layout(
-#     #         xaxis=dict(tickmode="linear", tickangle=0, tickfont=dict(size=9)),
-#     #         yaxis=dict(tickfont=dict(size=9)),
-#     #     )
-
-#     #     col2.plotly_chart(fig)
-#     # else:
-#     #     # Usar HTML para personalizar el estilo del texto
-#     #     texto_html = """
-#     #         <style>
-#     #         .big-font {
-#     #             font-size:30px !important;
-#     #             font-weight:bold;
-#     #         }
-#     #         </style>
-#     #         <div class='big-font'>
-#     #             No hay datos para mostrar
-#     #         </div>
-#     #         """
-#     #     col2.markdown(texto_html, unsafe_allow_html=True)
-#     #     texto_html = """
-#     #         <style>
-#     #         .big-font {
-#     #             font-size:30px !important;
-#     #             font-weight:bold;
-#     #         }
-#     #         </style>
-#     #         <div class='big-font'>
-#     #             Verifique que los procesos se corrieron correctamente
-#     #         </div>
-#     #         """
-#     #     col2.markdown(texto_html, unsafe_allow_html=True)
+    dist_values = levanto_tabla_sql("distribucion")
 
 
-# # with st.expander("Viajes por hora"):
+    if len(dist_values) > 0:
 
-# #     col1, col2 = st.columns([1, 4])
+        modoD = col1.selectbox(
+            "Modo", options=['Todos']+dist_values[dist_values.Modo!='Todos'].Modo.unique().tolist(), key="ModoD"
+            )
 
-# #     viajes_hora = levanto_tabla_sql("viajes_hora")
 
-# #     modo_h = col1.selectbox("Modo", options=["Todos", "Por modos"], key="modo_h")
+        dist_values = dist_values[dist_values["Distancia (kms)"] <= 60]
+        dist_values = dist_values.sort_values(["Modo", "Distancia (kms)"])
 
-# #     if modo_h == "Todos":
-# #         viajes_hora = viajes_hora[
-# #             (viajes_hora.desc_dia == desc_mes)
-# #             & (viajes_hora.tipo_dia.str.lower() == desc_tipo_dia.lower())
-# #             & (viajes_hora.Modo == "Todos")
-# #         ]
-# #     else:
-# #         viajes_hora = viajes_hora[
-# #             (viajes_hora.desc_dia == desc_mes)
-# #             & (viajes_hora.tipo_dia.str.lower() == desc_tipo_dia.lower())
-# #             & (viajes_hora.Modo != "Todos")
-# #         ]
+        if col2.checkbox("Ver datos: distribución de viajes"):
+            col2.write(dist_values)
 
-# #     col1.write(f"Mes: {desc_mes}")
-# #     col1.write(f"Tipo de día: {desc_tipo_dia}")
 
-# #     viajes_hora = viajes_hora.sort_values("Hora")
-# #     if col2.checkbox("Ver datos: viajes por hora"):
-# #         col2.write(viajes_hora)
+        col1.write(f"Día: {desc_dia}")
 
-# #     fig_horas = px.line(viajes_hora, x="Hora", y="Viajes", color="Modo", symbol="Modo")
 
-# #     fig_horas.update_xaxes(type="category")
-# #     # fig_horas.update_layout()
+        dist_values = dist_values[
+            (dist_values.Día == desc_dia)
+            & (dist_values.Modo == modoD)
+        ]
 
-# #     col2.plotly_chart(fig_horas)
+        fig = px.histogram(
+            dist_values, x="Distancia (kms)", y="Viajes", nbins=len(dist_values)
+        )
+        fig.update_xaxes(type="category")
+        fig.update_yaxes(title_text="Viajes")
+
+        fig.update_layout(
+            xaxis=dict(tickmode="linear", tickangle=0, tickfont=dict(size=9)),
+            yaxis=dict(tickfont=dict(size=9)),
+        )
+
+        col2.plotly_chart(fig)
+    else:
+        col2.write('No hay datos para mostrar')
+
+with st.expander("Viajes por hora"):
+
+    col1, col2 = st.columns([1, 4])
+
+    viajes_hora = levanto_tabla_sql("viajes_hora")
+
+    modo_h = col1.selectbox("Modo", options=["Todos", "Por modos"], key="modo_h")
+
+    if modo_h == "Todos":
+        viajes_hora = viajes_hora[
+            (viajes_hora.Día == desc_dia)            
+            & (viajes_hora.Modo == "Todos")
+        ]
+    else:
+        viajes_hora = viajes_hora[
+            (viajes_hora.Día == desc_dia)
+            & (viajes_hora.Modo != "Todos")
+        ]
+
+    col1.write(f"Día: {desc_dia}")
+
+    viajes_hora = viajes_hora.sort_values("Hora")
+    
+    if col2.checkbox("Ver datos: viajes por hora"):
+        col2.write(viajes_hora)
+
+    fig_horas = px.line(viajes_hora, x="Hora", y="Viajes", color="Modo", symbol="Modo")
+
+    fig_horas.update_xaxes(type="category")
+    # fig_horas.update_layout()
+
+    col2.plotly_chart(fig_horas)
 
 
 with st.expander("Género y tarifas"):

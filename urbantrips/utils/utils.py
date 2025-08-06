@@ -11,7 +11,7 @@ import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
-
+from shapely.geometry import base as shapely_geom
 
 def duracion(f):
     @wraps(f)
@@ -1637,56 +1637,76 @@ def tabla_existe(conn, table_name):
             raise
 
 
+
+
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
 ):
     """
-    Guarda un DataFrame en una base de datos SQLite.
+    Guarda un DataFrame en una base de datos SQLite. Convierte automáticamente tipos no compatibles.
 
-    Parámetros:
-    df (pd.DataFrame): DataFrame que se desea guardar.
-    table_name (str): Nombre de la tabla en la base de datos.
-    tabla_tipo (str): Tipo de conexión a la base de datos.
-    alias_db (str): Alias para identificar el archivo de base de datos.
-    filtros (dict, optional): Filtros para eliminar registros si modo='append'. Las claves son los nombres
-                               de los campos y los valores pueden ser un valor único o una lista de valores.
-    modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
+    Si existe una columna 'geometry', la convierte a WKT y la guarda como 'wkt'.
     """
-    # Conectar a la base de datos
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Se esperaba un DataFrame, pero se recibió un {type(df).__name__}")
+
+    # Asegurar alias con guión bajo
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
+    # Clonar para no modificar el original
+    df = df.copy()
+
+    # Si existe 'geometry', convertir a WKT y renombrar como 'wkt'
+    if 'geometry' in df.columns:
+        df['wkt'] = df['geometry'].apply(
+            lambda g: g.wkt if isinstance(g, shapely_geom.BaseGeometry) else None
+        )
+        df.drop(columns=['geometry'], inplace=True)
+
+    # Convertir columnas no compatibles con SQLite
+    for col in df.columns:
+        sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+
+        if isinstance(sample, (list, dict)):
+            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
+
+        elif not pd.api.types.is_scalar(sample):
+            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
+
+    # Conexión a base de datos
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
     cursor = conn.cursor()
 
-    if modo == "replace":
-        # Reemplaza completamente la tabla
-        df.to_sql(table_name, conn, if_exists="replace", index=False)
-        print(f"Tabla '{table_name}' reemplazada exitosamente.")
-    else:
-        table_exists = tabla_existe(conn, table_name)
+    try:
+        if modo == "replace":
+            df.to_sql(table_name, conn, if_exists="replace", index=False)
+            print(f"Tabla '{table_name}' reemplazada exitosamente.")
+        else:
+            table_exists = tabla_existe(conn, table_name)
 
-        # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
-        if table_exists and filtros:
-            condiciones = []
-            valores = []
+            if table_exists and filtros:
+                condiciones = []
+                valores = []
 
-            for campo, valor in filtros.items():
-                if isinstance(valor, list):
-                    condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
-                    valores.extend(valor)
-                else:
-                    condiciones.append(f"{campo} = ?")
-                    valores.append(valor)
+                for campo, valor in filtros.items():
+                    if isinstance(valor, list):
+                        condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                        valores.extend(valor)
+                    else:
+                        condiciones.append(f"{campo} = ?")
+                        valores.append(valor)
 
-            where_clause = " AND ".join(condiciones)
-            cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
-            conn.commit()
+                where_clause = " AND ".join(condiciones)
+                cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+                conn.commit()
 
-        # Agrega los datos al final de la tabla
-        df.to_sql(table_name, conn, if_exists="append", index=False)
-        print(f"Datos agregados exitosamente en '{table_name}'.")
+            df.to_sql(table_name, conn, if_exists="append", index=False)
+            print(f"Datos agregados exitosamente en '{table_name}'.")
 
-    # Cierra conexión
-    cursor.close()
-    conn.close()
+    finally:
+        cursor.close()
+        conn.close()
+
+
