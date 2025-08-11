@@ -25,6 +25,15 @@ from urbantrips.geo.geo import (
     h3_to_polygon,
 )
 
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="Unsigned integer: shortest path distance is trying to be calculated",
+    category=UserWarning,
+    module="pandana.network"
+)
+
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
