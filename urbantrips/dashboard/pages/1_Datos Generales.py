@@ -13,6 +13,7 @@ from dash_utils import (
     create_linestring_od,
     extract_hex_colors_from_cmap,
     configurar_selector_dia,
+    formatear_columnas_numericas
 )
 
 from itertools import combinations
@@ -570,6 +571,7 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     return fig
 
 
+
 st.set_page_config(layout="wide")
 
 logo = get_logo()
@@ -581,13 +583,10 @@ with st.expander("Partición modal", True):
 
     col1, col2, col3, col4 = st.columns([1, 5, 1.5, 1.5])
     particion_modal = levanto_tabla_sql("datos_particion_modal")
-
+    
     desc_dia = col1.selectbox(
         "Día", options=particion_modal.dia.unique(), key="desc_dia"
     )
-    #     desc_tipo_dia = col1.selectbox(
-    #         "Tipo de día", options=particion_modal.tipo_dia.unique(), key="desc_tipo_dia"
-    #     )
 
     list_genero = particion_modal.genero_agregado.unique()
     list_genero = ["Todos" if item == "-" else item for item in list_genero]
@@ -602,9 +601,16 @@ with st.expander("Partición modal", True):
 
     fig, modal_etapas, modal_viajes = plot_venn_diagram(etapas_modos)
     col2.pyplot(fig)
+    
     col3.write("Etapas")
+    modal_etapas = formatear_columnas_numericas(modal_etapas, ['Cantidad'], True)
+    modal_etapas = formatear_columnas_numericas(modal_etapas, ['%'], False)
     col3.dataframe(modal_etapas.set_index("Modo"), height=300, width=300)
+    
     col4.write("Viajes")
+    modal_viajes = formatear_columnas_numericas(modal_viajes, ['Cantidad'], True)
+    modal_viajes = formatear_columnas_numericas(modal_viajes, ['%'], False)
+
     col4.dataframe(modal_viajes.set_index("Modo"), height=300, width=300)
 
 with st.expander("Distancias de viajes"):

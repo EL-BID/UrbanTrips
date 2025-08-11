@@ -910,20 +910,32 @@ def create_basic_data_model_tables(alias_db):
 
 def leer_configs_generales(autogenerado=True):
     """
-    Esta funcion lee los configs generales
+    Lee el archivo de configuración YAML, probando primero con UTF-8
+    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    if autogenerado:
-        path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
-    else:
-        path = os.path.join("configs", "configuraciones_generales.yaml")
-    try:
-        with open(path, "r") as file:
-            config = yaml.safe_load(file)
-    except yaml.YAMLError as error:
-        print(f"Error al leer el archivo de configuracion: {error}")
-        config = {}
+    archivo = "configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml"
+    path = os.path.join("configs", archivo)
 
-    return config
+    try:
+        # Primer intento: UTF-8
+        with open(path, "r", encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except UnicodeDecodeError:
+        # Segundo intento: latin-1
+        try:
+            with open(path, "r", encoding="latin-1") as file:
+                return yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            print(f"❌ Error de sintaxis YAML con latin-1: {error}")
+        except Exception as e:
+            print(f"❌ Error general con latin-1: {e}")
+    except yaml.YAMLError as error:
+        print(f"❌ Error de sintaxis YAML con UTF-8: {error}")
+    except Exception as e:
+        print(f"❌ Error general leyendo archivo: {e}")
+
+    return {}
+
 
 
 def crear_tablas_geolocalizacion():

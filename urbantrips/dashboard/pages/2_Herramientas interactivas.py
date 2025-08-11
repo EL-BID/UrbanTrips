@@ -1,6 +1,18 @@
 import pandas as pd
 import streamlit as st
-from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_dia
+from dash_utils import (
+    levanto_tabla_sql,
+    get_logo,
+    create_linestring_od,
+    create_squared_polygon,
+    get_epsg_m,
+    extract_hex_colors_from_cmap,
+    levanto_tabla_sql_local,
+    configurar_selector_dia,
+    leer_configs_generales,
+    iniciar_conexion_db,
+    get_logo
+)
 
 
 try:
@@ -76,14 +88,17 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 try:
+
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = utils.leer_configs_generales()
+        st.session_state.configs = leer_configs_generales(autogenerado=True)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
     use_branches = configs["lineas_contienen_ramales"]
+    
+    
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]

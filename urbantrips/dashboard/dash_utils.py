@@ -17,22 +17,34 @@ import h3
 from datetime import datetime
 
 
+
 def leer_configs_generales(autogenerado=True):
     """
-    Esta funcion lee los configs generales
+    Lee el archivo de configuración YAML, probando primero con UTF-8
+    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    if autogenerado:
-        path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
-    else:
-        path = os.path.join("configs", "configuraciones_generales.yaml")
-    try:
-        with open(path, "r") as file:
-            config = yaml.safe_load(file)
-    except yaml.YAMLError as error:
-        print(f"Error al leer el archivo de configuracion: {error}")
-        config = {}
+    archivo = "configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml"
+    path = os.path.join("configs", archivo)
 
-    return config
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except UnicodeDecodeError:
+        try:
+            with open(path, "r", encoding="latin-1") as file:
+                return yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            print(f"❌ Error YAML en archivo con latin-1: {error}")
+        except Exception as e:
+            print(f"❌ Error general con latin-1: {e}")
+    except yaml.YAMLError as error:
+        print(f"❌ Error YAML en archivo con UTF-8: {error}")
+    except Exception as e:
+        print(f"❌ Error general leyendo archivo: {e}")
+
+    return {}
+
+
 
 
 def leer_alias(tipo="dash"):
@@ -1329,3 +1341,23 @@ def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
         df[cut_col] = etiqueta
 
     return df, labels
+def formatear_columnas_numericas(df, columnas, forzar_entero=False):
+    df_formateado = df.copy()
+    for col in columnas:
+        if forzar_entero:
+            # Mostrar todo como entero (sin decimales)
+            df_formateado[col] = df[col].apply(
+                lambda x: f"{int(x):,}".replace(",", "X").replace(".", ",").replace("X", ".")
+            )
+        else:
+            if pd.api.types.is_integer_dtype(df[col]):
+                # Enteros sin decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,}".replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+            elif pd.api.types.is_float_dtype(df[col]):
+                # Floats con 2 decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+    return df_formateado

@@ -1,36 +1,36 @@
-# Archivo de configuraciÛn para urbantrips
+# Archivo de configuraci√≥n para urbantrips
 
-corridas: ['AMBA_2019_11_21']                                      # Listar los nombres de las corridas ["lunes","martes"], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv
+corridas: ["martes","miercoles"]                                      # Listar los nombres de las corridas ["lunes","martes"], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv
 
 # Bases de datos
-alias_db: "amba_2019_11_all"                                     # El nombre que va a tener la base de datos sqlite de insumos y dash. La de data depende de la corrida
+alias_db: "amba_2019_muestra1"                                     # El nombre que va a tener la base de datos sqlite de insumos y dash. La de data depende de la corrida
 
 #nombre_archivo_trx: "[CORRIDA]_trx.csv"                           # CONSTRUIR [CORRIDA]_trx.csv Especificar el archivo con las transacciones a consumir
 #nombre_archivo_gps: "[CORRIDA]_gps.csv"                           # CONSTRUIR [CORRIDA]_gps.csv Especificar el archivo con las transacciones a consumir
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
-    id_trx: "id"                                                   # columna con id ˙nico del archivo de transacciones
-    fecha_trx: "FECHA"                                             # columna con fecha de la transacciÛn
+    id_trx: "id"                                                   # columna con id √∫nico del archivo de transacciones
+    fecha_trx: "fecha"                                             # columna con fecha de la transacci√≥n
     id_tarjeta_trx: "id_tarjeta"                                   # columna con id de la tarjeta
     modo_trx: "modo"                                               # columna con modo de transporte
-    hora_trx: "hora"                                               # columna con hora de la transacciÛn
-    id_linea_trx: "id_linea"                                       # columna con el id de la lÌnea
-    id_ramal_trx:                                                  # columna con el ramal de la lÌnea
-    interno_trx: "interno_bus"                                     # columna con interno de la lÌnea
-    orden_trx: "etapa_red_sube"                                    # columna con el orden de la transacciÛn (si falta hora/minuto en fecha_trx)
-    genero:                                                        # Indica el gÈnero asignado a la tarjeta
-    tarifa:                                                        # Indica el tipo de tarifa asignado a la transacciÛn
-    latitud_trx: "lat"                                             # columna con la latitud de la transacciÛn
-    longitud_trx: "lon"                                            # columna con longitud de la transacciÛn
-    factor_expansion: "fex_linea"                                                # columna con el factor de expansiÛn
+    hora_trx: "hora"                                               # columna con hora de la transacci√≥n
+    id_linea_trx: "id_linea"                                       # columna con el id de la l√≠nea
+    id_ramal_trx:                                                  # columna con el ramal de la l√≠nea
+    interno_trx: "interno_bus"                                     # columna con interno de la l√≠nea
+    orden_trx: "etapa_red_sube"                                    # columna con el orden de la transacci√≥n (si falta hora/minuto en fecha_trx)
+    genero:                                                        # Indica el g√©nero asignado a la tarjeta
+    tarifa:                                                        # Indica el tipo de tarifa asignado a la transacci√≥n
+    latitud_trx: "lat"                                             # columna con la latitud de la transacci√≥n
+    longitud_trx: "lon"                                            # columna con longitud de la transacci√≥n
+    factor_expansion:                                                # columna con el factor de expansi√≥n
 
-# Par·metros de transacciones
+# Par√°metros de transacciones
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
-ventana_viajes: 120                                                # ventana de tiempo para que una transacciÛn sea de un mismo viaje (ej. 60 minutos)
-ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacciÛn (ej. Viaje con acompaÒante)
+ventana_viajes: 120                                                # ventana de tiempo para que una transacci√≥n sea de un mismo viaje (ej. 60 minutos)
+ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacci√≥n (ej. Viaje con acompa√±ante)
 
-# Elimina transacciones inv·lidas de la tabla de transacciones
+# Elimina transacciones inv√°lidas de la tabla de transacciones
 tipo_trx_invalidas: 
     tipo_trx_tren: [                                                   # Lista con el contenido a eliminar de la variable seleccionada
                 "CHECK OUT SIN CHECKIN",
@@ -38,15 +38,15 @@ tipo_trx_invalidas:
                       ]
 
 
-# ImputaciÛn de destino
-tolerancia_parada_destino: 2200                                    # Distancia para la validaciÛn de los destinos (metros)
-imputar_destinos_min_distancia: True                               # Busca la parada que minimiza la distancia con respecto a la siguiente trancciÛn
+# Imputaci√≥n de destino
+tolerancia_parada_destino: 2200                                    # Distancia para la validaci√≥n de los destinos (metros)
+imputar_destinos_min_distancia: True                               # Busca la parada que minimiza la distancia con respecto a la siguiente trancci√≥n
 
-# Par·metros geogr·ficos
-resolucion_h3: 8                                                   # ResoluciÛn de los hex·gonos
-epsg_m: 9265                                                       # Par·metros geogr·ficos: crs
+# Par√°metros geogr√°ficos
+resolucion_h3: 8                                                   # Resoluci√≥n de los hex√°gonos
+epsg_m: 9265                                                       # Par√°metros geogr√°ficos: crs
 
-formato_fecha: "%d/%m/%Y"                                          # ConfiguraciÛn fecha y hora
+formato_fecha: "%d/%m/%Y"                                          # Configuraci√≥n fecha y hora
 columna_hora: True                                                 
 
 usa_archivo_gps: False
@@ -65,11 +65,11 @@ nombres_variables_gps:
     distance_gps:                                                  
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
 
-# InformaciÛn para procesamiento de lÌneas
+# Informaci√≥n para procesamiento de l√≠neas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
-lineas_contienen_ramales: False                                    # Especificar si las lÌneas de colectivo contienen ramales
+lineas_contienen_ramales: False                                    # Especificar si las l√≠neas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
-imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las lÌneas
+imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las l√≠neas
 
 # Servicios GPS
 utilizar_servicios_gps: False                                      # Especifica si ve van a utilizar los servicios GPS
@@ -86,8 +86,8 @@ modos:
     lancha:                                                        
     otros:                                                         
 
-# Capas geogr·ficas con recorridos de lÌneas
-recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"       # archivo geojson con el trazado de las lÌneas de transporte p˙blico
+# Capas geogr√°ficas con recorridos de l√≠neas
+recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"       # archivo geojson con el trazado de las l√≠neas de transporte p√∫blico
 
 filtro_latlong_bbox: 
     minx: -59.3                                                    
@@ -97,10 +97,10 @@ filtro_latlong_bbox:
 
 # Zonificaciones
 zonificaciones: 
-    geo1: "zonificacion_moreno.geojson"                                       
+    geo1: "partidos.geojson"                                       
     var1: "Zona"                                                   
     orden1:                                                        
-    geo2: "zonificacion_moreno.geojson"                                       
+    geo2: "partidos.geojson"                                       
     var2: "Partido"                                                
     orden2:    [                                                   
                 "Comuna 1",
@@ -125,40 +125,40 @@ zonificaciones:
                 "Brandsen",
                 "Campana",
                 "Carmen de Areco",
-                "CaÒuelas",
+                "Ca√±uelas",
                 "Ensenada",
                 "Escobar",
-                "Esteban EcheverrÌa",
-                "ExaltaciÛn de la Cruz",
+                "Esteban Echeverr√≠a",
+                "Exaltaci√≥n de la Cruz",
                 "Ezeiza",
                 "Florencio Varela",
                 "General Las Heras",
-                "General RodrÌguez",
-                "General San MartÌn",
+                "General Rodr√≠guez",
+                "General San Mart√≠n",
                 "Hurlingham",
-                "ItuzaingÛ",
-                "JosÈ C. Paz",
+                "Ituzaing√≥",
+                "Jos√© C. Paz",
                 "La Matanza Oeste",
                 "La Matanza Centro",
                 "La Matanza Este",
                 "La Plata",
-                "Lan˙s",
+                "Lan√∫s",
                 "Lobos",
                 "Lomas de Zamora",
-                "Luj·n",
+                "Luj√°n",
                 "Magdalena",
                 "Malvinas Argentinas",
                 "Marcos Paz",
                 "Mercedes",
                 "Merlo",
                 "Moreno",
-                "MorÛn",
+                "Mor√≥n",
                 "Navarro",
                 "Pilar",
-                "Presidente PerÛn",
+                "Presidente Per√≥n",
                 "Punta Indio",
                 "Quilmes",
-                "San AndrÈs de Giles",
+                "San Andr√©s de Giles",
                 "San Antonio de Areco",
                 "San Fernando",
                 "San Isidro",
@@ -166,12 +166,12 @@ zonificaciones:
                 "San Vicente",
                 "Tigre",
                 "Tres de Febrero",
-                "Vicente LÛpez",
-                "Z·rate",
+                "Vicente L√≥pez",
+                "Z√°rate",
                       ]
 
-    geo3: "zonificacion_moreno.geojson"                             
-    var3: "Moreno"                                                            
+    geo3:                                                          
+    var3:                                                          
     orden3:                                                        
     geo4:                                                          
     var4:                                                          
@@ -180,7 +180,7 @@ zonificaciones:
     var5:                                                          
     orden5:                                                        
 
-poligonos: "poligonos.geojson"                                     # Especificar una capa geogr·fica de polÌgonos en formato .geojson. El archivo requiere las siguientes columnas: ['id', 'tipo', 'geometry']. 'id' es el id o nombre del polÌgono, tipo puede ser 'poligono' o 'cuenca'.
+poligonos: "poligonos.geojson"                                     # Especificar una capa geogr√°fica de pol√≠gonos en formato .geojson. El archivo requiere las siguientes columnas: ['id', 'tipo', 'geometry']. 'id' es el id o nombre del pol√≠gono, tipo puede ser 'poligono' o 'cuenca'.
 
 tiempos_viaje_estaciones: "travel_time_stations.csv"               # Especificar una tabla de tiempo de viaje en minutos entre estaciones para modos sin gps
 
