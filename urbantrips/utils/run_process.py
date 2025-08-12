@@ -174,7 +174,7 @@ def procesar_transacciones(corrida):
     persist_datamodel_tables()
 
 def borrar_corridas(alias_db='all'):
-    
+
     corridas_nuevas = []
     # Leer las corridas en el archivo de configuracion
     configs_usuario = utils.leer_configs_generales(autogenerado=False)
@@ -183,17 +183,46 @@ def borrar_corridas(alias_db='all'):
     if corridas is None or len(corridas) == 0:
         raise ValueError("No se han definido corridas en el archivo de configuracion.")
     
-    path_=configs_usuario['alias_db']
-    path_insumos=Path() / 'data' / 'db' / f'{path_}_insumos.sqlite'
-    path_general=Path() / 'data' / 'db' / f'{path_}_general.sqlite'
+    if len(alias_db) > 0:        
+        path_=configs_usuario['alias_db']
+        path_insumos=Path() / 'data' / 'db' / f'{path_}_insumos.sqlite'
+        path_general=Path() / 'data' / 'db' / f'{path_}_general.sqlite'
+            
+        if alias_db == 'all':
+            if path_insumos.exists():
+                path_insumos.unlink()
+                print(f'Se borró {path_insumos}')
+            if path_general.exists():
+                path_general.unlink()
+                print(f'Se borró {path_general}')
+                
+            for i in corridas:
+                path_data=Path() / 'data' / 'db' / f'{i}_data.sqlite'
+                path_dash=Path() / 'data' / 'db' / f'{i}_dash.sqlite'
+                if path_data.exists():
+                    path_data.unlink()
+                    print(f'Se borró {path_data}')
+                if path_dash.exists():
+                    path_dash.unlink()
+                    print(f'Se borró {path_dash}')
+        else:
+            path_data=Path() / 'data' / 'db' / f'{alias_db}_data.sqlite'
+            path_dash=Path() / 'data' / 'db' / f'{alias_db}_dash.sqlite'
+            if path_data.exists():
+                path_data.unlink()
+                print(f'Se borró {path_data}')
+            if path_dash.exists():
+                path_dash.unlink()
+                print(f'Se borró {path_dash}')
         
-    if alias_db == 'all':
-        if path_insumos.exists():
-            path_insumos.unlink()
-            print(f'Se borró {path_insumos}')
-        if path_general.exists():
-            path_general.unlink()
-            print(f'Se borró {path_general}')
+        corridas_anteriores = levanto_tabla_sql('corridas', 'general', query="SELECT DISTINCT corrida FROM corridas WHERE process = 'transactions_completed'")
+        
+        if len(corridas_anteriores) > 0:
+            corridas_anteriores = corridas_anteriores.corrida.values.tolist()    
+        else:
+            corridas_anteriores = []
+        
+        corridas = [c for c in corridas if c not in corridas_anteriores]
             
         for i in corridas:
             path_data=Path() / 'data' / 'db' / f'{i}_data.sqlite'
@@ -204,36 +233,8 @@ def borrar_corridas(alias_db='all'):
             if path_dash.exists():
                 path_dash.unlink()
                 print(f'Se borró {path_dash}')
-    else:
-        path_data=Path() / 'data' / 'db' / f'{alias_db}_data.sqlite'
-        path_dash=Path() / 'data' / 'db' / f'{alias_db}_dash.sqlite'
-        if path_data.exists():
-            path_data.unlink()
-            print(f'Se borró {path_data}')
-        if path_dash.exists():
-            path_dash.unlink()
-            print(f'Se borró {path_dash}')
-    
-    corridas_anteriores = levanto_tabla_sql('corridas', 'general', query="SELECT DISTINCT corrida FROM corridas WHERE process = 'transactions_completed'")
-    display(corridas_anteriores)
-    if len(corridas_anteriores) > 0:
-        corridas_anteriores = corridas_anteriores.corrida.values.tolist()    
-    else:
-        corridas_anteriores = []
-    
-    corridas = [c for c in corridas if c not in corridas_anteriores]
-        
-    for i in corridas:
-        path_data=Path() / 'data' / 'db' / f'{i}_data.sqlite'
-        path_dash=Path() / 'data' / 'db' / f'{i}_dash.sqlite'
-        if path_data.exists():
-            path_data.unlink()
-            print(f'Se borró {path_data}')
-        if path_dash.exists():
-            path_dash.unlink()
-            print(f'Se borró {path_dash}')
 
-def run_all(borrar_corrida='all', crear_dashboard=True):
+def run_all(borrar_corrida='', crear_dashboard=True):
 
     print(f"[INFO] borrar_corrida = '{borrar_corrida}'")
     print(f"[INFO] crear_dashboard = {crear_dashboard}")

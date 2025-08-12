@@ -313,9 +313,16 @@ with st.expander("Líneas de Deseo", expanded=True):
             "agg_etapas", "dash", "SELECT DISTINCT rango_hora FROM agg_etapas;"
         )
         lista_distancia_db = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT distancia FROM agg_etapas;"
+            "agg_etapas", "dash", "SELECT DISTINCT distancia_agregada FROM agg_etapas;"
         )
         lista_zonas = traigo_lista_zonas("etapas")
+        lista_genero_agregado = levanto_tabla_sql(
+            "agg_etapas", "dash", "SELECT DISTINCT genero_agregado FROM agg_etapas;"
+        )
+        lista_tarifa_agregada = levanto_tabla_sql(
+            "agg_etapas", "dash", "SELECT DISTINCT tarifa_agregada FROM agg_etapas;"
+        )
+
 
         # Inicializar valores de `st.session_state` solo si no existen
         if "last_filters" not in st.session_state:
@@ -326,6 +333,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                 "modo_agregado": "Todos",
                 "rango_hora_seleccionado": "Todos",
                 "distancia_seleccionada": "Todas",
+                "genero_agregado_seleccionada": "Todas",
+                "tarifa_agregada_seleccionada": "Todas",
                 "filtro_seleccion1": "Todos",
                 "filtro_seleccion2": "Todos",
                 "zona_filtro_seleccion1": None,
@@ -338,8 +347,8 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         valores_zonas = lista_zonas.zona.unique().tolist()
         lista_distancia = ["Todas"] + lista_distancia_db[
-            lista_distancia_db.distancia != "99"
-        ].distancia.unique().tolist()
+            lista_distancia_db.distancia_agregada != "99"
+        ].distancia_agregada.unique().tolist()
         lista_transfer = ["Todos", "Con transferencia", "Sin transferencia"]
         lista_modos = ["Todos"] + lista_modos_agregados[
             lista_modos_agregados.modo_agregado != "99"
@@ -347,6 +356,14 @@ with st.expander("Líneas de Deseo", expanded=True):
         lista_rango_hora = ["Todos"] + lista_rango_hora[
             lista_rango_hora.rango_hora != "99"
         ].rango_hora.unique().tolist()
+        
+        lista_genero_agregado = ["Todos"] + lista_genero_agregado[
+            lista_genero_agregado.genero_agregado != "99"
+        ].genero_agregado.unique().tolist()
+        
+        lista_tarifa_agregada = ["Todos"] + lista_tarifa_agregada[
+            lista_tarifa_agregada.tarifa_agregada != "99"
+        ].tarifa_agregada.unique().tolist()
 
         # Opciones de los filtros en Streamlit
         dia_seleccionado = col1.selectbox(
@@ -362,7 +379,12 @@ with st.expander("Líneas de Deseo", expanded=True):
             "Rango hora", options=[text for text in lista_rango_hora]
         )
         distancia_seleccionada = col1.selectbox("Distancia", options=lista_distancia)
-
+        genero_agregado_seleccionado = col1.selectbox(
+            "Género", options=[text for text in lista_genero_agregado]
+        )
+        tarifa_agregada_seleccionado = col1.selectbox(
+            "Tarifa", options=[text for text in lista_tarifa_agregada]
+        )
         vi_et_seleccion = col1.selectbox(
             "Datos de", options=["Etapas", "Viajes", "Ninguno"], index=1
         )
@@ -442,6 +464,12 @@ with st.expander("Líneas de Deseo", expanded=True):
             ),
             "distancia_agregada": (
                 None if distancia_seleccionada == "Todas" else distancia_seleccionada
+            ),
+            "genero_agregado": (
+                None if genero_agregado_seleccionado == "Todos" else genero_agregado_seleccionado
+            ),
+            "tarifa_agregada": (
+                None if tarifa_agregada_seleccionado == "Todos" else tarifa_agregada_seleccionado
             ),
             "filtro_seleccion1": (
                 None if filtro_seleccion1 == "Todos" else filtro_seleccion1
@@ -661,6 +689,16 @@ with st.expander("Líneas de Deseo", expanded=True):
                 else:
                     st.session_state.desc_distancia = False
 
+                if genero_agregado_seleccionado == "Todos":
+                    st.session_state.desc_genero_agregado = True
+                else:
+                    st.session_state.desc_genero_agregado = False
+                
+                if tarifa_agregada_seleccionado == "Todos":
+                    st.session_state.desc_tarifa_agregada = True
+                else:
+                    st.session_state.desc_tarifa_agregada = False
+                
                 st.session_state.agg_cols_etapas = [
                     "zona",
                     "inicio_norm",
@@ -671,6 +709,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                     "modo_agregado",
                     "rango_hora",
                     "distancia_agregada",
+                    "genero_agregado",
+                    "tarifa_agregada",
                 ]
                 st.session_state.agg_cols_viajes = [
                     "zona",
@@ -679,6 +719,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                     "transferencia",
                     "modo_agregado",
                     "rango_hora",
+                    "genero_agregado",
+                    "tarifa_agregada",
                     "distancia_agregada",
                 ]
 
@@ -715,6 +757,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                     agg_modo=st.session_state.desc_modos,
                     agg_hora=st.session_state.desc_horas,
                     agg_distancia=st.session_state.desc_distancia,
+                    agg_genero_agregado=st.session_state.desc_genero_agregado,
+                    agg_tarifa_agregada=st.session_state.desc_tarifa_agregada,
                     agg_cols_etapas=st.session_state.agg_cols_etapas,
                     agg_cols_viajes=st.session_state.agg_cols_viajes,
                     etapas_seleccionada=st.session_state.etapas_seleccionada,
@@ -794,6 +838,10 @@ with st.expander("Matrices"):
         if tipo_matriz == "Viajes":
             var_matriz = "factor_expansion_linea"
             normalize = col1.checkbox("Normalizar", value=True)
+            if normalize:
+                var_matriz = 'porcentaje'
+
+        resumen = col1.checkbox("Principales OD", value=False)
 
         mmatriz = col1.checkbox("Mostrar tabla", value=False, key="mmatriz")
         col1.write(f"Día: {dia_seleccionado}")
@@ -802,6 +850,8 @@ with st.expander("Matrices"):
         col1.write(f"Modos: {modo_seleccionado}")
         col1.write(f"Rango hora: {rango_hora_seleccionado}")
         col1.write(f"Distancias: {distancia_seleccionada}")
+        col1.write(f"Genero: {genero_agregado_seleccionado}")
+        col1.write(f"Tarifa: {tarifa_agregada_seleccionado}")
 
         if tipo_matriz == "Distancia promedio (kms)":
             var_matriz = "distancia"
@@ -810,18 +860,32 @@ with st.expander("Matrices"):
         if tipo_matriz == "Velocidad promedio (km/h)":
             var_matriz = "travel_speed"
 
-        od_heatmap = pd.crosstab(
-            index=st.session_state.matriz["Origen"],
-            columns=st.session_state.matriz["Destino"],
-            values=st.session_state.matriz[var_matriz],
-            aggfunc="sum",
-            normalize=normalize,
-        )
-
-        if normalize:
-            od_heatmap = (od_heatmap * 100).round(2)
+        if not resumen:
+            od_heatmap = pd.crosstab(
+                index=st.session_state.matriz["Origen"],
+                columns=st.session_state.matriz["Destino"],
+                values=st.session_state.matriz[var_matriz],
+                aggfunc="sum",
+                normalize=False,
+            )
         else:
-            od_heatmap = od_heatmap.round(0)
+            matriz_resumen = st.session_state.matriz.copy()
+            matriz_resumen = matriz_resumen[matriz_resumen.resumen==1]
+            od_heatmap = pd.crosstab(
+                index=matriz_resumen["Origen"],
+                columns=matriz_resumen["Destino"],
+                values=matriz_resumen[var_matriz],
+                aggfunc="sum",
+                normalize=False,
+            )
+
+            col1.write(f'Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes')
+
+
+        # if normalize:
+        #     od_heatmap = (od_heatmap * 100).round(2)
+        # else:
+        #     od_heatmap = od_heatmap.round(0)
 
         od_heatmap = od_heatmap.reset_index()
         od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
