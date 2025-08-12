@@ -348,7 +348,7 @@ def agg_matriz(
     agg_genero_agregado=False,
     agg_tarifa_agregada=False
 ):
-
+    
     if len(df) > 0:
         if agg_transferencias:
             df["transferencia"] = 99
@@ -363,8 +363,9 @@ def agg_matriz(
         if agg_tarifa_agregada:
             df["tarifa_agregada"] = 99
 
+        
         df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
-
+        
         df2 = calculate_weighted_means(
             df,
             aggregate_cols=aggregate_cols,
@@ -372,7 +373,13 @@ def agg_matriz(
             weight_col=weight_var,
             zero_to_nan=zero_to_nan,
         )
-        df = df1.merge(df2)
+
+        if len(df2) > 0:
+            df = df1.merge(df2, how='left')
+        else:
+            df = df1.copy()
+            for i in weight_col:
+                df[i] = 0
 
     return df
 
@@ -699,7 +706,7 @@ def create_data_folium(
 
     else:
         viajes = pd.DataFrame([])
-
+    
     matriz = agg_matriz(
         viajes_matrices,
         aggregate_cols=[
@@ -725,6 +732,8 @@ def create_data_folium(
         agg_tarifa_agregada=agg_tarifa_agregada,
     )
 
+
+    
     matriz["factor_expansion_linea"] = matriz["factor_expansion_linea"].round(0)
     matriz = matriz.sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True)
     matriz['porcentaje'] = (matriz['factor_expansion_linea'] / matriz['factor_expansion_linea'].sum() * 100).round(2)
