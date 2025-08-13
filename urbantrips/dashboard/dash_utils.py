@@ -17,22 +17,34 @@ import h3
 from datetime import datetime
 
 
+
 def leer_configs_generales(autogenerado=True):
     """
-    Esta funcion lee los configs generales
+    Lee el archivo de configuración YAML, probando primero con UTF-8
+    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    if autogenerado:
-        path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
-    else:
-        path = os.path.join("configs", "configuraciones_generales.yaml")
-    try:
-        with open(path, "r") as file:
-            config = yaml.safe_load(file)
-    except yaml.YAMLError as error:
-        print(f"Error al leer el archivo de configuracion: {error}")
-        config = {}
+    archivo = "configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml"
+    path = os.path.join("configs", archivo)
 
-    return config
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except UnicodeDecodeError:
+        try:
+            with open(path, "r", encoding="latin-1") as file:
+                return yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            print(f"❌ Error YAML en archivo con latin-1: {error}")
+        except Exception as e:
+            print(f"❌ Error general con latin-1: {e}")
+    except yaml.YAMLError as error:
+        print(f"❌ Error YAML en archivo con UTF-8: {error}")
+    except Exception as e:
+        print(f"❌ Error general leyendo archivo: {e}")
+
+    return {}
+
+
 
 
 def leer_alias(tipo="dash"):
@@ -288,6 +300,8 @@ def calculate_weighted_means_ods(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     zero_to_nan=[],
 ):
 
@@ -299,6 +313,10 @@ def calculate_weighted_means_ods(
         df["rango_hora"] = 99
     if agg_distancia:
         df["distancia_agregada"] = 99
+    if agg_genero_agregado:
+        df["genero_agregado"] = 99
+    if agg_tarifa_agregada:
+        df["tarifa_agregada"] = 99
 
     df = calculate_weighted_means(
         df, aggregate_cols, weighted_mean_cols, weight_col, zero_to_nan
@@ -317,6 +335,8 @@ def agg_matriz(
         "modo_agregado",
         "rango_hora",
         "distancia_agregada",
+        "genero_agregado",
+        "tarifa_agregada",        
     ],
     weight_col=["distancia", "travel_time_min", "travel_speed"],
     weight_var="factor_expansion_linea",
@@ -325,8 +345,10 @@ def agg_matriz(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False
 ):
-
+    
     if len(df) > 0:
         if agg_transferencias:
             df["transferencia"] = 99
@@ -336,9 +358,14 @@ def agg_matriz(
             df["rango_hora"] = 99
         if agg_distancia:
             df["distancia_agregada"] = 99
+        if agg_genero_agregado:
+            df["genero_agregado"] = 99
+        if agg_tarifa_agregada:
+            df["tarifa_agregada"] = 99
 
+        
         df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
-
+        
         df2 = calculate_weighted_means(
             df,
             aggregate_cols=aggregate_cols,
@@ -346,7 +373,13 @@ def agg_matriz(
             weight_col=weight_var,
             zero_to_nan=zero_to_nan,
         )
-        df = df1.merge(df2)
+
+        if len(df2) > 0:
+            df = df1.merge(df2, how='left')
+        else:
+            df = df1.copy()
+            for i in weight_col:
+                df[i] = 0
 
     return df
 
@@ -360,6 +393,8 @@ def creo_bubble_od(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     od="",
     lat="lat1",
     lon="lon1",
@@ -378,6 +413,10 @@ def creo_bubble_od(
             df["rango_hora"] = 99
         if agg_distancia:
             df["distancia_agregada"] = 99
+        if agg_genero_agregado:
+            df["genero_agregado"] = 99
+        if agg_tarifa_agregada:
+            df["tarifa_agregada"] = 99
 
         orig = calculate_weighted_means_ods(
             df,
@@ -388,6 +427,8 @@ def creo_bubble_od(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
         )
 
         orig["tot"] = orig.groupby(
@@ -398,6 +439,8 @@ def creo_bubble_od(
                 "modo_agregado",
                 "rango_hora",
                 "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
             ]
         ).factor_expansion_linea.transform("sum")
         geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
@@ -448,6 +491,8 @@ def create_data_folium(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     agg_cols_etapas=[],
     agg_cols_viajes=[],
     etapas_seleccionada=True,
@@ -470,6 +515,8 @@ def create_data_folium(
                 "modo_agregado",
                 "rango_hora",
                 "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
                 "factor_expansion_linea",
             ],
         ].rename(
@@ -490,6 +537,8 @@ def create_data_folium(
                 "modo_agregado",
                 "rango_hora",
                 "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
                 "factor_expansion_linea",
             ],
         ].rename(
@@ -508,8 +557,10 @@ def create_data_folium(
             "transfer",
             "transferencia",
             "modo_agregado",
-            "rango_hora",
+            "rango_hora",            
             "distancia_agregada",
+            "genero_agregado",
+            "tarifa_agregada",
         ]
 
         transferencias = creo_bubble_od(
@@ -521,6 +572,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="transfer",
             lat="lat_norm",
             lon="lon_norm",
@@ -552,6 +605,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             zero_to_nan=[
                 "lat1_norm",
                 "lon1_norm",
@@ -618,6 +673,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             zero_to_nan=["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
         )
         
@@ -649,7 +706,7 @@ def create_data_folium(
 
     else:
         viajes = pd.DataFrame([])
-
+    
     matriz = agg_matriz(
         viajes_matrices,
         aggregate_cols=[
@@ -661,6 +718,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
+            "genero_agregado",
+            "tarifa_agregada"
         ],
         weight_col=["distancia", "travel_time_min", "travel_speed"],
         zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
@@ -669,9 +728,20 @@ def create_data_folium(
         agg_modo=agg_modo,
         agg_hora=agg_hora,
         agg_distancia=agg_distancia,
+        agg_genero_agregado=agg_genero_agregado,
+        agg_tarifa_agregada=agg_tarifa_agregada,
     )
 
+
+    
     matriz["factor_expansion_linea"] = matriz["factor_expansion_linea"].round(0)
+    matriz = matriz.sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True)
+    matriz['porcentaje'] = (matriz['factor_expansion_linea'] / matriz['factor_expansion_linea'].sum() * 100).round(2)
+    matriz['resumen'] = 0
+    matriz.loc[0:20, 'resumen'] = 1
+    lst_resumen = matriz[matriz.resumen==1].Origen.unique().tolist()+matriz[matriz.resumen==1].Destino.unique().tolist()
+    matriz.loc[(matriz.Origen.isin(lst_resumen))&(matriz.Destino.isin(lst_resumen)), 'resumen'] = 1
+
 
     if ("poly_inicio" in viajes_matrices.columns) | (
         "poly_fin" in viajes_matrices.columns
@@ -685,6 +755,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
         bubble_cols_d = [
             "id_polygon",
@@ -695,6 +767,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
     else:
         bubble_cols_o = [
@@ -705,6 +779,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
         bubble_cols_d = [
             "id_polygon",
@@ -714,6 +790,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
 
     if origenes_seleccionado:
@@ -726,6 +804,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="inicio",
             lat="lat1",
             lon="lon1",
@@ -744,6 +824,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="fin",
             lat="lat4",
             lon="lon4",
@@ -754,6 +836,8 @@ def create_data_folium(
 
     if not etapas_seleccionada:
         etapas = pd.DataFrame([])
+
+
 
     return etapas, viajes, matriz, origen, destino, transferencias
 
@@ -1329,3 +1413,23 @@ def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
         df[cut_col] = etiqueta
 
     return df, labels
+def formatear_columnas_numericas(df, columnas, forzar_entero=False):
+    df_formateado = df.copy()
+    for col in columnas:
+        if forzar_entero:
+            # Mostrar todo como entero (sin decimales)
+            df_formateado[col] = df[col].apply(
+                lambda x: f"{int(x):,}".replace(",", "X").replace(".", ",").replace("X", ".")
+            )
+        else:
+            if pd.api.types.is_integer_dtype(df[col]):
+                # Enteros sin decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,}".replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+            elif pd.api.types.is_float_dtype(df[col]):
+                # Floats con 2 decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+    return df_formateado

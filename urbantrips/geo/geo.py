@@ -364,7 +364,7 @@ def lowess_linea(df):
     id_linea = df.id_linea.unique()[0]
     epsg_m = get_epsg_m()
 
-    print("Obteniendo lowess linea:", id_linea)
+    #print("Obteniendo lowess linea:", id_linea)
     gdf = gpd.GeoDataFrame(
         df, geometry=gpd.points_from_xy(df["longitud"], df["latitud"]), crs=4326
     ).to_crs(epsg_m)
