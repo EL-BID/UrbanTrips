@@ -1494,7 +1494,7 @@ def normalize_vars(tabla):
 
 
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-    
+
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
@@ -1514,9 +1514,9 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -1585,6 +1585,7 @@ def delete_data_from_table_run_days(table_name):
     conn_data.commit()
     conn_data.close()
 
+
 def tabla_existe(conn, table_name):
     try:
         conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
@@ -1594,6 +1595,8 @@ def tabla_existe(conn, table_name):
             return False
         else:
             raise
+
+
 def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     """
     Guarda un DataFrame en una base de datos SQLite.
@@ -1608,6 +1611,7 @@ def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
     # Verifica si la tabla existe en la base de datos
 
     conn = iniciar_conexion_db(tipo=tabla_tipo)
+    cursor = conn.cursor()
 
     table_exists = tabla_existe(conn, table_name)
 
