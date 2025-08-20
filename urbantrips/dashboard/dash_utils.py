@@ -1219,6 +1219,7 @@ def traigo_tablas_con_filtros(
             AND dia = ? 
                 AND (
                 (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+                )
             ;
             """
             params = [dia] + lst1 * 2 
@@ -1231,6 +1232,7 @@ def traigo_tablas_con_filtros(
             AND dia = ? 
                 AND 
                 (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+                )
             ;
             """
             params = [dia] + lst2 * 2
