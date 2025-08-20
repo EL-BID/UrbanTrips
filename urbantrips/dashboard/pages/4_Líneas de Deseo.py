@@ -163,6 +163,7 @@ def traigo_viajes_linea(zona_seleccionada,
     etapas_agregadas['distancia'] = 0
     etapas_agregadas['travel_time_min'] = 0
     etapas_agregadas['travel_speed'] = 0
+    etapas_agregadas['id_polygon'] = 'NONE'
 
     return etapas_agregadas
 
@@ -712,33 +713,20 @@ with st.expander("Líneas de Deseo", expanded=True):
                 (zona_seleccionada != zona_filtro_seleccion1)
                 | (zona_seleccionada != zona_filtro_seleccion2)
             ):
-                # Cuando la zonificación de los filtros es diferente a la zonificación del mapa
 
-                if (filtro_seleccion1 == "Todos") | (filtro_seleccion2 == "Todos"):
-                    col2.write("")
-                    col2.write("")
-                    col2.write(
-                        'Si la zona del filtro 1 o del filtro 2 son diferentes a la zonificación elegida, Filtro 1 o Filtro 2 no se puede ser igual a "Todos"'
-                    )
-                    col2.write("")
-                    col2.write("")
-                    st.session_state.etapas_all = pd.DataFrame([])
-                    st.session_state.matrices_all = pd.DataFrame([])
-                else:
-
-                    agg_etapas, agg_matrices = traigo_tablas_con_filtros(
-                        dia_seleccionado,
-                        zona_seleccionada,
-                        zona_filtro_seleccion1,
-                        filtro_seleccion1,
-                        zona_filtro_seleccion2,
-                        filtro_seleccion2,
-                        tipo_filtro,
-                        equivalencias_zonas,
-                        zonificaciones,
-                    )
-                    st.session_state.etapas_all = agg_etapas.copy()
-                    st.session_state.matrices_all = agg_matrices.copy()
+                agg_etapas, agg_matrices = traigo_tablas_con_filtros(
+                    dia_seleccionado,
+                    zona_seleccionada,
+                    zona_filtro_seleccion1,
+                    filtro_seleccion1,
+                    zona_filtro_seleccion2,
+                    filtro_seleccion2,
+                    tipo_filtro,
+                    equivalencias_zonas,
+                    zonificaciones,
+                )
+                st.session_state.etapas_all = agg_etapas.copy()
+                st.session_state.matrices_all = agg_matrices.copy()
 
             else:
 
@@ -862,8 +850,6 @@ with st.expander("Líneas de Deseo", expanded=True):
                 st.session_state.last_options = current_options.copy()
                 st.session_state.data_cargada = True
 
-                
-
                 (
                     st.session_state.etapas,
                     st.session_state.viajes,
@@ -938,7 +924,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 else:
                     col2.text("No hay datos suficientes para mostrar el mapa.")
 
-
+   
 with st.expander("Matrices"):
 
     col1, col2 = st.columns([1, 4])
@@ -998,6 +984,7 @@ with st.expander("Matrices"):
         else:
             matriz_resumen = st.session_state.matriz.copy()
             matriz_resumen = matriz_resumen[matriz_resumen.resumen==1]
+
             od_heatmap = pd.crosstab(
                 index=matriz_resumen["Origen"],
                 columns=matriz_resumen["Destino"],
@@ -1007,12 +994,6 @@ with st.expander("Matrices"):
             )
 
             col1.write(f'Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes')
-
-
-        # if normalize:
-        #     od_heatmap = (od_heatmap * 100).round(2)
-        # else:
-        #     od_heatmap = od_heatmap.round(0)
 
         od_heatmap = od_heatmap.reset_index()
         od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
@@ -1027,9 +1008,15 @@ with st.expander("Matrices"):
 
         fig.update_coloraxes(showscale=False)
 
-        if len(od_heatmap) <= 20:
-            fig.update_layout(width=1000, height=1000)
-        elif (len(od_heatmap) > 20) & (len(od_heatmap) <= 40):
+        # fig.update_xaxes(title_font=dict(size=16))
+        # fig.update_yaxes(title_font=dict(size=16))
+        # fig.update_xaxes(tickfont=dict(size=14), tickangle=-45, automargin=True)
+        # fig.update_yaxes(tickfont=dict(size=14), automargin=True)        
+
+        if len(od_heatmap) <= 30:
+            fig.update_layout(width=1100, height=1100, font=dict(size=10))
+            fig.update_traces(textfont=dict(size=12))
+        elif (len(od_heatmap) > 30) & (len(od_heatmap) <= 40):
             fig.update_layout(width=1000, height=1000)
         elif len(od_heatmap) > 40:
             fig.update_layout(width=1000, height=1000)
@@ -1037,9 +1024,10 @@ with st.expander("Matrices"):
         col2.plotly_chart(fig)
         if mmatriz:
             col2.write(st.session_state.matriz)
-
+        
     else:
         col2.text("No hay datos para mostrar")
+
 
 
 with st.expander("Zonas", expanded=False):

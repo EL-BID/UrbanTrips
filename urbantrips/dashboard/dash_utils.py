@@ -1008,18 +1008,42 @@ def traigo_tablas_con_filtros(
 
     # Consulta SQL
     if tipo_filtro == "OD y Transferencias":
+
         if det_filtro1 != det_filtro2:
-            query = f"""
-            SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
-            AND dia = ? 
-            AND (
-                (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-                AND 
-                (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-            );
-            """
-            params = [dia] + lst1 * 4 + lst2 * 4
+            if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    AND 
+                    (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst1 * 4 + lst2 * 4
+            elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    ) 
+                ;
+                """
+                params = [dia] + lst1 * 4 
+            elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (                    
+                    (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                    )
+                ;
+                """
+                params = [dia] + lst2 * 4
         else:
             query = f"""
             SELECT * FROM agg_etapas 
@@ -1036,17 +1060,40 @@ def traigo_tablas_con_filtros(
 
     else:
         if det_filtro1 != det_filtro2:
-            query = f"""
-            SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
-            AND dia = ? 
-            AND (
-                (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-                AND 
-                (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-            );
-            """
-            params = [dia] + lst1 * 2 + lst2 * 2
+            if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    AND 
+                    (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst1 * 2 + lst2 * 2
+            elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))                
+                );
+                """
+                params = [dia] + lst1 * 2 
+                
+            elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst2 * 2
+
         else:
             query = f"""
             SELECT * FROM agg_etapas 
@@ -1060,6 +1107,7 @@ def traigo_tablas_con_filtros(
             params = [dia] + lst1 * 2
 
     # Ejecutar consulta
+    
     agg_etapas = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_etapas) > 0:
@@ -1152,17 +1200,41 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))
 
     if det_filtro1 != det_filtro2:
-        query = f"""
-        SELECT * FROM agg_matrices 
-        WHERE zona = '{var_zonif}'
-        AND dia = ? 
-            AND (
-            (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
-            AND 
-            (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
-        );
-        """
-        params = [dia] + lst1 * 2 + lst2 * 2
+        if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND (
+                (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+                AND 
+                (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+            );
+            """
+            params = [dia] + lst1 * 2 + lst2 * 2
+        elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND (
+                (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+            ;
+            """
+            params = [dia] + lst1 * 2 
+
+        elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND 
+                (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+            ;
+            """
+            params = [dia] + lst2 * 2
+
     else:
         query = f"""
         SELECT * FROM agg_matrices 
