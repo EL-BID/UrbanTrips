@@ -15,7 +15,7 @@ from folium import Figure
 from shapely.geometry import LineString, Point, Polygon, shape, mapping
 import h3
 from datetime import datetime
-
+from pathlib import Path
 
 
 def leer_configs_generales(autogenerado=True):
@@ -101,7 +101,11 @@ def traigo_db_path(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
 
-    db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+    # db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+    db_path = next((p for p in (Path("data")/"db"/f"{alias_db}{tipo}.sqlite", Path("/data/db")/f"{alias_db}{tipo}.sqlite") if p.exists()), None)
+    if db_path is None:
+        raise FileNotFoundError(f"No se encontró {name} en 'data/db' ni en '/data/db'")
+
 
     return db_path
 

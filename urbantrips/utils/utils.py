@@ -12,6 +12,7 @@ from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
 from shapely.geometry import base as shapely_geom
+from pathlib import Path
 
 def duracion(f):
     @wraps(f)
@@ -109,7 +110,11 @@ def traigo_db_path(tipo="data", alias_db=""):
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+    # db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+    
+    db_path = next((p for p in (Path("data")/"db"/f"{alias_db}{tipo}.sqlite", Path("/data/db")/f"{alias_db}{tipo}.sqlite") if p.exists()), None)
+    if db_path is None:
+        raise FileNotFoundError(f"No se encontró {name} en 'data/db' ni en '/data/db'")
 
     return db_path
 
