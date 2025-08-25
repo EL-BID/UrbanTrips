@@ -1,10 +1,6 @@
 import pandas as pd
 import streamlit as st
-from dash_utils import (
-    levanto_tabla_sql,
-    get_logo, 
-    configurar_selector_dia
-)
+from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_dia
 
 
 try:
@@ -16,7 +12,7 @@ try:
     from urbantrips.viz.section_supply import visualize_route_section_supply_data
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
-    
+
 except ImportError as e:
     st.error(
         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -77,9 +73,11 @@ def seleccionar_linea(key_input, key_select):
 st.set_page_config(layout="wide")
 
 
-
 logo = get_logo()
 st.image(logo)
+
+alias_seleccionado = configurar_selector_dia()
+
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
@@ -88,19 +86,21 @@ try:
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
+    st.text(
+        f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
+    )
     use_branches = configs["lineas_contienen_ramales"]
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
     conn_insumos = iniciar_conexion_db(tipo="insumos")
+
 except ValueError as e:
     st.error(
         f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página"
     )
     st.stop()
 
-
-alias_seleccionado = configurar_selector_dia()
 
 for var in [
     "id_linea_7",
@@ -250,7 +250,6 @@ if st.button("Comenzar a procesar"):
         st.write(
             "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
         )
-
 
     else:
         st.write("No hay datos para mostrar")
