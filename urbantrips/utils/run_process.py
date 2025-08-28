@@ -9,7 +9,7 @@ from urbantrips.utils.utils import (
     create_insumos_general_dbs,
     create_data_dash_dbs,
     create_directories,
-    levanto_tabla_sql
+    levanto_tabla_sql,
 )
 
 
@@ -25,54 +25,55 @@ from urbantrips.kpi.kpi import compute_kpi
 from urbantrips.datamodel.misc import persist_datamodel_tables
 from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 
+
 def inicializo_ambiente():
 
     corridas_nuevas = []
     # Leer las corridas en el archivo de configuracion
     configs_usuario = utils.leer_configs_generales(autogenerado=False)
     corridas = configs_usuario.get("corridas", None)
-    
+
     if corridas is None or len(corridas) == 0:
-        print('No se han definido corridas en el archivo de configuracion.')
+        print("No se han definido corridas en el archivo de configuracion.")
         raise ValueError("No se han definido corridas en el archivo de configuracion.")
-    
-    path_insumos=configs_usuario['alias_db']
-    path_insumos=Path() / 'data' / 'db' / f'{path_insumos}_insumos.sqlite'
-    
+
+    path_insumos = configs_usuario["alias_db"]
+    path_insumos = Path() / "data" / "db" / f"{path_insumos}_insumos.sqlite"
+
     if not path_insumos.is_file():
-        print('Inicializo ambiente por primera vez')
-    
+        print("Inicializo ambiente por primera vez")
+
         # chequear consistencia de configuracion
         check_config(corridas[0])
-        
+
         # Crear directorios basicos de trabajo:
         create_directories()
-        
+
         # Crear una base de datos para insumos y general
         create_insumos_general_dbs()
-        
+
         # Procesar metadata de rutas
         process_routes_metadata()
-        
+
         # Procesar y subir geometrías de rutas
         process_routes_geoms()
-        
+
         # Crear tabla de paradas
         create_stops_table()
         # Guarda zonificaciones
         guardo_zonificaciones()
-        
+
     for alias_db in corridas:
-        path_data=Path() / 'data' / 'db' / f'{alias_db}_data.sqlite'
-        
-        corridas_nuevas = []
-        if not path_data.is_file():            
+        path_data = Path() / "data" / "db" / f"{alias_db}_data.sqlite"
+
+        # corridas_nuevas = []
+        if not path_data.is_file():
             # Crear una tabla por corrida de data y dash:
-            create_data_dash_dbs(alias_db)                
+            create_data_dash_dbs(alias_db)
             corridas_nuevas += [alias_db]
 
-
     return corridas_nuevas
+
 
 def procesar_transacciones(corrida):
     # Chequear consistencia y crear configuracion
@@ -173,77 +174,84 @@ def procesar_transacciones(corrida):
 
     persist_datamodel_tables()
 
-def borrar_corridas(alias_db='all'):
+
+def borrar_corridas(alias_db="all"):
 
     corridas_nuevas = []
     # Leer las corridas en el archivo de configuracion
     configs_usuario = utils.leer_configs_generales(autogenerado=False)
     corridas = configs_usuario.get("corridas", None)
-    
+
     if corridas is None or len(corridas) == 0:
         raise ValueError("No se han definido corridas en el archivo de configuracion.")
-    
-    if len(alias_db) > 0:        
-        path_=configs_usuario['alias_db']
-        path_insumos=Path() / 'data' / 'db' / f'{path_}_insumos.sqlite'
-        path_general=Path() / 'data' / 'db' / f'{path_}_general.sqlite'
-            
-        if alias_db == 'all':
+
+    if len(alias_db) > 0:
+        path_ = configs_usuario["alias_db"]
+        path_insumos = Path() / "data" / "db" / f"{path_}_insumos.sqlite"
+        path_general = Path() / "data" / "db" / f"{path_}_general.sqlite"
+
+        if alias_db == "all":
             if path_insumos.exists():
                 path_insumos.unlink()
-                print(f'Se borró {path_insumos}')
+                print(f"Se borró {path_insumos}")
             if path_general.exists():
                 path_general.unlink()
-                print(f'Se borró {path_general}')
-                
+                print(f"Se borró {path_general}")
+
             for i in corridas:
-                path_data=Path() / 'data' / 'db' / f'{i}_data.sqlite'
-                path_dash=Path() / 'data' / 'db' / f'{i}_dash.sqlite'
+                path_data = Path() / "data" / "db" / f"{i}_data.sqlite"
+                path_dash = Path() / "data" / "db" / f"{i}_dash.sqlite"
                 if path_data.exists():
                     path_data.unlink()
-                    print(f'Se borró {path_data}')
+                    print(f"Se borró {path_data}")
                 if path_dash.exists():
                     path_dash.unlink()
-                    print(f'Se borró {path_dash}')
+                    print(f"Se borró {path_dash}")
         else:
-            path_data=Path() / 'data' / 'db' / f'{alias_db}_data.sqlite'
-            path_dash=Path() / 'data' / 'db' / f'{alias_db}_dash.sqlite'
+            path_data = Path() / "data" / "db" / f"{alias_db}_data.sqlite"
+            path_dash = Path() / "data" / "db" / f"{alias_db}_dash.sqlite"
             if path_data.exists():
                 path_data.unlink()
-                print(f'Se borró {path_data}')
+                print(f"Se borró {path_data}")
             if path_dash.exists():
                 path_dash.unlink()
-                print(f'Se borró {path_dash}')
-        
-        corridas_anteriores = levanto_tabla_sql('corridas', 'general', query="SELECT DISTINCT corrida FROM corridas WHERE process = 'transactions_completed'")
-        
+                print(f"Se borró {path_dash}")
+
+        corridas_anteriores = levanto_tabla_sql(
+            "corridas",
+            "general",
+            query="SELECT DISTINCT corrida FROM corridas WHERE process = 'transactions_completed'",
+        )
+
         if len(corridas_anteriores) > 0:
-            corridas_anteriores = corridas_anteriores.corrida.values.tolist()    
+            corridas_anteriores = corridas_anteriores.corrida.values.tolist()
         else:
             corridas_anteriores = []
-        
+
         corridas = [c for c in corridas if c not in corridas_anteriores]
-            
+
         for i in corridas:
-            path_data=Path() / 'data' / 'db' / f'{i}_data.sqlite'
-            path_dash=Path() / 'data' / 'db' / f'{i}_dash.sqlite'
+            path_data = Path() / "data" / "db" / f"{i}_data.sqlite"
+            path_dash = Path() / "data" / "db" / f"{i}_dash.sqlite"
             if path_data.exists():
                 path_data.unlink()
-                print(f'Se borró {path_data}')
+                print(f"Se borró {path_data}")
             if path_dash.exists():
                 path_dash.unlink()
-                print(f'Se borró {path_dash}')
+                print(f"Se borró {path_dash}")
 
-def run_all(borrar_corrida='', crear_dashboard=True):
+
+def run_all(borrar_corrida="", crear_dashboard=True):
 
     print(f"[INFO] borrar_corrida = '{borrar_corrida}'")
     print(f"[INFO] crear_dashboard = {crear_dashboard}")
-    
+
     borrar_corridas(borrar_corrida)
-    
+
     corridas = inicializo_ambiente()
-    
+    print("Se procesarán estas corridas:", corridas)
     for corrida in corridas:
+        print(f"Procesando corrida: {corrida}")
         procesar_transacciones(corrida)
         if crear_dashboard:
             preparo_indicadores_dash(corrida)

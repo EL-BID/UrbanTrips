@@ -12,6 +12,8 @@ from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
 from shapely.geometry import base as shapely_geom
+from pathlib import Path
+
 
 def duracion(f):
     @wraps(f)
@@ -109,7 +111,20 @@ def traigo_db_path(tipo="data", alias_db=""):
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+
+    db_path = next(
+        (
+            p
+            for p in (
+                Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
+                Path("/data/db") / f"{alias_db}{tipo}.sqlite",
+            )
+            if p.exists()
+        ),
+        None,
+    )
+    if db_path is None:
+        db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
 
@@ -913,7 +928,11 @@ def leer_configs_generales(autogenerado=True):
     Lee el archivo de configuración YAML, probando primero con UTF-8
     y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    archivo = "configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml"
+    archivo = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
     path = os.path.join("configs", archivo)
 
     try:
@@ -935,7 +954,6 @@ def leer_configs_generales(autogenerado=True):
         print(f"❌ Error general leyendo archivo: {e}")
 
     return {}
-
 
 
 def crear_tablas_geolocalizacion():
@@ -1649,8 +1667,6 @@ def tabla_existe(conn, table_name):
             raise
 
 
-
-
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
 ):
@@ -1661,7 +1677,9 @@ def guardar_tabla_sql(
     """
 
     if not isinstance(df, pd.DataFrame):
-        raise TypeError(f"Se esperaba un DataFrame, pero se recibió un {type(df).__name__}")
+        raise TypeError(
+            f"Se esperaba un DataFrame, pero se recibió un {type(df).__name__}"
+        )
 
     # Asegurar alias con guión bajo
     if alias_db and not alias_db.endswith("_"):
@@ -1671,11 +1689,11 @@ def guardar_tabla_sql(
     df = df.copy()
 
     # Si existe 'geometry', convertir a WKT y renombrar como 'wkt'
-    if 'geometry' in df.columns:
-        df['wkt'] = df['geometry'].apply(
+    if "geometry" in df.columns:
+        df["wkt"] = df["geometry"].apply(
             lambda g: g.wkt if isinstance(g, shapely_geom.BaseGeometry) else None
         )
-        df.drop(columns=['geometry'], inplace=True)
+        df.drop(columns=["geometry"], inplace=True)
 
     # Convertir columnas no compatibles con SQLite
     for col in df.columns:
@@ -1704,14 +1722,18 @@ def guardar_tabla_sql(
 
                 for campo, valor in filtros.items():
                     if isinstance(valor, list):
-                        condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                        condiciones.append(
+                            f"{campo} IN ({','.join(['?'] * len(valor))})"
+                        )
                         valores.extend(valor)
                     else:
                         condiciones.append(f"{campo} = ?")
                         valores.append(valor)
 
                 where_clause = " AND ".join(condiciones)
-                cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+                cursor.execute(
+                    f"DELETE FROM {table_name} WHERE {where_clause}", valores
+                )
                 conn.commit()
 
             df.to_sql(table_name, conn, if_exists="append", index=False)
@@ -1720,5 +1742,3 @@ def guardar_tabla_sql(
     finally:
         cursor.close()
         conn.close()
-
-

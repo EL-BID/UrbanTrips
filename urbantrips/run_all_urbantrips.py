@@ -22,7 +22,8 @@ python run_all_urbantrips.py --borrar_corrida alias1 --no_dashboard
 ────────────────────────────────────────────────────────────
 """
 
-def main(borrar_corrida='', crear_dashboard=True):
+
+def main(borrar_corrida="", crear_dashboard=True):
     """
     Ejecuta el proceso principal de UrbanTrips.
 
@@ -32,12 +33,13 @@ def main(borrar_corrida='', crear_dashboard=True):
         - ''     : Corre solo las corridas pendientes (no corridas previamente).
         - 'all'  : Borra todas las corridas y corre todo de nuevo.
         - alias  : Borra la corrida con el alias especificado y vuelve a correr lo faltante.
-    
+
     crear_dashboard : bool
         Si es True, también ejecuta la creación del dashboard asociado (valor por defecto).
     """
 
     run_all(borrar_corrida=borrar_corrida, crear_dashboard=crear_dashboard)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -47,21 +49,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--borrar_corrida",
         type=str,
-        default='',
-        help="Opciones: '' (vacío, corre solo pendientes), 'all' (corre todo desde cero), o un alias específico"
+        default="",
+        help="Opciones: '' (vacío, corre solo pendientes), 'all' (corre todo desde cero), o un alias específico",
     )
 
     parser.add_argument(
         "--no_dashboard",
         action="store_true",
-        help="Si se incluye, se omite la creación del dashboard. Por defecto se crea."
+        help="Si se incluye, se omite la creación del dashboard. Por defecto se crea.",
     )
 
     args = parser.parse_args()
 
     main(
         borrar_corrida=args.borrar_corrida,
-        crear_dashboard=not args.no_dashboard  # por defecto es True, salvo que se indique --no_dashboard
+        crear_dashboard=not args.no_dashboard,  # por defecto es True, salvo que se indique --no_dashboard
     )
-
-

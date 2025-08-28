@@ -62,7 +62,7 @@ if len(indicadores) > 0:
         indicadores.tabla == "transacciones", ["detalle", "indicador", "porcentaje"]
     ].copy()
     
-    col2.write("Transacciones")
+    col2.write("Preprocesamiento de transacciones")
     trx = formatear_columnas_numericas(trx, ['indicador'], True)
     col2.write(trx)
 
@@ -71,26 +71,26 @@ if len(indicadores) > 0:
         indicadores.tabla == "etapas", ["detalle", "indicador", "porcentaje"]
     ].copy()
     trx = formatear_columnas_numericas(trx, ['indicador'], True)
-    col2.write("Etapas")
-    col2.write(trx)
+    col3.write("Etapas")
+    col3.write(trx)
     trx = indicadores.loc[
         indicadores.tabla == "viajes", ["detalle", "indicador", "porcentaje"]
     ].copy()
-    col2.write("Viajes")
     
+    col3.write("Viajes")    
     trx = formatear_columnas_numericas(trx, ['indicador'], True)
-    col2.write(trx)
+    col3.write(trx)
     trx = indicadores.loc[
         indicadores.tabla.isin(["tarjetas", "usuarios"]),
         ["detalle", "indicador", "porcentaje"],
     ].copy()
-    col2.write("Tarjetas")
     
-    trx = formatear_columnas_numericas(trx, ['indicador'], True)
-    col2.write(trx)
-    trx = indicadores.loc[
-        indicadores.tabla == "etapas_expandidas", ["detalle", "indicador", "porcentaje"]
-    ].copy()
+    # col3.write("Tarjetas")    
+    # trx = formatear_columnas_numericas(trx, ['indicador'], True)
+    # col3.write(trx)
+    # trx = indicadores.loc[
+    #     indicadores.tabla == "etapas_expandidas", ["detalle", "indicador", "porcentaje"]
+    # ].copy()
     
     col2.write("Etapas expandidas")
     trx = formatear_columnas_numericas(trx, ['indicador'], True)
@@ -114,9 +114,9 @@ if len(indicadores) > 0:
         indicadores.tabla == "modos viajes", ["detalle", "indicador", "porcentaje"]
     ].copy()
     
-    col3.write("Partición modal Viajes")
+    col2.write("Partición modal Viajes")
     trx = formatear_columnas_numericas(trx, ['indicador'], True)
-    col3.write(trx)
+    col2.write(trx)
 
     
     trx = indicadores.loc[
