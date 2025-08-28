@@ -23,7 +23,11 @@ def leer_configs_generales(autogenerado=True):
     Lee el archivo de configuración YAML, probando primero con UTF-8
     y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    archivo = "configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml"
+    archivo = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
     path = os.path.join("configs", archivo)
 
     try:
@@ -43,8 +47,6 @@ def leer_configs_generales(autogenerado=True):
         print(f"❌ Error general leyendo archivo: {e}")
 
     return {}
-
-
 
 
 def leer_alias(tipo="dash"):
@@ -102,10 +104,21 @@ def traigo_db_path(tipo="data", alias_db=""):
         alias_db += "_"
 
     # db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
-    db_path = next((p for p in (Path("data")/"db"/f"{alias_db}{tipo}.sqlite", Path("/data/db")/f"{alias_db}{tipo}.sqlite") if p.exists()), None)
+    db_path = next(
+        (
+            p
+            for p in (
+                Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
+                Path("/data/db") / f"{alias_db}{tipo}.sqlite",
+            )
+            if p.exists()
+        ),
+        None,
+    )
     if db_path is None:
-        raise FileNotFoundError(f"No se encontró {name} en 'data/db' ni en '/data/db'")
-
+        raise FileNotFoundError(
+            f"No se encontró {alias_db} en 'data/db' ni en '/data/db'"
+        )
 
     return db_path
 
@@ -340,7 +353,7 @@ def agg_matriz(
         "rango_hora",
         "distancia_agregada",
         "genero_agregado",
-        "tarifa_agregada",        
+        "tarifa_agregada",
     ],
     weight_col=["distancia", "travel_time_min", "travel_speed"],
     weight_var="factor_expansion_linea",
@@ -350,9 +363,9 @@ def agg_matriz(
     agg_hora=False,
     agg_distancia=False,
     agg_genero_agregado=False,
-    agg_tarifa_agregada=False
+    agg_tarifa_agregada=False,
 ):
-    
+
     if len(df) > 0:
         if agg_transferencias:
             df["transferencia"] = 99
@@ -367,9 +380,8 @@ def agg_matriz(
         if agg_tarifa_agregada:
             df["tarifa_agregada"] = 99
 
-        
         df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
-        
+
         df2 = calculate_weighted_means(
             df,
             aggregate_cols=aggregate_cols,
@@ -379,7 +391,7 @@ def agg_matriz(
         )
 
         if len(df2) > 0:
-            df = df1.merge(df2, how='left')
+            df = df1.merge(df2, how="left")
         else:
             df = df1.copy()
             for i in weight_col:
@@ -561,7 +573,7 @@ def create_data_folium(
             "transfer",
             "transferencia",
             "modo_agregado",
-            "rango_hora",            
+            "rango_hora",
             "distancia_agregada",
             "genero_agregado",
             "tarifa_agregada",
@@ -681,7 +693,7 @@ def create_data_folium(
             agg_tarifa_agregada=agg_tarifa_agregada,
             zero_to_nan=["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
         )
-        
+
         viajes[["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]] = viajes[
             ["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]
         ].fillna(0)
@@ -710,7 +722,7 @@ def create_data_folium(
 
     else:
         viajes = pd.DataFrame([])
-    
+
     matriz = agg_matriz(
         viajes_matrices,
         aggregate_cols=[
@@ -723,7 +735,7 @@ def create_data_folium(
             "rango_hora",
             "distancia_agregada",
             "genero_agregado",
-            "tarifa_agregada"
+            "tarifa_agregada",
         ],
         weight_col=["distancia", "travel_time_min", "travel_speed"],
         zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
@@ -736,16 +748,23 @@ def create_data_folium(
         agg_tarifa_agregada=agg_tarifa_agregada,
     )
 
-
-    
     matriz["factor_expansion_linea"] = matriz["factor_expansion_linea"].round(0)
-    matriz = matriz.sort_values('factor_expansion_linea', ascending=False).reset_index(drop=True)
-    matriz['porcentaje'] = (matriz['factor_expansion_linea'] / matriz['factor_expansion_linea'].sum() * 100).round(2)
-    matriz['resumen'] = 0
-    matriz.loc[0:20, 'resumen'] = 1
-    lst_resumen = matriz[matriz.resumen==1].Origen.unique().tolist()+matriz[matriz.resumen==1].Destino.unique().tolist()
-    matriz.loc[(matriz.Origen.isin(lst_resumen))&(matriz.Destino.isin(lst_resumen)), 'resumen'] = 1
-
+    matriz = matriz.sort_values("factor_expansion_linea", ascending=False).reset_index(
+        drop=True
+    )
+    matriz["porcentaje"] = (
+        matriz["factor_expansion_linea"] / matriz["factor_expansion_linea"].sum() * 100
+    ).round(2)
+    matriz["resumen"] = 0
+    matriz.loc[0:20, "resumen"] = 1
+    lst_resumen = (
+        matriz[matriz.resumen == 1].Origen.unique().tolist()
+        + matriz[matriz.resumen == 1].Destino.unique().tolist()
+    )
+    matriz.loc[
+        (matriz.Origen.isin(lst_resumen)) & (matriz.Destino.isin(lst_resumen)),
+        "resumen",
+    ] = 1
 
     if ("poly_inicio" in viajes_matrices.columns) | (
         "poly_fin" in viajes_matrices.columns
@@ -841,8 +860,6 @@ def create_data_folium(
     if not etapas_seleccionada:
         etapas = pd.DataFrame([])
 
-
-
     return etapas, viajes, matriz, origen, destino, transferencias
 
 
@@ -919,6 +936,7 @@ def bring_latlon():
     except:
         latlon = [-34.593, -58.451]
     return latlon
+
 
 @st.cache_data
 def traigo_lista_zonas(tipo="etapas"):
@@ -1014,7 +1032,7 @@ def traigo_tablas_con_filtros(
     if tipo_filtro == "OD y Transferencias":
 
         if det_filtro1 != det_filtro2:
-            if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+            if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1026,7 +1044,7 @@ def traigo_tablas_con_filtros(
                 );
                 """
                 params = [dia] + lst1 * 4 + lst2 * 4
-            elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+            elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1036,8 +1054,8 @@ def traigo_tablas_con_filtros(
                     ) 
                 ;
                 """
-                params = [dia] + lst1 * 4 
-            elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+                params = [dia] + lst1 * 4
+            elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1064,7 +1082,7 @@ def traigo_tablas_con_filtros(
 
     else:
         if det_filtro1 != det_filtro2:
-            if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+            if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1076,7 +1094,7 @@ def traigo_tablas_con_filtros(
                 );
                 """
                 params = [dia] + lst1 * 2 + lst2 * 2
-            elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+            elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1085,9 +1103,9 @@ def traigo_tablas_con_filtros(
                     (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))                
                 );
                 """
-                params = [dia] + lst1 * 2 
-                
-            elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+                params = [dia] + lst1 * 2
+
+            elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
                 WHERE zona = '{var_zonif}'
@@ -1111,7 +1129,7 @@ def traigo_tablas_con_filtros(
             params = [dia] + lst1 * 2
 
     # Ejecutar consulta
-    
+
     agg_etapas = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_etapas) > 0:
@@ -1204,7 +1222,7 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))
 
     if det_filtro1 != det_filtro2:
-        if (det_filtro1!= 'Todos')&(det_filtro2!= 'Todos'):
+        if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
             query = f"""
             SELECT * FROM agg_matrices 
             WHERE zona = '{var_zonif}'
@@ -1216,7 +1234,7 @@ def traigo_tablas_con_filtros(
             );
             """
             params = [dia] + lst1 * 2 + lst2 * 2
-        elif (det_filtro1!= 'Todos')&(det_filtro2== 'Todos'):
+        elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
             query = f"""
             SELECT * FROM agg_matrices 
             WHERE zona = '{var_zonif}'
@@ -1226,9 +1244,9 @@ def traigo_tablas_con_filtros(
                 )
             ;
             """
-            params = [dia] + lst1 * 2 
+            params = [dia] + lst1 * 2
 
-        elif (det_filtro1== 'Todos')&(det_filtro2!= 'Todos'):
+        elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
 
             query = f"""
             SELECT * FROM agg_matrices 
@@ -1301,21 +1319,21 @@ def traigo_tablas_con_filtros(
             .replace([np.inf, -np.inf], 0)
             .astype(int)
         )
-        
+
         agg_matrices["orden_fin"] = (
             pd.to_numeric(agg_matrices["orden_fin"], errors="coerce")
             .fillna(0)
             .replace([np.inf, -np.inf], 0)
             .astype(int)
         )
-        
+
         # Construcción de columnas Origen y Destino
         agg_matrices["Origen"] = (
             agg_matrices["orden_inicio"].astype(str).str.zfill(3)
             + "_"
             + agg_matrices["inicio"]
         )
-        
+
         agg_matrices["Destino"] = (
             agg_matrices["orden_fin"].astype(str).str.zfill(3)
             + "_"
@@ -1419,6 +1437,8 @@ def guardar_tabla_sql(
     # Cierra conexión
     cursor.close()
     conn.close()
+
+
 # Convert geometry to H3 indices
 def get_h3_indices_in_geometry(geometry, resolution):
     poly = h3.geo_to_h3shape(geometry)
@@ -1426,12 +1446,15 @@ def get_h3_indices_in_geometry(geometry, resolution):
 
     return h3_indices
 
+
 def h3_to_polygon(h3_index):
     # Obtener las coordenadas del hexágono
     geom = shape(h3.cells_to_h3shape([h3_index]).__geo_interface__)
     return geom
 
+
 import mapclassify
+
 
 def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
     """
@@ -1476,38 +1499,38 @@ def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
     # Asignar categorías
     df = df_viajes.copy()
     if len(bins) > 1:
-        labels = [
-            f"{int(bins[i])} a {int(bins[i+1])}"
-            for i in range(len(bins)-1)
-        ]
-        df[cut_col] = pd.cut(
-            valores,
-            bins=bins,
-            labels=labels,
-            include_lowest=True
-        )
+        labels = [f"{int(bins[i])} a {int(bins[i+1])}" for i in range(len(bins) - 1)]
+        df[cut_col] = pd.cut(valores, bins=bins, labels=labels, include_lowest=True)
     else:
         etiqueta = str(int(bins[0]))
         df[cut_col] = etiqueta
 
     return df, labels
+
+
 def formatear_columnas_numericas(df, columnas, forzar_entero=False):
     df_formateado = df.copy()
     for col in columnas:
         if forzar_entero:
             # Mostrar todo como entero (sin decimales)
             df_formateado[col] = df[col].apply(
-                lambda x: f"{int(x):,}".replace(",", "X").replace(".", ",").replace("X", ".")
+                lambda x: f"{int(x):,}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".")
             )
         else:
             if pd.api.types.is_integer_dtype(df[col]):
                 # Enteros sin decimales
                 df_formateado[col] = df[col].apply(
-                    lambda x: f"{x:,}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    lambda x: f"{x:,}".replace(",", "X")
+                    .replace(".", ",")
+                    .replace("X", ".")
                 )
             elif pd.api.types.is_float_dtype(df[col]):
                 # Floats con 2 decimales
                 df_formateado[col] = df[col].apply(
-                    lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    lambda x: f"{x:,.2f}".replace(",", "X")
+                    .replace(".", ",")
+                    .replace("X", ".")
                 )
     return df_formateado
