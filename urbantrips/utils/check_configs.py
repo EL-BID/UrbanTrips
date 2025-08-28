@@ -3,6 +3,8 @@ import os
 import yaml
 import re
 import ast
+import chardet
+
 from urbantrips.utils.utils import (
     leer_configs_generales,
     duracion,
@@ -908,8 +910,6 @@ def add_trx_and_gps_filenames(config_default, corrida, gps_file=False):
     return config_default
 
 
-import chardet
-
 def corregir_codificacion_a_utf8_sin_modificar_texto(path):
     """
     Corrige la codificación de un archivo de texto a UTF-8 sin modificar su contenido (ni un espacio).
@@ -930,20 +930,21 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
             return
 
         # Decodificar el texto
-        texto = raw.decode(encoding_detectado, errors='replace')
+        texto = raw.decode(encoding_detectado, errors="replace")
 
         # Eliminar BOM si existe
         if texto.startswith("\ufeff"):
             texto = texto.lstrip("\ufeff")
 
         # Sobrescribir en UTF-8
-        with open(path, "w", encoding="utf-8", newline='') as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(texto)
 
         print(f"✅ Codificación corregida a UTF-8 sin modificar contenido: {path}")
 
     except Exception as e:
         print(f"❌ Error procesando {path}: {e}")
+
 
 @duracion
 def check_config(corrida):
@@ -953,15 +954,18 @@ def check_config(corrida):
     in the file, printing an error message if one is found.
 
     Args:
-    None
+    corrida (str): The name of the corrida to process.
+
 
     Returns:
     None
     """
     print("Usando corrida", corrida)
 
-    corregir_codificacion_a_utf8_sin_modificar_texto("configs/configuraciones_generales.yaml")
-    
+    corregir_codificacion_a_utf8_sin_modificar_texto(
+        "configs/configuraciones_generales.yaml"
+    )
+
     replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
     # Siempre crea un autogenerado vacio {}
     check_configs_file()
@@ -990,4 +994,6 @@ def check_config(corrida):
     # Guarda el config autogenerado
     write_config(config_default)
     check_config_errors(config_default)
-    corregir_codificacion_a_utf8_sin_modificar_texto("configs/configuraciones_generales_autogenerado.yaml")
+    corregir_codificacion_a_utf8_sin_modificar_texto(
+        "configs/configuraciones_generales_autogenerado.yaml"
+    )
