@@ -11,7 +11,7 @@ from dash_utils import (
     configurar_selector_dia,
     leer_configs_generales,
     iniciar_conexion_db,
-    get_logo
+    get_logo,
 )
 
 
@@ -24,7 +24,7 @@ try:
     from urbantrips.viz.section_supply import visualize_route_section_supply_data
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
-
+    from urbantrips.utils.check_configs import check_config
 except ImportError as e:
     st.error(
         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -87,6 +87,10 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
+alias_seleccionado = configurar_selector_dia()
+check_config(corrida=alias_seleccionado)
+st.text(f"Alias seleccionado: {alias_seleccionado}")
+
 try:
 
     # --- Cargar configuraciones y conexiones en session_state ---
@@ -97,8 +101,7 @@ try:
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
     use_branches = configs["lineas_contienen_ramales"]
-    
-    
+
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
@@ -109,8 +112,6 @@ except ValueError as e:
     )
     st.stop()
 
-
-alias_seleccionado = configurar_selector_dia()
 
 for var in [
     "id_linea_7",

@@ -206,7 +206,7 @@ def process_line_services(gps_points, stops):
     line_id = gps_points.id_linea.unique()[0]
 
     conn_data = utils.iniciar_conexion_db(tipo="data")
-    print(f"Procesando servicios en base a gps para id_linea {line_id}")
+    #   print(f"Procesando servicios en base a gps para id_linea {line_id}")
 
     # if there are stops select only stops for that line
     if stops is not None:

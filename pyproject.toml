@@ -47,7 +47,8 @@ dependencies = [
     "typing_extensions==4.12.2",
     "squarify",
     "matplotlib_venn",
-    "unidecode"
+    "unidecode",
+    "chardet"
 ]
 
 [project.optional-dependencies]
