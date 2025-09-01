@@ -39,7 +39,7 @@ def create_coarse_h3_from_line(
     # Create LRS for each hex index
     gdf["h3_lrs"] = [
         floor_rounding(linestring.project(Point(p[::-1]), True))
-        for p in gdf.h3.map(h3.h3_to_geo)
+        for p in gdf.h3.map(h3.cell_to_latlng)
     ]
 
     # Create section ids for each line
