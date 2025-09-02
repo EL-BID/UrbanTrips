@@ -1022,10 +1022,13 @@ with st.expander("Líneas de deseo por linea"):
 
         k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
         st.text(f"Hay un total de {matriz.legs.sum()} etapas")
-
-        map = crear_mapa_folium(matriz, cmap="BuPu", var_fex="legs", k_jenks=k_jenks)
-
-        st_map = st_folium(map, width=900, height=700)
+        try:
+            map = crear_mapa_folium(
+                matriz, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
+            )
+            st_map = st_folium(map, width=900, height=700)
+        except ValueError as e:
+            st.write("Error al crear el mapa. Verifique los parametros seleccionados ")
     else:
         st.write("No hay datos para mostrar")
 

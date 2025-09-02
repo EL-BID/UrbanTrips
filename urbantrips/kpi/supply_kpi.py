@@ -60,6 +60,9 @@ def compute_route_section_supply(
 
     # read legs data
     gps = read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
+    if gps is None:
+        print("No existen datos de GPS para los filtros aplicados")
+        return None
 
     # read routes geoms
     route_geoms = get_route_geoms_with_sections_data(
@@ -303,6 +306,9 @@ def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     conn_data = iniciar_conexion_db(tipo="data")
     gps = pd.read_sql(q_main, conn_data)
     conn_data.close()
+
+    if len(gps) == 0:
+        return None
 
     gps["yr_mo"] = gps.dia.str[:7]
 
