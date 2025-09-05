@@ -11,7 +11,7 @@ import itertools
 import os
 import geopandas as gpd
 import h3
-from shapely.geometry import Point, MultiPolygon, Polygon, shape
+from shapely.geometry import Point, LineString, MultiPolygon, Polygon, shape
 from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
@@ -24,6 +24,7 @@ from urbantrips.geo.geo import (
     bring_latlon,
     h3_to_polygon,
 )
+from urbantrips.carto.routes import floor_rounding
 
 import warnings
 
@@ -31,9 +32,9 @@ warnings.filterwarnings(
     "ignore",
     message="Unsigned integer: shortest path distance is trying to be calculated",
     category=UserWarning,
-    module="pandana.network"
+    module="pandana.network",
 )
-
+from urbantrips.kpi.kpi import create_route_section_ids
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -215,10 +216,12 @@ def guardo_zonificaciones():
                 pass
 
         if len(zonificaciones) > 0:
-            zonificaciones['orden'] = zonificaciones['orden'].fillna(0)
-            zonificaciones['zona'] = zonificaciones['zona'].fillna('')
-            zonificaciones['id'] = zonificaciones['id'].fillna('')
-            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
+            zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
+            zonificaciones["zona"] = zonificaciones["zona"].fillna("")
+            zonificaciones["id"] = zonificaciones["id"].fillna("")
+            zonificaciones = zonificaciones.dissolve(
+                ["zona", "id", "orden"], as_index=False
+            )
 
             crs_val = configs["epsg_m"]
             crs_actual = zonificaciones.crs
@@ -236,14 +239,18 @@ def guardo_zonificaciones():
             )
 
             # Agrego res_6 y res_8 en zonificaciones
-            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6, crs_val)
+            res_6 = generate_h3_hexagons_within_polygon(
+                zonificaciones_disolved, 6, crs_val
+            )
             res_6["zona"] = "res_6"
             res_6["orden"] = 0
             res_6 = res_6.rename(columns={"h3_index": "id"})
             res_6 = res_6[["zona", "id", "orden", "geometry"]]
             zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
 
-            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7, crs_val)
+            res_7 = generate_h3_hexagons_within_polygon(
+                zonificaciones_disolved, 7, crs_val
+            )
             res_7["zona"] = "res_7"
             res_7["orden"] = 0
             res_7 = res_7.rename(columns={"h3_index": "id"})
@@ -281,10 +288,14 @@ def guardo_zonificaciones():
             )
 
             # Guardo zonificaciones
-            
-            guardar_tabla_sql(zonificaciones, 'zonificaciones', 'insumos', modo='replace')       
-            guardar_tabla_sql(equivalencias_zonas, 'equivalencias_zonas', 'insumos', modo='replace')  
-                
+
+            guardar_tabla_sql(
+                zonificaciones, "zonificaciones", "insumos", modo="replace"
+            )
+            guardar_tabla_sql(
+                equivalencias_zonas, "equivalencias_zonas", "insumos", modo="replace"
+            )
+
     if configs["poligonos"]:
 
         poly_file = configs["poligonos"]
@@ -293,7 +304,8 @@ def guardo_zonificaciones():
 
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
-            guardar_tabla_sql(poly, 'poligonos', 'insumos', modo='replace')            
+            guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
+
 
 @duracion
 def create_distances_table(use_parallel=False):
@@ -798,3 +810,54 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     upscale_gdf = gpd.GeoDataFrame(hexagon_children, crs=hexagon_gdf.crs)
 
     return upscale_gdf
+
+
+def from_linestring_to_h3(linestring, h3_res=8):
+    """
+    This function takes a shapely linestring and
+    returns all h3 hecgrid cells that intersect that linestring
+    """
+    linestring_buffer = linestring.buffer(0.002)
+    linestring_h3 = get_h3_indices_in_geometry(linestring_buffer, 10)
+    linestring_h3 = {h3.cell_to_parent(h, h3_res) for h in linestring_h3}
+    return pd.Series(list(linestring_h3)).drop_duplicates()
+
+
+def create_coarse_h3_from_line(
+    linestring: LineString, h3_res: int, route_id: int
+) -> dict:
+
+    # Reference to coarser H3 for those lines
+    linestring_h3 = from_linestring_to_h3(linestring, h3_res=h3_res)
+
+    # Creeate geodataframes with hex geoms and index and LRS
+    gdf = gpd.GeoDataFrame(
+        {"h3": linestring_h3}, geometry=linestring_h3.map(add_geometry), crs=4326
+    )
+    gdf["route_id"] = route_id
+
+    # Create LRS for each hex index
+    gdf["h3_lrs"] = [
+        floor_rounding(linestring.project(Point(p[::-1]), True))
+        for p in gdf.h3.map(h3.cell_to_latlng)
+    ]
+
+    # Create section ids for each line
+    df_section_ids_LRS = create_route_section_ids(len(gdf))
+
+    # Create cut points for each section based on H3 LRS
+    df_section_ids_LRS_cut = df_section_ids_LRS.copy()
+    df_section_ids_LRS_cut.loc[0] = -0.001
+
+    # Use cut points to come up with a unique integer id
+    df_section_ids = list(range(1, len(df_section_ids_LRS_cut)))
+
+    gdf["section_id"] = pd.cut(
+        gdf.h3_lrs, bins=df_section_ids_LRS_cut, labels=df_section_ids, right=True
+    )
+
+    # ESTO REEMPLAZA PARA ATRAS
+    gdf = gdf.sort_values("h3_lrs")
+    gdf["section_id"] = range(len(gdf))
+
+    return gdf
