@@ -320,6 +320,7 @@ def compute_supply_overlapping(
         linestring_base = base_route_gdf.item()
         linestring_comp = comp_route_gdf.item()
 
+    
     # Turn linestring into coarse h3 indexes
     base_h3 = create_coarse_h3_from_line(
         linestring=linestring_base, h3_res=h3_res_comp, route_id=base_route_id

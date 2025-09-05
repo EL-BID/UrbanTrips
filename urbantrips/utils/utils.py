@@ -630,6 +630,17 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
     )
 
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms_h3
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        section_id int,
+        h3 text,
+        wkt text not null
+        )
+        ;
+        """
+    )
     conn_insumos.close()
 
 
