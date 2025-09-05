@@ -1,12 +1,10 @@
 import pandas as pd
 import geopandas as gpd
-
+from urbantrips.carto.carto import floor_rounding, create_route_section_ids
 from urbantrips.carto.routes import (
     get_route_geoms_with_sections_data,
     check_exists_route_section_points_table,
     upload_route_section_points_table,
-    floor_rounding,
-    create_route_section_ids,
     build_gps_route_sections_df,
 )
 from urbantrips.utils.utils import (

@@ -11,9 +11,9 @@ from urbantrips.carto.routes import (
     check_exists_route_section_points_table,
     upload_route_section_points_table,
     get_route_section_id,
-    create_route_section_ids,
     build_leg_route_sections_df,
 )
+from urbantrips.carto.carto import create_route_section_ids
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,

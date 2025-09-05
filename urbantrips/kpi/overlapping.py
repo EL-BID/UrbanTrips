@@ -8,8 +8,8 @@ import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
-from urbantrips.carto.routes import read_routes, floor_rounding
-from urbantrips.carto.carto import create_coarse_h3_from_line
+from urbantrips.carto.routes import read_routes
+from urbantrips.carto.carto import create_coarse_h3_from_line, floor_rounding
 
 
 def get_demand_data(
@@ -320,7 +320,6 @@ def compute_supply_overlapping(
         linestring_base = base_route_gdf.item()
         linestring_comp = comp_route_gdf.item()
 
-    
     # Turn linestring into coarse h3 indexes
     base_h3 = create_coarse_h3_from_line(
         linestring=linestring_base, h3_res=h3_res_comp, route_id=base_route_id

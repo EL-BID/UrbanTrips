@@ -24,8 +24,6 @@ from urbantrips.geo.geo import (
     bring_latlon,
     h3_to_polygon,
 )
-from urbantrips.carto.routes import floor_rounding
-
 import warnings
 
 warnings.filterwarnings(
@@ -34,7 +32,6 @@ warnings.filterwarnings(
     category=UserWarning,
     module="pandana.network",
 )
-from urbantrips.kpi.kpi import create_route_section_ids
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -45,6 +42,24 @@ from urbantrips.utils.utils import (
 )
 
 import subprocess
+from math import floor
+
+
+def create_route_section_ids(n_sections):
+    step = 1 / n_sections
+    sections = np.arange(0, 1 + step, step)
+    section_ids = pd.Series(map(floor_rounding, sections))
+    # n sections like 6 returns steps with max setion > 1
+    section_ids = section_ids[section_ids <= 1]
+
+    return section_ids
+
+
+def floor_rounding(num):
+    """
+    Rounds a number to the floor at 3 digits to use as route section id
+    """
+    return floor(num * 1000) / 1000
 
 
 def get_library_version(library_name):
