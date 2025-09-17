@@ -5,7 +5,7 @@ import numpy as np
 import h3
 from streamlit_folium import st_folium
 import folium
-from shapely.geometry import Polygon, shape
+from shapely.geometry import Polygon, shape, LineString
 from shapely import wkt
 from shapely.ops import unary_union
 import contextily as cx
@@ -23,15 +23,71 @@ from dash_utils import (
     leer_configs_generales,
     create_squared_polygon,
     h3_to_polygon,
+    extract_hex_colors_from_cmap,
 )
 from urbantrips.utils.check_configs import check_config
 from urbantrips.kpi.line_od_matrix import compute_line_od_matrix
 from urbantrips.kpi.kpi import compute_section_load_table
 from urbantrips.utils import utils
-from urbantrips.carto.carto import create_coarse_h3_from_line
+from urbantrips.carto.carto import create_coarse_h3_from_line, create_route_section_ids
 from urbantrips.carto.routes import create_route_section_points
 from urbantrips.viz.viz import standarize_size
 from urbantrips.geo.geo import get_h3_buffer_ring_size, create_sections_geoms
+import mapclassify
+from folium import Figure
+
+
+def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
+    location = line_od.geometry.union_all().centroid
+    location = [location.y, location.x]
+    try:
+        bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
+            df_agg[var_fex], k=k_jenks
+        ).bins.tolist()
+    except:
+        k_jenks = 3
+        bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
+            df_agg[var_fex], k=k_jenks
+        ).bins.tolist()
+
+    range_bins = range(0, len(bins) - 1)
+    bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
+    df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
+
+    fig = Figure(width=800, height=800)
+    m = folium.Map(
+        location=location,
+        zoom_start=9,
+        tiles="cartodbpositron",
+    )
+
+    title_html = """
+    <h3 align="center" style="font-size:20px"><b>Your map title</b></h3>
+    """
+    m.get_root().html.add_child(folium.Element(title_html))
+
+    line_w = 0.5
+
+    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
+
+    n = 0
+    for i in bins_labels:
+
+        df_agg[df_agg.cuts == i].explore(
+            m=m,
+            color=colors[n],
+            style_kwds={"fillOpacity": 0.1, "weight": line_w},
+            name=i,
+            tooltip=False,
+        )
+        n += 1
+        line_w += 3
+
+    folium.LayerControl(name="xx").add_to(m)
+
+    fig.add_child(m)
+
+    return fig
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
@@ -473,6 +529,8 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
                 "Por favor ingrese un número de secciones válido. Se usara 10 por defecto"
             )
             n_sections = 10
+            st.session_state["n_sections_7"] = n_sections
+
         day_type = st.session_state["day_type_7"]
         hour_range = st.session_state["hour_range_7"]
 
@@ -523,7 +581,7 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
         with col3:
             st.subheader("Buffer de la línea")
             output2 = st_folium(m2, width=700, height=700)
-            
+
 with st.expander("Demanda total y por linea"):
     if route_h3 is None:
         st.warning("Por favor dibuje una línea en el mapa para ver la demanda")
@@ -595,6 +653,85 @@ with st.expander("Demanda por segmento de recorrido"):
 
 
 with st.expander("Líneas de deseo por linea"):
-    st.text(
-        "Aquí se mostrarán las líneas de deseo generadas a partir de la geometría seleccionada."
+    n_sections = st.session_state["n_sections_7"]
+
+    line_od_data = legs.copy()
+
+    section_ids = create_route_section_ids(n_sections)
+
+    section_carto = section_load.reindex(
+        columns=["section_id", "geometry"]
+    ).drop_duplicates(subset="section_id")
+    section_carto.geometry = section_carto.geometry.centroid
+
+    labels = list(range(1, len(section_ids)))
+
+    line_od_data["o_proj"] = pd.cut(
+        line_od_data.o_proj, bins=section_ids, labels=labels, right=True
     )
+    line_od_data["d_proj"] = pd.cut(
+        line_od_data.d_proj, bins=section_ids, labels=labels, right=True
+    )
+
+    totals_by_day_section_id = (
+        line_od_data.groupby(["dia", "o_proj", "d_proj"])
+        .agg(legs=("factor_expansion_linea", "sum"))
+        .reset_index()
+    )
+    totals_by_day = totals_by_day_section_id.groupby(["dia"], as_index=False).agg(
+        daily_legs=("legs", "sum")
+    )
+
+    totals_by_typeday = totals_by_day.daily_legs.mean()
+
+    # then average for type of day
+    totals_by_typeday_section_id = (
+        totals_by_day_section_id.groupby(["o_proj", "d_proj"])
+        .agg(legs=("legs", "mean"))
+        .reset_index()
+    )
+    totals_by_typeday_section_id["legs"] = (
+        totals_by_typeday_section_id["legs"].round().map(int)
+    )
+    totals_by_typeday_section_id["prop"] = (
+        totals_by_typeday_section_id.legs / totals_by_typeday * 100
+    ).round(1)
+    totals_by_typeday_section_id["day_type"] = day_type
+    totals_by_typeday_section_id["n_sections"] = n_sections
+
+    totals_by_typeday_section_id = totals_by_typeday_section_id.merge(
+        section_carto, left_on="o_proj", right_on="section_id", how="left"
+    ).merge(
+        section_carto,
+        left_on="d_proj",
+        right_on="section_id",
+        suffixes=("_o", "_d"),
+        how="left",
+    )
+    geometry = [
+        LineString([(row.geometry_o), (row.geometry_d)])
+        for _, row in totals_by_typeday_section_id.iterrows()
+    ]
+    line_od = gpd.GeoDataFrame(
+        totals_by_typeday_section_id.reindex(
+            columns=["o_proj", "d_proj", "legs", "prop", "day_type"]
+        ),
+        geometry=geometry,
+        crs=4326,
+    )
+
+    if len(line_od) > 0:
+        if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos2"):
+            st.write(line_od)
+
+        k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
+        st.text(f"Hay un total de {line_od.legs.sum()} etapas")
+        try:
+            map = crear_mapa_folium(
+                line_od, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
+            )
+            st_map = st_folium(map, width=900, height=700)
+        except ValueError as e:
+            st.write("Error al crear el mapa. Verifique los parametros seleccionados ")
+    else:
+        st.write("No hay datos para mostrar")
