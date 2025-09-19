@@ -83,6 +83,7 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
+    print("RING SIZE ", ring_size)
 
     conn_data = iniciar_conexion_db(tipo="data")
 
@@ -94,7 +95,6 @@ def update_stations_catchment_area(ring_size):
     select id_linea,h3_o as parada from etapas
     """
     paradas_etapas = pd.read_sql(q, conn_data)
-
     metadata_lineas = pd.read_sql_query(
         """
         SELECT *
@@ -110,7 +110,55 @@ def update_stations_catchment_area(ring_size):
     paradas_etapas = paradas_etapas.groupby(
         ["id_linea_agg", "parada"], as_index=False
     ).size()
+
     paradas_etapas = paradas_etapas[(paradas_etapas["size"] > 1)].drop(["size"], axis=1)
+
+    # filtrar paradas solo los que estan en recorridos h3
+    q = """  
+    select distinct mr.id_linea as id_linea_agg, obgh.h3 as parada
+    from official_branches_geoms_h3 obgh 
+    inner join metadata_ramales mr 
+    ON obgh.id_ramal = mr.id_ramal
+    """
+    h3_recorridos = pd.read_sql(q, conn_insumos)
+    print(len(h3_recorridos.id_linea_agg.unique()))
+
+    if len(h3_recorridos) > 0:
+        h3_recorridos["parada_en_recorridos"] = True
+        paradas_etapas["id_linea_recorridos"] = paradas_etapas["id_linea_agg"].isin(
+            h3_recorridos["id_linea_agg"].unique()
+        )
+        print("PARADAS EN ETAPAS 1")
+        print(len(paradas_etapas.id_linea_agg.unique()))
+
+        print("LINEAS EN RECORRIDOS", paradas_etapas["id_linea_recorridos"].sum())
+
+        paradas_etapas = paradas_etapas.merge(
+            h3_recorridos, on=["id_linea_agg", "parada"], how="left"
+        )
+        print("PARADAS EN ETAPAS 2")
+        print(len(paradas_etapas.id_linea_agg.unique()))
+
+        paradas_etapas["parada_en_recorridos"] = (
+            paradas_etapas["parada_en_recorridos"].fillna(False).astype(bool)
+        )
+
+        paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (
+            ~paradas_etapas.parada_en_recorridos
+        )
+
+        print(
+            paradas_etapas.drop(columns=["id_linea_agg", "parada"]).sample(
+                30, random_state=1
+            )
+        )
+
+        paradas_pre = len(paradas_etapas)
+        print("Paradas antes de eliminar por recorridos", paradas_pre)
+        paradas_etapas = paradas_etapas.loc[
+            ~paradas_etapas.borrar, ["id_linea_agg", "parada"]
+        ]
+        print(f"Eliminadas {paradas_pre - len(paradas_etapas)} paradas sin recorridos")
 
     # Leer las paradas ya existentes en la matriz
     q = """
@@ -122,7 +170,6 @@ def update_stations_catchment_area(ring_size):
     paradas_nuevas = paradas_etapas.merge(
         paradas_en_matriz, on=["id_linea_agg", "parada"], how="left"
     )
-
     paradas_nuevas = paradas_nuevas.loc[
         paradas_nuevas.m.isna(), ["id_linea_agg", "parada"]
     ]
