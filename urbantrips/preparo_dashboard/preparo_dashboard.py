@@ -1947,6 +1947,185 @@ def proceso_poligonos(etapas=[], viajes=[], zonificaciones=[], alias_db='', reso
 
 
 
+def crear_indices_unificados():
+    """
+    Crea índices en las bases SQLite usadas por el pipeline UrbanTrips:
+    - data (etapas, viajes, transacciones, gps, services, kpi_by_day_line)
+    - dash (agg_etapas, agg_matrices, poly_*, indicadores, resumen_lineas, etc.)
+    - insumos (metadata_lineas, poligonos, zonificaciones, equivalencias_zonas)
+    Aplica PRAGMAs de rendimiento y ANALYZE/optimize.
+    """
+
+    # ---- abrir conexiones ----
+    conn_data   = iniciar_conexion_db(tipo="data")
+    conn_dash   = iniciar_conexion_db(tipo="dash")
+    conn_ins    = iniciar_conexion_db(tipo="insumos")
+
+    # ---- helpers internos ----
+    def _table_exists(conn, table):
+        cur = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;", (table,)
+        )
+        return cur.fetchone() is not None
+
+    def _table_has_cols(conn, table, cols):
+        cur = conn.execute(f"PRAGMA table_info({table});")
+        existing = {r[1] for r in cur.fetchall()}
+        return all(c in existing for c in cols)
+
+    def _create_idx(conn, table, name, cols):
+        cols_sql = ", ".join(cols)
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols_sql});")
+
+    def _maybe_create(conn, table, spec_list):
+        if not _table_exists(conn, table):
+            return
+        for name, cols in spec_list:
+            if _table_has_cols(conn, table, cols):
+                try:
+                    _create_idx(conn, table, name, cols)
+                except Exception as e:
+                    print(f"[índice omitido] {table}.{name}: {e}")
+
+    def _speed_pragmas(conn):
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA temp_store=MEMORY;")
+        conn.execute("PRAGMA mmap_size=134217728;")  # 128MB
+
+    def _analyze_optimize(conn):
+        conn.execute("ANALYZE;")
+        conn.execute("PRAGMA optimize;")
+
+    # ---- PRAGMAs de rendimiento ----
+    for c in (conn_data, conn_dash, conn_ins):
+        _speed_pragmas(c)
+
+    # =================
+    #   DATA
+    # =================
+    _maybe_create(conn_data, "etapas", [
+        ("idx_etapas_od_dia", ["od_validado","dia"]),
+        ("idx_etapas_dia_tarjeta", ["dia","id_tarjeta"]),
+        ("idx_etapas_tarjeta_viaje", ["id_tarjeta","id_viaje"]),
+        ("idx_etapas_h3o", ["h3_o"]),
+        ("idx_etapas_h3d", ["h3_d"]),
+        ("idx_etapas_linea", ["id_linea"]),
+        ("idx_etapas_ramal", ["id_ramal"]),
+        ("idx_etapas_hora", ["hora"]),
+    ])
+
+    _maybe_create(conn_data, "viajes", [
+        ("idx_viajes_od_dia", ["od_validado","dia"]),
+        ("idx_viajes_dia_tarjeta", ["dia","id_tarjeta"]),
+        ("idx_viajes_tarjeta_viaje", ["id_tarjeta","id_viaje"]),
+        ("idx_viajes_h3o", ["h3_o"]),
+        ("idx_viajes_h3d", ["h3_d"]),
+        ("idx_viajes_modo", ["modo"]),
+        ("idx_viajes_hora", ["hora"]),
+    ])
+
+    _maybe_create(conn_data, "transacciones", [
+        ("idx_trx_dia_linea", ["dia","id_linea"]),
+        ("idx_trx_linea_modo", ["id_linea","modo"]),
+        ("idx_trx_interno", ["interno"]),
+    ])
+
+    _maybe_create(conn_data, "gps", [
+        ("idx_gps_interno", ["interno"]),
+        ("idx_gps_fecha", ["fecha"]),
+    ])
+
+    _maybe_create(conn_data, "services", [
+        ("idx_services_valid", ["valid"]),
+        ("idx_services_interno", ["interno"]),
+    ])
+
+    _maybe_create(conn_data, "kpi_by_day_line", [
+        ("idx_kpi_dia_linea", ["dia","id_linea"]),
+    ])
+
+    # =================
+    #   DASH
+    # =================
+    _maybe_create(conn_dash, "agg_etapas", [
+        ("idx_agg_etapas_dia_zona", ["dia","zona"]),
+        ("idx_agg_etapas_zona_if", ["zona","inicio_norm","fin_norm"]),
+        ("idx_agg_etapas_modo", ["modo_agregado"]),
+    ])
+
+    _maybe_create(conn_dash, "agg_matrices", [
+        ("idx_agg_matrices_dia_zona", ["dia","zona"]),
+        ("idx_agg_matrices_od", ["Origen","Destino"]),
+    ])
+
+    _maybe_create(conn_dash, "poly_etapas", [
+        ("idx_poly_etapas_poly_zona_dia", ["id_polygon","zona","dia"]),
+        ("idx_poly_etapas_if", ["inicio_norm","fin_norm"]),
+    ])
+
+    _maybe_create(conn_dash, "poly_matrices", [
+        ("idx_poly_matrices_poly_zona_dia", ["id_polygon","zona","dia"]),
+        ("idx_poly_matrices_od", ["Origen","Destino"]),
+    ])
+
+    _maybe_create(conn_dash, "socio_indicadores", [
+        ("idx_socio_tabla_dia", ["tabla","dia"]),
+        ("idx_socio_genero_tarifa", ["genero_agregado","tarifa_agregada"]),
+    ])
+
+    _maybe_create(conn_dash, "resumen_lineas", [
+        ("idx_res_lineas_dia_linea", ["dia","id_linea"]),
+    ])
+
+    _maybe_create(conn_dash, "resumen_lineas_ramal", [
+        ("idx_res_lineas_ramal_dia", ["dia","id_linea","id_ramal"]),
+    ])
+
+    _maybe_create(conn_dash, "agg_indicadores", [
+        ("idx_agg_ind_dia_tipo", ["dia","tipo_dia"]),
+    ])
+
+    _maybe_create(conn_dash, "poly_indicadores", [
+        ("idx_poly_ind_poly_dia", ["id_polygon","dia"]),
+    ])
+
+    _maybe_create(conn_dash, "datos_particion_modal", [
+        ("idx_part_modal_dia_genero", ["dia","genero_agregado"]),
+    ])
+
+    # =================
+    #   INSUMOS
+    # =================
+    _maybe_create(conn_ins, "metadata_lineas", [
+        ("idx_meta_lineas_id", ["id_linea"]),
+    ])
+
+    _maybe_create(conn_ins, "poligonos", [
+        ("idx_poligonos_id", ["id"]),
+        ("idx_poligonos_tipo", ["tipo"]),
+    ])
+
+    _maybe_create(conn_ins, "zonificaciones", [
+        ("idx_zonif_zona_id", ["zona","id"]),
+    ])
+
+    _maybe_create(conn_ins, "equivalencias_zonas", [
+        ("idx_eqz_h3", ["h3"]),
+    ])
+
+    # ---- analizar y optimizar ----
+    for c in (conn_data, conn_dash, conn_ins):
+        _analyze_optimize(c)
+
+    # ---- cerrar ----
+    conn_data.close()
+    conn_dash.close()
+    conn_ins.close()
+    print('Índices creados')
+
+
+
 @duracion
 def proceso_lineas_deseo(etapas=[], viajes=[], zonificaciones=[], equivalencias_zonas=[], alias_data='', resoluciones=[6]):
 
@@ -1966,6 +2145,7 @@ def proceso_lineas_deseo(etapas=[], viajes=[], zonificaciones=[], equivalencias_
     guarda_particion_modal(etapas, alias_db=alias_data)
     
     # imprimo_matrices_od(alias_db=alias_data))
+    
 
 @duracion
 def preparo_indicadores_dash(lineas_deseo=True, poligonos=True, kpis=True, corrida = "", resoluciones=[6]):
@@ -1997,4 +2177,4 @@ def preparo_indicadores_dash(lineas_deseo=True, poligonos=True, kpis=True, corri
                                   viajes=viajes.copy(),
                                   alias_data=corrida)
 
-
+    crear_indices_unificados()
