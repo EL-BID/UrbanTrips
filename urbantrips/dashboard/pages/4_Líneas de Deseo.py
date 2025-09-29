@@ -270,21 +270,23 @@ def crear_mapa_lineas_deseo(
         else:
             for i, label in enumerate(bins_labels):
                 capa = FeatureGroup(name=f"{nombre} - {label}")
-                subset = df[(df[var_fex] >= bins[i]) & (df[var_fex] < bins[i + 1])]
+                # último bin: <=; resto: <
+                if i == len(bins_labels) - 1:
+                    subset = df[(df[var_fex] >= bins[i]) & (df[var_fex] <= bins[i + 1])]
+                else:
+                    subset = df[(df[var_fex] >= bins[i]) & (df[var_fex] <  bins[i + 1])]
+            
                 for _, row in subset.iterrows():
                     PolyLine(
-                        locations=[
-                            (point[1], point[0]) for point in row.geometry.coords
-                        ],
+                        locations=[(point[1], point[0]) for point in row.geometry.coords],
                         color=colors[i],
-                        weight=weight_base,  # Aumentar el grosor de las líneas
+                        weight=weight_base,
                         opacity=weight_op,
                         popup=Popup(f"{nombre}: {row[var_fex]}"),
                     ).add_to(capa)
                 capa.add_to(m)
                 weight_base += 3
                 weight_op += 0.1
-            # style_kwds={'fillOpacity': 0.1, 'weight': line_w}
 
     # 🟢 Agregar capas de puntos
     def agregar_capa_puntos(df, nombre, var_fex, cmap):
@@ -540,6 +542,10 @@ with st.expander("Líneas de Deseo", expanded=True):
             "Tipo de Filtro", options=["OD y Transferencias", "Solo OD"]
         )
 
+        lineas_principales = col3.selectbox(
+            "Mostrar líneas de deseo", options=["Solo principales", "Todas"]
+        )
+
         nombre_linea_seleccionado = col3.selectbox(
             "Línea", options=["Todas"] + lista_nombre_linea
         )
@@ -616,6 +622,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             "zona_filtro_seleccion1": zona_filtro_seleccion1,
             "zona_filtro_seleccion2": zona_filtro_seleccion2,
             "tipo_filtro": tipo_filtro,
+            "lineas_principales": lineas_principales,
             "alias_seleccionado": alias_seleccionado,
         }
 
@@ -644,6 +651,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 & (key != "zona_filtro_seleccion2")
                 & (key != "zona_filtro_seleccion1")
                 & (key != "tipo_filtro")
+                & (key != "lineas_principales")
                 & (key != "alias_seleccionado")
             )
             if conditions:
@@ -891,6 +899,11 @@ with st.expander("Líneas de Deseo", expanded=True):
             col2.write("No hay datos para mostrar")
         else:
 
+            if lineas_principales == 'Todas':
+                mostrar_lineas_principales = False
+            else:
+                mostrar_lineas_principales = True
+
             if (
                 not st.session_state.data_cargada
                 or hay_cambios_en_filtros(
@@ -929,6 +942,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                     origenes_seleccionado=st.session_state.origenes_seleccionado,
                     destinos_seleccionado=st.session_state.destinos_seleccionado,
                     transferencias_seleccionado=st.session_state.transferencias_seleccionado,
+                    mostrar_lineas_principales = mostrar_lineas_principales
                 )
 
                 if (

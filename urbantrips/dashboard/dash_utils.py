@@ -516,6 +516,7 @@ def create_data_folium(
     origenes_seleccionado=True,
     destinos_seleccionado=True,
     transferencias_seleccionado=False,
+    mostrar_lineas_principales = True
 ):
 
     if transferencias_seleccionado:
@@ -667,7 +668,7 @@ def create_data_folium(
             .reset_index(drop=True)
             .copy()
         )
-        if len(etapas) >= 2000:
+        if (len(etapas) >= 2000) & (mostrar_lineas_principales):
             print("Se muestran las etapas con más viajes")
             etapas = etapas.head(2000)
 
@@ -707,7 +708,7 @@ def create_data_folium(
             .reset_index(drop=True)
             .copy()
         )
-        if len(etapas) >= 1500:
+        if (len(etapas) >= 1500) & (mostrar_lineas_principales):
             print("Se muestran las lineas con más viajes")
             viajes = viajes.head(1500)
 
