@@ -11,7 +11,7 @@ import itertools
 import os
 import geopandas as gpd
 import h3
-from shapely.geometry import Point, MultiPolygon, Polygon, shape
+from shapely.geometry import Point, LineString, MultiPolygon, Polygon, shape
 from networkx import NetworkXNoPath
 from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
@@ -24,16 +24,14 @@ from urbantrips.geo.geo import (
     bring_latlon,
     h3_to_polygon,
 )
-
 import warnings
 
 warnings.filterwarnings(
     "ignore",
     message="Unsigned integer: shortest path distance is trying to be calculated",
     category=UserWarning,
-    module="pandana.network"
+    module="pandana.network",
 )
-
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -44,6 +42,25 @@ from urbantrips.utils.utils import (
 )
 
 import subprocess
+from math import floor
+from shapely import wkt
+
+
+def create_route_section_ids(n_sections):
+    step = 1 / n_sections
+    sections = np.arange(0, 1 + step, step)
+    section_ids = pd.Series(map(floor_rounding, sections))
+    # n sections like 6 returns steps with max setion > 1
+    section_ids = section_ids[section_ids <= 1]
+
+    return section_ids
+
+
+def floor_rounding(num):
+    """
+    Rounds a number to the floor at 3 digits to use as route section id
+    """
+    return floor(num * 1000) / 1000
 
 
 def get_library_version(library_name):
@@ -67,6 +84,7 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
+    print("RING SIZE ", ring_size)
 
     conn_data = iniciar_conexion_db(tipo="data")
 
@@ -78,7 +96,6 @@ def update_stations_catchment_area(ring_size):
     select id_linea,h3_o as parada from etapas
     """
     paradas_etapas = pd.read_sql(q, conn_data)
-
     metadata_lineas = pd.read_sql_query(
         """
         SELECT *
@@ -94,7 +111,55 @@ def update_stations_catchment_area(ring_size):
     paradas_etapas = paradas_etapas.groupby(
         ["id_linea_agg", "parada"], as_index=False
     ).size()
+
     paradas_etapas = paradas_etapas[(paradas_etapas["size"] > 1)].drop(["size"], axis=1)
+
+    # filtrar paradas solo los que estan en recorridos h3
+    q = """  
+    select distinct mr.id_linea as id_linea_agg, obgh.h3 as parada
+    from official_branches_geoms_h3 obgh 
+    inner join metadata_ramales mr 
+    ON obgh.id_ramal = mr.id_ramal
+    """
+    h3_recorridos = pd.read_sql(q, conn_insumos)
+    print(len(h3_recorridos.id_linea_agg.unique()))
+
+    if len(h3_recorridos) > 0:
+        h3_recorridos["parada_en_recorridos"] = True
+        paradas_etapas["id_linea_recorridos"] = paradas_etapas["id_linea_agg"].isin(
+            h3_recorridos["id_linea_agg"].unique()
+        )
+        print("PARADAS EN ETAPAS 1")
+        print(len(paradas_etapas.id_linea_agg.unique()))
+
+        print("LINEAS EN RECORRIDOS", paradas_etapas["id_linea_recorridos"].sum())
+
+        paradas_etapas = paradas_etapas.merge(
+            h3_recorridos, on=["id_linea_agg", "parada"], how="left"
+        )
+        print("PARADAS EN ETAPAS 2")
+        print(len(paradas_etapas.id_linea_agg.unique()))
+
+        paradas_etapas["parada_en_recorridos"] = (
+            paradas_etapas["parada_en_recorridos"].fillna(False).astype(bool)
+        )
+
+        paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (
+            ~paradas_etapas.parada_en_recorridos
+        )
+
+        print(
+            paradas_etapas.drop(columns=["id_linea_agg", "parada"]).sample(
+                30, random_state=1
+            )
+        )
+
+        paradas_pre = len(paradas_etapas)
+        print("Paradas antes de eliminar por recorridos", paradas_pre)
+        paradas_etapas = paradas_etapas.loc[
+            ~paradas_etapas.borrar, ["id_linea_agg", "parada"]
+        ]
+        print(f"Eliminadas {paradas_pre - len(paradas_etapas)} paradas sin recorridos")
 
     # Leer las paradas ya existentes en la matriz
     q = """
@@ -106,7 +171,6 @@ def update_stations_catchment_area(ring_size):
     paradas_nuevas = paradas_etapas.merge(
         paradas_en_matriz, on=["id_linea_agg", "parada"], how="left"
     )
-
     paradas_nuevas = paradas_nuevas.loc[
         paradas_nuevas.m.isna(), ["id_linea_agg", "parada"]
     ]
@@ -215,10 +279,12 @@ def guardo_zonificaciones():
                 pass
 
         if len(zonificaciones) > 0:
-            zonificaciones['orden'] = zonificaciones['orden'].fillna(0)
-            zonificaciones['zona'] = zonificaciones['zona'].fillna('')
-            zonificaciones['id'] = zonificaciones['id'].fillna('')
-            zonificaciones = zonificaciones.dissolve(['zona', 'id', 'orden'], as_index=False)
+            zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
+            zonificaciones["zona"] = zonificaciones["zona"].fillna("")
+            zonificaciones["id"] = zonificaciones["id"].fillna("")
+            zonificaciones = zonificaciones.dissolve(
+                ["zona", "id", "orden"], as_index=False
+            )
 
             crs_val = configs["epsg_m"]
             crs_actual = zonificaciones.crs
@@ -236,14 +302,18 @@ def guardo_zonificaciones():
             )
 
             # Agrego res_6 y res_8 en zonificaciones
-            res_6 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 6, crs_val)
+            res_6 = generate_h3_hexagons_within_polygon(
+                zonificaciones_disolved, 6, crs_val
+            )
             res_6["zona"] = "res_6"
             res_6["orden"] = 0
             res_6 = res_6.rename(columns={"h3_index": "id"})
             res_6 = res_6[["zona", "id", "orden", "geometry"]]
             zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
 
-            res_7 = generate_h3_hexagons_within_polygon(zonificaciones_disolved, 7, crs_val)
+            res_7 = generate_h3_hexagons_within_polygon(
+                zonificaciones_disolved, 7, crs_val
+            )
             res_7["zona"] = "res_7"
             res_7["orden"] = 0
             res_7 = res_7.rename(columns={"h3_index": "id"})
@@ -281,19 +351,34 @@ def guardo_zonificaciones():
             )
 
             # Guardo zonificaciones
-            
-            guardar_tabla_sql(zonificaciones, 'zonificaciones', 'insumos', modo='replace')       
-            guardar_tabla_sql(equivalencias_zonas, 'equivalencias_zonas', 'insumos', modo='replace')  
-                
+
+            guardar_tabla_sql(
+                zonificaciones, "zonificaciones", "insumos", modo="replace"
+            )
+            guardar_tabla_sql(
+                equivalencias_zonas, "equivalencias_zonas", "insumos", modo="replace"
+            )
+
     if configs["poligonos"]:
 
         poly_file = configs["poligonos"]
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
-
+        poligonos_db = levanto_tabla_sql("poligonos", "insumos")
+        print(poligonos_db.head(2))
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
-            guardar_tabla_sql(poly, 'poligonos', 'insumos', modo='replace')            
+
+            if len(poligonos_db) > 0:
+                poligonos_db = poligonos_db.loc[
+                    poligonos_db["id"] == "estimacion de demanda dibujada",
+                ]
+                # poligonos_db["geometry"] = poligonos_db["wkt"].apply(wkt.loads)
+                # poligonos_db = poligonos_db.reindex(columns=["id", "tipo", "geometry"])
+                poly = pd.concat([poly, poligonos_db], ignore_index=True)
+
+            guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
+
 
 @duracion
 def create_distances_table(use_parallel=False):
@@ -798,3 +883,54 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     upscale_gdf = gpd.GeoDataFrame(hexagon_children, crs=hexagon_gdf.crs)
 
     return upscale_gdf
+
+
+def from_linestring_to_h3(linestring, h3_res=8):
+    """
+    This function takes a shapely linestring and
+    returns all h3 hecgrid cells that intersect that linestring
+    """
+    linestring_buffer = linestring.buffer(0.002)
+    linestring_h3 = get_h3_indices_in_geometry(linestring_buffer, 10)
+    linestring_h3 = {h3.cell_to_parent(h, h3_res) for h in linestring_h3}
+    return pd.Series(list(linestring_h3)).drop_duplicates()
+
+
+def create_coarse_h3_from_line(
+    linestring: LineString, h3_res: int, route_id: int
+) -> dict:
+
+    # Reference to coarser H3 for those lines
+    linestring_h3 = from_linestring_to_h3(linestring, h3_res=h3_res)
+
+    # Creeate geodataframes with hex geoms and index and LRS
+    gdf = gpd.GeoDataFrame(
+        {"h3": linestring_h3}, geometry=linestring_h3.map(add_geometry), crs=4326
+    )
+    gdf["route_id"] = route_id
+
+    # Create LRS for each hex index
+    gdf["h3_lrs"] = [
+        floor_rounding(linestring.project(Point(p[::-1]), True))
+        for p in gdf.h3.map(h3.cell_to_latlng)
+    ]
+
+    # Create section ids for each line
+    df_section_ids_LRS = create_route_section_ids(len(gdf))
+
+    # Create cut points for each section based on H3 LRS
+    df_section_ids_LRS_cut = df_section_ids_LRS.copy()
+    df_section_ids_LRS_cut.loc[0] = -0.001
+
+    # Use cut points to come up with a unique integer id
+    df_section_ids = list(range(1, len(df_section_ids_LRS_cut)))
+
+    gdf["section_id"] = pd.cut(
+        gdf.h3_lrs, bins=df_section_ids_LRS_cut, labels=df_section_ids, right=True
+    )
+
+    # ESTO REEMPLAZA PARA ATRAS
+    gdf = gdf.sort_values("h3_lrs")
+    gdf["section_id"] = range(len(gdf))
+
+    return gdf

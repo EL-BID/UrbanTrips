@@ -48,7 +48,8 @@ dependencies = [
     "squarify",
     "matplotlib_venn",
     "unidecode",
-    "chardet"
+    "chardet",
+    "palettable"
 ]
 
 [project.optional-dependencies]

@@ -11,9 +11,9 @@ from urbantrips.carto.routes import (
     check_exists_route_section_points_table,
     upload_route_section_points_table,
     get_route_section_id,
-    create_route_section_ids,
     build_leg_route_sections_df,
 )
+from urbantrips.carto.carto import create_route_section_ids
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -750,53 +750,48 @@ def compute_kpi_by_service():
     conn_data = iniciar_conexion_db(tipo="data")
 
     print("Leyendo demanda por servicios validos")
+
     q_valid_services = """
-        with demand as (
-                select e.id_tarjeta, e.id, id_linea, e.dia,e.id_ramal, interno,
-                    cast(strftime('%s',(e.dia||' '||tiempo)) as int) as ts, tiempo,
-                e.h3_o,
-                e.h3_d, e.factor_expansion_linea
-                from etapas e
-                JOIN dias_ultima_corrida d
-                ON e.dia = d.dia
-                where od_validado = 1
-                and id_linea in (select distinct id_linea from gps)
-            ),
-            valid_services as (
-                select id_linea,dia,id_ramal,interno, service_id, min_ts, max_ts
-                from services
-                where valid = 1
-            ),
-            valid_demand as (
-                select d.*, s.service_id
-                from demand d
-                join valid_services s
-                on d.id_linea = s.id_linea
-                and d.dia = s.dia
-                and d.id_ramal = s.id_ramal
-                and d.interno = s.interno
-                and d.ts >= s.min_ts
-                and d.ts <= s.max_ts
-                )
-                select * from valid_demand
-            ;
+        WITH demand AS (
+        SELECT
+            e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
+            CAST(strftime('%s',(e.dia||' '||e.tiempo)) AS INTEGER) AS ts,
+            e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea
+        FROM etapas e
+        JOIN dias_ultima_corrida d
+            ON e.dia = d.dia
+        WHERE e.od_validado = 1
+            AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
+        ),
+        valid_services AS (
+        SELECT id_linea, dia, id_ramal, interno, service_id, min_ts, max_ts
+        FROM services
+        WHERE valid = 1
+        )
+        SELECT d.*, s.service_id
+        FROM demand d
+        JOIN valid_services s
+        ON d.id_linea = s.id_linea
+        AND d.dia      = s.dia
+        AND d.id_ramal = s.id_ramal
+        AND d.interno  = s.interno
+        AND d.ts BETWEEN s.min_ts AND s.max_ts;
         """
 
     valid_demand = pd.read_sql(q_valid_services, conn_data)
 
     print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
-        with 
-        demand as (
+        WITH demand as (
             select e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
                 cast(strftime('%s',(e.dia||' '||e.tiempo)) as int) as ts, e.tiempo,
             e.h3_o,
             e.h3_d, e.factor_expansion_linea
-            from etapas e
-            JOIN dias_ultima_corrida d
+        FROM etapas e
+        JOIN dias_ultima_corrida d
             ON e.dia = d.dia
-            where od_validado = 1
-            and id_linea in (select distinct id_linea from gps)
+        WHERE od_validado = 1
+        AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
 
         ),
         valid_services as (

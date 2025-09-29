@@ -19,7 +19,7 @@ from dash_utils import (
     normalize_vars,
     traigo_lista_zonas,
     configurar_selector_dia,
-    calcular_bins
+    calcular_bins,
 )
 
 from streamlit_folium import folium_static
@@ -29,6 +29,7 @@ import mapclassify
 import mapclassify
 import numpy as np
 from collections import OrderedDict
+
 
 def crear_mapa_poligonos(
     df_viajes,
@@ -71,7 +72,6 @@ def crear_mapa_poligonos(
         line_w = 0.5
         if len(df_etapas) > 0:
 
-            
             # bins = calcular_bins(df_etapas, var_fex, 5)
 
             # range_bins = range(0, len(bins) - 1)
@@ -100,7 +100,7 @@ def crear_mapa_poligonos(
         # Viajes
         line_w = 0.5
         if len(df_viajes) > 0:
-           
+
             # bins = calcular_bins(df_viajes, var_fex, 5)
 
             # range_bins = range(0, len(bins) - 1)
@@ -109,13 +109,13 @@ def crear_mapa_poligonos(
             #     0 if pd.isna(b) or np.isinf(b) else b
             #     for b in bins
             # ))
-            
+
             # # 3. Crear etiquetas seguras
             # bins_labels = [
             #     f"{int(bins_limpios[n])} a {int(bins_limpios[n+1])} viajes"
             #     for n in range(len(bins_limpios) - 1)
             # ]
-            
+
             # # 4. Cortar y asignar categorías
             # df_viajes["cuts"] = pd.cut(
             #     df_viajes[var_fex],
@@ -124,8 +124,7 @@ def crear_mapa_poligonos(
             #     include_lowest=True
             # )
             df_viajes, bins_labels = calcular_bins(df_viajes, var_fex, 5)
-            
-        
+
             n = 0
             for i in bins_labels:
 
@@ -140,9 +139,9 @@ def crear_mapa_poligonos(
                 line_w += 3
 
         if len(origenes) > 0:
-            
+
             # bins = calcular_bins(origenes, var_fex, 5)
-                        
+
             # range_bins = range(0, len(bins) - 1)
             # bins_labels = [
             #     f"{int(bins[n])} a {int(bins[n+1])} origenes" for n in range_bins
@@ -236,35 +235,6 @@ def crear_mapa_poligonos(
         folium.LayerControl(name="xx").add_to(m)
 
     return m
-
-
-# def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
-
-#     conn = iniciar_conexion_db(tipo=tabla_tipo)
-
-#     try:
-#         if len(query) == 0:
-#             query = f"""
-#             SELECT *
-#             FROM {tabla_sql}
-#             """
-
-#         tabla = pd.read_sql_query(query, conn)
-#     except:
-#         print(f"{tabla_sql} no existe")
-#         tabla = pd.DataFrame([])
-
-#     conn.close()
-
-#     if len(tabla) > 0:
-#         if "wkt" in tabla.columns:
-#             tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-#             tabla = gpd.GeoDataFrame(tabla, crs=4326)
-#             tabla = tabla.drop(["wkt"], axis=1)
-
-#     tabla = normalize_vars(tabla)
-
-#     return tabla
 
 
 def traigo_socio_indicadores(socio_indicadores):
@@ -460,7 +430,6 @@ def hay_cambios_en_filtros(current, last):
 st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
-
 alias_seleccionado = configurar_selector_dia()
 
 with st.expander("Líneas de Deseo", expanded=True):
@@ -511,13 +480,13 @@ with st.expander("Líneas de Deseo", expanded=True):
     etapas_lst_ = levanto_tabla_sql(
         "poly_etapas", "dash", "SELECT DISTINCT dia FROM poly_etapas;"
     )
-    poligonos = levanto_tabla_sql("poligonos", 'insumos')
+    poligonos = levanto_tabla_sql("poligonos", "insumos")
 
     # st.session_state.etapas = traigo()
 
     if (len(poligonos) > 0) & (len(etapas_lst_) > 0):
 
-        zonificaciones = levanto_tabla_sql("zonificaciones", 'insumos')
+        zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
         socio_indicadores = levanto_tabla_sql("socio_indicadores")
         # desc_tipo_dia_ = levanto_tabla_sql(
         #     "poly_etapas", "dash", "SELECT DISTINCT tipo_dia FROM poly_etapas;"
@@ -591,7 +560,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         distancia_all = ["Todas"] + distancia_all_[
             distancia_all_.distancia != "99"
         ].distancia.unique().tolist()
-        
+
         distancia_agregada = col1.selectbox("Distancia", options=distancia_all)
 
         desc_et_vi = col1.selectbox(
@@ -640,7 +609,7 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         # Construye el diccionario de filtros actual
         current_filters = {
-            "dia": None if desc_dia == "Todos" else desc_dia,            
+            "dia": None if desc_dia == "Todos" else desc_dia,
             "zona": None if desc_zona == "Todos" else desc_zona,
             "transferencia": (
                 None
@@ -649,7 +618,9 @@ with st.expander("Líneas de Deseo", expanded=True):
             ),
             "modo_agregado": None if modos_list == "Todos" else modos_list,
             "rango_hora": None if rango_hora == "Todos" else rango_hora,
-            "distancia_agregada": None if distancia_agregada == "Todas" else distancia_agregada,
+            "distancia_agregada": (
+                None if distancia_agregada == "Todas" else distancia_agregada
+            ),
             "coincidencias": None if desc_cuenca == False else True,
             "id_polygon": st.session_state.desc_poly,
             "desc_zonas_values1": (
@@ -711,19 +682,19 @@ with st.expander("Líneas de Deseo", expanded=True):
                 tabla_tipo="dash",
                 query=f"SELECT * FROM poly_matrices{query_matrices}",
             )
-            
+
             if len(st.session_state.etapas_) == 0:
                 col2.write("No hay datos para mostrar")
             else:
-                    
+
                 if desc_dia != "Todos":
                     st.session_state.socio_indicadores_ = socio_indicadores[
                         (socio_indicadores.dia == desc_dia)
-                                            ].copy()
+                    ].copy()
 
                 else:
                     st.session_state.socio_indicadores_ = socio_indicadores.copy()
-                
+
                 st.session_state.socio_indicadores_ = (
                     st.session_state.socio_indicadores_.groupby(
                         ["tabla", "genero_agregado", "tarifa_agregada", "Modo"],
@@ -743,29 +714,20 @@ with st.expander("Líneas de Deseo", expanded=True):
                     .round(2)
                 )
 
-                st.session_state.general_ = (
-                    general.loc[
-                        (general.id_polygon == st.session_state.desc_poly)
-                        & (general.dia == desc_dia)
-                    ][["Tipo", "Indicador", "Valor"]]
-                    .set_index("Tipo")
-                )
-                
-                st.session_state.modal_ = (
-                    modal.loc[
-                        (modal.id_polygon == st.session_state.desc_poly)
-                        & (modal.dia == desc_dia)
-                    ][["Tipo", "Indicador", "Valor"]]
-                    .set_index("Tipo")
-                )
-                
-                st.session_state.distancias_ = (
-                    distancias.loc[
-                        (distancias.id_polygon == st.session_state.desc_poly)
-                        & (distancias.dia == desc_dia)
-                    ][["Tipo", "Indicador", "Valor"]]
-                    .set_index("Tipo")
-                )
+                st.session_state.general_ = general.loc[
+                    (general.id_polygon == st.session_state.desc_poly)
+                    & (general.dia == desc_dia)
+                ][["Tipo", "Indicador", "Valor"]].set_index("Tipo")
+
+                st.session_state.modal_ = modal.loc[
+                    (modal.id_polygon == st.session_state.desc_poly)
+                    & (modal.dia == desc_dia)
+                ][["Tipo", "Indicador", "Valor"]].set_index("Tipo")
+
+                st.session_state.distancias_ = distancias.loc[
+                    (distancias.id_polygon == st.session_state.desc_poly)
+                    & (distancias.dia == desc_dia)
+                ][["Tipo", "Indicador", "Valor"]].set_index("Tipo")
 
                 if transf_list == "Todos":
                     st.session_state.desc_transfers = True
@@ -857,7 +819,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                     | (len(st.session_state.transferencias) > 0)
                     | (desc_zonif)
                 ):
-                    
+
                     m = crear_mapa_poligonos(
                         df_viajes=st.session_state.viajes,
                         df_etapas=st.session_state.etapas,

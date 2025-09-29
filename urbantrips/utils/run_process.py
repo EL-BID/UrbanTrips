@@ -60,6 +60,7 @@ def inicializo_ambiente():
 
         # Crear tabla de paradas
         create_stops_table()
+
         # Guarda zonificaciones
         guardo_zonificaciones()
 
@@ -123,9 +124,6 @@ def procesar_transacciones(corrida):
 
     # Update destination validation matrix
     carto.update_stations_catchment_area(ring_size=ring_size)
-
-    # TODO: remove legs with origin far away from any station
-    # when stations or lines exists
 
     # Infer legs destinations
     dest.infer_destinations()

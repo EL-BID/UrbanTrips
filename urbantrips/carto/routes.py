@@ -8,8 +8,11 @@ from shapely import LineString
 from itertools import repeat
 import numpy as np
 import warnings
-from math import floor
-
+from urbantrips.carto.carto import (
+    create_coarse_h3_from_line,
+    floor_rounding,
+    create_route_section_ids,
+)
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     leer_configs_generales,
@@ -33,6 +36,7 @@ def process_routes_geoms():
 
     # Leer alias de insumos del config de usuario
     configs = leer_configs_generales(autogenerado=False)
+    h3_legs_res = configs["resolucion_h3"]
     alias_db = configs.get("alias_db", "")
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
@@ -50,10 +54,29 @@ def process_routes_geoms():
 
     # Check columns
     check_route_geoms_columns(geojson_data, branches_present)
-
     # if data has lines and branches, split them
     if branches_present:
         branches_routes = geojson_data.reindex(columns=["id_ramal", "geometry"])
+
+        print("Calculando recorridos en h3 con resolucion ", h3_legs_res)
+        branches_routes_h3 = [
+            create_coarse_h3_from_line(
+                branch_geom.geometry, h3_legs_res, branch_geom.id_ramal
+            )
+            for _, branch_geom in branches_routes.iterrows()
+        ]
+        branches_routes_h3 = pd.concat(branches_routes_h3, ignore_index=True)
+        branches_routes_h3["wkt"] = branches_routes_h3.geometry.to_wkt()
+        branches_routes_h3 = branches_routes_h3.reindex(
+            columns=["route_id", "section_id", "h3", "wkt"]
+        ).rename(columns={"route_id": "id_ramal"})
+
+        branches_routes_h3.to_sql(
+            "official_branches_geoms_h3",
+            conn_insumos,
+            if_exists="replace",
+            index=False,
+        )
 
         branches_routes["wkt"] = branches_routes.geometry.to_wkt()
         branches_routes = branches_routes.reindex(columns=["id_ramal", "wkt"])
@@ -727,13 +750,6 @@ def create_route_section_points(row):
     return route_section_points
 
 
-def floor_rounding(num):
-    """
-    Rounds a number to the floor at 3 digits to use as route section id
-    """
-    return floor(num * 1000) / 1000
-
-
 def get_route_section_id(point, route_geom):
     """
     Computes the route section id as a 3 digit float projecing
@@ -747,16 +763,6 @@ def get_route_section_id(point, route_geom):
         a Linestring representing the leg's route geom
     """
     return floor_rounding(route_geom.project(point, normalized=True))
-
-
-def create_route_section_ids(n_sections):
-    step = 1 / n_sections
-    sections = np.arange(0, 1 + step, step)
-    section_ids = pd.Series(map(floor_rounding, sections))
-    # n sections like 6 returns steps with max setion > 1
-    section_ids = section_ids[section_ids <= 1]
-
-    return section_ids
 
 
 def build_leg_route_sections_df(row):

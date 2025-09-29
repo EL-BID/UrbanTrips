@@ -294,6 +294,7 @@ def create_other_inputs_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS poligonos
         (id text NOT NULL,
+         cuenca text NOT NULL,
          wkt text
         )
         ;
@@ -630,6 +631,17 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
     )
 
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms_h3
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        section_id int,
+        h3 text,
+        wkt text not null
+        )
+        ;
+        """
+    )
     conn_insumos.close()
 
 
@@ -665,6 +677,12 @@ def create_basic_data_model_tables(alias_db):
         CREATE TABLE IF NOT EXISTS dias_ultima_corrida
             (dia INT NOT NULL)
         ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_dias_ultima_corrida_dia
+        ON dias_ultima_corrida(dia);
         """
     )
 
@@ -713,6 +731,20 @@ def create_basic_data_model_tables(alias_db):
         );
         """
     )
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_etapas_dia_linea_ramal_interno
+            ON etapas(dia, id_linea, id_ramal, interno);
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_etapas_validado_dia_linea
+            ON etapas(od_validado, dia, id_linea);
+        """
+    )
+
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS viajes
@@ -1048,6 +1080,13 @@ def create_gps_table(alias_db):
 
     conn_data.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_gps_id_linea
+            ON gps(id_linea);
+        """
+    )
+
+    conn_data.execute(
+        """
             CREATE TABLE IF NOT EXISTS services_gps_points
                 (
                 id INT PRIMARY KEY NOT NULL,
@@ -1086,6 +1125,20 @@ def create_gps_table(alias_db):
                 )
             ;
             """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_services_key
+            ON services(id_linea, dia, id_ramal, interno);
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_services_key_ts
+            ON services(id_linea, dia, id_ramal, interno, min_ts, max_ts);
+        """
     )
 
     conn_data.execute(

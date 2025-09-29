@@ -8,59 +8,8 @@ import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
-from urbantrips.carto.routes import read_routes, floor_rounding
-from urbantrips.carto.carto import get_h3_indices_in_geometry
-
-
-def from_linestring_to_h3(linestring, h3_res=8):
-    """
-    This function takes a shapely linestring and
-    returns all h3 hecgrid cells that intersect that linestring
-    """
-    linestring_buffer = linestring.buffer(0.002)
-    linestring_h3 = get_h3_indices_in_geometry(linestring_buffer, 10)
-    linestring_h3 = {h3.cell_to_parent(h, h3_res) for h in linestring_h3}
-    return pd.Series(list(linestring_h3)).drop_duplicates()
-
-
-def create_coarse_h3_from_line(
-    linestring: LineString, h3_res: int, route_id: int
-) -> dict:
-
-    # Reference to coarser H3 for those lines
-    linestring_h3 = from_linestring_to_h3(linestring, h3_res=h3_res)
-
-    # Creeate geodataframes with hex geoms and index and LRS
-    gdf = gpd.GeoDataFrame(
-        {"h3": linestring_h3}, geometry=linestring_h3.map(geo.add_geometry), crs=4326
-    )
-    gdf["route_id"] = route_id
-
-    # Create LRS for each hex index
-    gdf["h3_lrs"] = [
-        floor_rounding(linestring.project(Point(p[::-1]), True))
-        for p in gdf.h3.map(h3.cell_to_latlng)
-    ]
-
-    # Create section ids for each line
-    df_section_ids_LRS = kpi.create_route_section_ids(len(gdf))
-
-    # Create cut points for each section based on H3 LRS
-    df_section_ids_LRS_cut = df_section_ids_LRS.copy()
-    df_section_ids_LRS_cut.loc[0] = -0.001
-
-    # Use cut points to come up with a unique integer id
-    df_section_ids = list(range(1, len(df_section_ids_LRS_cut)))
-
-    gdf["section_id"] = pd.cut(
-        gdf.h3_lrs, bins=df_section_ids_LRS_cut, labels=df_section_ids, right=True
-    )
-
-    # ESTO REEMPLAZA PARA ATRAS
-    gdf = gdf.sort_values("h3_lrs")
-    gdf["section_id"] = range(len(gdf))
-
-    return gdf
+from urbantrips.carto.routes import read_routes
+from urbantrips.carto.carto import create_coarse_h3_from_line, floor_rounding
 
 
 def get_demand_data(

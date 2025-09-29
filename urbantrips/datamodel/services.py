@@ -585,9 +585,14 @@ def compute_new_services_stats(line_day_services):
     n_new_valid_services = line_day_services.valid.sum()
     n_services_short = (line_day_services.total_points <= 5).sum()
 
-    prop_short_idling = (
-        (line_day_services.prop_idling >= 0.5) & (line_day_services.total_points <= 5)
-    ).sum() / n_services_short
+    if n_services_short > 0:
+        short_idling_services = (
+            (line_day_services.prop_idling >= 0.5)
+            & (line_day_services.total_points <= 5)
+        ).sum()
+        prop_short_idling = short_idling_services / n_services_short
+    else:
+        prop_short_idling = None
 
     original_services_distance = round(line_day_services.distance_km.sum())
     new_services_distance = round(
