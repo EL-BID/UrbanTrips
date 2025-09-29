@@ -43,6 +43,7 @@ from urbantrips.utils.utils import (
 
 import subprocess
 from math import floor
+from shapely import wkt
 
 
 def create_route_section_ids(n_sections):
@@ -363,9 +364,19 @@ def guardo_zonificaciones():
         poly_file = configs["poligonos"]
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
-
+        poligonos_db = levanto_tabla_sql("poligonos", "insumos")
+        print(poligonos_db.head(2))
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
+
+            if len(poligonos_db) > 0:
+                poligonos_db = poligonos_db.loc[
+                    poligonos_db["id"] == "estimacion de demanda dibujada",
+                ]
+                # poligonos_db["geometry"] = poligonos_db["wkt"].apply(wkt.loads)
+                # poligonos_db = poligonos_db.reindex(columns=["id", "tipo", "geometry"])
+                poly = pd.concat([poly, poligonos_db], ignore_index=True)
+
             guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
 
 

@@ -294,6 +294,7 @@ def create_other_inputs_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS poligonos
         (id text NOT NULL,
+         cuenca text NOT NULL,
          wkt text
         )
         ;
