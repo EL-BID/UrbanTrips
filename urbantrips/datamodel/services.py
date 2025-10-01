@@ -2,6 +2,13 @@ import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in scalar divide",
+    category=RuntimeWarning,
+    module=r".*urbantrips.*services"  # tu módulo
+)
 
 def process_services(line_ids=None):
     """

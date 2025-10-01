@@ -11,6 +11,13 @@ from urbantrips.utils.utils import (
     agrego_indicador,
 )
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="'DataFrame.swapaxes' is deprecated",
+    category=FutureWarning,
+    module=r"numpy\.core\.fromnumeric"
+)
 
 @duracion
 def infer_destinations():

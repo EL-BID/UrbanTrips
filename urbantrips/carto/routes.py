@@ -5,6 +5,9 @@ import networkx as nx
 from osmnx import distance
 import statsmodels.api as sm
 from shapely import LineString
+# from shapely.geometry import LineString, Point
+# from shapely.validation import explain_validity
+
 from itertools import repeat
 import numpy as np
 import warnings
@@ -21,6 +24,15 @@ from urbantrips.utils.utils import (
     leer_alias,
     create_branch_ids_sql_filter,
     create_line_ids_sql_filter,
+)
+
+
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in line_locate_point_normalized",
+    category=RuntimeWarning,
+    module=r"shapely\.linear"
 )
 
 
@@ -380,6 +392,9 @@ def process_routes_metadata():
 
     info["modo"] = info["modo"].replace(modos_homologados)
 
+    
+    # fuerza la columna a object para que acepte strings
+    info["nombre_linea_agg"] = info["nombre_linea_agg"].astype("object")
     # fill missing line agg
     info.loc[info.id_linea_agg.isna(), "nombre_linea_agg"] = info.loc[
         info.id_linea_agg.isna(), "nombre_linea"
