@@ -16,6 +16,9 @@ from urbantrips.utils.utils import (
     crear_tablas_geolocalizacion,
 )
 
+import warnings
+warnings.filterwarnings("ignore", message="Columns \\(.*\\) have mixed types", category=pd.errors.DtypeWarning)
+
 
 @duracion
 def create_transactions(

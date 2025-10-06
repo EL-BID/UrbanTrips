@@ -18,6 +18,14 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.kpi.kpi import add_distances_to_legs
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated",
+    category=FutureWarning,
+    module=r".*urbantrips.*services"
+)
+
 
 @duracion
 def create_legs_from_transactions(trx_order_params):
@@ -584,7 +592,9 @@ def assign_gps_origin():
         """
         gps = pd.read_sql(q, conn_data)
 
-        gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
+        # gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
+        gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+
         cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
         legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
         gps_to_join = gps.reindex(columns=cols).sort_values("fecha")

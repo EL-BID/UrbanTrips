@@ -17,6 +17,15 @@ import gc
 from datetime import datetime
 pd.set_option('future.no_silent_downcasting', True)
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated",
+    category=FutureWarning,
+    module=r".*urbantrips.*preparo_dashboard"
+)
+
+
 def clasificar_tarifa_agregada_social(serie_tarifa_agregada):
     """
     Clasifica categorías de tarifa_agregada social en:

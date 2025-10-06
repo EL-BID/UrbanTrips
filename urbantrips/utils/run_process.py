@@ -253,3 +253,8 @@ def run_all(borrar_corrida="", crear_dashboard=True):
         procesar_transacciones(corrida)
         if crear_dashboard:
             preparo_indicadores_dash(corrida)
+        
+        print("Fin corrida", corrida)
+        print('###############################################')
+        print('###############################################')
+        print('###############################################')

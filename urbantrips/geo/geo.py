@@ -10,6 +10,14 @@ from shapely.geometry import Polygon, Point, LineString, shape
 import libpysal
 import statsmodels.api as sm
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in divide",
+    category=RuntimeWarning,
+    module=r"statsmodels\.nonparametric\.smoothers_lowess"
+)
+
 
 def referenciar_h3(df, res, nombre_h3, lat="latitud", lon="longitud"):
     """
