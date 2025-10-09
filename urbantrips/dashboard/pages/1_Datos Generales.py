@@ -13,6 +13,7 @@ from dash_utils import (
     create_linestring_od,
     extract_hex_colors_from_cmap,
     configurar_selector_dia,
+    formatear_columnas_numericas
 )
 
 from itertools import combinations
@@ -86,8 +87,17 @@ def plot_venn_diagram(etapas_modos):
     cols_dummies = [
         x
         for x in etapas_modos.columns.tolist()
-        if x not in ["mes", "tipo_dia", "genero", "Modos", "factor_expansion_linea"]
+        if x
+        not in [
+            "dia",
+            "mes",
+            "tipo_dia",
+            "genero_agregado",
+            "Modos",
+            "factor_expansion_linea",
+        ]
     ]
+
     cols_tmp = []
     for i in cols_dummies:
         etapas_modos[f"{i}_tmp"] = (
@@ -135,6 +145,7 @@ def plot_venn_diagram(etapas_modos):
     modal_etapas = pd.DataFrame(
         list(absolute_values.items()), columns=["Modes", "Cantidad"]
     ).round(0)
+
     modal_etapas[cols_dummies] = pd.DataFrame(
         modal_etapas["Modes"].tolist(), index=modal_etapas.index
     )
@@ -322,12 +333,14 @@ def traigo_socio_indicadores(socio_indicadores):
 
     if len(socio_indicadores) > 0:
 
-        df = socio_indicadores[socio_indicadores.tabla == "viajes-genero-tarifa"].copy()
+        df = socio_indicadores[
+            socio_indicadores.tabla == "viajes-genero_agregado-tarifa_agregada"
+        ].copy()
         totals = (
             pd.crosstab(
                 values=df.factor_expansion_linea,
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 aggfunc="sum",
                 margins=True,
                 margins_name="Total",
@@ -338,11 +351,12 @@ def traigo_socio_indicadores(socio_indicadores):
             .astype(int)
             .apply(lambda col: col.map(lambda x: f"{x:,.0f}".replace(",", ".")))
         )
+
         totals_porc = (
             pd.crosstab(
                 values=df.factor_expansion_linea,
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 aggfunc="sum",
                 margins=True,
                 margins_name="Total",
@@ -352,12 +366,12 @@ def traigo_socio_indicadores(socio_indicadores):
         ).round(2)
 
         modos = socio_indicadores[
-            socio_indicadores.tabla == "etapas-genero-modo"
+            socio_indicadores.tabla == "etapas-genero_agregado-modo"
         ].copy()
         modos_genero_abs = (
             pd.crosstab(
                 values=modos.factor_expansion_linea,
-                index=[modos.Genero],
+                index=[modos.genero_agregado],
                 columns=modos.Modo,
                 aggfunc="sum",
                 normalize=False,
@@ -371,7 +385,7 @@ def traigo_socio_indicadores(socio_indicadores):
         modos_genero_porc = (
             pd.crosstab(
                 values=modos.factor_expansion_linea,
-                index=modos.Genero,
+                index=modos.genero_agregado,
                 columns=modos.Modo,
                 aggfunc="sum",
                 normalize=True,
@@ -382,12 +396,12 @@ def traigo_socio_indicadores(socio_indicadores):
         ).round(2)
 
         modos = socio_indicadores[
-            socio_indicadores.tabla == "etapas-tarifa-modo"
+            socio_indicadores.tabla == "etapas-tarifa_agregada-modo"
         ].copy()
         modos_tarifa_abs = (
             pd.crosstab(
                 values=modos.factor_expansion_linea,
-                index=[modos.Tarifa],
+                index=[modos.tarifa_agregada],
                 columns=modos.Modo,
                 aggfunc="sum",
                 normalize=False,
@@ -401,7 +415,7 @@ def traigo_socio_indicadores(socio_indicadores):
         modos_tarifa_porc = (
             pd.crosstab(
                 values=modos.factor_expansion_linea,
-                index=modos.Tarifa,
+                index=modos.tarifa_agregada,
                 columns=modos.Modo,
                 aggfunc="sum",
                 normalize=True,
@@ -414,8 +428,8 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_distances = (
             pd.crosstab(
                 values=df.Distancia,
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
@@ -427,8 +441,8 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_times = (
             pd.crosstab(
                 values=df["Tiempo de viaje"],
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
@@ -440,8 +454,8 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_velocity = (
             pd.crosstab(
                 values=df["Velocidad"],
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
@@ -453,8 +467,8 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_etapas = (
             pd.crosstab(
                 values=df["Etapas promedio"],
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
@@ -464,13 +478,13 @@ def traigo_socio_indicadores(socio_indicadores):
             .fillna("")
         )
         user = socio_indicadores[
-            socio_indicadores.tabla == "usuario-genero-tarifa"
+            socio_indicadores.tabla == "usuario-genero_agregado-tarifa_agregada"
         ].copy()
         avg_viajes = (
             pd.crosstab(
                 values=user["Viajes promedio"],
-                index=[user.Tarifa],
-                columns=user.Genero,
+                index=[user.tarifa_agregada],
+                columns=user.genero_agregado,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (
@@ -485,8 +499,8 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_tiempo_entre_viajes = (
             pd.crosstab(
                 values=df["Tiempo entre viajes"],
-                columns=df.Genero,
-                index=df.Tarifa,
+                columns=df.genero_agregado,
+                index=df.tarifa_agregada,
                 margins=True,
                 margins_name="Total",
                 aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
@@ -557,6 +571,7 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     return fig
 
 
+
 st.set_page_config(layout="wide")
 
 logo = get_logo()
@@ -568,67 +583,67 @@ with st.expander("Partición modal", True):
 
     col1, col2, col3, col4 = st.columns([1, 5, 1.5, 1.5])
     particion_modal = levanto_tabla_sql("datos_particion_modal")
-
-    desc_mes = col1.selectbox(
-        "Periodo", options=particion_modal.mes.unique(), key="desc_mes"
-    )
-    desc_tipo_dia = col1.selectbox(
-        "Tipo de día", options=particion_modal.tipo_dia.unique(), key="desc_tipo_dia"
+    
+    desc_dia = col1.selectbox(
+        "Día", options=particion_modal.dia.unique(), key="desc_dia"
     )
 
-    list_genero = particion_modal.genero.unique()
+    list_genero = particion_modal.genero_agregado.unique()
     list_genero = ["Todos" if item == "-" else item for item in list_genero]
 
     desc_genero = col1.selectbox("Genero", options=list_genero, key="desc_genero")
 
-    query = f'select * from datos_particion_modal where mes="{desc_mes}" and tipo_dia="{desc_tipo_dia}"'
+    query = f'select * from datos_particion_modal where dia="{desc_dia}"'
     if desc_genero != "Todos":
-        query += f'and genero = "{desc_genero}"'
+        query += f'and genero_agregado = "{desc_genero}"'
 
     etapas_modos = levanto_tabla_sql("datos_particion_modal", query=query)
 
     fig, modal_etapas, modal_viajes = plot_venn_diagram(etapas_modos)
     col2.pyplot(fig)
+    
     col3.write("Etapas")
+    modal_etapas = formatear_columnas_numericas(modal_etapas, ['Cantidad'], True)
+    modal_etapas = formatear_columnas_numericas(modal_etapas, ['%'], False)
     col3.dataframe(modal_etapas.set_index("Modo"), height=300, width=300)
+    
     col4.write("Viajes")
+    modal_viajes = formatear_columnas_numericas(modal_viajes, ['Cantidad'], True)
+    modal_viajes = formatear_columnas_numericas(modal_viajes, ['%'], False)
+
     col4.dataframe(modal_viajes.set_index("Modo"), height=300, width=300)
 
 with st.expander("Distancias de viajes"):
 
     col1, col2 = st.columns([1, 4])
 
-    hist_values = levanto_tabla_sql("distribucion")
+    dist_values = levanto_tabla_sql("distribucion")
 
-    if len(hist_values) > 0:
-        hist_values.columns = [
-            "desc_dia",
-            "tipo_dia",
-            "Distancia (kms)",
-            "Viajes",
-            "Modo",
-        ]
-        hist_values = hist_values[hist_values["Distancia (kms)"] <= 60]
-        hist_values = hist_values.sort_values(["Modo", "Distancia (kms)"])
+
+    if len(dist_values) > 0:
+
+        modoD = col1.selectbox(
+            "Modo", options=['Todos']+dist_values[dist_values.Modo!='Todos'].Modo.unique().tolist(), key="ModoD"
+            )
+
+
+        dist_values = dist_values[dist_values["Distancia (kms)"] <= 60]
+        dist_values = dist_values.sort_values(["Modo", "Distancia (kms)"])
 
         if col2.checkbox("Ver datos: distribución de viajes"):
-            col2.write(hist_values)
+            col2.write(dist_values)
 
-        dist = hist_values.Modo.unique().tolist()
-        dist.remove("Todos")
-        dist = ["Todos"] + dist
-        modo_d = col1.selectbox("Modo", options=dist)
-        col1.write(f"Mes: {desc_mes}")
-        col1.write(f"Tipo de día: {desc_tipo_dia}")
 
-        hist_values = hist_values[
-            (hist_values.desc_dia == desc_mes)
-            & (hist_values.tipo_dia.str.lower() == desc_tipo_dia.lower())
-            & (hist_values.Modo == modo_d)
+        col1.write(f"Día: {desc_dia}")
+
+
+        dist_values = dist_values[
+            (dist_values.Día == desc_dia)
+            & (dist_values.Modo == modoD)
         ]
 
         fig = px.histogram(
-            hist_values, x="Distancia (kms)", y="Viajes", nbins=len(hist_values)
+            dist_values, x="Distancia (kms)", y="Viajes", nbins=len(dist_values)
         )
         fig.update_xaxes(type="category")
         fig.update_yaxes(title_text="Viajes")
@@ -640,32 +655,7 @@ with st.expander("Distancias de viajes"):
 
         col2.plotly_chart(fig)
     else:
-        # Usar HTML para personalizar el estilo del texto
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                No hay datos para mostrar            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-        texto_html = """
-            <style>
-            .big-font {
-                font-size:30px !important;
-                font-weight:bold;
-            }
-            </style>
-            <div class='big-font'>
-                Verifique que los procesos se corrieron correctamente            
-            </div>
-            """
-        col2.markdown(texto_html, unsafe_allow_html=True)
-
+        col2.write('No hay datos para mostrar')
 
 with st.expander("Viajes por hora"):
 
@@ -677,21 +667,19 @@ with st.expander("Viajes por hora"):
 
     if modo_h == "Todos":
         viajes_hora = viajes_hora[
-            (viajes_hora.desc_dia == desc_mes)
-            & (viajes_hora.tipo_dia.str.lower() == desc_tipo_dia.lower())
+            (viajes_hora.Día == desc_dia)            
             & (viajes_hora.Modo == "Todos")
         ]
     else:
         viajes_hora = viajes_hora[
-            (viajes_hora.desc_dia == desc_mes)
-            & (viajes_hora.tipo_dia.str.lower() == desc_tipo_dia.lower())
+            (viajes_hora.Día == desc_dia)
             & (viajes_hora.Modo != "Todos")
         ]
 
-    col1.write(f"Mes: {desc_mes}")
-    col1.write(f"Tipo de día: {desc_tipo_dia}")
+    col1.write(f"Día: {desc_dia}")
 
     viajes_hora = viajes_hora.sort_values("Hora")
+    
     if col2.checkbox("Ver datos: viajes por hora"):
         col2.write(viajes_hora)
 
@@ -707,13 +695,12 @@ with st.expander("Género y tarifas"):
     col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
     socio_indicadores = levanto_tabla_sql("socio_indicadores")
 
-    col1.write(f"Mes: {desc_mes}")
-    col1.write(f"Tipo de día: {desc_tipo_dia}")
+    col1.write(f"Día: {desc_dia}")
+    # col1.write(f"Tipo de día: {desc_tipo_dia}")
 
-    if desc_mes != "Todos":
+    if desc_dia != "Todos":
         st.session_state.socio_indicadores_ = socio_indicadores[
-            (socio_indicadores.mes == desc_mes)
-            & (socio_indicadores.tipo_dia == desc_tipo_dia)
+            (socio_indicadores.dia == desc_dia)
         ].copy()
 
     else:

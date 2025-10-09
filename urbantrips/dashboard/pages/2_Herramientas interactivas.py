@@ -1,10 +1,22 @@
 import pandas as pd
 import streamlit as st
-from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_dia
+from dash_utils import (
+    levanto_tabla_sql,
+    get_logo,
+    create_linestring_od,
+    create_squared_polygon,
+    get_epsg_m,
+    extract_hex_colors_from_cmap,
+    levanto_tabla_sql_local,
+    configurar_selector_dia,
+    leer_configs_generales,
+    iniciar_conexion_db,
+    get_logo,
+)
 
 
 try:
-    from urbantrips.kpi.kpi import compute_route_section_load
+    from urbantrips.kpi.kpi import compute_route_section_load, run_basic_kpi
     from urbantrips.viz.viz import visualize_route_section_load
     from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
     from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
@@ -12,7 +24,7 @@ try:
     from urbantrips.viz.section_supply import visualize_route_section_supply_data
     from urbantrips.utils.utils import iniciar_conexion_db
     from urbantrips.utils import utils
-
+    from urbantrips.utils.check_configs import check_config
 except ImportError as e:
     st.error(
         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -75,13 +87,15 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
-
 alias_seleccionado = configurar_selector_dia()
+check_config(corrida=alias_seleccionado)
+st.text(f"Alias seleccionado: {alias_seleccionado}")
 
 try:
+
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = utils.leer_configs_generales()
+        st.session_state.configs = leer_configs_generales(autogenerado=True)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
@@ -90,6 +104,7 @@ try:
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
     )
     use_branches = configs["lineas_contienen_ramales"]
+
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
@@ -121,14 +136,17 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     st.subheader("Periodo")
 
-    kpi_lineas = levanto_tabla_sql("basic_kpi_by_line_hr")
+    kpi_lineas = levanto_tabla_sql("agg_indicadores")
+    if len(kpi_lineas) == 0:
+        months = None
+    else:
+        months = kpi_lineas.mes.unique()
+
     day_type = col1.selectbox("Tipo de dia  ", options=["weekday", "weekend"])
     st.session_state["day_type_7"] = day_type
 
     # add month and year
-    yr_mo = col1.selectbox(
-        "Periodo  ", options=kpi_lineas.yr_mo.unique(), key="year_month"
-    )
+    yr_mo = col1.selectbox("Periodo  ", options=months, key="year_month")
     st.session_state["yr_mo_7"] = yr_mo
 
 with col2:
@@ -176,6 +194,9 @@ if st.button("Comenzar a procesar"):
         section_meters = st.session_state["section_meters_7"]
         day_type = st.session_state["day_type_7"]
 
+        st.write("Calculando indicadores basicos...")
+        run_basic_kpi(id_linea=[line_ids])
+
         st.write("Calculando la matriz OD de la linea...")
         # Se computa la matriz OD de las lineas
         compute_lines_od_matrix(
@@ -214,7 +235,7 @@ if st.button("Comenzar a procesar"):
         visualize_route_section_supply_data(
             line_ids=[line_ids],
             hour_range=hour_range,
-            day_type="weekday",
+            day_type=day_type,
             n_sections=n_sections,
             section_meters=section_meters,
         )
@@ -248,7 +269,8 @@ if st.button("Comenzar a procesar"):
         )
 
         st.write(
-            "Resultados pueden consultarse en el directorio UrbanTrips/resultados o en la pestaña Indicadores de oferta y demanda reiniciando el dashboard"
+            "Resultados pueden consultarse en el directorio UrbanTrips/"
+            "resultados o en la pestaña Indicadores de oferta y demanda"
         )
 
     else:

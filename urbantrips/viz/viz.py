@@ -24,6 +24,7 @@ from matplotlib import colors as mcolors
 from matplotlib.text import Text
 from requests.exceptions import ConnectionError as r_ConnectionError
 from pandas.io.sql import DatabaseError
+from folium import Figure
 
 from urbantrips.kpi import kpi
 from urbantrips.geo import geo
@@ -36,6 +37,8 @@ from urbantrips.utils.utils import (
     duracion,
     create_line_ids_sql_filter,
 )
+from urbantrips.carto.carto import get_h3_indices_in_geometry
+
 import warnings
 
 
@@ -303,7 +306,8 @@ def viz_etapas_x_tramo_recorrido(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     line_id = df.id_linea.unique().item()
     n_sections = df.n_sections.unique().item()
@@ -344,11 +348,6 @@ def viz_etapas_x_tramo_recorrido(
 
     print("Produciendo grafico de ocupacion por tramos", line_id)
 
-    # set a expansion factor for viz purposes
-    # df["buff_factor"] = df[indicator_col] * factor
-    # Set a minimum for each section to be displated in map
-    # df["buff_factor"] = np.where(df["buff_factor"] <= factor_min, factor_min, df["buff_factor"])
-
     df["buff_factor"] = standarize_size(
         series=df[indicator_col], min_size=factor_min, max_size=factor
     )
@@ -376,7 +375,8 @@ def viz_etapas_x_tramo_recorrido(
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
@@ -710,81 +710,14 @@ def viz_etapas_x_tramo_recorrido(
         return gdf_d0, gdf_d1
 
 
-def plot_voronoi_zones(voi, hexs, hexs2, show_map, alias):
-    fig = Figure(figsize=(13.5, 13.5), dpi=100)
-    canvas = FigureCanvas(fig)
-    ax = fig.add_subplot(111)
-    plt.rcParams.update({"axes.facecolor": "#d4dadc", "figure.facecolor": "#d4dadc"})
-    voi = voi.to_crs(3857)
-    voi.geometry.boundary.plot(edgecolor="grey", linewidth=0.5, ax=ax)
-    # ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron,
-    #                 attribution=None, attribution_size=10)
-
-    try:
-        cx.add_basemap(
-            ax,
-            source=ctx.providers.CartoDB.Positron,
-            attribution=None,
-            attribution_size=10,
-        )
-    except (r_ConnectionError, ValueError):
-        pass
-
-    voi["coords"] = voi["geometry"].apply(lambda x: x.representative_point().coords[:])
-    voi["coords"] = [coords[0] for coords in voi["coords"]]
-    voi.apply(
-        lambda x: ax.annotate(
-            text=x["Zona_voi"],
-            xy=x.geometry.centroid.coords[0],
-            ha="center",
-            color="darkblue",
-        ),
-        axis=1,
-    )
-    ax.set_title("Zonificación", fontsize=12)
-    ax.axis("off")
-
-    if show_map:
-
-        display(fig)
-
-        # Display figura temporal
-        fig = Figure(figsize=(13.5, 13.5), dpi=70)
-        canvas = FigureCanvas(fig)
-        ax = fig.add_subplot(111)
-        hexs.to_crs(3857).plot(markersize=hexs["fex"] / 500, ax=ax)
-        hexs2.to_crs(3857).boundary.plot(ax=ax, lw=0.3)
-        try:
-            ctx.add_basemap(
-                ax,
-                source=ctx.providers.CartoDB.Positron,
-                attribution=None,
-                attribution_size=10,
-            )
-        except (r_ConnectionError, ValueError):
-            pass
-        ax.axis("off")
-
-    # graba resultados
-    file_path = os.path.join("resultados", "png", f"{alias}Zona_voi_map.png")
-    fig.savefig(file_path, dpi=300)
-    print("Zonificación guardada en", file_path)
-
-    file_path = os.path.join("resultados", "pdf", f"{alias}Zona_voi_map.pdf")
-    fig.savefig(file_path, dpi=300)
-    voi = voi.to_crs(4326)
-
-    file_path = os.path.join("resultados", f"{alias}Zona_voi.geojson")
-    voi[["Zona_voi", "geometry"]].to_file(file_path)
-
-
 def imprimir_matrices_od(
     viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
 ):
 
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -794,8 +727,8 @@ def imprimir_matrices_od(
     )
 
     conn_insumos.close()
-    zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
     df, matriz_zonas = traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d")
 
@@ -985,7 +918,8 @@ def imprime_lineas_deseo(
     pd.options.mode.chained_assignment = None
     alias = leer_alias()
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -996,8 +930,8 @@ def imprime_lineas_deseo(
 
     conn_insumos.close()
 
-    zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-    zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -1207,7 +1141,7 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
             conn_data,
         )
     except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola...")
+        print("No existe la tabla indicadores, construyendola..", e)
         indicadores = pd.DataFrame([])
 
     ind_horas = pd.DataFrame([])
@@ -1459,7 +1393,6 @@ def imprime_graficos_hora(
     ):
 
         fig = Figure(figsize=(10, 3), dpi=100)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         for i in viajesxhora.modo.unique():
@@ -1599,7 +1532,8 @@ def imprime_burbujas(
     alias = leer_alias()
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     zonas = pd.read_sql_query(
         """
@@ -1632,7 +1566,6 @@ def imprime_burbujas(
         multip = df_agg[var_fex].head(1).values[0] / 500
 
         fig = Figure(figsize=(13.5, 13.5), dpi=100)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         zonas[zonas["h3"].isin(df[h3_o].unique())].to_crs(3857).plot(ax=ax, alpha=0)
@@ -1704,24 +1637,14 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
 
     matriz_zonas = []
     vars_zona = []
-    if "Zona_voi" in zonas.columns:
-
-        matriz_zonas = [
-            [
-                "",
-                "Zona_voi",
-                [str(x) for x in list(range(1, len(zonas.Zona_voi.unique()) + 1))],
-            ]
-        ]
-        vars_zona = ["Zona_voi"]
 
     if res_agg:
-        zonas[f"h3_r6"] = zonas["h3"].apply(h3.h3_to_parent, res=6)
-        zonas[f"h3_r7"] = zonas["h3"].apply(h3.h3_to_parent, res=7)
+        zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
+        zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
 
-        matriz_zonas += [["", f"h3_r6", ""], ["", f"h3_r7", ""]]
-        vars_zona += [f"h3_r6"]
-        vars_zona += [f"h3_r7"]
+        matriz_zonas += [["", "h3_r6", ""], ["", "h3_r7", ""]]
+        vars_zona += ["h3_r6"]
+        vars_zona += ["h3_r7"]
 
     if configs["zonificaciones"]:
         for n in range(0, 5):
@@ -1899,7 +1822,6 @@ def imprime_od(
             facecolors_anterior = ax.findobj(QuadMesh)[0].get_facecolors()
 
         fig = Figure(figsize=figsize_tuple, dpi=150)
-        canvas = FigureCanvas(fig)
         ax = fig.add_subplot(111)
 
         sns.heatmap(
@@ -1996,7 +1918,8 @@ def imprime_od(
                                 facecolors[ii] = fill_value
                                 i.set_color("white")
 
-                    except:
+                    except Exception as e:
+                        print("Error al procesar el texto:", e)
                         pass
                 ii += 1
 
@@ -2200,7 +2123,6 @@ def lineas_deseo(
             multip = df_agg[var_fex].head(1).values[0] / 10
 
             fig = Figure(figsize=(13.5, 13.5), dpi=150)
-            canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
 
             zonas[zonas["h3"].isin(df[h3_o].unique())].to_crs(3857).plot(ax=ax, alpha=0)
@@ -2327,12 +2249,13 @@ def lineas_deseo(
                 print(e)
 
         except ValueError as e:
+            print("Error al crear líneas de deseo:", e)
             pass
 
 
 def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7):
 
-    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.h3_to_parent, res=res)
+    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.cell_to_parent, res=res)
 
     hexs = (
         zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
@@ -2359,7 +2282,7 @@ def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7)
         how="left",
     )
 
-    df["h3_o_tmp"] = df[h3_o].apply(h3.h3_to_parent, res=res)
+    df["h3_o_tmp"] = df[h3_o].apply(h3.cell_to_parent, res=res)
 
     # Agrego a res de gráfico latlong
     df_agg = df.groupby(["dia", "h3_o_tmp"], as_index=False).agg({var_fex: "sum"})
@@ -2390,8 +2313,6 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile, k_jenks=5):
     range_bins = range(0, len(bins) - 1)
     bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
-
-    from folium import Figure
 
     fig = Figure(width=800, height=800)
     m = folium.Map(
@@ -2443,7 +2364,7 @@ def save_zones():
     except KeyError:
         zonificaciones = []
 
-    geo_files = [["zona_voi.geojson", "Zona_voi"]]
+    geo_files = []
 
     if zonificaciones:
         for n in range(0, 5):
@@ -2476,57 +2397,15 @@ def save_zones():
         conn_dash.close()
 
 
-# def particion_modal(viajes_dia, etapas_dia, tipo_dia, desc_dia):
-
-#     particion_viajes = (
-#         viajes_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-#     )
-#     particion_viajes["modal"] = (
-#         particion_viajes["factor_expansion_linea"]
-#         / viajes_dia.factor_expansion_linea.sum()
-#         * 100
-#     ).round()
-#     particion_viajes = particion_viajes.sort_values("modal", ascending=False).drop(
-#         ["factor_expansion_linea"], axis=1
-#     )
-#     particion_viajes["tipo"] = "viajes"
-#     particion_viajes["tipo_dia"] = tipo_dia
-#     particion_viajes["desc_dia"] = desc_dia
-#     particion_etapas = (
-#         etapas_dia.groupby("modo", as_index=False).factor_expansion_linea.sum().round()
-#     )
-
-#     particion_etapas["modal"] = (
-#         particion_etapas["factor_expansion_linea"]
-#         / etapas_dia.factor_expansion_linea.sum()
-#         * 100
-#     ).round()
-#     particion_etapas = particion_etapas.sort_values("modal", ascending=False).drop(
-#         ["factor_expansion_linea"], axis=1
-#     )
-#     particion_etapas["tipo"] = "etapas"
-#     particion_etapas["desc_dia"] = desc_dia
-#     particion_etapas["tipo_dia"] = tipo_dia
-#     particion = pd.concat([particion_viajes, particion_etapas], ignore_index=True)
-
-#     conn_dash = iniciar_conexion_db(tipo="dash")
-
-#     query = f'DELETE FROM particion_modal WHERE desc_dia = "{desc_dia}" & tipo_dia = "{tipo_dia}"'
-#     conn_dash.execute(query)
-#     conn_dash.commit()
-#     particion["modo"] = particion.modo.str.capitalize()
-#     particion.to_sql("particion_modal", conn_dash, if_exists="append", index=False)
-#     conn_dash.close()
-
-
-def plot_dispatched_services_wrapper():
+def plot_dispatched_services_wrapper(top_line_ids):
     conn_data = iniciar_conexion_db(tipo="data")
+    line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     q = """
     select *
     from services_by_line_hour
-    where dia = 'weekday';
     """
+    q = q + line_ids_where + "and dia = 'weekday'" + ";"
     service_data = pd.read_sql(q, conn_data)
 
     if len(service_data) > 0:
@@ -2535,7 +2414,7 @@ def plot_dispatched_services_wrapper():
     conn_data.close()
 
 
-def plot_dispatched_services_by_line_day(df):
+def plot_dispatched_services_by_line_day(df, save_fig=False):
     """
     Reads services' data and plots how many services
     by line, type of day (weekday weekend), and hour.
@@ -2562,9 +2441,10 @@ def plot_dispatched_services_by_line_day(df):
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
-    s = f"select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
+    s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
     id_linea_str = pd.read_sql(s, conn_insumos)
     conn_insumos.close()
 
@@ -2585,16 +2465,12 @@ def plot_dispatched_services_by_line_day(df):
         ax.set_xlabel("Hora")
         ax.set_ylabel("Cantidad de servicios despachados")
 
-        f.suptitle(f"Cantidad de servicios despachados por hora y día")
+        f.suptitle("Cantidad de servicios despachados por hora y día")
 
         ax.set_title(
             f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
             fontdict={"fontsize": 11},
         )
-        # ax.set_title(
-        #     f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
-        #     fontdict={"fontsize": 11},
-        # )
 
         ax.spines.right.set_visible(False)
         ax.spines.top.set_visible(False)
@@ -2605,35 +2481,29 @@ def plot_dispatched_services_by_line_day(df):
 
         ax.grid(axis="y")
 
-        for frm in ["png", "pdf"]:
-            archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-            db_path = os.path.join("resultados", frm, archivo)
-            f.savefig(db_path, dpi=300)
-            plt.close()
-    except:
-        print("ERROR")
+        if save_fig:
+            for frm in ["png", "pdf"]:
+                archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
+                db_path = os.path.join("resultados", frm, archivo)
+                f.savefig(db_path, dpi=300)
+                plt.close()
+    except Exception as e:
+        print("ERROR", e)
 
 
-def plot_basic_kpi_wrapper():
+def plot_basic_kpi_wrapper(top_line_ids):
     sns.set_style("whitegrid")
 
-    configs = leer_configs_generales()
     conn_data = iniciar_conexion_db(tipo="data")
-    lineas_principales = configs["imprimir_lineas_principales"]
+    line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     # get top trx id_lines
     q = """
         select *
         from basic_kpi_by_line_hr
-        where dia = 'weekday';
+        
         """
-
-    kpi_data = pd.read_sql(q, conn_data)
-
-    if lineas_principales != "All":
-        top_lines = list(kpi_data.id_linea.value_counts().index[:lineas_principales])
-        kpi_data = kpi_data.loc[kpi_data.id_linea.isin(top_lines)]
-
+    q = q + line_ids_where + "and dia = 'weekday'" + ";"
     kpi_data = pd.read_sql(q, conn_data)
 
     if len(kpi_data) > 0:
@@ -2657,7 +2527,8 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
     else:
         day_str = day
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     s = (
         f"select nombre_linea from metadata_lineas"
@@ -2750,7 +2621,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         ax.set_xlabel("Hora")
         ax.set_ylabel(ylabel_str)
 
-        f.suptitle(f"Indicadores de oferta y demanda estadarizados")
+        f.suptitle("Indicadores de oferta y demanda estadarizados")
 
         ax.set_title(
             f"{id_linea_str} id linea: {line_id} - Dia: {day_str}",
@@ -2828,7 +2699,8 @@ def get_branch_geoms_from_line(id_linea):
     Takes a line id and returns a geoSeries with
     all branches' geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     branch_geoms_query = f"""
         select * from branches_geoms bg 
@@ -3062,13 +2934,11 @@ def viz_travel_times_poly(polygon):
 
     conn_data = iniciar_conexion_db(tipo="data")
 
-    poly_geojson = shapely.to_geojson(polygon)
-    poly_geojson = json.loads(poly_geojson)
-    poly_h3 = h3.polyfill(poly_geojson, res=h3_res, geo_json_conformant=True)
+    poly_h3 = get_h3_indices_in_geometry(polygon, h3_res)
 
     if len(poly_h3) == 0:
-        poly_h3 = h3.polyfill(poly_geojson, res=h3_res + 1, geo_json_conformant=True)
-        poly_h3 = set(map(h3.h3_to_parent, poly_h3))
+        poly_h3 = get_h3_indices_in_geometry(polygon, h3_res + 1)
+        poly_h3 = set(map(h3.cell_to_parent, poly_h3))
 
     poly_str = "','".join(poly_h3)
 
@@ -3110,7 +2980,8 @@ def create_visualizations():
 
     # Leer informacion de viajes y distancias
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     viajes = pd.read_sql_query(
         """
@@ -3177,33 +3048,6 @@ def create_visualizations():
             (etapas.yr == i.yr) & (etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)
         ]
 
-        # print("Imprimiendo tabla de matrices OD")
-        # # Impirmir tablas con matrices OD
-        # imprimir_matrices_od(
-        #     viajes=viajes_dia,
-        #     var_fex="factor_expansion_linea",
-        #     title=f"Matriz OD {desc_dia}",
-        #     savefile=f"{desc_dia_file}",
-        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-        #     tipo_dia=i.tipo_dia,
-        # )
-
-        # print("Imprimiendo mapas de lí­neas de deseo")
-        # # Imprimir lineas de deseo
-        # imprime_lineas_deseo(
-        #     df=viajes_dia,
-        #     h3_o="",
-        #     h3_d="",
-        #     var_fex="factor_expansion_linea",
-        #     title=f"Lí­neas de deseo {desc_dia}",
-        #     savefile=f"{desc_dia_file}",
-        #     desc_dia=f"{i.yr}-{str(i.mo).zfill(2)}",
-        #     tipo_dia=i.tipo_dia,
-        # )
-
-        # partición modal
-        # particion_modal(viajes_dia, etapas_dia, tipo_dia=i.tipo_dia, desc_dia=desc_dia)
-
         print("Imprimiendo gráficos")
         titulo = f"Cantidad de viajes en transporte público {desc_dia}"
         imprime_graficos_hora(
@@ -3215,44 +3059,7 @@ def create_visualizations():
             tipo_dia=i.tipo_dia,
         )
 
-        # print("Imprimiendo mapas de burbujas")
-        # viajes_n = viajes_dia[(viajes_dia.id_viaje > 1)]
-        # imprime_burbujas(
-        #     viajes_n,
-        #     res=7,
-        #     h3_o="h3_o",
-        #     alpha=0.4,
-        #     cmap="rocket_r",
-        #     var_fex="factor_expansion_linea",
-        #     porc_viajes=100,
-        #     title=f"Destinos de los viajes {desc_dia}",
-        #     savefile=f"{desc_dia_file}_burb_destinos",
-        #     show_fig=False,
-        #     k_jenks=5,
-        # )
-
-        # viajes_n = viajes_dia[(viajes_dia.id_viaje == 1)]
-        # imprime_burbujas(
-        #     viajes_n,
-        #     res=7,
-        #     h3_o="h3_o",
-        #     alpha=0.4,
-        #     cmap="flare",
-        #     var_fex="factor_expansion_linea",
-        #     porc_viajes=100,
-        #     title=f"Hogares {desc_dia}",
-        #     savefile=f"{desc_dia_file}_burb_hogares",
-        #     show_fig=False,
-        #     k_jenks=5,
-        # )
-
     save_zones()
 
     print("Indicadores para dash")
     indicadores_dash()
-
-    # plor dispatched services
-    plot_dispatched_services_wrapper()
-
-    # plot basic kpi if exists
-    plot_basic_kpi_wrapper()

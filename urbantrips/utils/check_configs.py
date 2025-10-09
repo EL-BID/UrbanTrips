@@ -1,18 +1,15 @@
 import pandas as pd
-import geopandas as gpd
-import sqlite3
 import os
 import yaml
-import time
-from pandas.io.sql import DatabaseError
-from functools import wraps
 import re
 import ast
-from urbantrips.utils.utils import (leer_configs_generales,
-                                    iniciar_conexion_db,
-                                    duracion,
-                                    leer_alias
-                                    )
+import chardet
+
+from urbantrips.utils.utils import (
+    leer_configs_generales,
+    duracion,
+    leer_alias,
+)
 
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -21,22 +18,22 @@ def check_config_fecha(df, columns_with_date, date_format):
     un formato de fecha, intenta parsear las fechas y arroja un error
     si mas del 80% de las fechas no pueden parsearse
     """
-    fechas = pd.to_datetime(
-        df[columns_with_date], format=date_format, errors="coerce"
-    )
+    fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
 
     # Chequear si el formato funciona
     checkeo = fechas.isna().sum() / len(df)
-    string = f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el " +\
-        f"{round((checkeo * 100),2)} por ciento de registros" +\
-        f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
+    string = (
+        f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el "
+        + f"{round((checkeo * 100),2)} por ciento de registros"
+        + f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
+    )
     assert checkeo < 0.8, string
 
 
 def check_if_list(string):
     result = string
     if type(string) == str:
-        pattern = r'\[([^\[\]]+)\]'
+        pattern = r"\[([^\[\]]+)\]"
         match = re.search(pattern, string)
         if match:
             try:
@@ -50,15 +47,15 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, 'r', encoding='utf-8') as file:
+    with open(file_path, "r") as file:
         content = file.read()
 
     # Check if the file contains tabs
-    if '\t' in content:
+    if "\t" in content:
         # Replace tabs with spaces
-        content = content.replace('\t', ' ' * num_spaces)
+        content = content.replace("\t", " " * num_spaces)
         # Save the modified content to the same file
-        with open(file_path, 'w') as file:
+        with open(file_path, "w") as file:
             file.write(content)
 
 
@@ -68,15 +65,15 @@ def check_config_fecha(df, columns_with_date, date_format):
     un formato de fecha, intenta parsear las fechas y arroja un error
     si mas del 80% de las fechas no pueden parsearse
     """
-    fechas = pd.to_datetime(
-        df[columns_with_date], format=date_format, errors="coerce"
-    )
+    fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
 
     # Chequear si el formato funciona
     checkeo = fechas.isna().sum() / len(df)
-    string = f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el " +\
-        f"{round((checkeo * 100),2)} por ciento de registros" +\
-        f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
+    string = (
+        f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el "
+        + f"{round((checkeo * 100),2)} por ciento de registros"
+        + f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
+    )
 
     result = None
     if checkeo >= 0.8:
@@ -85,263 +82,373 @@ def check_config_fecha(df, columns_with_date, date_format):
 
 
 def create_configuracion(configs):
+    """
+    Creates a configuration DataFrame from a nested dictionary of configuration values.
+    The function processes a dictionary where each key can map to either a value or
+    another dictionary. It flattens the structure into a DataFrame with columns for
+    variable names, sub-variables, and their values. The resulting DataFrame includes
+    predefined columns for configuration metadata, with missing values filled as
+    empty strings.
 
-    configuracion = pd.DataFrame([],
-                                 columns=['item',
-                                          'variable',
-                                          'subvar',
-                                          'subvar_param',
-                                          'default',
-                                          'obligatorio',
-                                          'descripcion_campo',
-                                          'descripcion_general',
-                                          'valor'])
+    Args:
+        configs (dict): A dictionary containing configuration items. Each key can map
+        to a value or a nested dictionary of sub-variables.
+    Returns:
+        pandas.DataFrame: A DataFrame with columns:
+            - "item"
+            - "variable"
+            - "subvar"
+            - "subvar_param"
+            - "default"
+            - "obligatorio"
+            - "descripcion_campo"
+            - "descripcion_general"
+            - "valor"
+        Each row represents a configuration variable and its associated value.
+    """
+
+    configuracion = pd.DataFrame(
+        [],
+        columns=[
+            "item",
+            "variable",
+            "subvar",
+            "subvar_param",
+            "default",
+            "obligatorio",
+            "descripcion_campo",
+            "descripcion_general",
+            "valor",
+        ],
+    )
 
     if configs:
         for i in configs:
 
             if type(configs[i]) != dict:
                 y = configs[i]
-                configuracion = pd.concat([
-                    configuracion,
-                    pd.DataFrame([[i, '', y]], columns=['variable', 'subvar', 'valor'])])
+                configuracion = pd.concat(
+                    [
+                        configuracion,
+                        pd.DataFrame(
+                            [[i, "", y]], columns=["variable", "subvar", "valor"]
+                        ),
+                    ]
+                )
 
             else:
                 for x in configs[i]:
 
                     y = configs[i][x]
 
-                    configuracion = pd.concat([
-                        configuracion,
-                        pd.DataFrame([[i, x, y]], columns=['variable', 'subvar', 'valor'])])
-    return configuracion.fillna('')
+                    configuracion = pd.concat(
+                        [
+                            configuracion,
+                            pd.DataFrame(
+                                [[i, x, y]], columns=["variable", "subvar", "valor"]
+                            ),
+                        ]
+                    )
+    return configuracion.fillna("")
 
 
 def revise_configs(configs):
-
+    """
+    Revises and updates configuration parameters based on provided configs and default values.
+    This function creates a configuration DataFrame from the input `configs`, then loads default configuration values
+    from a local Excel file or a remote GitHub URL if the local file does not exist. It iterates through each default
+    configuration row, updating the 'subvar' and 'default' columns based on the values found in the provided configs.
+    Special handling is performed for the 'hora_trx' variable to set the 'columna_hora' flag accordingly.
+    Args:
+        configs (dict): The input configuration parameters to revise.
+    Returns:
+        pandas.DataFrame: The revised configuration DataFrame with updated 'subvar' and 'default' values.
+    """
+    # from user config dictionary create a DataFrame config
     configuracion = create_configuracion(configs)
 
-    conf_path = os.path.join("docs", 'configuraciones.xlsx')
+    # Look for the excel file with default configurations
+    conf_path = os.path.join("docs", "configuraciones.xlsx")
     if os.path.isfile(conf_path):
-        config_default = pd.read_excel(conf_path).fillna('')
+        config_default = pd.read_excel(conf_path).fillna("")
     else:
-        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/configuraciones.xlsx'
-        config_default = pd.read_excel(github_csv_url).fillna('')
+        github_csv_url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/configuraciones.xlsx"
+        config_default = pd.read_excel(github_csv_url).fillna("")
 
+    # for each row in the default config
     for _, i in config_default.iterrows():
+        # if exists another nested subvar
         if not (i.subvar_param):
             try:
-                valor = configuracion[(configuracion.variable == i.variable) & (
-                    configuracion.subvar == i.subvar)].valor.values[0]
+                valor = configuracion[
+                    (configuracion.variable == i.variable)
+                    & (configuracion.subvar == i.subvar)
+                ].valor.values[0]
             except (IndexError, ValueError):
-                valor = ''
+                valor = ""
             try:
-                subvar = configuracion[(configuracion.variable == i.variable) & (
-                    configuracion.subvar == i.subvar)].subvar.values[0]
+                subvar = configuracion[
+                    (configuracion.variable == i.variable)
+                    & (configuracion.subvar == i.subvar)
+                ].subvar.values[0]
             except (IndexError, ValueError):
-                subvar = ''
+                subvar = ""
+
+        # if not use subvar column in excel file
         else:
             try:
-                subvar = configuracion[(
-                    configuracion.variable == i.variable)].subvar.values[0]
+                subvar = configuracion[
+                    (configuracion.variable == i.variable)
+                ].subvar.values[0]
             except (IndexError, ValueError):
-                subvar = ''
+                subvar = ""
 
             try:
-                valor = configuracion[(
-                    configuracion.variable == i.variable)].valor.values[0]
+                valor = configuracion[
+                    (configuracion.variable == i.variable)
+                ].valor.values[0]
             except (IndexError, ValueError):
-                valor = ''
+                valor = ""
         if subvar:
-            config_default.loc[_, 'subvar'] = subvar
+            config_default.loc[_, "subvar"] = subvar
         if str(valor):
             if type(valor) == list:
-                config_default.loc[_, 'default'] = config_default.loc[_,
-                                                                      'default'] = f'{valor}'
+                config_default.loc[_, "default"] = config_default.loc[_, "default"] = (
+                    f"{valor}"
+                )
             else:
-                config_default.loc[_,
-                                   'default'] = config_default.loc[_, 'default'] = valor
+                config_default.loc[_, "default"] = config_default.loc[_, "default"] = (
+                    valor
+                )
     # Chequea si existe hora
     # hora_trx
-    hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx') &
-                                  (config_default.subvar == 'hora_trx'), 'default'].values[0]
+    hora_trx = config_default.loc[
+        (config_default.variable == "nombres_variables_trx")
+        & (config_default.subvar == "hora_trx"),
+        "default",
+    ].values[0]
     if hora_trx:
-        config_default.loc[(config_default.variable ==
-                            'columna_hora'), 'default'] = True
+        config_default.loc[(config_default.variable == "columna_hora"), "default"] = (
+            True
+        )
     else:
-        config_default.loc[(config_default.variable ==
-                            'columna_hora'), 'default'] = False
+        config_default.loc[(config_default.variable == "columna_hora"), "default"] = (
+            False
+        )
 
     return config_default
 
 
 def write_config(config_default):
-    path = os.path.join("configs", "configuraciones_generales.yaml")
+    path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
 
-    with open(path, 'w', encoding='utf8') as file:
+    with open(path, "w") as file:
 
-        file.write('# Archivo de configuración para urbantrips\n\n')
+        file.write("# Archivo de configuración para urbantrips\n\n")
 
         for i in config_default.item.unique():
-            tmp = config_default[config_default.item ==
-                                 i].reset_index(drop=True)
+            tmp = config_default[config_default.item == i].reset_index(drop=True)
 
             for _, x in tmp.iterrows():
                 x.default = check_if_list(x.default)
 
                 if (_ == 0) and (len(x.descripcion_general) > 0):
-                    file.write(f'# {x.descripcion_general}\n')
+                    file.write(f"# {x.descripcion_general}\n")
 
                 if len(tmp.variable.unique()) == 1:
 
                     if len(x.subvar) > 0:
                         if _ == 0:
-                            file.write(f'{x.variable}: \n')
+                            file.write(f"{x.variable}: \n")
                         if type(x.default) != list:
 
-                            if x.default != '':
+                            if x.default != "":
 
-                                if (type(x.default) == str) & ~((x.default == 'True') | (x.default == 'False')):
+                                if (type(x.default) == str) & ~(
+                                    (x.default == "True") | (x.default == "False")
+                                ):
                                     # subvars
                                     file.write(
-                                        f'    {x.subvar}: "{x.default}"'.ljust(67))
+                                        f'    {x.subvar}: "{x.default}"'.ljust(67)
+                                    )
 
                                 else:
                                     # subvars
-                                    file.write(
-                                        f'    {x.subvar}: {x.default}'.ljust(67))
+                                    file.write(f"    {x.subvar}: {x.default}".ljust(67))
 
                             else:
                                 # subvars
-                                file.write(f'    {x.subvar}: '.ljust(67))
+                                file.write(f"    {x.subvar}: ".ljust(67))
                             if len(x.descripcion_campo) > 0:
-                                file.write(f'# {x.descripcion_campo}')
+                                file.write(f"# {x.descripcion_campo}")
 
                         else:
 
-                            file.write(f'    {x.subvar}: '.ljust(15))
-                            file.write('['.ljust(52))
+                            file.write(f"    {x.subvar}: ".ljust(15))
+                            file.write("[".ljust(52))
                             if len(x.descripcion_campo) > 0:
-                                file.write(
-                                    f'# {x.descripcion_campo}'.ljust(15))
-                            file.write('\n')
+                                file.write(f"# {x.descripcion_campo}".ljust(15))
+                            file.write("\n")
 
                             for z in x.default:
-                                file.write(''.ljust(16))
+                                file.write("".ljust(16))
                                 file.write(f'"{z}",\n')
 
-                            file.write(''.ljust(22)+']\n')
+                            file.write("".ljust(22) + "]\n")
 
-                        file.write('\n')
+                        file.write("\n")
 
                     else:
 
-                        if x.default != '':
-                            if (type(x.default) == str) & ~((x.default == 'True') | (x.default == 'False')):
+                        if x.default != "":
+                            if (type(x.default) == str) & ~(
+                                (x.default == "True") | (x.default == "False")
+                            ):
                                 # subvars
-                                file.write(
-                                    f'{x.variable}: "{x.default}"'.ljust(67))
+                                file.write(f'{x.variable}: "{x.default}"'.ljust(67))
                             else:
                                 # subvars
-                                file.write(
-                                    f'{x.variable}: {x.default}'.ljust(67))
+                                file.write(f"{x.variable}: {x.default}".ljust(67))
                         else:
-                            file.write(f'{x.variable}:'.ljust(67))  # subvars
+                            file.write(f"{x.variable}:".ljust(67))  # subvars
 
                         if len(x.descripcion_campo) > 0:
-                            file.write(f'# {x.descripcion_campo}'.ljust(15))
-                            file.write('\n')
+                            file.write(f"# {x.descripcion_campo}".ljust(15))
+                            file.write("\n")
 
                 elif len(x.variable) > 0:
 
                     if type(x.default) != list:
-                        if x.default != '':
-                            if (type(x.default) == str) & ~((x.default == 'True') | (x.default == 'False')):
-                                file.write(
-                                    f'{x.variable}: "{x.default}"'.ljust(67))
+                        if x.default != "":
+                            if (type(x.default) == str) & ~(
+                                (x.default == "True") | (x.default == "False")
+                            ):
+                                file.write(f'{x.variable}: "{x.default}"'.ljust(67))
 
                             else:
-                                file.write(
-                                    f'{x.variable}: {x.default}'.ljust(67))
+                                file.write(f"{x.variable}: {x.default}".ljust(67))
 
                         else:
-                            file.write(f'{x.variable}: '.ljust(67))
+                            file.write(f"{x.variable}: ".ljust(67))
 
                         if len(x.descripcion_campo) > 0:
-                            file.write(f'# {x.descripcion_campo}')
+                            file.write(f"# {x.descripcion_campo}")
 
                     else:
 
-                        file.write(f'    {x.variable}: '.ljust(15))
-                        file.write('['.ljust(48))
+                        file.write(f"    {x.variable}: ".ljust(15))
+                        file.write("[".ljust(48))
                         if len(x.descripcion_campo) > 0:
-                            file.write(f'# {x.descripcion_campo}'.ljust(15))
-                        file.write('\n')
+                            file.write(f"# {x.descripcion_campo}".ljust(15))
+                        file.write("\n")
 
                         for z in x.default:
-                            file.write(''.ljust(16))
+                            file.write("".ljust(16))
                             file.write(f'"{z}",\n')
 
-                        file.write(''.ljust(22)+']\n')
+                        file.write("".ljust(22) + "]\n")
 
-                    file.write('\n')
+                    file.write("\n")
 
-            file.write('\n')
+            file.write("\n")
 
 
-def check_lineas(config_default):
-    alias_ciudad = leer_alias(tipo='insumos')
-    if not config_default.loc[config_default.variable == 'nombre_archivo_informacion_lineas', 'default'].values[0]:
-        config_default.loc[config_default.variable ==
-                           'nombre_archivo_informacion_lineas', 'default'] = f'{alias_ciudad}lineas.csv'
+def check_lineas(config_default, alias_default):
+    """
+    Checks and updates the configuration for line information files, ensuring required columns and files exist.
+    This function performs the following tasks:
+    - Reads city alias using `leer_alias(tipo="insumos")`.
+    - Sets the default filename for line information if not already set in `config_default`.
+    - Ensures the 'modos' variable is set to 'autobus' if not specified.
+    - Checks if the line information file exists; if not, creates it from transaction data.
+    - Groups transaction data by line and mode, and generates a new line information file if necessary.
+    - Ensures the resulting DataFrame has the columns: 'id_linea', 'modo', 'nombre_linea', 'id_linea_agg', and 'nombre_linea_agg'.
+    - Fills missing values with empty strings and saves the DataFrame to CSV.
+    Args:
+        config_default (pd.DataFrame): DataFrame containing configuration variables and their default values.
+    Returns:
+        pd.DataFrame: The updated configuration DataFrame.
+    """
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    ramales = configs_usuario.get("lineas_contienen_ramales", False)
 
-    nombre_archivo_informacion_lineas = config_default.loc[config_default.variable ==
-                                                           'nombre_archivo_informacion_lineas', 'default'].values[0]
+    if not config_default.loc[
+        config_default.variable == "nombre_archivo_informacion_lineas", "default"
+    ].values[0]:
+        config_default.loc[
+            config_default.variable == "nombre_archivo_informacion_lineas", "default"
+        ] = f"{alias_default}_lineas.csv"
 
-    if len(config_default.loc[(config_default.variable == 'modos') & (config_default.default != '')]) == 0:
-        config_default.loc[(config_default.variable == 'modos') & (
-            config_default.subvar == 'autobus'), 'default'] = 'autobus'
+    nombre_archivo_informacion_lineas = config_default.loc[
+        config_default.variable == "nombre_archivo_informacion_lineas", "default"
+    ].values[0]
+
+    if (
+        len(
+            config_default.loc[
+                (config_default.variable == "modos") & (config_default.default != "")
+            ]
+        )
+        == 0
+    ):
+        config_default.loc[
+            (config_default.variable == "modos") & (config_default.subvar == "autobus"),
+            "default",
+        ] = "autobus"
 
     path_archivo_lineas = os.path.join(
-        "data", "data_ciudad", nombre_archivo_informacion_lineas)
+        "data", "data_ciudad", nombre_archivo_informacion_lineas
+    )
     if not os.path.isfile(path_archivo_lineas):
+
         print("Creo archivo con información de líneas")
-        nombre_archivo_trx = config_default.loc[config_default.variable ==
-                                                'nombre_archivo_trx', 'default'].values[0]
-        modo_trx = config_default.loc[config_default.subvar ==
-                                      'modo_trx', 'default'].values[0]
-        id_linea_trx = config_default.loc[config_default.subvar ==
-                                          'id_linea_trx', 'default'].values[0]
+        corrida = configs_usuario.get("corridas", [])[0]
+        nombre_archivo_trx = f"{corrida}_trx.csv"
+        nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
+        modo_trx = nombre_variables_trx.get("modo_trx", None)
+        id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
         trx = pd.read_csv(ruta)
 
         cols = [id_linea_trx]
+        if ramales:
+            id_ramal_trx = nombre_variables_trx.get("id_ramal_trx", None)
+            cols += [id_ramal_trx]
         if modo_trx:
             cols += [modo_trx]
-        lineas = trx.groupby(
-            cols, as_index=False).size().drop(['size'], axis=1)
+        lineas = trx.groupby(cols, as_index=False).size().drop(["size"], axis=1)
 
         if not modo_trx:
-            modo_trx = 'modo_trx'
-            autobus = config_default.loc[(config_default.variable == 'modos') & (
-                config_default.subvar == 'autobus'), 'default'].values[0]
+            modo_trx = "modo_trx"
+            autobus = config_default.loc[
+                (config_default.variable == "mo dos")
+                & (config_default.subvar == "autobus"),
+                "default",
+            ].values[0]
             lineas[modo_trx] = autobus
-            lineas = lineas.rename(
-                columns={id_linea_trx: 'id_linea', modo_trx: 'modo'})
-        lineas.columns=[ "id_linea", "modo"]
+            lineas = lineas.rename(columns={id_linea_trx: "id_linea", modo_trx: "modo"})
+        if ramales:
+            lineas.columns = ["id_linea", "id_ramal", "modo"]
+        else:
+            lineas.columns = ["id_linea", "modo"]
     else:
         lineas = pd.read_csv(path_archivo_lineas)
 
-    if not 'modo' in lineas:
-        lineas['modo'] = config_default.loc[(config_default.variable == 'modos') & (
-            config_default.subvar == 'autobus'), 'default'].values[0]
-    if not 'nombre_linea' in lineas:
-        lineas['nombre_linea'] = ''
-    if not 'id_linea_agg' in lineas:
-        lineas['id_linea_agg'] = ''
-    if not 'nombre_linea_agg' in lineas:
-        lineas['nombre_linea_agg'] = ''
-    lineas = lineas.fillna('')
+    if not "modo" in lineas:
+        lineas["modo"] = config_default.loc[
+            (config_default.variable == "modos") & (config_default.subvar == "autobus"),
+            "default",
+        ].values[0]
+    if not "nombre_linea" in lineas:
+        lineas["nombre_linea"] = ""
+    if ramales and not "nombre_ramal" in lineas:
+        lineas["nombre_ramal"] = ""
+    if not "id_linea_agg" in lineas:
+        lineas["id_linea_agg"] = ""
+    if not "nombre_linea_agg" in lineas:
+        lineas["nombre_linea_agg"] = ""
+
+    lineas = lineas.fillna("")
     lineas.to_csv(path_archivo_lineas, index=False)
 
     return config_default
@@ -349,16 +456,18 @@ def check_lineas(config_default):
 
 def check_config_errors(config_default):
 
-    conf_path = os.path.join("docs", 'configuraciones.xlsx')
+    conf_path = os.path.join("docs", "configuraciones.xlsx")
     if os.path.isfile(conf_path):
-        configuraciones = pd.read_excel(conf_path).fillna('')
+        configuraciones = pd.read_excel(conf_path).fillna("")
     else:
-        github_csv_url = 'https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/configuraciones.xlsx'
-        configuraciones = pd.read_excel(github_csv_url).fillna('')
+        github_csv_url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/configuraciones.xlsx"
+        configuraciones = pd.read_excel(github_csv_url).fillna("")
 
     vars_boolean = []
-    for _, i in configuraciones[(configuraciones.default.notna()) & (configuraciones.default != '')].iterrows():
-        if (i.default == 'True') | (i.default == 'False'):
+    for _, i in configuraciones[
+        (configuraciones.default.notna()) & (configuraciones.default != "")
+    ].iterrows():
+        if (i.default == "True") | (i.default == "False"):
             vars_boolean += [[i.variable, i.subvar]]
     vars_required = []
     for _, i in configuraciones[configuraciones.obligatorio == True].iterrows():
@@ -367,266 +476,524 @@ def check_config_errors(config_default):
     orden_trx = None
 
     errores = []
-    nombre_archivo_trx = config_default.loc[config_default.variable ==
-                                            'nombre_archivo_trx'].default.values[0]
+    nombre_archivo_trx = config_default.loc[
+        config_default.variable == "nombre_archivo_trx"
+    ].default.values[0]
     if not nombre_archivo_trx:
         errores += [
-            f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}']
+            f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}'
+        ]
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print(f'--Archivo de transacciones en proceso: {ruta}')
+        print(f"--Archivo de transacciones en proceso: {ruta}")
         if not os.path.isfile(ruta):
-            errores += [f'No se encuentra el archivo de transacciones {ruta}']
+            errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
             trx = pd.read_csv(ruta, nrows=1000)
 
             # check date
-            columns_with_date = config_default.loc[(config_default.variable == 'nombres_variables_trx') &
-                                                   (config_default.subvar == 'fecha_trx'), 'default'].values[0]
+            columns_with_date = config_default.loc[
+                (config_default.variable == "nombres_variables_trx")
+                & (config_default.subvar == "fecha_trx"),
+                "default",
+            ].values[0]
 
-            date_format = config_default.loc[(
-                config_default.variable == 'formato_fecha'), 'default'].values[0]
+            date_format = config_default.loc[
+                (config_default.variable == "formato_fecha"), "default"
+            ].values[0]
 
             check_result = check_config_fecha(
-                df=trx, columns_with_date=columns_with_date, date_format=date_format)
+                df=trx, columns_with_date=columns_with_date, date_format=date_format
+            )
             if check_result:
                 errores += [check_result]
 
-            orden_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx') &
-                                           (config_default.subvar == 'orden_trx'), 'default'].values[0]
+            orden_trx = config_default.loc[
+                (config_default.variable == "nombres_variables_trx")
+                & (config_default.subvar == "orden_trx"),
+                "default",
+            ].values[0]
 
-            if (not orden_trx) & (len(trx[columns_with_date].sample(1).values[0]) <= 10):
-                errores += ['No está especificado el orden de las transacciones. ' +
-                            '\n                El orden puede estar especificado por el campo "fecha_trx" si tiene hora/minuto o' +
-                            '\n                por el campo "orden_trx" que no se encuentra en el config.yaml']
+            if (not orden_trx) & (
+                len(trx[columns_with_date].sample(1).values[0]) <= 10
+            ):
+                errores += [
+                    "No está especificado el orden de las transacciones. "
+                    + '\n                El orden puede estar especificado por el campo "fecha_trx" si tiene hora/minuto o'
+                    + '\n                por el campo "orden_trx" que no se encuentra en el config.yaml'
+                ]
             else:
-                if not config_default.loc[(config_default.variable == 'ventana_viajes'), 'default'].values[0]:
+                if not config_default.loc[
+                    (config_default.variable == "ventana_viajes"), "default"
+                ].values[0]:
                     errores += [
-                        '"ventana_viajes" debe tener una valor en minutos definido (ej. 60 minutos)']
-                if not config_default.loc[(config_default.variable == 'ventana_duplicado'), 'default'].values[0]:
+                        '"ventana_viajes" debe tener una valor en minutos definido (ej. 60 minutos)'
+                    ]
+                if not config_default.loc[
+                    (config_default.variable == "ventana_duplicado"), "default"
+                ].values[0]:
                     errores += [
-                        '"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)']
+                        '"ventana_duplicado" debe tener una valor en minutos definido (ej. 5 minutos)'
+                    ]
 
             # check factor_expansion
-            factor_expansion = config_default.loc[(config_default.variable == 'nombres_variables_trx') &
-                                                  (config_default.subvar == 'factor_expansion'), 'default'].values[0]
+            factor_expansion = config_default.loc[
+                (config_default.variable == "nombres_variables_trx")
+                & (config_default.subvar == "factor_expansion"),
+                "default",
+            ].values[0]
             if factor_expansion:
                 if factor_expansion not in trx.columns:
                     errores += [
-                        f'La variable {factor_expansion} no se encuentra en la tabla de transacciones']
+                        f"La variable {factor_expansion} no se encuentra en la tabla de transacciones"
+                    ]
                 else:
-                    if len(trx[(trx[factor_expansion].isna()) | (trx[factor_expansion] == 0)]) > 0:
+                    if (
+                        len(
+                            trx[
+                                (trx[factor_expansion].isna())
+                                | (trx[factor_expansion] == 0)
+                            ]
+                        )
+                        > 0
+                    ):
                         errores += [
-                            f'La variable {factor_expansion} no tiene valores o los valores son igual a cero']
+                            f"La variable {factor_expansion} no tiene valores o los valores son igual a cero"
+                        ]
             # hora_trx
-            hora_trx = config_default.loc[(config_default.variable == 'nombres_variables_trx') &
-                                          (config_default.subvar == 'hora_trx'), 'default'].values[0]
+            hora_trx = config_default.loc[
+                (config_default.variable == "nombres_variables_trx")
+                & (config_default.subvar == "hora_trx"),
+                "default",
+            ].values[0]
             if hora_trx:
                 if hora_trx not in trx.columns:
                     errores += [
-                        f'La variable {hora_trx} no se encuentra en la tabla de transacciones']
+                        f"La variable {hora_trx} no se encuentra en la tabla de transacciones"
+                    ]
                 else:
                     if len(trx[(trx[hora_trx].isna())]) > 0:
-                        errores += [f'La variable {hora_trx} no tiene valores']
+                        errores += [f"La variable {hora_trx} no tiene valores"]
 
             # tipo_trx_invalidas
-            tipo_trx_invalidas = config_default.loc[(
-                config_default.variable == 'tipo_trx_invalidas'), 'subvar'].values[0]
+            tipo_trx_invalidas = config_default.loc[
+                (config_default.variable == "tipo_trx_invalidas"), "subvar"
+            ].values[0]
             if tipo_trx_invalidas:
                 if tipo_trx_invalidas not in trx.columns:
                     errores += [
-                        f'La variable {tipo_trx_invalidas} no se encuentra en la tabla de transacciones']
+                        f"La variable {tipo_trx_invalidas} no se encuentra en la tabla de transacciones"
+                    ]
 
             # chequea modos
 
-            var_modo = config_default[(
-                config_default.subvar == 'modo_trx')].default.values[0]
+            var_modo = config_default[
+                (config_default.subvar == "modo_trx")
+            ].default.values[0]
             if var_modo:
                 if var_modo in trx.columns:
-                    modos = config_default[(config_default.variable == 'modos') & (
-                        config_default.default != '')].default.unique()
+                    modos = config_default[
+                        (config_default.variable == "modos")
+                        & (config_default.default != "")
+                    ].default.unique()
                     modos_faltantes = [
-                        i for i in trx[var_modo].unique() if i not in modos]
+                        i for i in trx[var_modo].unique() if i not in modos
+                    ]
                     if modos_faltantes:
                         errores += [
-                            f'Faltan especificar los modos {modos_faltantes} en el archivo de configuración']
+                            f"Faltan especificar los modos {modos_faltantes} en el archivo de configuración"
+                        ]
                 else:
                     errores += [
-                        f'La columna {var_modo} no se encuentra en la tabla de transacciones']
+                        f"La columna {var_modo} no se encuentra en la tabla de transacciones"
+                    ]
 
-        config_default.loc[config_default.default == 'True', 'default'] = True
-        config_default.loc[config_default.default ==
-                           'False', 'default'] = False
+        config_default.loc[config_default.default == "True", "default"] = True
+        config_default.loc[config_default.default == "False", "default"] = False
         for i in vars_boolean:
-            if not ((config_default.loc[(config_default.variable == i[0]) & (config_default.subvar == i[1]), 'default'].values[0] == True) |
-                    (config_default.loc[(config_default.variable == i[0]) & (config_default.subvar == i[1]), 'default'].values[0] == False)):
+            if not (
+                (
+                    config_default.loc[
+                        (config_default.variable == i[0])
+                        & (config_default.subvar == i[1]),
+                        "default",
+                    ].values[0]
+                    == True
+                )
+                | (
+                    config_default.loc[
+                        (config_default.variable == i[0])
+                        & (config_default.subvar == i[1]),
+                        "default",
+                    ].values[0]
+                    == False
+                )
+            ):
                 if len(i[1]) > 0:
                     errores += [f'"{i[1]}" debe ser True o False']
                 else:
                     errores += [f'"{i[0]}" debe ser True o False']
 
         for i in vars_required:
-            if (config_default.loc[(config_default.variable == i[0]) & (config_default.subvar == i[1]), 'default'].values[0] == ''):
+            if (
+                config_default.loc[
+                    (config_default.variable == i[0]) & (config_default.subvar == i[1]),
+                    "default",
+                ].values[0]
+                == ""
+            ):
                 if len(i[1]) > 0:
                     errores += [f'"{i[1]}" no puede tener un valor vacío']
                 else:
                     errores += [f'"{i[0]}" no puede tener un valor vacío']
 
         try:
-            resolucion_h3 = int(config_default.loc[(
-                config_default.variable == 'resolucion_h3'), 'default'].values[0])
+            resolucion_h3 = int(
+                config_default.loc[
+                    (config_default.variable == "resolucion_h3"), "default"
+                ].values[0]
+            )
         except ValueError:
             resolucion_h3 = -99
         if (resolucion_h3 < 0) | (resolucion_h3 > 16):
             errores += ["El parámetro 'resolucion_h3' debe ser un entero entre 0 y 16"]
 
         try:
-            tolerancia_parada_destino = int(config_default.loc[(
-                config_default.variable == 'tolerancia_parada_destino'), 'default'].values[0])
+            tolerancia_parada_destino = int(
+                config_default.loc[
+                    (config_default.variable == "tolerancia_parada_destino"), "default"
+                ].values[0]
+            )
         except ValueError:
             tolerancia_parada_destino = -99
 
         if (tolerancia_parada_destino < 0) | (tolerancia_parada_destino > 10000):
-            errores += ["El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"]
+            errores += [
+                "El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"
+            ]
 
         # ordenamiento de transacciones
-        if config_default[config_default.variable == 'ordenamiento_transacciones'].default.values[0] == 'fecha_completa':
+        if (
+            config_default[
+                config_default.variable == "ordenamiento_transacciones"
+            ].default.values[0]
+            == "fecha_completa"
+        ):
             if len(date_format) < 14:
-                errores += ['La variable "fecha_trx" debe tener hora/minuto para ordenamiento']
-        elif config_default[config_default.variable == 'ordenamiento_transacciones'].default.values[0] == 'orden_trx':
+                errores += [
+                    'La variable "fecha_trx" debe tener hora/minuto para ordenamiento'
+                ]
+        elif (
+            config_default[
+                config_default.variable == "ordenamiento_transacciones"
+            ].default.values[0]
+            == "orden_trx"
+        ):
             if not orden_trx:
-                errores += ['La variable "orden_trx" debe estar especificada para ordenar transacciones']
+                errores += [
+                    'La variable "orden_trx" debe estar especificada para ordenar transacciones'
+                ]
         else:
-            errores += ['"ordenamiento_transacciones" debe ser "fecha_completa" o "orden_trx"']
+            errores += [
+                '"ordenamiento_transacciones" debe ser "fecha_completa" o "orden_trx"'
+            ]
 
         # Chequea exista variable ramal si lineas contienen ramales
-        lineas_contienen_ramales = config_default[config_default.variable ==
-                                                  'lineas_contienen_ramales'].default.values[0]
-        if (lineas_contienen_ramales) & \
-           (not config_default[(config_default.variable == 'nombres_variables_trx') &
-                               (config_default.subvar == 'id_ramal_trx')].default.values[0]):
+        lineas_contienen_ramales = config_default[
+            config_default.variable == "lineas_contienen_ramales"
+        ].default.values[0]
+        if (lineas_contienen_ramales) & (
+            not config_default[
+                (config_default.variable == "nombres_variables_trx")
+                & (config_default.subvar == "id_ramal_trx")
+            ].default.values[0]
+        ):
 
-            errores += ['Debe especificarse el campo "id_ramal_trx" del archivo de transacciones']
+            errores += [
+                'Debe especificarse el campo "id_ramal_trx" del archivo de transacciones'
+            ]
 
         nombre_archivo_informacion_lineas = config_default.loc[
-            config_default.variable == 'nombre_archivo_informacion_lineas'].default.values[0]
+            config_default.variable == "nombre_archivo_informacion_lineas"
+        ].default.values[0]
 
         if nombre_archivo_informacion_lineas:
-            ruta = os.path.join("data", "data_ciudad",
-                                nombre_archivo_informacion_lineas)
+            ruta = os.path.join(
+                "data", "data_ciudad", nombre_archivo_informacion_lineas
+            )
             if not os.path.isfile(ruta):
                 errores += [
-                    f'No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas']
+                    f"No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas"
+                ]
             else:
                 # Check all columns are present
                 if lineas_contienen_ramales:
-                    cols = ['id_linea', 'nombre_linea',
-                                        'id_ramal', 'nombre_ramal', 'modo']
+                    cols = [
+                        "id_linea",
+                        "nombre_linea",
+                        "id_ramal",
+                        "nombre_ramal",
+                        "modo",
+                    ]
                 else:
-                    cols = ['id_linea', 'nombre_linea', 'modo']
+                    cols = ["id_linea", "nombre_linea", "modo"]
 
                 info = pd.read_csv(ruta)
 
                 if not pd.Series(cols).isin(info.columns).all():
                     errores += [
-                        f'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas} - deben estar los campos {cols}"']
+                        f'Faltan columnas en el archivo "{nombre_archivo_informacion_lineas} - deben estar los campos {cols}"'
+                    ]
 
-    geolocalizar_trx = config_default.loc[config_default.variable ==
-                                          'geolocalizar_trx'].default.values[0]
-    nombre_archivo_gps = config_default.loc[config_default.variable ==
-                                            'nombre_archivo_gps'].default.values[0]
+    geolocalizar_trx = config_default.loc[
+        config_default.variable == "geolocalizar_trx"
+    ].default.values[0]
+    nombre_archivo_gps = config_default.loc[
+        config_default.variable == "nombre_archivo_gps"
+    ].default.values[0]
 
     if (geolocalizar_trx) and (not nombre_archivo_gps):
-        errores += ['Para gelocalizar transacciones debe estar especificado el archivo de transacciones gps']
+        errores += [
+            "Para gelocalizar transacciones debe estar especificado el archivo de transacciones gps"
+        ]
 
     if not geolocalizar_trx:
-        latitud_trx = config_default.loc[config_default.subvar ==
-                                         'latitud_trx'].default.values[0]
-        longitud_trx = config_default.loc[config_default.subvar ==
-                                          'longitud_trx'].default.values[0]
+        latitud_trx = config_default.loc[
+            config_default.subvar == "latitud_trx"
+        ].default.values[0]
+        longitud_trx = config_default.loc[
+            config_default.subvar == "longitud_trx"
+        ].default.values[0]
         if (not latitud_trx) | (not longitud_trx):
-            errores += ['Si geolocalizar_trx = False deben exister los campos latitud_trx y longitud_trx en la tabla de transacciones']
+            errores += [
+                "Si geolocalizar_trx = False deben exister los campos latitud_trx y longitud_trx en la tabla de transacciones"
+            ]
 
     if nombre_archivo_gps:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_gps)
         if not os.path.isfile(ruta):
-            errores += [
-                f'No se encuentra el archivo de transacciones gps {ruta}']
-            cols = ['id_linea_gps', 'interno_gps',
-                    'fecha_gps', 'latitud_gps', 'longitud_gps']
-            for i in cols:
-                var_gps = config_default.loc[(config_default.variable == 'nombres_variables_gps') &
-                                             (config_default.subvar == i)].default.values[0]
-                if not var_gps:
-                    errores += [
-                        f'Debe especificarse la variable {i} del archivo de transacciones gps']
+            errores += [f"No se encuentra el archivo de transacciones gps {ruta}"]
+        cols = [
+            "id_linea_gps",
+            "interno_gps",
+            "fecha_gps",
+            "latitud_gps",
+            "longitud_gps",
+        ]
+        for i in cols:
+            var_gps = config_default.loc[
+                (config_default.variable == "nombres_variables_gps")
+                & (config_default.subvar == i)
+            ].default.values[0]
+            if not var_gps:
+                errores += [
+                    f"Debe especificarse la variable {i} del archivo de transacciones gps"
+                ]
 
-        utilizar_servicios_gps = config_default.loc[config_default.variable ==
-                                                    'utilizar_servicios_gps'].default.values[0]
+        utilizar_servicios_gps = config_default.loc[
+            config_default.variable == "utilizar_servicios_gps"
+        ].default.values[0]
         if utilizar_servicios_gps:
-            servicios_gps = config_default.loc[config_default.subvar ==
-                                               'servicios_gps'].default.values[0]
+            servicios_gps = config_default.loc[
+                config_default.subvar == "servicios_gps"
+            ].default.values[0]
             if not servicios_gps:
-                errores += ['Si se van a utilizar los servicios gps se debe especificar la variable "servicios_gps"']
-            valor_inicio_servicio = config_default.loc[config_default.variable ==
-                                                       'valor_inicio_servicio'].default.values[0]
+                errores += [
+                    'Si se van a utilizar los servicios gps se debe especificar la variable "servicios_gps"'
+                ]
+            valor_inicio_servicio = config_default.loc[
+                config_default.variable == "valor_inicio_servicio"
+            ].default.values[0]
             if not valor_inicio_servicio:
-                errores += ['Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"']
+                errores += [
+                    'Si se van a utilizar los servicios gps se debe especificar la variable "valor_inicio_servicio"'
+                ]
 
-    recorridos_geojson = config_default.loc[config_default.variable ==
-                                            'recorridos_geojson'].default.values[0]
+    recorridos_geojson = config_default.loc[
+        config_default.variable == "recorridos_geojson"
+    ].default.values[0]
     if recorridos_geojson:
         ruta = os.path.join("data", "data_ciudad", recorridos_geojson)
         if not os.path.isfile(ruta):
             errores += [
-                f'No existe el archivo {recorridos_geojson} con los recorridos de las líneas de transporte público']
+                f"No existe el archivo {recorridos_geojson} con los recorridos de las líneas de transporte público"
+            ]
 
-    error_txt = '\n'
+    error_txt = "\n"
     for i in errores:
-        error_txt += 'ERROR: '+i + '\n'
-    assert error_txt == '\n', error_txt
-    print('Se concluyó el chequeo del archivo de configuración')
+        error_txt += "ERROR: " + i + "\n"
+    assert error_txt == "\n", error_txt
+    print("Se concluyó el chequeo del archivo de configuración")
 
 
 def check_configs_file():
 
     # Define the directory and file name
-    directory = 'configs'
-    file_name = 'configuraciones_generales.yaml'
+    directory = "configs"
+    file_name = "configuraciones_generales_autogenerado.yaml"
     file_path = os.path.join(directory, file_name)
 
     # Check if the directory exists, and if not, create it
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    # Check if the YAML file exists, and if not, create it
-    if not os.path.exists(file_path):
-        # Create an empty YAML file
-        with open(file_path, 'w') as file:
-            yaml.dump({}, file)
+    # Crea un YAML vacio
+    with open(file_path, "w") as file:
+        yaml.dump({}, file)
 
-            print(f"Se creo el archivo '{file_name}' en '{directory}'")
+        print(f"Se creo el archivo '{file_name}' en '{directory}'")
 
 
-@ duracion
-def check_config():
+def add_dash_and_data_dbs(config_default, corrida):
+    """
+    This function adds the filenames for dashboard and data databases
+    as new rows in the config_default DataFrame.
+    """
+    nombre_db = f"{corrida}"
+    dbs_df = pd.DataFrame(
+        {
+            "item": ["archivo_transacciones", "archivo_transacciones"],
+            "variable": ["alias_db_dashboard", "alias_db_data"],
+            "default": [nombre_db, nombre_db],
+            "descripcion_campo": [
+                "Nombre del sqlite donde se guardan los datos del dashboard",
+                "Nombre del sqlite donde se guardan los datos procesados",
+            ],
+        }
+    )
+
+    # Add the filenames to the config_default DataFrame
+    config_default = pd.concat(
+        [config_default, dbs_df],
+        ignore_index=True,
+    )
+
+    return config_default
+
+
+def add_trx_and_gps_filenames(config_default, corrida, gps_file=False):
+    """
+    This function adds the filenames  for transaction and GPS data
+    as new rows in the config_default DataFrame.
+    """
+    # Define the filenames based on the corrida
+    nombre_archivo_trx = f"{corrida}_trx.csv"
+    if gps_file:
+        nombre_archivo_gps = f"{corrida}_gps.csv"
+    else:
+        nombre_archivo_gps = ""
+
+    gps_trx_df = pd.DataFrame(
+        {
+            "item": ["archivo_transacciones", "gps"],
+            "variable": [
+                "nombre_archivo_trx",
+                "nombre_archivo_gps",
+            ],
+            "default": [
+                nombre_archivo_trx,
+                nombre_archivo_gps,
+            ],
+            "descripcion_campo": [
+                "Nombre del archivo de transacciones",
+                "Nombre del archivo de transacciones GPS",
+            ],
+        }
+    )
+
+    # Add the filenames to the config_default DataFrame
+    config_default = pd.concat(
+        [config_default, gps_trx_df],
+        ignore_index=True,
+    )
+
+    return config_default
+
+
+def corregir_codificacion_a_utf8_sin_modificar_texto(path):
+    """
+    Corrige la codificación de un archivo de texto a UTF-8 sin modificar su contenido (ni un espacio).
+    Elimina BOM si existe. No interpreta el YAML, solo limpia y guarda igual.
+    """
+    try:
+        # Leer en binario
+        with open(path, "rb") as f:
+            raw = f.read()
+
+        # Detectar codificación
+        detectado = chardet.detect(raw)
+        encoding_detectado = detectado["encoding"]
+        confidence = detectado["confidence"]
+
+        if encoding_detectado is None or confidence < 0.6:
+            print(f"⚠️ Codificación no confiable detectada: {detectado}")
+            return
+
+        # Decodificar el texto
+        texto = raw.decode(encoding_detectado, errors="replace")
+
+        # Eliminar BOM si existe
+        if texto.startswith("\ufeff"):
+            texto = texto.lstrip("\ufeff")
+
+        # Sobrescribir en UTF-8
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(texto)
+
+        print(f"✅ Codificación corregida a UTF-8 sin modificar contenido: {path}")
+
+    except Exception as e:
+        print(f"❌ Error procesando {path}: {e}")
+
+
+@duracion
+def check_config(corrida):
     """
     This function takes a configuration file in yaml format
     and read its content. Then check for any inconsistencies
     in the file, printing an error message if one is found.
 
     Args:
-    None
+    corrida (str): The name of the corrida to process.
+
 
     Returns:
     None
     """
-    check_configs_file()
-    replace_tabs_with_spaces(os.path.join(
-        "configs", "configuraciones_generales.yaml"))
-    configs = leer_configs_generales()
-    config_default = revise_configs(configs)
-    config_default = check_lineas(config_default)
-    write_config(config_default)
-    check_config_errors(config_default)    
+    print("Usando corrida", corrida)
 
+    corregir_codificacion_a_utf8_sin_modificar_texto(
+        "configs/configuraciones_generales.yaml"
+    )
+
+    replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
+    # Siempre crea un autogenerado vacio {}
+    check_configs_file()
+
+    # leo el config autogenerado
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    alias_default = configs_usuario.get("alias_db", "alias")
+
+    # agrego alias para insumos en base al config general
+    alias_insumos = {
+        "alias_db_insumos": alias_default,
+    }
+    configs_usuario.update(alias_insumos)
+
+    configs_autogenerado = revise_configs(configs_usuario)
+    configs_autogenerado = check_lineas(configs_autogenerado, alias_default)
+
+    # Sumar al config los datos de transacciones y gps
+    gps_file = configs_usuario.get("usa_archivo_gps", False)
+    config_default = add_trx_and_gps_filenames(
+        configs_autogenerado, corrida, gps_file=gps_file
+    )
+    # Agrego los nombres de las bases de datos de data y dash
+    config_default = add_dash_and_data_dbs(config_default, corrida)
+
+    # Guarda el config autogenerado
+    write_config(config_default)
+    check_config_errors(config_default)
+    corregir_codificacion_a_utf8_sin_modificar_texto(
+        "configs/configuraciones_generales_autogenerado.yaml"
+    )

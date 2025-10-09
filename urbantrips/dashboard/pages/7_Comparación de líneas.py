@@ -2,10 +2,16 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from dash_utils import get_logo, configurar_selector_dia
+from dash_utils import (
+    get_logo,
+    configurar_selector_dia,
+    iniciar_conexion_db,
+    leer_configs_generales,
+)
+
 
 try:
-    from urbantrips.utils.utils import iniciar_conexion_db
+
     from urbantrips.utils import utils
     from urbantrips.kpi import overlapping as ovl
     from urbantrips.viz import overlapping as ovl_viz
@@ -104,7 +110,7 @@ alias_seleccionado = configurar_selector_dia()
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = utils.leer_configs_generales()
+        st.session_state.configs = leer_configs_generales()
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]

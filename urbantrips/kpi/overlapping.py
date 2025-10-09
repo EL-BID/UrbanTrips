@@ -8,61 +8,8 @@ import shapely
 from urbantrips.geo import geo
 from urbantrips.kpi import kpi
 from urbantrips.utils import utils
-from urbantrips.carto.routes import read_routes, floor_rounding
-
-
-def from_linestring_to_h3(linestring, h3_res=8):
-    """
-    This function takes a shapely linestring and
-    returns all h3 hecgrid cells that intersect that linestring
-    """
-    linestring_buffer = linestring.buffer(0.002)
-    linestring_buffer_geojson = eval(shapely.to_geojson(linestring_buffer))
-
-    linestring_h3 = h3.polyfill(linestring_buffer_geojson, 10, geo_json_conformant=True)
-
-    linestring_h3 = {h3.h3_to_parent(h, h3_res) for h in linestring_h3}
-    return pd.Series(list(linestring_h3)).drop_duplicates()
-
-
-def create_coarse_h3_from_line(
-    linestring: LineString, h3_res: int, route_id: int
-) -> dict:
-
-    # Reference to coarser H3 for those lines
-    linestring_h3 = from_linestring_to_h3(linestring, h3_res=h3_res)
-
-    # Creeate geodataframes with hex geoms and index and LRS
-    gdf = gpd.GeoDataFrame(
-        {"h3": linestring_h3}, geometry=linestring_h3.map(geo.add_geometry), crs=4326
-    )
-    gdf["route_id"] = route_id
-
-    # Create LRS for each hex index
-    gdf["h3_lrs"] = [
-        floor_rounding(linestring.project(Point(p[::-1]), True))
-        for p in gdf.h3.map(h3.h3_to_geo)
-    ]
-
-    # Create section ids for each line
-    df_section_ids_LRS = kpi.create_route_section_ids(len(gdf))
-
-    # Create cut points for each section based on H3 LRS
-    df_section_ids_LRS_cut = df_section_ids_LRS.copy()
-    df_section_ids_LRS_cut.loc[0] = -0.001
-
-    # Use cut points to come up with a unique integer id
-    df_section_ids = list(range(1, len(df_section_ids_LRS_cut)))
-
-    gdf["section_id"] = pd.cut(
-        gdf.h3_lrs, bins=df_section_ids_LRS_cut, labels=df_section_ids, right=True
-    )
-
-    # ESTO REEMPLAZA PARA ATRAS
-    gdf = gdf.sort_values("h3_lrs")
-    gdf["section_id"] = range(len(gdf))
-
-    return gdf
+from urbantrips.carto.routes import read_routes
+from urbantrips.carto.carto import create_coarse_h3_from_line, floor_rounding
 
 
 def get_demand_data(
@@ -74,7 +21,7 @@ def get_demand_data(
     ) = None,  # Not used as % of demand is not related to hour range
 ) -> pd.DataFrame:
 
-    h3_res = h3.h3_get_resolution(supply_gdf.h3.iloc[0])
+    h3_res = h3.get_resolution(supply_gdf.h3.iloc[0])
 
     # get demand data
     line_ids_where = kpi.create_line_ids_sql_filter(line_ids=[line_id])
@@ -156,7 +103,9 @@ def aggregate_demand_data(
 
     configs = utils.leer_configs_generales()
     use_branches = configs["lineas_contienen_ramales"]
-    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    alias_insumos = utils.leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     line_metadata = pd.read_sql(
         f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_line_id},{comp_line_id})",
@@ -214,7 +163,7 @@ def aggregate_demand_data(
         base_branch_id,
         comp_line_id,
         comp_branch_id,
-        res_h3=h3.h3_get_resolution(supply_gdf.h3.iloc[0]),
+        res_h3=h3.get_resolution(supply_gdf.h3.iloc[0]),
         base_v_comp=shared_demand,
     )
     return {"data": legs_within_branch, "output_text": output_text}
@@ -407,7 +356,11 @@ def compute_supply_overlapping(
 
     if use_branches:
         # get line id base on branch
-        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+        alias_insumos = utils.leer_configs_generales(autogenerado=False).get(
+            "alias_db", ""
+        )
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
         metadata = pd.read_sql(
             f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
             conn_insumos,
@@ -446,7 +399,11 @@ def compute_supply_overlapping(
         base_branch_id = "NULL"
         comp_branch_id = "NULL"
 
-        conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+        alias_insumos = utils.leer_configs_generales(autogenerado=False).get(
+            "alias_db", ""
+        )
+        conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
         metadata = pd.read_sql(
             f"select id_linea, nombre_linea from metadata_lineas where id_linea in ({base_route_id},{comp_route_id})",
             conn_insumos,
@@ -498,7 +455,7 @@ def compute_demand_overlapping(
     comp_gdf,
 ):
     configs = utils.leer_configs_generales()
-    comp_h3_resolution = h3.h3_get_resolution(comp_gdf.h3.iloc[0])
+    comp_h3_resolution = h3.get_resolution(comp_gdf.h3.iloc[0])
     configs_resolution = configs["resolucion_h3"]
 
     if comp_h3_resolution > configs_resolution:
@@ -565,7 +522,9 @@ def get_route_combinations(base_line_id, comp_line_id):
     # Obtiene del archivo de configuración si se deben usar ramales o lineas
     configs = utils.leer_configs_generales()
     use_branches = configs["lineas_contienen_ramales"]
-    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
+
+    alias_insumos = utils.leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Lee los datos de los ramales
     metadata = pd.read_sql(

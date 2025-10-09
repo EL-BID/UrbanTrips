@@ -2,6 +2,13 @@ import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in scalar divide",
+    category=RuntimeWarning,
+    module=r".*urbantrips.*services"  # tu módulo
+)
 
 def process_services(line_ids=None):
     """
@@ -206,7 +213,7 @@ def process_line_services(gps_points, stops):
     line_id = gps_points.id_linea.unique()[0]
 
     conn_data = utils.iniciar_conexion_db(tipo="data")
-    print(f"Procesando servicios en base a gps para id_linea {line_id}")
+    #   print(f"Procesando servicios en base a gps para id_linea {line_id}")
 
     # if there are stops select only stops for that line
     if stops is not None:
@@ -214,14 +221,14 @@ def process_line_services(gps_points, stops):
     else:
         line_stops_gdf = None
 
-    print("Asignando servicios")
+    # print("Asignando servicios")
     gps_points_with_new_service_id = (
         gps_points.groupby(["dia", "id_ramal", "interno"], as_index=False)
         .apply(classify_line_gps_points_into_services, line_stops_gdf=line_stops_gdf)
         .droplevel(0)
     )
 
-    print("Subiendo servicios a la db")
+    # print("Subiendo servicios a la db")
     # save result to services table
     services_gps_points = gps_points_with_new_service_id.reindex(
         columns=[
@@ -241,12 +248,12 @@ def process_line_services(gps_points, stops):
         "services_gps_points", conn_data, if_exists="append", index=False
     )
 
-    print("Creando tabla de servicios")
+    # print("Creando tabla de servicios")
     # process services gps points into services table
     line_services = create_line_services_table(gps_points_with_new_service_id)
     line_services.to_sql("services", conn_data, if_exists="append", index=False)
 
-    print("Creando estadisticos de servicios")
+    # print("Creando estadisticos de servicios")
     # create stats for each line and day
     stats = line_services.groupby(
         ["id_linea", "id_ramal", "dia"], as_index=False
@@ -585,9 +592,14 @@ def compute_new_services_stats(line_day_services):
     n_new_valid_services = line_day_services.valid.sum()
     n_services_short = (line_day_services.total_points <= 5).sum()
 
-    prop_short_idling = (
-        (line_day_services.prop_idling >= 0.5) & (line_day_services.total_points <= 5)
-    ).sum() / n_services_short
+    if n_services_short > 0:
+        short_idling_services = (
+            (line_day_services.prop_idling >= 0.5)
+            & (line_day_services.total_points <= 5)
+        ).sum()
+        prop_short_idling = short_idling_services / n_services_short
+    else:
+        prop_short_idling = None
 
     original_services_distance = round(line_day_services.distance_km.sum())
     new_services_distance = round(

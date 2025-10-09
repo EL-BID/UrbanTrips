@@ -14,21 +14,39 @@ from matplotlib import colors as mcolors
 from folium import Figure
 from shapely.geometry import LineString, Point, Polygon, shape, mapping
 import h3
+from datetime import datetime
+from pathlib import Path
 
 
-def leer_configs_generales():
+def leer_configs_generales(autogenerado=True):
     """
-    Esta funcion lee los configs generales
+    Lee el archivo de configuración YAML, probando primero con UTF-8
+    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    path = os.path.join("configs", "configuraciones_generales.yaml")
+    archivo = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
+    path = os.path.join("configs", archivo)
 
     try:
-        with open(path, "r", encoding="utf8") as file:
-            config = yaml.safe_load(file)
+        with open(path, "r", encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except UnicodeDecodeError:
+        try:
+            with open(path, "r", encoding="latin-1") as file:
+                return yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            print(f"❌ Error YAML en archivo con latin-1: {error}")
+        except Exception as e:
+            print(f"❌ Error general con latin-1: {e}")
     except yaml.YAMLError as error:
-        print(f"Error al leer el archivo de configuracion: {error}")
+        print(f"❌ Error YAML en archivo con UTF-8: {error}")
+    except Exception as e:
+        print(f"❌ Error general leyendo archivo: {e}")
 
-    return config
+    return {}
 
 
 def leer_alias(tipo="dash"):
@@ -37,23 +55,19 @@ def leer_alias(tipo="dash"):
     y devuelve el alias seteado en el archivo de congifuracion
     """
     configs = leer_configs_generales()
-    try:
-        alias_dash_lista = configs["dash_configs"]["alias_dash_lista"]
-        alias_data_lista = configs["dash_configs"]["alias_data_lista"]
-        alias_insumos_lista = configs["dash_configs"]["alias_insumos_lista"]
-    except:
-        alias_dash_lista = []
 
-    if alias_dash_lista:
-        posicion = alias_dash_lista.index(st.session_state.dia_seleccionado)
+    configs_orig = leer_configs_generales(autogenerado=False)
+    corridas = configs_orig["corridas"]
+    if (len(corridas) > 1) & ("dia_seleccionado" in st.session_state):
+        posicion = corridas.index(st.session_state.dia_seleccionado)
 
         # Setear el tipo de key en base al tipo de datos
         if tipo == "data":
-            alias = alias_dash_lista[posicion] + "_"
-        elif tipo == "insumos":
-            alias = alias_insumos_lista[posicion] + "_"
+            alias = corridas[posicion] + "_"
         elif tipo == "dash":
-            alias = alias_dash_lista[posicion] + "_"
+            alias = corridas[posicion] + "_"
+        else:
+            alias = configs["alias_db_insumos"] + "_"
 
     else:
 
@@ -61,6 +75,8 @@ def leer_alias(tipo="dash"):
         if tipo == "data":
             key = "alias_db_data"
         elif tipo == "insumos":
+            key = "alias_db_insumos"
+        elif tipo == "general":
             key = "alias_db_insumos"
         elif tipo == "dash":
             key = "alias_db_dashboard"
@@ -75,32 +91,50 @@ def leer_alias(tipo="dash"):
     return alias
 
 
-def traigo_db_path(tipo="dash"):
+def traigo_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ("data", "insumos", "dash"):
+    if tipo not in ("data", "insumos", "dash", "general"):
         raise ValueError("tipo invalido: %s" % tipo)
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
 
-    alias = leer_alias(tipo)
-
-    db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
+    # db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
+    db_path = next(
+        (
+            p
+            for p in (
+                Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
+                Path("/data/db") / f"{alias_db}{tipo}.sqlite",
+            )
+            if p.exists()
+        ),
+        None,
+    )
+    if db_path is None:
+        raise FileNotFoundError(
+            f"No se encontró {alias_db} en 'data/db' ni en '/data/db'"
+        )
 
     return db_path
 
 
-def iniciar_conexion_db(tipo="dash"):
+def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
-    db_path = traigo_db_path(tipo)
-    assert os.path.isfile(
-        db_path
-    ), f"No existe la base de datos para el dashboard en {db_path}"
-    conn = sqlite3.connect(db_path, timeout=10)
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
+    db_path = traigo_db_path(tipo, alias_db)
 
+    conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
 
@@ -180,10 +214,13 @@ def normalize_vars(tabla):
 
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+
 
     try:
         if len(query) == 0:
@@ -199,18 +236,21 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
     return tabla
 
 
-def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
+def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
     try:
         if len(query) == 0:
@@ -226,9 +266,9 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -278,6 +318,8 @@ def calculate_weighted_means_ods(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     zero_to_nan=[],
 ):
 
@@ -288,7 +330,11 @@ def calculate_weighted_means_ods(
     if agg_hora:
         df["rango_hora"] = 99
     if agg_distancia:
-        df["distancia"] = 99
+        df["distancia_agregada"] = 99
+    if agg_genero_agregado:
+        df["genero_agregado"] = 99
+    if agg_tarifa_agregada:
+        df["tarifa_agregada"] = 99
 
     df = calculate_weighted_means(
         df, aggregate_cols, weighted_mean_cols, weight_col, zero_to_nan
@@ -306,15 +352,19 @@ def agg_matriz(
         "transferencia",
         "modo_agregado",
         "rango_hora",
-        "distancia",
+        "distancia_agregada",
+        "genero_agregado",
+        "tarifa_agregada",
     ],
-    weight_col=["distance_osm_drive", "travel_time_min", "travel_speed"],
+    weight_col=["distancia", "travel_time_min", "travel_speed"],
     weight_var="factor_expansion_linea",
-    zero_to_nan=["distance_osm_drive", "travel_time_min", "travel_speed"],
+    zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
     agg_transferencias=False,
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
 ):
 
     if len(df) > 0:
@@ -325,7 +375,11 @@ def agg_matriz(
         if agg_hora:
             df["rango_hora"] = 99
         if agg_distancia:
-            df["distancia"] = 99
+            df["distancia_agregada"] = 99
+        if agg_genero_agregado:
+            df["genero_agregado"] = 99
+        if agg_tarifa_agregada:
+            df["tarifa_agregada"] = 99
 
         df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
 
@@ -336,7 +390,13 @@ def agg_matriz(
             weight_col=weight_var,
             zero_to_nan=zero_to_nan,
         )
-        df = df1.merge(df2)
+
+        if len(df2) > 0:
+            df = df1.merge(df2, how="left")
+        else:
+            df = df1.copy()
+            for i in weight_col:
+                df[i] = 0
 
     return df
 
@@ -350,6 +410,8 @@ def creo_bubble_od(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     od="",
     lat="lat1",
     lon="lon1",
@@ -367,7 +429,11 @@ def creo_bubble_od(
         if agg_hora:
             df["rango_hora"] = 99
         if agg_distancia:
-            df["distancia"] = 99
+            df["distancia_agregada"] = 99
+        if agg_genero_agregado:
+            df["genero_agregado"] = 99
+        if agg_tarifa_agregada:
+            df["tarifa_agregada"] = 99
 
         orig = calculate_weighted_means_ods(
             df,
@@ -378,6 +444,8 @@ def creo_bubble_od(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
         )
 
         orig["tot"] = orig.groupby(
@@ -387,7 +455,9 @@ def creo_bubble_od(
                 "transferencia",
                 "modo_agregado",
                 "rango_hora",
-                "distancia",
+                "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
             ]
         ).factor_expansion_linea.transform("sum")
         geometry = [Point(xy) for xy in zip(orig[lon], orig[lat])]
@@ -438,6 +508,8 @@ def create_data_folium(
     agg_modo=False,
     agg_hora=False,
     agg_distancia=False,
+    agg_genero_agregado=False,
+    agg_tarifa_agregada=False,
     agg_cols_etapas=[],
     agg_cols_viajes=[],
     etapas_seleccionada=True,
@@ -445,6 +517,7 @@ def create_data_folium(
     origenes_seleccionado=True,
     destinos_seleccionado=True,
     transferencias_seleccionado=False,
+    mostrar_lineas_principales = True
 ):
 
     if transferencias_seleccionado:
@@ -459,7 +532,9 @@ def create_data_folium(
                 "transferencia",
                 "modo_agregado",
                 "rango_hora",
-                "distancia",
+                "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
                 "factor_expansion_linea",
             ],
         ].rename(
@@ -479,7 +554,9 @@ def create_data_folium(
                 "transferencia",
                 "modo_agregado",
                 "rango_hora",
-                "distancia",
+                "distancia_agregada",
+                "genero_agregado",
+                "tarifa_agregada",
                 "factor_expansion_linea",
             ],
         ].rename(
@@ -499,7 +576,9 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "genero_agregado",
+            "tarifa_agregada",
         ]
 
         transferencias = creo_bubble_od(
@@ -511,6 +590,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="transfer",
             lat="lat_norm",
             lon="lon_norm",
@@ -522,11 +603,12 @@ def create_data_folium(
         transferencias = pd.DataFrame([])
 
     if etapas_seleccionada | transferencias_seleccionado:
+
         etapas = calculate_weighted_means_ods(
             etapas,
             agg_cols_etapas,
             [
-                "distance_osm_drive",
+                "distancia",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -541,6 +623,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             zero_to_nan=[
                 "lat1_norm",
                 "lon1_norm",
@@ -579,27 +663,39 @@ def create_data_folium(
             0
         )
 
+        etapas = (
+            etapas[(etapas.inicio_norm != etapas.fin_norm)]
+            .sort_values("factor_expansion_linea", ascending=False)
+            .reset_index(drop=True)
+            .copy()
+        )
+        if (len(etapas) >= 2000) & (mostrar_lineas_principales):
+            print("Se muestran las etapas con más viajes")
+            etapas = etapas.head(2000)
+
+        etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
+
         etapas = df_to_linestrings(
             etapas,
             lat_cols=["lat1_norm", "lat2_norm", "lat3_norm", "lat4_norm"],
             lon_cols=["lon1_norm", "lon2_norm", "lon3_norm", "lon4_norm"],
         )
 
-        etapas = etapas[etapas.inicio_norm != etapas.fin_norm].copy()
-        etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
-
     if viajes_seleccionado:
         viajes = calculate_weighted_means_ods(
             etapas,
             agg_cols_viajes,
-            ["distance_osm_drive", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
+            ["distancia", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
             "factor_expansion_linea",
             agg_transferencias=agg_transferencias,
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             zero_to_nan=["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
         )
+
         viajes[["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]] = viajes[
             ["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]
         ].fillna(0)
@@ -607,14 +703,25 @@ def create_data_folium(
         if "id_polygon" not in viajes_matrices.columns:
             viajes_matrices["id_polygon"] = "NONE"
 
+        viajes = (
+            viajes[(viajes.inicio_norm != viajes.fin_norm)]
+            .sort_values("factor_expansion_linea", ascending=False)
+            .reset_index(drop=True)
+            .copy()
+        )
+        if (len(etapas) >= 1500) & (mostrar_lineas_principales):
+            print("Se muestran las lineas con más viajes")
+            viajes = viajes.head(1500)
+
+        # viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
+        viajes["factor_expansion_linea"] = viajes["factor_expansion_linea"].round(0)
+
         viajes = df_to_linestrings(
             viajes,
             lat_cols=["lat1_norm", "lat4_norm"],
             lon_cols=["lon1_norm", "lon4_norm"],
         )
 
-        viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
-        viajes["factor_expansion_linea"] = viajes["factor_expansion_linea"].round(0)
     else:
         viajes = pd.DataFrame([])
 
@@ -628,18 +735,38 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "genero_agregado",
+            "tarifa_agregada",
         ],
-        weight_col=["distance_osm_drive", "travel_time_min", "travel_speed"],
-        zero_to_nan=["distance_osm_drive", "travel_time_min", "travel_speed"],
+        weight_col=["distancia", "travel_time_min", "travel_speed"],
+        zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
         agg_hora=agg_hora,
         agg_distancia=agg_distancia,
+        agg_genero_agregado=agg_genero_agregado,
+        agg_tarifa_agregada=agg_tarifa_agregada,
     )
 
     matriz["factor_expansion_linea"] = matriz["factor_expansion_linea"].round(0)
+    matriz = matriz.sort_values("factor_expansion_linea", ascending=False).reset_index(
+        drop=True
+    )
+    matriz["porcentaje"] = (
+        matriz["factor_expansion_linea"] / matriz["factor_expansion_linea"].sum() * 100
+    ).round(2)
+    matriz["resumen"] = 0
+    matriz.loc[0:20, "resumen"] = 1
+    lst_resumen = (
+        matriz[matriz.resumen == 1].Origen.unique().tolist()
+        + matriz[matriz.resumen == 1].Destino.unique().tolist()
+    )
+    matriz.loc[
+        (matriz.Origen.isin(lst_resumen)) & (matriz.Destino.isin(lst_resumen)),
+        "resumen",
+    ] = 1
 
     if ("poly_inicio" in viajes_matrices.columns) | (
         "poly_fin" in viajes_matrices.columns
@@ -652,7 +779,9 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
         bubble_cols_d = [
             "id_polygon",
@@ -662,7 +791,9 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
     else:
         bubble_cols_o = [
@@ -672,7 +803,9 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
         bubble_cols_d = [
             "id_polygon",
@@ -681,7 +814,9 @@ def create_data_folium(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "distancia",
+            "distancia_agregada",
+            "distancia_agregada",
+            "genero_agregado",
         ]
 
     if origenes_seleccionado:
@@ -694,6 +829,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="inicio",
             lat="lat1",
             lon="lon1",
@@ -712,6 +849,8 @@ def create_data_folium(
             agg_modo=agg_modo,
             agg_hora=agg_hora,
             agg_distancia=agg_distancia,
+            agg_genero_agregado=agg_genero_agregado,
+            agg_tarifa_agregada=agg_tarifa_agregada,
             od="fin",
             lat="lat4",
             lon="lon4",
@@ -791,10 +930,10 @@ def bring_latlon():
         latlon = levanto_tabla_sql(
             "agg_etapas",
             "dash",
-            "SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY RANDOM() LIMIT 100;",
+            "SELECT lat1, lon1 FROM agg_viajes ORDER BY factor_expansion_linea DESC LIMIT 1000;",
         )
-        lat = latlon["lat1_norm"].mean()
-        lon = latlon["lon1_norm"].mean()
+        lat = latlon["lat1"].mean()
+        lon = latlon["lon1"].mean()
         latlon = [lat, lon]
     except:
         latlon = [-34.593, -58.451]
@@ -832,13 +971,6 @@ def traigo_lista_zonas(tipo="etapas"):
     return zonas_values
 
 
-# Convert geometry to H3 indices
-def get_h3_indices_in_geometry(geometry, resolution):
-    geojson = mapping(geometry)
-    h3_indices = list(h3.polyfill(geojson, resolution, geo_json_conformant=True))
-    return h3_indices
-
-
 def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2_col):
     """
     Normaliza las zonas para que los pares inicio/fin siempre estén ordenados de forma consistente,
@@ -874,8 +1006,7 @@ def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2
 
 
 def traigo_tablas_con_filtros(
-    mes,
-    tipo_dia,
+    dia,
     var_zonif,
     var_filtro1,
     det_filtro1,
@@ -901,25 +1032,47 @@ def traigo_tablas_con_filtros(
 
     # Consulta SQL
     if tipo_filtro == "OD y Transferencias":
+
         if det_filtro1 != det_filtro2:
-            query = f"""
-            SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
-            AND (
-                (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-                AND 
-                (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-            );
-            """
-            params = [mes, tipo_dia] + lst1 * 4 + lst2 * 4
+            if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    AND 
+                    (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst1 * 4 + lst2 * 4
+            elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    ) 
+                ;
+                """
+                params = [dia] + lst1 * 4
+            elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (                    
+                    (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                    )
+                ;
+                """
+                params = [dia] + lst2 * 4
         else:
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
                     (CASE WHEN transfer1_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
@@ -927,36 +1080,58 @@ def traigo_tablas_con_filtros(
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [mes, tipo_dia] + lst1 * 4
+            params = [dia] + lst1 * 4
 
     else:
         if det_filtro1 != det_filtro2:
-            query = f"""
-            SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
-            AND (
-                (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
-                AND 
-                (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
-            );
-            """
-            params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+            if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
+                    AND 
+                    (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst1 * 2 + lst2 * 2
+            elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))                
+                );
+                """
+                params = [dia] + lst1 * 2
+
+            elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
+                query = f"""
+                SELECT * FROM agg_etapas 
+                WHERE zona = '{var_zonif}'
+                AND dia = ? 
+                AND (
+                    (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
+                );
+                """
+                params = [dia] + lst2 * 2
+
         else:
             query = f"""
             SELECT * FROM agg_etapas 
             WHERE zona = '{var_zonif}'
-            AND mes = ? 
-            AND tipo_dia = ? 
+            AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [mes, tipo_dia] + lst1 * 2
+            params = [dia] + lst1 * 2
 
     # Ejecutar consulta
+
     agg_etapas = pd.read_sql_query(query, conn, params=params)
 
     if len(agg_etapas) > 0:
@@ -985,8 +1160,7 @@ def traigo_tablas_con_filtros(
         ]
 
         aggregate_cols = [
-            "mes",
-            "tipo_dia",
+            "dia",
             "inicio",
             "transfer1",
             "transfer2",
@@ -995,13 +1169,13 @@ def traigo_tablas_con_filtros(
             "transferencia",
             "modo_agregado",
             "rango_hora",
-            "genero",
-            "tarifa",
+            "genero_agregado",
+            "tarifa_agregada",
             "coincidencias",
-            "distancia",
+            "distancia_agregada",
         ]
         weighted_mean_cols = [
-            "distance_osm_drive",
+            "distancia",
             "travel_time_min",
             "travel_speed",
             "lat1",
@@ -1022,7 +1196,7 @@ def traigo_tablas_con_filtros(
             "lon3",
             "lat4",
             "lon4",
-            "distance_osm_drive",
+            "distancia",
             "travel_time_min",
             "travel_speed",
         ]
@@ -1050,30 +1224,54 @@ def traigo_tablas_con_filtros(
     placeholders2 = ", ".join(["?"] * len(lst2))
 
     if det_filtro1 != det_filtro2:
-        query = f"""
-        SELECT * FROM agg_matrices 
-        WHERE zona = '{var_zonif}'
-        AND mes = ? 
-        AND tipo_dia = ? 
-            AND (
-            (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
-            AND 
-            (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
-        );
-        """
-        params = [mes, tipo_dia] + lst1 * 2 + lst2 * 2
+        if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND (
+                (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+                AND 
+                (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+            );
+            """
+            params = [dia] + lst1 * 2 + lst2 * 2
+        elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND (
+                (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
+                )
+            ;
+            """
+            params = [dia] + lst1 * 2
+
+        elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
+
+            query = f"""
+            SELECT * FROM agg_matrices 
+            WHERE zona = '{var_zonif}'
+            AND dia = ? 
+                AND 
+                (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
+                )
+            ;
+            """
+            params = [dia] + lst2 * 2
+
     else:
         query = f"""
         SELECT * FROM agg_matrices 
         WHERE zona = '{var_zonif}'
-        AND mes = ? 
-        AND tipo_dia = ? 
+        AND dia = ? 
         AND (
                 (CASE WHEN inicio IN ({placeholders1}) THEN 1 ELSE 0 END) +
                 (CASE WHEN fin IN ({placeholders1}) THEN 1 ELSE 0 END)
             ) >= 2;
         """
-        params = [mes, tipo_dia] + lst1 * 2
+        params = [dia] + lst1 * 2
 
     agg_matrices = pd.read_sql_query(query, conn, params=params)
 
@@ -1117,15 +1315,31 @@ def traigo_tablas_con_filtros(
             )
         )
 
-        agg_matrices["Origen"] = (
-            agg_matrices.orden_inicio.astype(int).astype(str).str.zfill(3)
-            + "_"
-            + agg_matrices.inicio
+        agg_matrices["orden_inicio"] = (
+            pd.to_numeric(agg_matrices["orden_inicio"], errors="coerce")
+            .fillna(0)
+            .replace([np.inf, -np.inf], 0)
+            .astype(int)
         )
-        agg_matrices["Destino"] = (
-            agg_matrices.orden_fin.astype(int).astype(str).str.zfill(3)
+
+        agg_matrices["orden_fin"] = (
+            pd.to_numeric(agg_matrices["orden_fin"], errors="coerce")
+            .fillna(0)
+            .replace([np.inf, -np.inf], 0)
+            .astype(int)
+        )
+
+        # Construcción de columnas Origen y Destino
+        agg_matrices["Origen"] = (
+            agg_matrices["orden_inicio"].astype(str).str.zfill(3)
             + "_"
-            + agg_matrices.fin
+            + agg_matrices["inicio"]
+        )
+
+        agg_matrices["Destino"] = (
+            agg_matrices["orden_fin"].astype(str).str.zfill(3)
+            + "_"
+            + agg_matrices["fin"]
         )
         agg_matrices = agg_matrices.drop(["orden_inicio", "orden_fin"], axis=1)
 
@@ -1136,19 +1350,16 @@ def traigo_tablas_con_filtros(
 
 @st.cache_data
 def traer_dias_disponibles():
-    configs = leer_configs_generales()
-    try:
-        lista = configs["dash_configs"]["alias_dash_lista"]
-    except:
-        lista = []
-    return lista
+    return levanto_tabla_sql(
+        "corridas", "general", query="select corrida from corridas"
+    ).corrida.values.tolist()
 
 
 def configurar_selector_dia():
-    # dias_disponibles = ["metropol", "amba_2024_15_10"]
+
     dias_disponibles = traer_dias_disponibles()
 
-    if dias_disponibles:
+    if len(dias_disponibles) > 1:
 
         # Inicialización una única vez
         if "dia_seleccionado" not in st.session_state:
@@ -1171,5 +1382,157 @@ def configurar_selector_dia():
             st.cache_data.clear()
             st.rerun()
     else:
-        seleccion = dias_disponibles
+        seleccion = dias_disponibles[0]
     return seleccion
+
+
+def guardar_tabla_sql(
+    df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
+):
+    """
+    Guarda un DataFrame en una base de datos SQLite.
+
+    Parámetros:
+    df (pd.DataFrame): DataFrame que se desea guardar.
+    table_name (str): Nombre de la tabla en la base de datos.
+    tabla_tipo (str): Tipo de conexión a la base de datos.
+    alias_db (str): Alias para identificar el archivo de base de datos.
+    filtros (dict, optional): Filtros para eliminar registros si modo='append'. Las claves son los nombres
+                               de los campos y los valores pueden ser un valor único o una lista de valores.
+    modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
+    """
+    # Conectar a la base de datos
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    cursor = conn.cursor()
+
+    if modo == "replace":
+        # Reemplaza completamente la tabla
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+        print(f"Tabla '{table_name}' reemplazada exitosamente.")
+    else:
+        table_exists = tabla_existe(conn, table_name)
+
+        # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
+        if table_exists and filtros:
+            condiciones = []
+            valores = []
+
+            for campo, valor in filtros.items():
+                if isinstance(valor, list):
+                    condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
+                    valores.extend(valor)
+                else:
+                    condiciones.append(f"{campo} = ?")
+                    valores.append(valor)
+
+            where_clause = " AND ".join(condiciones)
+            cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
+            conn.commit()
+
+        # Agrega los datos al final de la tabla
+        df.to_sql(table_name, conn, if_exists="append", index=False)
+        print(f"Datos agregados exitosamente en '{table_name}'.")
+
+    # Cierra conexión
+    cursor.close()
+    conn.close()
+
+
+# Convert geometry to H3 indices
+def get_h3_indices_in_geometry(geometry, resolution):
+    poly = h3.geo_to_h3shape(geometry)
+    h3_indices = list(h3.h3shape_to_cells(poly, res=resolution))
+
+    return h3_indices
+
+
+def h3_to_polygon(h3_index):
+    # Obtener las coordenadas del hexágono
+    geom = shape(h3.cells_to_h3shape([h3_index]).__geo_interface__)
+    return geom
+
+
+import mapclassify
+
+
+def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
+    """
+    Aplica Fisher–Jenks para generar cortes y asigna la columna de categorías:
+      - Si hay un solo valor único, asigna ese valor como etiqueta única.
+      - Si hay >1 valor, intenta k=k_max…2; si falla, usa [mínimo, máximo].
+      - Limpia duplicados consecutivos en los bins.
+      - Añade en la copia del DataFrame una columna `cut_col` con los intervalos.
+    """
+    valores = df_viajes[var_fex]
+    if valores.isnull().any():
+        raise ValueError(f"La columna {var_fex} contiene valores nulos")
+    valores = valores.astype(float)
+
+    # Caso único
+    if valores.nunique() == 1:
+        único = int(valores.iloc[0])
+        df = df_viajes.copy()
+        df[cut_col] = str(único)
+        return df
+
+    v_min, v_max = valores.min(), valores.max()
+    raw_bins = None
+
+    # Generar bins
+    for k in range(k_max, 1, -1):
+        try:
+            clasif = mapclassify.FisherJenks(valores, k=k)
+            raw_bins = [v_min] + clasif.bins.tolist()
+            break
+        except ValueError:
+            continue
+    if raw_bins is None:
+        raw_bins = [v_min, v_max]
+
+    # Limpiar duplicados consecutivos
+    bins = []
+    for b in raw_bins:
+        if not bins or b != bins[-1]:
+            bins.append(b)
+
+    # Asignar categorías
+    df = df_viajes.copy()
+    if len(bins) > 1:
+        labels = [f"{int(bins[i])} a {int(bins[i+1])}" for i in range(len(bins) - 1)]
+        df[cut_col] = pd.cut(valores, bins=bins, labels=labels, include_lowest=True)
+    else:
+        etiqueta = str(int(bins[0]))
+        df[cut_col] = etiqueta
+
+    return df, labels
+
+
+def formatear_columnas_numericas(df, columnas, forzar_entero=False):
+    df_formateado = df.copy()
+    for col in columnas:
+        if forzar_entero:
+            # Mostrar todo como entero (sin decimales)
+            df_formateado[col] = df[col].apply(
+                lambda x: f"{int(x):,}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".")
+            )
+        else:
+            if pd.api.types.is_integer_dtype(df[col]):
+                # Enteros sin decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,}".replace(",", "X")
+                    .replace(".", ",")
+                    .replace("X", ".")
+                )
+            elif pd.api.types.is_float_dtype(df[col]):
+                # Floats con 2 decimales
+                df_formateado[col] = df[col].apply(
+                    lambda x: f"{x:,.2f}".replace(",", "X")
+                    .replace(".", ",")
+                    .replace("X", ".")
+                )
+    return df_formateado
