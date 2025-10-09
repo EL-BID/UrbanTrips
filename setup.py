@@ -11,7 +11,7 @@ setuptools.setup(
     version='0.3.0',
     author="Felipe Gonzalez & Sebastian Anapolsky",
     author_email="",
-    description="A library to process public transit smart card data.",
+    description="A library to process public transit smart card data.Secretaria de transporte",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/EL-BID/UrbanTrips",
