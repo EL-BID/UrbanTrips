@@ -221,6 +221,7 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
+
     try:
         if len(query) == 0:
             query = f"SELECT * FROM {tabla_sql}"

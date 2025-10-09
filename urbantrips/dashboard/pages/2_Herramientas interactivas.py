@@ -100,12 +100,16 @@ try:
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
+    st.text(
+        f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
+    )
     use_branches = configs["lineas_contienen_ramales"]
 
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
     conn_insumos = iniciar_conexion_db(tipo="insumos")
+
 except ValueError as e:
     st.error(
         f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página"

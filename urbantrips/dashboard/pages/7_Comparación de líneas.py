@@ -115,6 +115,9 @@ try:
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
     alias = configs["alias_db_data"]
+    st.text(
+        f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
+    )
     use_branches = configs["lineas_contienen_ramales"]
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
