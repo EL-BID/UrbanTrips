@@ -168,6 +168,7 @@ def get_legs_from_draw_line(route_h3, hour_range, day_type):
             legs = legs.loc[weekday_filter, :]
         else:
             legs = legs.loc[~weekday_filter, :]
+
     return legs
 
 
@@ -430,6 +431,8 @@ try:
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
+    st.write("Resolución h3 para etapas:", h3_legs_res)
+
     alias = configs["alias_db_data"]
     conn_insumos = iniciar_conexion_db(tipo="insumos")
 
@@ -747,8 +750,11 @@ with st.expander("Líneas de deseo por linea"):
             st.write("No hay datos para mostrar")
     else:
         st.write("No hay sufiente demanda para computar las lineas de deseo")
-with st.expander("Procesando polígonos"):
 
+if st.button("Procesar polígono"):
+    st.write(
+        "Procesando polígono del recorrido para análisis de cuenca. Esto puede tomar unos minutos..."
+    )
     # Agregar resultado al geojson de poligonos
     poligonos = levanto_tabla_sql_local("poligonos", "insumos")
 
@@ -770,7 +776,7 @@ with st.expander("Procesando polígonos"):
     guardar_tabla_sql(drawn_poli, "poligonos", "insumos", modo="replace")
 
     corrida = alias_seleccionado
-    st.write("Corriendo cuencas para dashboard ...")
+    st.write("Corriendo cuencas para Polígonos ...")
 
     preparo_indicadores_dash(
         lineas_deseo=False,
@@ -778,7 +784,8 @@ with st.expander("Procesando polígonos"):
         kpis=False,
         corrida=corrida,
         resoluciones=[6],
+        poligon_id=drawn_poli_id,
     )
 
     st.cache_data.clear()
-    st.write("Datos procesados, puede ver los patrones en el apartado Poligonos")
+    st.write("Datos procesados, puede ver los patrones en el apartado Polígonos")

@@ -2,12 +2,16 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_folium import folium_static
-from dash_utils import get_logo, configurar_selector_dia, iniciar_conexion_db, leer_configs_generales
-
+from dash_utils import (
+    get_logo,
+    configurar_selector_dia,
+    iniciar_conexion_db,
+    leer_configs_generales,
+)
 
 
 try:
-    
+
     from urbantrips.utils import utils
     from urbantrips.kpi import overlapping as ovl
     from urbantrips.viz import overlapping as ovl_viz
