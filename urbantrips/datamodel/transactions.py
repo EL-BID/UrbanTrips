@@ -17,7 +17,12 @@ from urbantrips.utils.utils import (
 )
 
 import warnings
-warnings.filterwarnings("ignore", message="Columns \\(.*\\) have mixed types", category=pd.errors.DtypeWarning)
+
+warnings.filterwarnings(
+    "ignore",
+    message="Columns \\(.*\\) have mixed types",
+    category=pd.errors.DtypeWarning,
+)
 
 
 @duracion
@@ -245,7 +250,14 @@ def create_transactions(
 
     trx = trx.sort_values("id")
 
-    trx.to_sql("transacciones", conn, if_exists="append", index=False)
+    trx.to_sql(
+        "transacciones",
+        conn,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
+    )
     print("Fin subir base")
 
     conn.close()
@@ -427,7 +439,12 @@ def agrego_factor_expansion(trx, conn):
     conn.commit()
 
     transacciones_linea.to_sql(
-        "transacciones_linea", conn, if_exists="append", index=False
+        "transacciones_linea",
+        conn,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
     )
 
     return trx, tmp_trx_inicial
@@ -658,7 +675,9 @@ def geolocalizar_trx(
     trx_eco = trx_eco.reindex(columns=cols)
 
     print("Subiendo datos a tablas temporales")
-    trx_eco.to_sql("trx_eco", conn, if_exists="append", index=False)
+    trx_eco.to_sql(
+        "trx_eco", conn, if_exists="append", index=False, method="multi", chunksize=40
+    )
     print("Fin subida datos")
 
     # procesar y subir tabla gps
@@ -846,7 +865,9 @@ def process_and_upload_gps_table(
 
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
-    gps.to_sql("gps", conn, if_exists="append", index=False)
+    gps.to_sql(
+        "gps", conn, if_exists="append", index=False, method="multi", chunksize=40
+    )
 
 
 def count_unique_vehicles(s):

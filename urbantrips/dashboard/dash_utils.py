@@ -221,7 +221,6 @@ def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
-
     try:
         if len(query) == 0:
             query = f"SELECT * FROM {tabla_sql}"
@@ -517,7 +516,7 @@ def create_data_folium(
     origenes_seleccionado=True,
     destinos_seleccionado=True,
     transferencias_seleccionado=False,
-    mostrar_lineas_principales = True
+    mostrar_lineas_principales=True,
 ):
 
     if transferencias_seleccionado:
@@ -1410,7 +1409,14 @@ def guardar_tabla_sql(
 
     if modo == "replace":
         # Reemplaza completamente la tabla
-        df.to_sql(table_name, conn, if_exists="replace", index=False)
+        df.to_sql(
+            table_name,
+            conn,
+            if_exists="replace",
+            index=False,
+            method="multi",
+            chunksize=40,
+        )
         print(f"Tabla '{table_name}' reemplazada exitosamente.")
     else:
         table_exists = tabla_existe(conn, table_name)
@@ -1433,7 +1439,14 @@ def guardar_tabla_sql(
             conn.commit()
 
         # Agrega los datos al final de la tabla
-        df.to_sql(table_name, conn, if_exists="append", index=False)
+        df.to_sql(
+            table_name,
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
+        )
         print(f"Datos agregados exitosamente en '{table_name}'.")
 
     # Cierra conexión

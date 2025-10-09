@@ -3,12 +3,14 @@ import geopandas as gpd
 from urbantrips.utils import utils
 
 import warnings
+
 warnings.filterwarnings(
     "ignore",
     message="invalid value encountered in scalar divide",
     category=RuntimeWarning,
-    module=r".*urbantrips.*services"  # tu módulo
+    module=r".*urbantrips.*services",  # tu módulo
 )
+
 
 def process_services(line_ids=None):
     """
@@ -245,7 +247,12 @@ def process_line_services(gps_points, stops):
         ]
     )
     services_gps_points.to_sql(
-        "services_gps_points", conn_data, if_exists="append", index=False
+        "services_gps_points",
+        conn_data,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
     )
 
     # print("Creando tabla de servicios")
@@ -259,7 +266,14 @@ def process_line_services(gps_points, stops):
         ["id_linea", "id_ramal", "dia"], as_index=False
     ).apply(compute_new_services_stats)
 
-    stats.to_sql("services_stats", conn_data, if_exists="append", index=False)
+    stats.to_sql(
+        "services_stats",
+        conn_data,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
+    )
     return stats
 
 

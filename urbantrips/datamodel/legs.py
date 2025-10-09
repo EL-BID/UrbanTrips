@@ -3,6 +3,9 @@ import geopandas as gpd
 import itertools
 import numpy as np
 import h3
+import sqlite3
+from datetime import datetime
+import math
 from urbantrips.geo.geo import (
     referenciar_h3,
     convert_h3_to_resolution,
@@ -19,11 +22,12 @@ from urbantrips.utils.utils import (
 from urbantrips.kpi.kpi import add_distances_to_legs
 
 import warnings
+
 warnings.filterwarnings(
     "ignore",
     message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated",
     category=FutureWarning,
-    module=r".*urbantrips.*services"
+    module=r".*urbantrips.*services",
 )
 
 
@@ -109,22 +113,68 @@ def create_legs_from_transactions(trx_order_params):
     )
 
     legs = legs.rename(columns={"factor_expansion": "factor_expansion_original"})
-
-    print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
-
+    print(f"Borrando datos de corridas anteriores")
+    print(str(datetime.now())[:19])
     # borro si ya existen etapas de una corrida anterior
     values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
     conn.execute(query)
     conn.commit()
+    print(str(datetime.now())[:19])
+    print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
 
-    legs.to_sql("etapas", conn, if_exists="append", index=False)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = OFF;")
+        print(
+            "Configuración de SQLite optimizada para velocidad (WAL, synchronous=OFF)."
+        )
+    except Exception as e:
+        print(f"Advertencia: No se pudieron configurar los PRAGMAS: {e}")
 
-    print("Fin subir etapas")
-    agrego_indicador(
-        legs, "Cantidad de etapas pre imputacion de destinos", "etapas", 0, var_fex=""
-    )
-    conn.close()
+    ## Carga Optimizada
+    try:
+        # print(f"Iniciando carga de {len(legs):,} registros...")
+        SAFE_CHUNKSIZE = (
+            math.floor((999 / len(legs.columns)) * 0.9) if len(legs.columns) > 0 else 1
+        )
+
+        conn.execute("BEGIN")
+        legs.to_sql(
+            "etapas",
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=SAFE_CHUNKSIZE,
+        )
+        conn.commit()
+        print("✅ Carga de datos masiva completada.")
+
+        print(str(datetime.now())[:19])
+        # Forzar la escritura de todos los datos pendientes al disco y consolidar cambios de WAL.
+        conn.execute("PRAGMA synchronous = FULL;")
+        conn.execute("PRAGMA wal_checkpoint(FULL);")
+
+        agrego_indicador(
+            legs,
+            "Cantidad de etapas pre imputacion de destinos",
+            "etapas",
+            0,
+            var_fex="",
+        )
+        print(str(datetime.now())[:19])
+
+        print("Durabilidad restaurada: Datos consolidados y seguros en el disco.")
+
+    except Exception as e:
+        # Manejo de errores
+        conn.rollback()
+        print(f"❌ Ocurrió un error. Se hizo rollback. Detalle: {e}")
+    finally:
+        conn.close()
+        print("Fin subir etapas.")
 
 
 def crear_delta_trx(trx):
@@ -617,7 +667,12 @@ def assign_gps_origin():
         delete_data_from_table_run_days("legs_to_gps_origin")
         print(f"Subiendo {len(legs_to_gps_o)} etapas con id gps a la DB")
         legs_to_gps_o.to_sql(
-            "legs_to_gps_origin", conn_data, if_exists="append", index=False
+            "legs_to_gps_origin",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
         conn_data.close()
 
@@ -827,7 +882,12 @@ def assign_gps_destination():
         delete_data_from_table_run_days("legs_to_gps_destination")
         print("Subiendo GPS de destino de las etapas a la db ")
         legs_to_gps_d.to_sql(
-            "legs_to_gps_destination", conn_data, if_exists="append", index=False
+            "legs_to_gps_destination",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
 
         print("Computando tiempos de viaje en GPS")
@@ -868,7 +928,12 @@ def assign_gps_destination():
 
         delete_data_from_table_run_days("travel_times_gps")
         travel_times.to_sql(
-            "travel_times_gps", conn_data, if_exists="append", index=False
+            "travel_times_gps",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
         conn_data.close()
 
@@ -1016,10 +1081,20 @@ def assign_stations_od():
         delete_data_from_table_run_days("legs_to_station_destination")
 
         stations_o.to_sql(
-            "legs_to_station_origin", conn_data, index=False, if_exists="append"
+            "legs_to_station_origin",
+            conn_data,
+            index=False,
+            if_exists="append",
+            method="multi",
+            chunksize=40,
         )
         stations_d.to_sql(
-            "legs_to_station_destination", conn_data, index=False, if_exists="append"
+            "legs_to_station_destination",
+            conn_data,
+            index=False,
+            if_exists="append",
+            method="multi",
+            chunksize=40,
         )
         del stations_o
         del stations_d
@@ -1097,7 +1172,12 @@ def assign_stations_od():
             columns=["dia", "id", "travel_time_min", "travel_speed"]
         )
         travel_times.to_sql(
-            "travel_times_stations", conn_data, if_exists="append", index=False
+            "travel_times_stations",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
 
 
@@ -1130,6 +1210,8 @@ def add_distance_and_travel_time():
         conn_data,
         if_exists="replace",
         index=False,
+        ethod="multi",
+        chunksize=40,
     )
     print("Actualizando distancias a etapas")
 

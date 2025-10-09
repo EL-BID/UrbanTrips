@@ -4,6 +4,7 @@ from math import ceil
 from itertools import repeat
 import multiprocessing
 import h3
+from datetime import datetime
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -12,12 +13,14 @@ from urbantrips.utils.utils import (
 )
 
 import warnings
+
 warnings.filterwarnings(
     "ignore",
     message="'DataFrame.swapaxes' is deprecated",
     category=FutureWarning,
-    module=r"numpy\.core\.fromnumeric"
+    module=r"numpy\.core\.fromnumeric",
 )
+
 
 @duracion
 def infer_destinations():
@@ -121,8 +124,16 @@ def infer_destinations():
 
     etapas = etapas.drop(["id_linea_agg"], axis=1)
 
-    etapas.to_sql("etapas", conn_data, if_exists="append", index=False)
-
+    print("Subiendo datos a etapas", str(datetime.now())[:19])
+    etapas.to_sql(
+        "etapas",
+        conn_data,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
+    )
+    print("Fin subiendo datos a etapas", str(datetime.now())[:19])
     conn_data.close()
     conn_insumos.close()
 

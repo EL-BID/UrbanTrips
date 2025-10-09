@@ -1,6 +1,7 @@
 import numpy as np
 import multiprocessing
 import pandas as pd
+from datetime import datetime
 from urbantrips.utils.utils import (
     duracion,
     iniciar_conexion_db,
@@ -174,12 +175,19 @@ def create_trips_from_legs():
 
     # etapas.to_sql("etapas", conn, if_exists="append", index=False)
     chunk_size = 400000  # Número de registros por chunk
-
+    print("Subiendo datos a etapas", str(datetime.now())[:19])
     # Subir los datos por partes
     for i in range(0, len(etapas), chunk_size):
         etapas_chunk = etapas.iloc[i : i + chunk_size]
-        etapas_chunk.to_sql("etapas", conn, if_exists="append", index=False)
-
+        etapas_chunk.to_sql(
+            "etapas",
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
+        )
+    print("Fin subiendo datos a etapas", str(datetime.now())[:19])
     print(f"Creando tabla de viajes de {len(etapas)} etapas")
     # Crear tabla viajes
     etapas = pd.concat([etapas, pd.get_dummies(etapas.modo)], axis=1)
@@ -305,7 +313,9 @@ def create_trips_from_legs():
     conn.commit()
 
     # Guarda viajes y usuarios en sqlite
-    usuarios.to_sql("usuarios", conn, if_exists="append", index=False)
+    usuarios.to_sql(
+        "usuarios", conn, if_exists="append", index=False, method="multi", chunksize=40
+    )
     print("Fin de creacion de tablas viajes y usuarios")
 
     conn.close()
@@ -516,6 +526,8 @@ def add_distance_and_travel_time():
         conn_data,
         if_exists="replace",
         index=False,
+        method="multi",
+        chunksize=10_000,
     )
     print("Actualizando distancias a etapas")
 

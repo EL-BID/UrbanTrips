@@ -13,6 +13,7 @@ import datetime
 from shapely import wkt
 from shapely.geometry import base as shapely_geom
 from pathlib import Path
+import math
 
 
 def duracion(f):
@@ -1298,7 +1299,20 @@ def agrego_indicador(
 
     indicadores.fillna(0, inplace=True)
 
-    indicadores.to_sql("indicadores", conn_data, if_exists="replace", index=False)
+    SAFE_CHUNKSIZE = (
+        math.floor((999 / len(indicadores.columns)) * 0.9)
+        if len(indicadores.columns) > 0
+        else 1
+    )
+    indicadores.to_sql(
+        "indicadores",
+        conn_data,
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=SAFE_CHUNKSIZE,
+    )
+
     conn_data.close()
 
 
@@ -1764,7 +1778,17 @@ def guardar_tabla_sql(
 
     try:
         if modo == "replace":
-            df.to_sql(table_name, conn, if_exists="replace", index=False)
+            SAFE_CHUNKSIZE = (
+                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
+            )
+            df.to_sql(
+                table_name,
+                conn,
+                if_exists="replace",
+                index=False,
+                method="multi",
+                chunksize=SAFE_CHUNKSIZE,
+            )
             print(f"Tabla '{table_name}' reemplazada exitosamente.")
         else:
             table_exists = tabla_existe(conn, table_name)
@@ -1789,7 +1813,17 @@ def guardar_tabla_sql(
                 )
                 conn.commit()
 
-            df.to_sql(table_name, conn, if_exists="append", index=False)
+            SAFE_CHUNKSIZE = (
+                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
+            )
+            df.to_sql(
+                table_name,
+                conn,
+                if_exists="append",
+                index=False,
+                method="multi",
+                chunksize=SAFE_CHUNKSIZE,
+            )
             print(f"Datos agregados exitosamente en '{table_name}'.")
 
     finally:

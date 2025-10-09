@@ -1466,18 +1466,24 @@ def preparo_etapas_agregadas(etapas, viajes, equivalencias_zonas, alias_db=""):
         conn_dash,
         if_exists="replace",
         index=False,
+        method="multi",
+        chunksize=40,
     )
     v_agg.to_sql(
         "viajes_agregados",
         conn_dash,
         if_exists="replace",
         index=False,
+        method="multi",
+        chunksize=40,
     )
     transfers.to_sql(
         "transferencias_agregadas",
         conn_dash,
         if_exists="replace",
         index=False,
+        method="multi",
+        chunksize=40,
     )
 
     conn_dash.close()
