@@ -1210,7 +1210,7 @@ def add_distance_and_travel_time():
         conn_data,
         if_exists="replace",
         index=False,
-        ethod="multi",
+        method="multi",
         chunksize=40,
     )
     print("Actualizando distancias a etapas")
