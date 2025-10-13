@@ -135,6 +135,7 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     db_path = traigo_db_path(tipo, alias_db)
 
     conn = sqlite3.connect(db_path, timeout=10)
+
     return conn
 
 
@@ -597,7 +598,6 @@ def create_data_folium(
         )
         transferencias["factor_expansion_linea"] = transferencias[
             "factor_expansion_linea"
-        ].round(0)
     else:
         transferencias = pd.DataFrame([])
 

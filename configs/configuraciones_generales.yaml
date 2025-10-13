@@ -64,6 +64,7 @@ nombres_variables_gps:
     velocity_gps:                                                  
     distance_gps:                                                  
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
+    distance_gps:
 
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
