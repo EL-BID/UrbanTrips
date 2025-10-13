@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Primeros pasos &mdash; documentación de urbantrips - 0.2.2</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
@@ -94,7 +94,7 @@
 <li><p>Un archivo <code class="docutils literal notranslate"><span class="pre">csv</span></code> con las transacciones del sistema de pago con tarjeta (las transacciones deben estar georeferenciadas y tener una serie de campos mínimos)</p></li>
 <li><p>Un archivo <code class="docutils literal notranslate"><span class="pre">csv</span></code> con la información de las líneas y/o ramales que conforman el sistema de transporte público.</p></li>
 </ul>
-<p>El archivo de configuración tendrá especificados todos los parámetros requeridos para la corrida del proceso UrbanTrips. Entre otros parámetros, debe especificarse el nombre del archivo csv que contiene la información con los datos de las transacciones a utilizar en esta corrida. En el directorio de trabajo (ver <a class="reference internal" href="#id1">Estructura de directorios</a>.) podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (<code class="docutils literal notranslate"><span class="pre">lunes.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes.csv</span></code> o <code class="docutils literal notranslate"><span class="pre">enero.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">febrero.csv</span></code>). Cada uno será procesado en una corrida por vez. Qué archivo utilizar se configura en <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> en el parámetro <code class="docutils literal notranslate"><span class="pre">nombre_archivo_trx:</span></code>. Con UrbanTrips se pueden procesar uno o más días en una misma corrida. Sin embargo, no se puede dividir un mismo día en dos corridas. Si se quieren correr varios días, pero es demasiada información, conviene separarla en diversos archivos donde cada uno siempre tenga la totalidad de la información de cada día a analizar (por ej. <code class="docutils literal notranslate"><span class="pre">lunes.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes.csv</span></code> o <code class="docutils literal notranslate"><span class="pre">semana1.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">semana2.csv</span></code> pero no <code class="docutils literal notranslate"><span class="pre">lunes_a.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">lunes_b.csv</span></code>). Luego en otras corridas pueden procesarse otros días y la información se irá actualizando en las bases correspondientes.</p>
+<p>El archivo de configuración tendrá especificados todos los parámetros requeridos para la corrida del proceso UrbanTrips. Entre otros parámetros, deben especificarse las corridas con los diferentes periodos de tiempo que se procesaran. Estos nombres de corridas determinan los nombres que tendran los archivos <code class="docutils literal notranslate"><span class="pre">csv</span></code>. En el directorio de trabajo (ver <a class="reference internal" href="#id1">Estructura de directorios</a>.) podrá haber diversos archivos con datos de diferentes días o periodos de tiempo (<code class="docutils literal notranslate"><span class="pre">lunes_trx.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes_trx.csv</span></code> y <code class="docutils literal notranslate"><span class="pre">lunes_gps.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">martes_gps.csv</span></code> o <code class="docutils literal notranslate"><span class="pre">enero_trx.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">febrero_trx.csv</span></code> y <code class="docutils literal notranslate"><span class="pre">enero_gps.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">febrero_gps.csv</span></code>). Cada uno será procesado en una corrida por vez.</p>
 <p>El archivo csv con las transacciones debe tener una serie de campos obligatorios (para más detalles ver <a class="reference internal" href="inputs.html"><span class="doc">Input de datos</span></a>). Los nombres de estos campos en el archivo pueden ser diferentes y la equivalencia se configura en el archivo <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> en el parámetro <code class="docutils literal notranslate"><span class="pre">nombres_variables_trx</span></code>. Para más detalles sobre cómo utilizar este archivo de configuración consulte el apartado <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>).</p>
 <p>También es necesario un archivo csv que contenga información de las líneas (y ramales en caso de existir). Fundamentalmente debe incluir un nombre de fantasía o de cartel para cada linea y/o ramal con su id correspondiente y el modo, que ser’a estandarizado luego utilizando los parámetros seteados en <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code>. Adicionalmente se puede sumar información de empresa y algún campo descriptivo. Para más detalles de los campos que debe incluir puede ver el apartado <a class="reference internal" href="inputs.html"><span class="doc">Input de datos</span></a>. La forma de tratar a las líneas y ramales en UrbanTrips es muy específica, por lo tanto se aconseja leer el apartado  <a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>.</p>
 <p>Con solo estos archivos se podrá correr el proceso que resultará en la imputación de destinos, construcción de matrices OD y elaboración de algunos KPIs, mapas y gráficos.</p>
@@ -107,74 +107,6 @@
 <li><p>Cartografía de las paradas y/o estaciones.</p></li>
 </ul>
 <p>A modo de ejemplo se puede descargar el <a class="reference external" href="https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv">dataset abierto de transacciones SUBE de AMBA</a> , guardarlo en <code class="docutils literal notranslate"><span class="pre">data/data_ciudad/transacciones.csv</span></code>. Este dataset no cuenta con un campo <code class="docutils literal notranslate"><span class="pre">fecha</span></code> con el formato <code class="docutils literal notranslate"><span class="pre">dd/mm/aaaa</span></code>, deberá agregar con una fecha cualquiera y utilizar las configuraciones especificadas más abajo. A su vez, se debe especificar un <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> con el criterio de UrbanTrips (<a class="reference internal" href="lineas_ramales.html"><span class="doc">Sobre el concepto de lineas y ramales en UrbanTrips</span></a>). Para eso se puede tomar la información de lineas de <a class="reference external" href="https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv">este archivo</a> (que se puede utilizar para el parámetro <code class="docutils literal notranslate"><span class="pre">nombre_archivo_informacion_lineas</span></code>). En este archivo, cada <code class="docutils literal notranslate"><span class="pre">id_ramal</span></code> tiene un <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> asignado, con esa información pueden construir el <code class="docutils literal notranslate"><span class="pre">id_linea</span></code> de la tabla transacciones.</p>
-<p><strong>Archivo de configuración para dataset SUBE AMBA</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">geolocalizar_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
-<span class="nt">resolucion_h3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8</span>
-
-<span class="c1">#tolerancia parada destino en metros</span>
-<span class="nt">tolerancia_parada_destino</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2200</span>
-
-<span class="nt">nombre_archivo_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">transacciones.csv</span>
-
-<span class="nt">alias_db_data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">amba</span>
-
-<span class="nt">alias_db_insumos</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">amba</span>
-
-<span class="nt">alias_db_dashboard</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">amba</span>
-
-<span class="nt">lineas_contienen_ramales</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<span class="nt">nombre_archivo_informacion_lineas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lineas_amba.csv</span>
-
-<span class="nt">imputar_destinos_min_distancia</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-
-<span class="c1">#ingresar el nombre de las variables</span>
-<span class="nt">nombres_variables_trx</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">id_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">id</span>
-<span class="w">   </span><span class="nt">fecha_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fecha</span>
-<span class="w">   </span><span class="nt">id_tarjeta_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">id_tarjeta</span>
-<span class="w">   </span><span class="nt">modo_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">modo</span>
-<span class="w">   </span><span class="nt">hora_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hora</span>
-<span class="w">   </span><span class="nt">id_linea_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">id_linea</span>
-<span class="w">   </span><span class="nt">id_ramal_trx</span><span class="p">:</span><span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">id_ramal</span>
-<span class="w">   </span><span class="nt">interno_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">interno_bus</span>
-<span class="w">   </span><span class="nt">orden_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">etapa_red_sube</span>
-<span class="w">   </span><span class="nt">latitud_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lat</span>
-<span class="w">   </span><span class="nt">longitud_trx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lon</span>
-<span class="w">   </span><span class="nt">factor_expansion</span><span class="p">:</span>
-
-<span class="nt">modos</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">autobus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">COL</span>
-<span class="w">   </span><span class="nt">tren</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TRE</span>
-<span class="w">   </span><span class="nt">metro</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SUB</span>
-<span class="w">   </span><span class="nt">tranvia</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">brt</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">cable</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">lancha</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">otros</span><span class="p">:</span>
-
-<span class="nt">recorridos_geojson</span><span class="p">:</span>
-
-<span class="c1"># Filtro de coordenadas en formato minx, miny, maxx, maxy</span>
-<span class="nt">filtro_latlong_bbox</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">minx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-59.3</span>
-<span class="w">   </span><span class="nt">miny</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-35.5</span>
-<span class="w">   </span><span class="nt">maxx</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-57.5</span>
-<span class="w">   </span><span class="nt">maxy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-34.0</span>
-
-
-<span class="c1">#Especificar el formato fecha</span>
-<span class="nt">formato_fecha</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;%d/%m/%Y&quot;</span>
-
-<span class="nt">columna_hora</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<span class="nt">ordenamiento_transacciones</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orden_trx</span>
-
-
-<span class="nt">tipo_trx_invalidas</span><span class="p">:</span>
-<span class="w">   </span><span class="nt">tipo_trx_tren</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&#39;CHECK</span><span class="nv"> </span><span class="s">OUT</span><span class="nv"> </span><span class="s">SIN</span><span class="nv"> </span><span class="s">CHECKIN&#39;</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&#39;CHECK</span><span class="nv"> </span><span class="s">OUT&#39;</span>
-</pre></div>
-</div>
 <section id="estructura-de-directorios">
 <h2>Estructura de directorios<a class="headerlink" href="#estructura-de-directorios" title="Link to this heading"></a></h2>
 <p id="id1">Esta es la estructura de directorios de UrbanTrips. <code class="docutils literal notranslate"><span class="pre">configs/</span></code> guarda el archivo de configuraciones principal. <code class="docutils literal notranslate"><span class="pre">data/</span></code> tendrá por un lado los archivo de insumo para la ciudad (transacciones, gps, etc) y los resultados producto de la corrida de UrbanTrips que se guardarán en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>. Por último en el directorio <code class="docutils literal notranslate"><span class="pre">resultados/</span></code> se guardarán algunos resultados agregados en tablas, mapas, gráficos y en formatos más amigables como <code class="docutils literal notranslate"><span class="pre">csv</span></code>, <code class="docutils literal notranslate"><span class="pre">html</span></code>, <code class="docutils literal notranslate"><span class="pre">png</span></code>.</p>
@@ -193,8 +125,8 @@
 │       │  amba_2023_insumos
 │
 │   └─── data_ciudad
-│       │   semana1.csv
-│       │   semana2.csv
+│       │   semana1_trx.csv
+│       │   semana2_trx.csv
 │       │   lineas_amba.csv
 │       │   hexs_amba.geojson
 │       │   ...
@@ -220,31 +152,17 @@
 </section>
 <section id="correr-urbantrips">
 <h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Link to this heading"></a></h2>
-<p>Una vez que se dispone del archivo de transacciones y el de información de las líneas, es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede simplemente correr el comando copiado debajo. Puede reemplazar el archivo de configuración que viene por el que dice <cite>configuraciones_generales_2019_m1.yaml</cite> y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.</p>
+<p>Una vez que se dispone del archivo de transacciones y el de información de las líneas (junto con los opcionales como gps, recorridos, etc), es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede utilizar el archivo de configuración que viene por defecto y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py
-</pre></div>
-</div>
-<p>También puede correr los siguientes procesos de manera independiente. En primer lugar es necesario inicializar los directorios y la base de datos necesarios. Este paso solo se corre una vez.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/initialize_environment.py
-</pre></div>
-</div>
-<p>Luego, se puede procesar la información de transacciones. Este archivo de transacciones puede tener la información de un día, una semana o un mes (siempre que no sea demasiada información). Este paso procesa las transacciones en etapas y viajes, imputando destinos. Luego pueden correr este paso por cada nuevo dataset que quieran procesar (<code class="docutils literal notranslate"><span class="pre">semana_1.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">semana_2.csv</span></code>, etc) ajustando lo necesario en el archivo <code class="docutils literal notranslate"><span class="pre">configuraciones_generales.yaml</span></code> previo a cada corrida.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/process_transactions.py
-</pre></div>
-</div>
-<p>Una vez procesadas todas las transacciones que sean de interés y cargadas en la base de datos de la libería, es posible correr los pasos de post procesamiento sobre esa información, como los KPI, visualizaciones y exportación de resultados.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_postprocessing.py
-</pre></div>
-</div>
-<p>Por último, todos estos estadísticos pueden expresarse en diferente tipo de visualizaciones estáticas y dinámicas, como así también un dashboard interactivo.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/create_viz.main<span class="o">()</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_dashboard.main<span class="o">()</span>
 </pre></div>
 </div>
 </section>
 <section id="resultados-finales">
 <h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Link to this heading"></a></h2>
-<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">SQLite</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Para más información del modelo de datos de los resultados finales consulte <a class="reference internal" href="resultados.html"><span class="doc">Resultados finales</span></a>.</p>
+<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">SQLite</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Los principales resultados pueden accederse mediante el  dashboard interactivo.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>streamlit<span class="w"> </span>run<span class="w"> </span>urbantrips/dashboard/dashboard.py
+</pre></div>
+</div>
 </section>
 </section>
 

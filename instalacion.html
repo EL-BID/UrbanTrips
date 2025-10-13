@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Instalación &mdash; documentación de urbantrips - 0.2.2</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
@@ -84,13 +84,25 @@
 <p>Para poder instalar la librería se aconseja crear un ambiente y luego instalar la librería con <cite>pip</cite>. Si desea hacerlo con <cite>virtualenv</cite> puede ejecutar los siguientes pasos:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>virtualenv<span class="w"> </span>venv<span class="w"> </span>--python<span class="o">=</span>python3.10
 $<span class="w"> </span><span class="nb">source</span><span class="w"> </span>venv/bin/activate
-<span class="o">(</span>.venv<span class="o">)</span><span class="w"> </span>$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>urbantrips
+$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip<span class="w"> </span>setuptools<span class="w"> </span>wheel
+<span class="o">(</span>venv<span class="o">)</span><span class="w"> </span>$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </pre></div>
 </div>
 <p>Si desea hacerlo con <cite>conda</cite> entonces:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>env_urbantrips<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10<span class="w"> </span>rvlib
 $<span class="w"> </span>conda<span class="w"> </span>activate<span class="w"> </span>env_urbantrips
 $<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>urbantrips
+$<span class="w"> </span>conda<span class="w"> </span>install<span class="w"> </span>anaconda::git
+</pre></div>
+</div>
+<p><strong>Opción A: Instalación directa desde GitHub (sin clonar el código)</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/EL-BID/UrbanTrips.git@main
+</pre></div>
+</div>
+<p><strong>Opción B: Clonar el repositorio para desarrollo o personalización</strong></p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>alpha<span class="w"> </span>https://github.com/EL-BID/UrbanTrips.git
+$<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>UrbanTrips
+$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </pre></div>
 </div>
 </section>
