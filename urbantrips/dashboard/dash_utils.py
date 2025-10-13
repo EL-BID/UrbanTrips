@@ -598,6 +598,7 @@ def create_data_folium(
         )
         transferencias["factor_expansion_linea"] = transferencias[
             "factor_expansion_linea"
+        ].round(0)
     else:
         transferencias = pd.DataFrame([])
 
