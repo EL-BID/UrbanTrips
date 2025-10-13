@@ -18,4 +18,22 @@ Si desea hacerlo con `conda` entonces:
     $ conda create -n env_urbantrips -c conda-forge python=3.10 rvlib
     $ conda activate env_urbantrips
     $ pip install urbantrips
+    $ conda install anaconda::git
+    
+    
 
+
+**Opción A: Instalación directa desde GitHub (sin clonar el código)**
+
+.. code:: sh
+
+    $ pip install git+https://github.com/EL-BID/UrbanTrips.git@main
+
+
+**Opción B: Clonar el repositorio para desarrollo o personalización**
+
+.. code:: sh
+
+    $ git clone --branch alpha https://github.com/EL-BID/UrbanTrips.git
+    $ cd UrbanTrips
+    $ pip install -e .
