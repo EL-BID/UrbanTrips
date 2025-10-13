@@ -3,6 +3,9 @@ import geopandas as gpd
 import itertools
 import numpy as np
 import h3
+import sqlite3
+from datetime import datetime
+import math
 from urbantrips.geo.geo import (
     referenciar_h3,
     convert_h3_to_resolution,
@@ -15,6 +18,16 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     agrego_indicador,
     delete_data_from_table_run_days,
+)
+from urbantrips.kpi.kpi import add_distances_to_legs
+
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated",
+    category=FutureWarning,
+    module=r".*urbantrips.*services",
 )
 
 
@@ -66,9 +79,13 @@ def create_legs_from_transactions(trx_order_params):
         legs, trx_order_params, dias_ultima_corrida
     )
 
-    # elminar casos de nuevas tarjetas con trx unica
-    # legs = eliminar_tarjetas_trx_unica(legs)
-    # No borrar transacciones únicas (quedan en estas con fex=0)
+    # crear columna delta nuevamente para los nuevos ids tarjeta
+    if trx_order_params["criterio"] == "orden_trx":
+        legs["delta"] = None
+    elif trx_order_params["criterio"] == "fecha_completa":
+        legs = crear_delta_trx(legs)
+    else:
+        raise ValueError("ordenamiento_transacciones mal especificado")
 
     # asignar ids de viajes y etapas
     legs = asignar_id_viaje_etapa(legs, trx_order_params)
@@ -96,22 +113,68 @@ def create_legs_from_transactions(trx_order_params):
     )
 
     legs = legs.rename(columns={"factor_expansion": "factor_expansion_original"})
-
-    print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
-
+    print(f"Borrando datos de corridas anteriores")
+    print(str(datetime.now())[:19])
     # borro si ya existen etapas de una corrida anterior
     values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+
     query = f"DELETE FROM etapas WHERE dia IN ({values})"
     conn.execute(query)
     conn.commit()
+    print(str(datetime.now())[:19])
+    print(f"Subiendo {len(legs)} registros a la tabla etapas en la db")
 
-    legs.to_sql("etapas", conn, if_exists="append", index=False)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = OFF;")
+        print(
+            "Configuración de SQLite optimizada para velocidad (WAL, synchronous=OFF)."
+        )
+    except Exception as e:
+        print(f"Advertencia: No se pudieron configurar los PRAGMAS: {e}")
 
-    print("Fin subir etapas")
-    agrego_indicador(
-        legs, "Cantidad de etapas pre imputacion de destinos", "etapas", 0, var_fex=""
-    )
-    conn.close()
+    ## Carga Optimizada
+    try:
+        # print(f"Iniciando carga de {len(legs):,} registros...")
+        SAFE_CHUNKSIZE = (
+            math.floor((999 / len(legs.columns)) * 0.9) if len(legs.columns) > 0 else 1
+        )
+
+        conn.execute("BEGIN")
+        legs.to_sql(
+            "etapas",
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=SAFE_CHUNKSIZE,
+        )
+        conn.commit()
+        print("✅ Carga de datos masiva completada.")
+
+        print(str(datetime.now())[:19])
+        # Forzar la escritura de todos los datos pendientes al disco y consolidar cambios de WAL.
+        conn.execute("PRAGMA synchronous = FULL;")
+        conn.execute("PRAGMA wal_checkpoint(FULL);")
+
+        agrego_indicador(
+            legs,
+            "Cantidad de etapas pre imputacion de destinos",
+            "etapas",
+            0,
+            var_fex="",
+        )
+        print(str(datetime.now())[:19])
+
+        print("Durabilidad restaurada: Datos consolidados y seguros en el disco.")
+
+    except Exception as e:
+        # Manejo de errores
+        conn.rollback()
+        print(f"❌ Ocurrió un error. Se hizo rollback. Detalle: {e}")
+    finally:
+        conn.close()
+        print("Fin subir etapas.")
 
 
 def crear_delta_trx(trx):
@@ -176,7 +239,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
     """
     conn = iniciar_conexion_db(tipo="data")
 
-    print("Creando nuevos id tajetas para trx simultaneas")
+    print("Creando nuevos id tarjetas para trx simultaneas")
     trx_c = trx.copy()
 
     trx_c, tarjetas_duplicadas = pago_doble_tarjeta(trx_c, trx_order_params)
@@ -202,7 +265,7 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
 def pago_doble_tarjeta(trx, trx_order_params):
     """
     Takes a transaction dataframe with a time delta and
-    a time window for duplciates in minutes,
+    a time window for duplicates in minutes,
     detects duplicated transactions and assigns a new card id
 
     Parameters
@@ -244,11 +307,8 @@ def pago_doble_tarjeta(trx, trx_order_params):
     else:
         raise ValueError("ordenamiento_transacciones mal especificado")
 
-    trx["interno2"] = trx["interno"]
-    trx["interno2"] = trx["interno2"].fillna(0)
-
     trx = trx.sort_values(
-        ["dia", "id_tarjeta", "id_linea", "interno2", "fecha_aux", "orden_trx"]
+        ["dia", "id_tarjeta", "id_linea", "fecha_aux", "orden_trx"]
     ).reset_index(drop=True)
 
     trx["datetime_proximo"] = trx["fecha_aux"].shift(-1)
@@ -256,7 +316,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
     trx["diff_datetime"] = (trx.fecha_aux - trx.datetime_proximo).abs()
 
     trx["diff_datetime2"] = trx.groupby(
-        ["dia", "id_tarjeta", "id_linea", "interno2"]
+        ["dia", "id_tarjeta", "id_linea"]
     ).diff_datetime.shift(+1)
 
     trx["nro"] = np.nan
@@ -265,9 +325,8 @@ def pago_doble_tarjeta(trx, trx_order_params):
     ] = 0
 
     while len(trx[trx.nro.isna()]) > 0:
-        trx["nro2"] = (
-            trx.groupby(["dia", "id_tarjeta", "id_linea", "interno2"]).nro.shift(+1) + 1
-        )
+        trx["nro2"] = trx.groupby(["dia", "id_tarjeta", "id_linea"]).nro.shift(+1) + 1
+
         trx.loc[trx.nro.isna() & (trx.nro2.notna()), "nro"] = trx.loc[
             trx.nro.isna() & (trx.nro2.notna()), "nro2"
         ]
@@ -583,7 +642,9 @@ def assign_gps_origin():
         """
         gps = pd.read_sql(q, conn_data)
 
-        gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
+        # gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
+        gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+
         cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
         legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
         gps_to_join = gps.reindex(columns=cols).sort_values("fecha")
@@ -606,7 +667,12 @@ def assign_gps_origin():
         delete_data_from_table_run_days("legs_to_gps_origin")
         print(f"Subiendo {len(legs_to_gps_o)} etapas con id gps a la DB")
         legs_to_gps_o.to_sql(
-            "legs_to_gps_origin", conn_data, if_exists="append", index=False
+            "legs_to_gps_origin",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
         conn_data.close()
 
@@ -626,8 +692,11 @@ def assign_gps_destination():
     if nombre_archivo_gps is not None:
         print("Clasificando etapas en su gps de destino")
         conn_data = iniciar_conexion_db(tipo="data")
-        conn_insumos = iniciar_conexion_db(tipo="insumos")
+
+        alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+        conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
         configs = leer_configs_generales()
+
         legs_h3_res = configs["resolucion_h3"]
 
         # read stops zone of incluence
@@ -637,7 +706,7 @@ def assign_gps_destination():
         """
         matriz = pd.read_sql(q, conn_insumos)
         matriz["ring"] = matriz.apply(
-            lambda row: h3.h3_distance(row.parada, row.area_influencia), axis=1
+            lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
         matriz = matriz[matriz.ring < 3]
 
@@ -686,7 +755,7 @@ def assign_gps_destination():
         gps = pd.read_sql(q, conn_data)
         print("len gps", len(gps))
         # get h3 res for gps
-        gps_h3_res = h3.h3_get_resolution(gps["h3"].sample().item())
+        gps_h3_res = h3.get_resolution(gps["h3"].sample().item())
 
         # geocode gps with same h3 res than legs
         gps = referenciar_h3(
@@ -805,7 +874,6 @@ def assign_gps_destination():
                     # Agregar resultado a la lista
                     etapas_result_list.append(etapas_tx)
 
-
         # Concatenar todos los resultados acumulados
         etapas_result = pd.concat(etapas_result_list, ignore_index=True)
 
@@ -814,7 +882,12 @@ def assign_gps_destination():
         delete_data_from_table_run_days("legs_to_gps_destination")
         print("Subiendo GPS de destino de las etapas a la db ")
         legs_to_gps_d.to_sql(
-            "legs_to_gps_destination", conn_data, if_exists="append", index=False
+            "legs_to_gps_destination",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
 
         print("Computando tiempos de viaje en GPS")
@@ -855,7 +928,12 @@ def assign_gps_destination():
 
         delete_data_from_table_run_days("travel_times_gps")
         travel_times.to_sql(
-            "travel_times_gps", conn_data, if_exists="append", index=False
+            "travel_times_gps",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
         conn_data.close()
 
@@ -863,7 +941,7 @@ def assign_gps_destination():
 
 
 def distancia_h3_gps_leg(row):
-    return h3.h3_distance(row["h3_d_gps_res"], row["h3"])
+    return h3.grid_distance(row["h3_d_gps_res"], row["h3"])
 
 
 @duracion
@@ -880,7 +958,8 @@ def assign_stations_od():
     if tiempos_viaje_estaciones is not None:
 
         conn_data = iniciar_conexion_db(tipo="data")
-        conn_insumos = iniciar_conexion_db(tipo="insumos")
+        alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+        conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
         # read legs without travel time in gps and distances
         q = """
@@ -1002,10 +1081,20 @@ def assign_stations_od():
         delete_data_from_table_run_days("legs_to_station_destination")
 
         stations_o.to_sql(
-            "legs_to_station_origin", conn_data, index=False, if_exists="append"
+            "legs_to_station_origin",
+            conn_data,
+            index=False,
+            if_exists="append",
+            method="multi",
+            chunksize=40,
         )
         stations_d.to_sql(
-            "legs_to_station_destination", conn_data, index=False, if_exists="append"
+            "legs_to_station_destination",
+            conn_data,
+            index=False,
+            if_exists="append",
+            method="multi",
+            chunksize=40,
         )
         del stations_o
         del stations_d
@@ -1029,18 +1118,23 @@ def assign_stations_od():
             .dropna(subset=["id_station_o", "id_station_d"])
         )
 
-        print(
-            "Etapas clasificadas en la misma estación OD",
-            round(
-                len(
-                    travel_times[travel_times.id_station_o == travel_times.id_station_d]
-                )
-                / len(travel_times)
-                * 100,
-                1,
-            ),
-            "%",
-        )
+        if len(travel_times) == 0:
+            print("No hay etapas con estaciones OD asignadas.")
+        else:
+            print(
+                "Etapas clasificadas en la misma estación OD",
+                round(
+                    len(
+                        travel_times[
+                            travel_times.id_station_o == travel_times.id_station_d
+                        ]
+                    )
+                    / len(travel_times)
+                    * 100,
+                    1,
+                ),
+                "%",
+            )
 
         travel_times = travel_times.loc[
             travel_times.id_station_o != travel_times.id_station_d, :
@@ -1078,5 +1172,74 @@ def assign_stations_od():
             columns=["dia", "id", "travel_time_min", "travel_speed"]
         )
         travel_times.to_sql(
-            "travel_times_stations", conn_data, if_exists="append", index=False
+            "travel_times_stations",
+            conn_data,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=40,
         )
+
+
+def add_distance_and_travel_time():
+    """
+    This function reads legs data and adds distances and travel times
+    from the distances table.
+    It also computes the travel speed.
+    """
+
+    print("Agregando distancias y tiempos de viaje a las etapas")
+    conn_data = iniciar_conexion_db(tipo="data")
+
+    # read unprocessed data from legs
+
+    q = """
+        select id, h3_d, h3_o
+        from etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
+        where od_validado = 1
+        ;
+    """
+    print("Leyendo datos de demanda")
+    legs = pd.read_sql(q, conn_data)
+    legs = add_distances_to_legs(legs=legs)
+
+    legs.to_sql(
+        "temp_distancias",
+        conn_data,
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=40,
+    )
+    print("Actualizando distancias a etapas")
+
+    q_update = """
+    UPDATE etapas
+    SET distancia = temp_distancias.distance
+    FROM temp_distancias
+    WHERE etapas.id = temp_distancias.id;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    print("Actualizando tiempos de viaje a etapas")
+
+    q_update = """
+    UPDATE etapas
+    SET travel_time_min = travel_times_legs.travel_time_min
+    FROM travel_times_legs
+    WHERE etapas.id = travel_times_legs.id;
+    """
+    cur = conn_data.cursor()
+    cur.execute(q_update)
+    conn_data.commit()
+
+    q = """
+    drop table temp_distancias;
+    """
+    cur.execute(q)
+    conn_data.commit()
+    conn_data.close()

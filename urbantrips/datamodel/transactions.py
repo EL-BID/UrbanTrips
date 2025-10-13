@@ -3,9 +3,9 @@ import os
 import pandas as pd
 import geopandas as gpd
 import warnings
-from urbantrips.carto.carto import compute_distances_osm
-
+import datetime
 from shapely.geometry import Point
+from urbantrips.carto.carto import compute_distances_osm
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     leer_configs_generales,
@@ -14,6 +14,14 @@ from urbantrips.utils.utils import (
     levanto_tabla_sql,
     agrego_indicador,
     crear_tablas_geolocalizacion,
+)
+
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="Columns \\(.*\\) have mixed types",
+    category=pd.errors.DtypeWarning,
 )
 
 
@@ -242,7 +250,14 @@ def create_transactions(
 
     trx = trx.sort_values("id")
 
-    trx.to_sql("transacciones", conn, if_exists="append", index=False)
+    trx.to_sql(
+        "transacciones",
+        conn,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
+    )
     print("Fin subir base")
 
     conn.close()
@@ -424,7 +439,12 @@ def agrego_factor_expansion(trx, conn):
     conn.commit()
 
     transacciones_linea.to_sql(
-        "transacciones_linea", conn, if_exists="append", index=False
+        "transacciones_linea",
+        conn,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=40,
     )
 
     return trx, tmp_trx_inicial
@@ -442,7 +462,6 @@ def eliminar_trx_fuera_bbox(trx):
     original = len(trx)
 
     zonificaciones = levanto_tabla_sql("zonificaciones", tabla_tipo="insumos")
-    zonificaciones = zonificaciones[zonificaciones.zona != "Zona_voi"]
     if len(zonificaciones) > 0:
         trx["geometry"] = trx.apply(
             lambda row: Point(row["longitud"], row["latitud"]), axis=1
@@ -656,7 +675,9 @@ def geolocalizar_trx(
     trx_eco = trx_eco.reindex(columns=cols)
 
     print("Subiendo datos a tablas temporales")
-    trx_eco.to_sql("trx_eco", conn, if_exists="append", index=False)
+    trx_eco.to_sql(
+        "trx_eco", conn, if_exists="append", index=False, method="multi", chunksize=40
+    )
     print("Fin subida datos")
 
     # procesar y subir tabla gps
@@ -812,7 +833,9 @@ def process_and_upload_gps_table(
                 "Revisar el configs para servicios_gps"
             )
 
-    # compute distance between gps points if there is no distance provided
+    if "distance" not in gps.columns:
+        gps["distance"] = None
+
     if gps["distance"].isna().all():
         gps = compute_distance_km_gps(gps, use_pandana=True)
     else:
@@ -842,7 +865,9 @@ def process_and_upload_gps_table(
 
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
-    gps.to_sql("gps", conn, if_exists="append", index=False)
+    gps.to_sql(
+        "gps", conn, if_exists="append", index=False, method="multi", chunksize=40
+    )
 
 
 def count_unique_vehicles(s):
@@ -922,6 +947,8 @@ def compute_distance_km_gps(gps, use_pandana=False):
     gps["h3_lag"] = (
         gps.reindex(columns=reindex_cols).groupby(reindex_cols[:-1]).shift(1)
     )
+    # fill h3_lag with h3 so distance are 0
+    gps.h3_lag = gps.h3_lag.combine_first(gps.h3)
     gps = gps.dropna(subset=["h3", "h3_lag"])
     gps["delta_fecha"] = (
         gps.reindex(columns=order_cols).groupby(order_cols[:-1]).diff().fillna(0)
@@ -949,7 +976,7 @@ def compute_distance_km_gps(gps, use_pandana=False):
 
     else:
         # compute h3 distance
-        distancia_entre_hex = h3.edge_length(resolution=res, unit="km")
+        distancia_entre_hex = h3.average_hexagon_edge_length(res=res, unit="km")
         distancia_entre_hex = distancia_entre_hex * 2
         gps_dict = gps.to_dict("records")
         gps.loc[:, ["distance_km"]] = list(map(geo.distancia_h3, gps_dict))
@@ -962,3 +989,20 @@ def compute_distance_km_gps(gps, use_pandana=False):
     gps = gps.drop(["h3_lag", "delta_fecha"], axis=1)
 
     return gps
+
+
+def write_transactions_to_db(corrida):
+    """
+    This function reads the transactions from the database and writes them to the
+    transactions table in the database.
+    """
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    alias_db = configs_usuario.get("alias_db", "")
+    conn = iniciar_conexion_db(tipo="general", alias_db=alias_db)
+    query = f"""
+        INSERT INTO corridas (corrida, process, date)
+        VALUES ("{corrida}", "transactions_completed", "{datetime.datetime.now()}")
+    """
+    conn.execute(query)
+    conn.commit()
+    conn.close()

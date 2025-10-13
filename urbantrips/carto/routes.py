@@ -1,4 +1,3 @@
-from urbantrips.viz.viz import plotear_recorrido_lowess
 import os
 import pandas as pd
 import geopandas as gpd
@@ -6,11 +5,18 @@ import networkx as nx
 from osmnx import distance
 import statsmodels.api as sm
 from shapely import LineString
+# from shapely.geometry import LineString, Point
+# from shapely.validation import explain_validity
+
 from itertools import repeat
 import numpy as np
-
+import warnings
+from urbantrips.carto.carto import (
+    create_coarse_h3_from_line,
+    floor_rounding,
+    create_route_section_ids,
+)
 from urbantrips.geo import geo
-from urbantrips.carto import carto
 from urbantrips.utils.utils import (
     leer_configs_generales,
     duracion,
@@ -18,6 +24,15 @@ from urbantrips.utils.utils import (
     leer_alias,
     create_branch_ids_sql_filter,
     create_line_ids_sql_filter,
+)
+
+
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in line_locate_point_normalized",
+    category=RuntimeWarning,
+    module=r"shapely\.linear"
 )
 
 
@@ -31,7 +46,11 @@ def process_routes_geoms():
     # Deletes old data
     delete_old_route_geoms_data()
 
-    configs = leer_configs_generales()
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    h3_legs_res = configs["resolucion_h3"]
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     if route_geoms_not_present(configs):
         print(
@@ -45,14 +64,31 @@ def process_routes_geoms():
 
     branches_present = configs["lineas_contienen_ramales"]
 
-    # Checl columns
+    # Check columns
     check_route_geoms_columns(geojson_data, branches_present)
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-
     # if data has lines and branches, split them
     if branches_present:
         branches_routes = geojson_data.reindex(columns=["id_ramal", "geometry"])
+
+        print("Calculando recorridos en h3 con resolucion ", h3_legs_res)
+        branches_routes_h3 = [
+            create_coarse_h3_from_line(
+                branch_geom.geometry, h3_legs_res, branch_geom.id_ramal
+            )
+            for _, branch_geom in branches_routes.iterrows()
+        ]
+        branches_routes_h3 = pd.concat(branches_routes_h3, ignore_index=True)
+        branches_routes_h3["wkt"] = branches_routes_h3.geometry.to_wkt()
+        branches_routes_h3 = branches_routes_h3.reindex(
+            columns=["route_id", "section_id", "h3", "wkt"]
+        ).rename(columns={"route_id": "id_ramal"})
+
+        branches_routes_h3.to_sql(
+            "official_branches_geoms_h3",
+            conn_insumos,
+            if_exists="replace",
+            index=False,
+        )
 
         branches_routes["wkt"] = branches_routes.geometry.to_wkt()
         branches_routes = branches_routes.reindex(columns=["id_ramal", "wkt"])
@@ -79,6 +115,8 @@ def process_routes_geoms():
     lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
     print("Subiendo tabla de recorridos")
 
+    # TODO: create line geoms in h3 series of cells
+
     # Upload geoms
     lines_routes.to_sql(
         "official_lines_geoms",
@@ -91,14 +129,18 @@ def process_routes_geoms():
 
 
 @duracion
-def infer_routes_geoms(plotear_lineas):
+def infer_routes_geoms(plotear_lineas=False):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
     de las lineas y lo guarda en la db
     """
 
     conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
     # traer la coordenadas de las etapas con suficientes datos
     q = """
     select e.id_linea,e.longitud,e.latitud
@@ -107,14 +149,6 @@ def infer_routes_geoms(plotear_lineas):
     etapas = pd.read_sql(q, conn_data)
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
-
-    if plotear_lineas:
-        print("Imprimiento bosquejos de lineas")
-        alias = leer_alias()
-        [
-            plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias)
-            for id_linea in recorridos_lowess.id_linea
-        ]
 
     print("Subiendo recorridos a la db...")
     recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
@@ -139,7 +173,8 @@ def infer_routes_geoms(plotear_lineas):
 @duracion
 def build_routes_from_official_inferred():
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Delete old data
     conn_insumos.execute("DELETE FROM lines_geoms;")
@@ -258,7 +293,10 @@ def check_route_geoms_columns(geojson_data, branches_present):
 
 
 def delete_old_route_geoms_data():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     conn_insumos.execute("DELETE FROM lines_geoms;")
     conn_insumos.execute("DELETE FROM branches_geoms;")
@@ -290,15 +328,15 @@ def process_routes_metadata():
     with routes metadata, check if lines and branches are present
     and uploads metadata to the db
     """
-
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    # Leer alias de insumos del config de usuario
+    configs = leer_configs_generales(autogenerado=False)
+    alias_db = configs.get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     # Deletes old data
     conn_insumos.execute("DELETE FROM metadata_lineas;")
     conn_insumos.execute("DELETE FROM metadata_ramales;")
     conn_insumos.commit()
-
-    configs = leer_configs_generales()
 
     try:
         tabla_lineas = configs["nombre_archivo_informacion_lineas"]
@@ -354,6 +392,9 @@ def process_routes_metadata():
 
     info["modo"] = info["modo"].replace(modos_homologados)
 
+    
+    # fuerza la columna a object para que acepte strings
+    info["nombre_linea_agg"] = info["nombre_linea_agg"].astype("object")
     # fill missing line agg
     info.loc[info.id_linea_agg.isna(), "nombre_linea_agg"] = info.loc[
         info.id_linea_agg.isna(), "nombre_linea"
@@ -414,9 +455,11 @@ def create_line_g(line_id):
         Graph with the branch route id by node_id and ordered
         by stops order
     """
-    conn = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
     query = f"select * from stops where id_linea = {line_id}"
-    line_stops = pd.read_sql(query, conn)
+    line_stops = pd.read_sql(query, conn_insumos)
 
     branches_id = line_stops.id_ramal.unique()
 
@@ -505,7 +548,8 @@ def read_branch_routes(branch_ids):
     This function take a list of branch ids and returns a geodataframe
     with route geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     line_ids_where = create_branch_ids_sql_filter(branch_ids)
     q_route_geoms = "select * from branches_geoms" + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
@@ -533,7 +577,8 @@ def read_routes(route_ids, route_type):
     geopandas.GeoDataFrame
         GeoDataFrame with route geoms
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     if route_type == "branches":
         ids_where = create_branch_ids_sql_filter(route_ids)
     else:
@@ -548,3 +593,274 @@ def read_routes(route_ids, route_type):
         route_geoms.drop("wkt", axis=1), geometry="geometry", crs="EPSG:4326"
     )
     return route_geoms
+
+
+def get_route_geoms_with_sections_data(line_ids_where, section_meters, n_sections):
+
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
+    q_route_geoms = "select * from lines_geoms"
+    q_route_geoms = q_route_geoms + line_ids_where
+    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
+    route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
+
+    # Set which parameter to use to split route geoms into sections
+
+    epsg_m = geo.get_epsg_m()
+
+    # project geoms and get for each geom both n_sections and meter
+    route_geoms = route_geoms.to_crs(epsg=epsg_m)
+
+    if section_meters:
+        # warning if meters params give to many sections
+        # get how many sections given the meters
+        n_sections = (route_geoms.geometry.length / section_meters).astype(int)
+
+    else:
+        section_meters = (route_geoms.geometry.length / n_sections).astype(int)
+
+    if isinstance(n_sections, int):
+        n_sections_check = pd.Series([n_sections])
+    else:
+        n_sections_check = n_sections
+
+    if any(n_sections_check > 1000):
+        warnings.warn(
+            "Algunos recorridos tienen mas de 1000 segmentos"
+            "Puede arrojar resultados imprecisos "
+        )
+
+    route_geoms = route_geoms.to_crs(epsg=4326)
+
+    # set the section length in meters
+    route_geoms["section_meters"] = section_meters
+
+    # set the number of sections
+    route_geoms["n_sections"] = n_sections
+
+    return route_geoms
+
+
+def check_exists_route_section_points_table(route_geoms):
+    """
+    This function checks if the route section points table exists
+    for those lines and n_sections in the route geoms gdf
+    """
+
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+    q = """
+    select distinct id_linea,n_sections, 1 as section_exists from routes_section_id_coords
+    """
+    route_sections = pd.read_sql(q, conn_insumos)
+    conn_insumos.close()
+
+    new_route_geoms = route_geoms.merge(
+        route_sections, on=["id_linea", "n_sections"], how="left"
+    )
+    new_route_geoms = new_route_geoms.loc[
+        new_route_geoms.section_exists.isna(), ["id_linea", "n_sections", "geometry"]
+    ]
+
+    return new_route_geoms
+
+
+def upload_route_section_points_table(route_geoms, delete_old_data=False):
+    """
+    Uploads a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoDataFrame
+        routes geom GeoDataFrame with geometry, n_sections and line id
+
+    """
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
+    # delete old records
+    if delete_old_data:
+        delete_old_routes_section_id_coords_data_q(route_geoms)
+
+    print("Creando tabla de secciones de recorrido")
+    route_section_points = pd.concat(
+        [create_route_section_points(row) for _, row in route_geoms.iterrows()]
+    )
+
+    route_section_points.to_sql(
+        "routes_section_id_coords",
+        conn_insumos,
+        if_exists="append",
+        index=False,
+    )
+    print("Fin creacion de tabla de secciones de recorrido")
+    conn_insumos.close()
+
+
+def delete_old_routes_section_id_coords_data_q(route_geoms):
+    """
+    Deletes old data in table routes_section_id_coords
+    """
+    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
+    # create a df with n sections for each line
+    delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
+    for _, row in delete_df.iterrows():
+        # Delete old data for those parameters
+
+        q_delete = f"""
+            delete from routes_section_id_coords
+            where id_linea = {row.id_linea} 
+            and n_sections = {row.n_sections}
+            """
+
+        cur = conn_insumos.cursor()
+        cur.execute(q_delete)
+        conn_insumos.commit()
+
+    conn_insumos.close()
+    print("Fin borrado datos previos")
+
+
+def create_route_section_points(row):
+    """
+    Creates a table with route section points from a route geom row
+    and returns a table with line_id, number of sections and the
+    xy point for that section
+
+    Parameters
+    ----------
+    row : GeoPandas GeoSeries
+        Row from route geom GeoDataFrame
+        with geometry, n_sections and line id
+
+    Returns
+    ----------
+    pandas.DataFrame
+        dataFrame with line id, number of sections and the
+        latlong for each section id
+    """
+
+    n_sections = row.n_sections
+    route_geom = row.geometry
+    line_id = row.id_linea
+    sections_lrs = create_route_section_ids(n_sections)
+    sections_id = list(range(1, len(sections_lrs))) + [-1]
+    points = route_geom.interpolate(sections_lrs, normalized=True)
+    route_section_points = pd.DataFrame(
+        {
+            "id_linea": [line_id] * len(sections_id),
+            "n_sections": [n_sections] * len(sections_id),
+            "section_id": sections_id,
+            "section_lrs": sections_lrs,
+            "x": points.map(lambda p: p.x),
+            "y": points.map(lambda p: p.y),
+        }
+    )
+    return route_section_points
+
+
+def get_route_section_id(point, route_geom):
+    """
+    Computes the route section id as a 3 digit float projecing
+    a point on to the route geom in a normalized way
+
+    Parameters
+    ----------
+    point : shapely Point
+        a Point for the leg's origin or destination
+    route_geom : shapely Linestring
+        a Linestring representing the leg's route geom
+    """
+    return floor_rounding(route_geom.project(point, normalized=True))
+
+
+def build_leg_route_sections_df(row):
+    """
+    Computes for a leg a table with all sections id traversed by
+    that leg based on the origin and destionation's section id
+
+    Parameters
+    ----------
+    row : dict
+        row in a legs df with origin, destination and direction
+
+    Returns
+    ----------
+    leg_route_sections_df: pandas.DataFrame
+        a dataframe with all section ids traversed by the leg's
+        trajectory
+
+    """
+
+    sentido = row["sentido"]
+    dia = row["dia"]
+    f_exp = row["factor_expansion_linea"]
+
+    # always build it in increasing order
+    if sentido == "ida":
+        o_id = row["o_proj"]
+        d_id = row["d_proj"]
+    else:
+        o_id = row["d_proj"]
+        d_id = row["o_proj"]
+
+    leg_route_sections = list(range(o_id, d_id + 1))
+    leg_route_sections_df = pd.DataFrame(
+        {
+            "dia": [dia] * len(leg_route_sections),
+            "sentido": [sentido] * len(leg_route_sections),
+            "section_id": leg_route_sections,
+            "factor_expansion_linea": [f_exp] * len(leg_route_sections),
+        }
+    )
+    return leg_route_sections_df
+
+
+def build_gps_route_sections_df(row):
+    """
+    Computes for a gps a table with all sections id traversed by
+    that gps based on the gps point section id and the next
+
+    Parameters
+    ----------
+    row : dict
+        row in a legs df with origin, destination and direction
+
+    Returns
+    ----------
+    gps_route_sections_df: pandas.DataFrame
+        a dataframe with all section ids traversed by the leg's
+        trajectory
+
+    """
+
+    sentido = row["sentido"]
+    dia = row["dia"]
+    ramal = row["id_ramal"]
+    interno = row["interno"]
+
+    # always build it in increasing order
+    if sentido == "ida":
+        o_id = row["section_id"]
+        d_id = row["section_id_next"]
+    else:
+        o_id = row["section_id_next"]
+        d_id = row["section_id"]
+
+    gps_route_sections = list(range(o_id, d_id + 1))
+    gps_route_sections_df = pd.DataFrame(
+        {
+            "id_ramal": [ramal] * len(gps_route_sections),
+            "interno": [interno] * len(gps_route_sections),
+            "dia": [dia] * len(gps_route_sections),
+            "sentido": [sentido] * len(gps_route_sections),
+            "section_id": gps_route_sections,
+        }
+    )
+    return gps_route_sections_df

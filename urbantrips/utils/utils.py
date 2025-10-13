@@ -11,6 +11,9 @@ import weightedstats as ws
 from pandas.io.sql import DatabaseError
 import datetime
 from shapely import wkt
+from shapely.geometry import base as shapely_geom
+from pathlib import Path
+import math
 
 
 def duracion(f):
@@ -69,9 +72,6 @@ def create_directories():
     db_path = os.path.join("resultados", "html")
     os.makedirs(db_path, exist_ok=True)
 
-    db_path = os.path.join("resultados", "ppts")
-    os.makedirs(db_path, exist_ok=True)
-
     db_path = os.path.join("resultados", "geojson")
     os.makedirs(db_path, exist_ok=True)
 
@@ -87,6 +87,8 @@ def leer_alias(tipo="data"):
         key = "alias_db_data"
     elif tipo == "insumos":
         key = "alias_db_insumos"
+    elif tipo == "general":
+        key = "alias_db_insumos"
     elif tipo == "dash":
         key = "alias_db_dashboard"
     else:
@@ -99,58 +101,107 @@ def leer_alias(tipo="data"):
     return alias
 
 
-def traigo_db_path(tipo="data"):
+def traigo_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
     """
-    if tipo not in ("data", "insumos", "dash"):
+    if tipo not in ("data", "insumos", "dash", "general"):
         raise ValueError("tipo invalido: %s" % tipo)
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
 
-    alias = leer_alias(tipo)
-    db_path = os.path.join("data", "db", f"{alias}{tipo}.sqlite")
+    db_path = next(
+        (
+            p
+            for p in (
+                Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
+                Path("/data/db") / f"{alias_db}{tipo}.sqlite",
+            )
+            if p.exists()
+        ),
+        None,
+    )
+    if db_path is None:
+        db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
 
     return db_path
 
 
-def iniciar_conexion_db(tipo="data"):
+def iniciar_conexion_db(tipo="data", alias_db=""):
     """ "
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion sqlite a la db
     """
-    db_path = traigo_db_path(tipo)
+    if len(alias_db) == 0:
+        alias_db = leer_alias(tipo)
+    if not alias_db.endswith("_"):
+        alias_db += "_"
+    db_path = traigo_db_path(tipo, alias_db)
     conn = sqlite3.connect(db_path, timeout=10)
     return conn
 
 
 @duracion
-def create_db():
-    print("Creando bases de datos")
+def create_insumos_general_dbs():
+    print("Creando bases para insumos")
+    configs_usuario = leer_configs_generales(autogenerado=False)
+    alias_db = configs_usuario.get("alias_db", "")
+
+    # Recorridos y paradas
+    create_stops_and_routes_carto_tables(alias_db)
+
+    # Otros insumos
+    create_other_inputs_tables(alias_db)
+
+    # Crear una tabla general para todas las corridas
+    create_general_db(alias_db)
+
+
+def create_general_db(alias_db):
+    """
+    Crea la base de datos general para UrbanTrips
+    """
+    conn_general = iniciar_conexion_db(tipo="general", alias_db=alias_db)
+    conn_general.execute(
+        """
+        CREATE TABLE IF NOT EXISTS corridas
+        (corrida text NOT NULL,
+         process text NOT NULL,
+         date text NOT NULL
+        )
+        ;
+        """
+    )
+    conn_general.close()
+
+
+@duracion
+def create_data_dash_dbs(alias_db):
+    print("Creando bases para data para {alias_db}".format(alias_db=alias_db))
 
     # create basic tables
-    create_basic_data_model_tables()
-
-    # other inpus tables
-    create_other_inputs_tables()
-
-    # stops and routes
-    create_stops_and_routes_carto_tables()
+    create_basic_data_model_tables(alias_db)
 
     # create services and gps tables
-    create_gps_table()
+    create_gps_table(alias_db)
 
     # create KPI tables
-    create_kpi_tables()
+    create_kpi_tables(alias_db)
 
     # dashborad tables
-    create_dash_tables()
+    create_dash_tables(alias_db)
 
     print("Fin crear base")
     print("Todas las tablas creadas")
 
 
-def create_other_inputs_tables():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+def create_other_inputs_tables(alias_db):
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS distancias
@@ -244,6 +295,7 @@ def create_other_inputs_tables():
         """
         CREATE TABLE IF NOT EXISTS poligonos
         (id text NOT NULL,
+         cuenca text NOT NULL,
          wkt text
         )
         ;
@@ -272,8 +324,8 @@ def create_other_inputs_tables():
     conn_insumos.close()
 
 
-def create_dash_tables():
-    conn_dash = iniciar_conexion_db(tipo="dash")
+def create_dash_tables(alias_db):
+    conn_dash = iniciar_conexion_db(tipo="dash", alias_db=alias_db)
 
     conn_dash.execute(
         """
@@ -349,18 +401,6 @@ def create_dash_tables():
         orden int,
         Indicador text,
         Valor text
-        )
-        ;
-        """
-    )
-
-    conn_dash.execute(
-        """
-        CREATE TABLE IF NOT EXISTS zonas
-        (
-        zona text not null,
-        tipo_zona text not null,
-        wkt text
         )
         ;
         """
@@ -488,11 +528,40 @@ def create_dash_tables():
             """
     )
 
+    conn_dash.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_stats_by_section_id
+        (id_linea int not null,
+        yr_mo text,
+        nombre_linea str,
+        day_type text not null,
+        n_sections int,
+        section_meters int,
+        sentido text not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        n_vehicles int,
+        avg_speed float,
+        median_speed float,
+        speed_interval float,
+        frequency float,
+        frequency_interval text,
+        buff_factor float,
+        wkt text
+        )
+        ;
+        """
+    )
+
     conn_dash.close()
 
 
-def create_stops_and_routes_carto_tables():
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+def create_stops_and_routes_carto_tables(alias_db):
+
+    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
+
+    # Crear tablas de insumos para paradas y rutas
     conn_insumos.execute(
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms
@@ -563,11 +632,22 @@ def create_stops_and_routes_carto_tables():
         """
     )
 
+    conn_insumos.execute(
+        """
+        CREATE TABLE IF NOT EXISTS official_branches_geoms_h3
+        (id_ramal INT PRIMARY KEY     NOT NULL,
+        section_id int,
+        h3 text,
+        wkt text not null
+        )
+        ;
+        """
+    )
     conn_insumos.close()
 
 
-def create_basic_data_model_tables():
-    conn_data = iniciar_conexion_db(tipo="data")
+def create_basic_data_model_tables(alias_db):
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS transacciones
@@ -600,6 +680,12 @@ def create_basic_data_model_tables():
         ;
         """
     )
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_dias_ultima_corrida_dia
+        ON dias_ultima_corrida(dia);
+        """
+    )
 
     conn_data.execute(
         """
@@ -624,9 +710,39 @@ def create_basic_data_model_tables():
             od_validado int,
             factor_expansion_original float,
             factor_expansion_linea float,
-            factor_expansion_tarjeta float
+            factor_expansion_tarjeta float,
+            distancia float,
+            travel_time_min float
             )
         ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS etapas_dia_idx ON etapas (
+        "dia"
+        );
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX  IF NOT EXISTS etapas_idx ON etapas (
+        "id"
+        );
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_etapas_dia_linea_ramal_interno
+            ON etapas(dia, id_linea, id_ramal, interno);
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_etapas_validado_dia_linea
+            ON etapas(od_validado, dia, id_linea);
         """
     )
 
@@ -655,7 +771,10 @@ def create_basic_data_model_tables():
             tarifa text,
             od_validado int,
             factor_expansion_linea,
-            factor_expansion_tarjeta
+            factor_expansion_tarjeta,
+            distancia float, 
+            travel_time_min float
+
             )
         ;
         """
@@ -837,20 +956,37 @@ def create_basic_data_model_tables():
     conn_data.close()
 
 
-def leer_configs_generales():
+def leer_configs_generales(autogenerado=True):
     """
-    Esta funcion lee los configs generales
+    Lee el archivo de configuración YAML, probando primero con UTF-8
+    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
     """
-    path = os.path.join("configs", "configuraciones_generales.yaml")
+    archivo = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
+    path = os.path.join("configs", archivo)
 
     try:
-        with open(path, "r", encoding="utf8") as file:
-            config = yaml.safe_load(file)
+        # Primer intento: UTF-8
+        with open(path, "r", encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except UnicodeDecodeError:
+        # Segundo intento: latin-1
+        try:
+            with open(path, "r", encoding="latin-1") as file:
+                return yaml.safe_load(file)
+        except yaml.YAMLError as error:
+            print(f"❌ Error de sintaxis YAML con latin-1: {error}")
+        except Exception as e:
+            print(f"❌ Error general con latin-1: {e}")
     except yaml.YAMLError as error:
-        print(f"Error al leer el archivo de configuracion: {error}")
-        config = {}
+        print(f"❌ Error de sintaxis YAML con UTF-8: {error}")
+    except Exception as e:
+        print(f"❌ Error general leyendo archivo: {e}")
 
-    return config
+    return {}
 
 
 def crear_tablas_geolocalizacion():
@@ -917,9 +1053,9 @@ def crear_tablas_geolocalizacion():
     conn_data.close()
 
 
-def create_gps_table():
+def create_gps_table(alias_db):
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
 
     conn_data.execute(
         """
@@ -941,6 +1077,13 @@ def create_gps_table():
                 )
             ;
             """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gps_id_linea
+            ON gps(id_linea);
+        """
     )
 
     conn_data.execute(
@@ -983,6 +1126,20 @@ def create_gps_table():
                 )
             ;
             """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_services_key
+            ON services(id_linea, dia, id_ramal, interno);
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_services_key_ts
+            ON services(id_linea, dia, id_ramal, interno, min_ts, max_ts);
+        """
     )
 
     conn_data.execute(
@@ -1142,7 +1299,20 @@ def agrego_indicador(
 
     indicadores.fillna(0, inplace=True)
 
-    indicadores.to_sql("indicadores", conn_data, if_exists="replace", index=False)
+    SAFE_CHUNKSIZE = (
+        math.floor((999 / len(indicadores.columns)) * 0.9)
+        if len(indicadores.columns) > 0
+        else 1
+    )
+    indicadores.to_sql(
+        "indicadores",
+        conn_data,
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=SAFE_CHUNKSIZE,
+    )
+
     conn_data.close()
 
 
@@ -1169,12 +1339,12 @@ def eliminar_tarjetas_trx_unica(trx):
     return trx
 
 
-def create_kpi_tables():
+def create_kpi_tables(alias_db):
     """
     Creates KPI tables in the data db
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
 
     conn_data.execute(
         """
@@ -1203,6 +1373,7 @@ def create_kpi_tables():
                 (
                 id_linea int not null,
                 dia text not null,
+                id_ramal int,
                 interno text not null,
                 service_id int not null,
                 hora_inicio float,
@@ -1238,6 +1409,7 @@ def create_kpi_tables():
                 (
                 dia text not null,
                 id_linea int not null,
+                id_ramal int,
                 interno int not null,
                 hora int  not null,
                 tot_pax float,
@@ -1315,6 +1487,29 @@ def create_kpi_tables():
         res_h3 int,
         overlap float,
         type_overlap text
+        )
+        ;
+        """
+    )
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS supply_stats_by_section_id
+        (
+        id_linea int not null,
+        yr_mo text not null,
+        day_type text not null,
+        n_sections int not null,
+        section_meters int,
+        sentido text not null,
+        section_id int not null,
+        hour_min int,
+        hour_max int,
+        n_vehicles int,
+        avg_speed float,
+        median_speed float,
+        speed_interval float,
+        frequency float,
+        frequency_interval text
         )
         ;
         """
@@ -1411,25 +1606,17 @@ def create_branch_ids_sql_filter(branch_ids):
 
 def traigo_tabla_zonas():
 
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
+    zonas = levanto_tabla_sql("equivalencias_zonas", "insumos")
+    zonas_cols = []
+    if len(zonas) > 0:
+        zonas_cols = [
+            i for i in zonas.columns if i not in ["h3", "latitud", "longitud"]
+        ]
 
-    zonas = pd.read_sql_query(
-        """
-        SELECT * from zonas
-        """,
-        conn_insumos,
-    )
-    zonas_cols = [
-        i for i in zonas.columns if i not in ["h3", "fex", "latitud", "longitud"]
-    ]
     return zonas, zonas_cols
 
 
 def normalize_vars(tabla):
-    if "dia" in tabla.columns:
-        tabla["dia"] = ""
-        tabla.loc[tabla.dia == "weekday", "dia"] = "Día hábil"
-        tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
     if "day_type" in tabla.columns:
         tabla.loc[tabla.day_type == "weekday", "day_type"] = "Día hábil"
         tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"
@@ -1443,35 +1630,30 @@ def normalize_vars(tabla):
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query=""):
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
 
-    cursor = conn.cursor()
-    cursor.execute(
-        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tabla_sql}'"
-    )
-    table_exists = cursor.fetchone() is not None
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
-    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
-    if not table_exists:
-        print(f"{tabla_sql} no existe")
-        tabla = pd.DataFrame([])
-    else:
+    try:
         if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
+            query = f"SELECT * FROM {tabla_sql}"
         tabla = pd.read_sql_query(query, conn)
+    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
+        if "no such table" in str(e):
+            print(f"La tabla '{tabla_sql}' no existe.")
+            tabla = pd.DataFrame([])
+        else:
+            raise
 
     conn.close()
 
-    if len(tabla) > 0:
-        if "wkt" in tabla.columns:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
+    if "wkt" in tabla.columns and not tabla.empty:
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
 
     tabla = normalize_vars(tabla)
 
@@ -1490,7 +1672,7 @@ def calculate_weighted_means(
     for i in zero_to_nan:
         df.loc[df[i] == 0, i] = np.nan
 
-    calculate_weighted_means  # Validate inputs
+    # calculate_weighted_means  # Validate inputs
     if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
         raise ValueError("One or more columns specified do not exist in the DataFrame.")
     result = pd.DataFrame([])
@@ -1541,49 +1723,109 @@ def delete_data_from_table_run_days(table_name):
     conn_data.close()
 
 
-def guardar_tabla_sql(df, table_name, tabla_tipo="dash", filtros=None):
+def tabla_existe(conn, table_name):
+    try:
+        conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
+        return True
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return False
+        else:
+            raise
+
+
+def guardar_tabla_sql(
+    df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
+):
     """
-    Guarda un DataFrame en una base de datos SQLite.
+    Guarda un DataFrame en una base de datos SQLite. Convierte automáticamente tipos no compatibles.
 
-    Parámetros:
-    df (pd.DataFrame): DataFrame que se desea guardar.
-    conn (sqlite3.Connection): Conexión a la base de datos SQLite.
-    table_name (str): Nombre de la tabla en la base de datos.
-    filtros (dict, optional): Diccionario de filtros para eliminar registros. Las claves son los nombres
-                              de los campos y los valores pueden ser un valor único o una lista de valores.
+    Si existe una columna 'geometry', la convierte a WKT y la guarda como 'wkt'.
     """
-    # Verifica si la tabla existe en la base de datos
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            f"Se esperaba un DataFrame, pero se recibió un {type(df).__name__}"
+        )
 
+    # Asegurar alias con guión bajo
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    # Clonar para no modificar el original
+    df = df.copy()
+
+    # Si existe 'geometry', convertir a WKT y renombrar como 'wkt'
+    if "geometry" in df.columns:
+        df["wkt"] = df["geometry"].apply(
+            lambda g: g.wkt if isinstance(g, shapely_geom.BaseGeometry) else None
+        )
+        df.drop(columns=["geometry"], inplace=True)
+
+    # Convertir columnas no compatibles con SQLite
+    for col in df.columns:
+        sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+
+        if isinstance(sample, (list, dict)):
+            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
+
+        elif not pd.api.types.is_scalar(sample):
+            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
+
+    # Conexión a base de datos
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
     cursor = conn.cursor()
-    cursor.execute(
-        f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
-    )
-    table_exists = cursor.fetchone() is not None
 
-    # Si la tabla existe y se han proporcionado filtros, elimina los registros que coincidan
-    if table_exists and filtros:
-        condiciones = []
-        valores = []
+    try:
+        if modo == "replace":
+            SAFE_CHUNKSIZE = (
+                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
+            )
+            df.to_sql(
+                table_name,
+                conn,
+                if_exists="replace",
+                index=False,
+                method="multi",
+                chunksize=SAFE_CHUNKSIZE,
+            )
+            print(f"Tabla '{table_name}' reemplazada exitosamente.")
+        else:
+            table_exists = tabla_existe(conn, table_name)
 
-        # Construir las condiciones y los valores para cada filtro
-        for campo, valor in filtros.items():
-            if isinstance(valor, list):
-                # Si el valor es una lista, usamos la cláusula IN
-                condiciones.append(f"{campo} IN ({','.join(['?'] * len(valor))})")
-                valores.extend(valor)
-            else:
-                # Si el valor es único, usamos una condición simple
-                condiciones.append(f"{campo} = ?")
-                valores.append(valor)
+            if table_exists and filtros:
+                condiciones = []
+                valores = []
 
-        # Ejecutar la eliminación con las condiciones construidas
-        where_clause = " AND ".join(condiciones)
-        cursor.execute(f"DELETE FROM {table_name} WHERE {where_clause}", valores)
-        conn.commit()
+                for campo, valor in filtros.items():
+                    if isinstance(valor, list):
+                        condiciones.append(
+                            f"{campo} IN ({','.join(['?'] * len(valor))})"
+                        )
+                        valores.extend(valor)
+                    else:
+                        condiciones.append(f"{campo} = ?")
+                        valores.append(valor)
 
-    # Guarda el DataFrame en la base de datos, crea la tabla si no existe
-    df.to_sql(table_name, conn, if_exists="append", index=False)
-    conn.close()
-    print(f"Datos guardados exitosamente {table_name}.")
+                where_clause = " AND ".join(condiciones)
+                cursor.execute(
+                    f"DELETE FROM {table_name} WHERE {where_clause}", valores
+                )
+                conn.commit()
+
+            SAFE_CHUNKSIZE = (
+                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
+            )
+            df.to_sql(
+                table_name,
+                conn,
+                if_exists="append",
+                index=False,
+                method="multi",
+                chunksize=SAFE_CHUNKSIZE,
+            )
+            print(f"Datos agregados exitosamente en '{table_name}'.")
+
+    finally:
+        cursor.close()
+        conn.close()

@@ -181,7 +181,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     # export data
     base_gdf_to_db = base_gdf.copy()
 
-    base_gdf_to_db["h3_res"] = h3.h3_get_resolution(base_gdf_to_db["h3"].iloc[0])
+    base_gdf_to_db["h3_res"] = h3.get_resolution(base_gdf_to_db["h3"].iloc[0])
     base_gdf_to_db["x"] = base_gdf_to_db.geometry.centroid.x
     base_gdf_to_db["y"] = base_gdf_to_db.geometry.centroid.y
     base_gdf_to_db["type_route"] = "base"
@@ -219,7 +219,7 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     )
 
     comp_gdf_to_db = comp_gdf.copy()
-    comp_gdf_to_db["h3_res"] = h3.h3_get_resolution(comp_gdf_to_db["h3"].iloc[0])
+    comp_gdf_to_db["h3_res"] = h3.get_resolution(comp_gdf_to_db["h3"].iloc[0])
     comp_gdf_to_db["x"] = comp_gdf_to_db.geometry.centroid.x
     comp_gdf_to_db["y"] = comp_gdf_to_db.geometry.centroid.y
     comp_gdf_to_db["type_route"] = "comp"
