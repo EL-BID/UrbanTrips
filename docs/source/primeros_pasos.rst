@@ -84,9 +84,25 @@ Correr Urbantrips
 
 Una vez que se dispone del archivo de transacciones y el de información de las líneas (junto con los opcionales como gps, recorridos, etc), es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede utilizar el archivo de configuración que viene por defecto y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.
 
-.. code:: sh
+Ejemplos de uso desde consola (Windows o Linux), siempre con el ambiente activado:
 
-   $ python urbantrips/run_all_urbantrips.py
+    
+.. code:: sh
+   
+   # Corre solo corridas las pendientes y crea el dashboard
+   $ python urbantrips\run_all_urbantrips.py
+   
+   # Borra todo y vuelve a correr desde cero, creando dashboard
+   $ python urbantrips\run_all_urbantrips.py --borrar_corrida all
+   
+   # Borra y vuelve a correr el alias 'alias1' y lo que falte, creando dashboard
+   $ python urbantrips\run_all_urbantrips.py --borrar_corrida alias1
+   
+   # Corre pendientes sin crear el dashboard
+   $ python urbantrips\run_all_urbantrips.py --no_dashboard
+   
+   # Borra 'alias1', corre lo que falte, y no crea dashboard
+   $ python urbantrips\run_all_urbantrips.py --borrar_corrida alias1 --no_dashboard
 
 
 Resultados finales
