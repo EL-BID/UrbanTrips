@@ -153,7 +153,21 @@
 <section id="correr-urbantrips">
 <h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Link to this heading"></a></h2>
 <p>Una vez que se dispone del archivo de transacciones y el de información de las líneas (junto con los opcionales como gps, recorridos, etc), es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede utilizar el archivo de configuración que viene por defecto y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py
+<p>Ejemplos de uso desde consola (Windows o Linux), siempre con el ambiente activado:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Corre solo corridas las pendientes y crea el dashboard</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py
+
+<span class="c1"># Borra todo y vuelve a correr desde cero, creando dashboard</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>all
+
+<span class="c1"># Borra y vuelve a correr el alias &#39;alias1&#39; y lo que falte, creando dashboard</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>alias1
+
+<span class="c1"># Corre pendientes sin crear el dashboard</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--no_dashboard
+
+<span class="c1"># Borra &#39;alias1&#39;, corre lo que falte, y no crea dashboard</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>alias1<span class="w"> </span>--no_dashboard
 </pre></div>
 </div>
 </section>
