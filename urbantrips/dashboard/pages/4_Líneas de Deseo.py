@@ -382,6 +382,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         "distancia_agregada",
         "socio_indicadores_all",
         "alias_seleccionado",
+        
     ]
 
     variables_bool = [
@@ -390,6 +391,9 @@ with st.expander("Líneas de Deseo", expanded=True):
         "origenes_seleccionado",
         "destinos_seleccionado",
         "transferencias_seleccionado",
+        "resumen",
+        "normalize",
+        "mmatriz",
     ]
     # Inicializar todas las variables con None si no existen en session_state
     for var in variables:
@@ -635,6 +639,9 @@ with st.expander("Líneas de Deseo", expanded=True):
             "transferencias_seleccionado": st.session_state.transferencias_seleccionado,
             "zona_mostrar": zona_mostrar,
             "mtabla": mtabla,
+            "resumen": st.session_state.resumen,
+            "normalize": st.session_state.normalize,
+            "mmatriz": st.session_state.mmatriz,
         }
 
         # Solo cargar datos si hay cambios en los filtros
@@ -1018,16 +1025,17 @@ with st.expander("Matrices"):
             ],
         )
 
-        normalize = False
+        st.session_state.normalize = False
         if tipo_matriz == "Viajes":
             var_matriz = "factor_expansion_linea"
-            normalize = col1.checkbox("Normalizar", value=True)
-            if normalize:
+            st.session_state.normalize = col1.checkbox("Normalizar", value=True)
+            if st.session_state.normalize:
                 var_matriz = "porcentaje"
 
-        resumen = col1.checkbox("Principales OD", value=False)
+        st.session_state.resumen = col1.checkbox("Principales OD", value=False)
 
-        mmatriz = col1.checkbox("Mostrar tabla", value=False, key="mmatriz")
+        mmatriz_ = col1.checkbox("Mostrar tabla", value=False, key="mmatriz_")
+        st.session_state.mmatriz = mmatriz_
         col1.write(f"Día: {dia_seleccionado}")
         # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
         col1.write(f"Transferencias: {transfer_seleccionado}")
@@ -1047,7 +1055,7 @@ with st.expander("Matrices"):
         if tipo_matriz == "Velocidad promedio (km/h)":
             var_matriz = "travel_speed"
 
-        if not resumen:
+        if not st.session_state.resumen:
             od_heatmap = pd.crosstab(
                 index=st.session_state.matriz["Origen"],
                 columns=st.session_state.matriz["Destino"],
@@ -1098,7 +1106,7 @@ with st.expander("Matrices"):
             fig.update_layout(width=1000, height=1000)
 
         col2.plotly_chart(fig)
-        if mmatriz:
+        if st.session_state.mmatriz:
             col2.write(st.session_state.matriz)
 
     else:

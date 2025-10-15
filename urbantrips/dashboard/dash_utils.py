@@ -435,6 +435,7 @@ def creo_bubble_od(
         if agg_tarifa_agregada:
             df["tarifa_agregada"] = 99
 
+
         orig = calculate_weighted_means_ods(
             df,
             aggregate_cols,
@@ -780,7 +781,7 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
-            "distancia_agregada",
+            "tarifa_agregada",
             "genero_agregado",
         ]
         bubble_cols_d = [
@@ -792,7 +793,7 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
-            "distancia_agregada",
+            "tarifa_agregada",
             "genero_agregado",
         ]
     else:
@@ -804,8 +805,8 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
-            "distancia_agregada",
-            "genero_agregado",
+            'tarifa_agregada',
+            "genero_agregado",            
         ]
         bubble_cols_d = [
             "id_polygon",
@@ -815,7 +816,7 @@ def create_data_folium(
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
-            "distancia_agregada",
+            "tarifa_agregada",
             "genero_agregado",
         ]
 

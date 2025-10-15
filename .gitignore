@@ -147,3 +147,7 @@ dmypy.json
 
 *.code-workspace
 data/data_ciudad/zona_voi.geojson
+*.csv
+*.geojson
+*.sqlite-shm
+*.sqlite-wal
