@@ -19,11 +19,11 @@ nombres_variables_trx:
     id_ramal_trx:                                                  # columna con el ramal de la línea
     interno_trx: "interno_bus"                                     # columna con interno de la línea
     orden_trx: "etapa_red_sube"                                    # columna con el orden de la transacción (si falta hora/minuto en fecha_trx)
-    genero: "sexo"                                                        # Indica el género asignado a la tarjeta
-    tarifa: "id_tarifa"                                                        # Indica el tipo de tarifa asignado a la transacción
+    genero: "sexo"                                                 # Indica el género asignado a la tarjeta
+    tarifa: "id_tarifa"                                            # Indica el tipo de tarifa asignado a la transacción
     latitud_trx: "lat"                                             # columna con la latitud de la transacción
     longitud_trx: "lon"                                            # columna con longitud de la transacción
-    factor_expansion: "fex_linea"                                               # columna con el factor de expansión
+    factor_expansion: "fex_linea"                                  # columna con el factor de expansión
 
 # Parámetros de transacciones
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
@@ -64,7 +64,6 @@ nombres_variables_gps:
     velocity_gps:                                                  
     distance_gps:                                                  
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
-    distance_gps:
 
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")

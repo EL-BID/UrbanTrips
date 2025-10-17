@@ -73,7 +73,7 @@ LABELS = {
     "sin_descuento": "Sin descuento",
     "tarifa_social": "Tarifa social",
     "educacion_jubilacion": "Estudiantes/Jubilados",
-    "travel_speed": "Vel. comercial (km/h)",
+    "velocidad_comercial": "Vel. comercial (km/h)",
     "distancia_media_veh": "Dist. media/veh (km)",
     "fo_mean": "Factor Ocupación (media)",
     "fo_median": "Factor Ocupación (mediana)",
@@ -88,8 +88,8 @@ GENERAL_COLS = ["vehiculos_operativos", "transacciones"]
 GENDER_COLS = ["Masculino", "Femenino", "No informado"]
 TARIFA_COLS = ["sin_descuento", "tarifa_social", "educacion_jubilacion"]
 DEMO_COLS = GENDER_COLS + TARIFA_COLS
-OPERATIVE_COLS1 = ["travel_speed", "distancia_media_veh", "fo_mean", "fo_median"]
-OPERATIVE_COLS2 = ["travel_time_min", "tot_km", "dmt_mean", "dmt_median", "ipk"]
+OPERATIVE_COLS1 = ["velocidad_comercial", "distancia_media_veh", "fo_mean", "fo_median"]
+OPERATIVE_COLS2 = ["ipk", "tot_km", "dmt_mean", "dmt_median"]
 INT_DISPLAY_COLS = set(GENERAL_COLS + DEMO_COLS + ["tot_km"])
 TOTAL_SLOTS = 6  # columnas fijas por fila
 

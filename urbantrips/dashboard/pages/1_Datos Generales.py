@@ -588,8 +588,9 @@ with st.expander("Partición modal", True):
         "Día", options=particion_modal.dia.unique(), key="desc_dia"
     )
 
-    list_genero = particion_modal.genero_agregado.unique()
-    list_genero = ["Todos" if item == "-" else item for item in list_genero]
+    list_genero = particion_modal.genero_agregado.unique().tolist()
+    list_genero.insert(0, "Todos")
+    # list_genero = ["Todos" if item == "-" else item for item in list_genero]
 
     desc_genero = col1.selectbox("Genero", options=list_genero, key="desc_genero")
 
@@ -605,13 +606,13 @@ with st.expander("Partición modal", True):
     col3.write("Etapas")
     modal_etapas = formatear_columnas_numericas(modal_etapas, ['Cantidad'], True)
     modal_etapas = formatear_columnas_numericas(modal_etapas, ['%'], False)
-    col3.dataframe(modal_etapas.set_index("Modo"), height=300, width=300)
+    col3.dataframe(modal_etapas.set_index("Modo"), height=400, width=300)
     
     col4.write("Viajes")
     modal_viajes = formatear_columnas_numericas(modal_viajes, ['Cantidad'], True)
     modal_viajes = formatear_columnas_numericas(modal_viajes, ['%'], False)
 
-    col4.dataframe(modal_viajes.set_index("Modo"), height=300, width=300)
+    col4.dataframe(modal_viajes.set_index("Modo"), height=400, width=300)
 
 with st.expander("Distancias de viajes"):
 
