@@ -16,7 +16,7 @@ from shapely.geometry import LineString, Point, Polygon, shape, mapping
 import h3
 from datetime import datetime
 from pathlib import Path
-
+import shutil
 
 def leer_configs_generales(autogenerado=True):
     """
@@ -1384,6 +1384,19 @@ def configurar_selector_dia():
             st.rerun()
     else:
         seleccion = dias_disponibles[0]
+
+    base_path = Path() / 'configs'
+    autogen_dir = base_path / "autogenerados"
+    archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
+    
+    # Verificar que existan el directorio y el archivo
+    if autogen_dir.exists() and archivo_autogen.exists():
+        destino = base_path / "configuraciones_generales_autogenerado.yaml"
+        shutil.copy(archivo_autogen, destino)
+        print(f"✅ Archivo {archivo_autogen} copiado")
+    else:
+        print("⚠️ No existe el directorio 'autogenerados' o el archivo especificado.")
+        
     return seleccion
 
 
