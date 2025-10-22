@@ -779,7 +779,7 @@ def imprimir_matrices_od(
         )
 
         imprime_od(
-            df[(df.distance_osm_drive <= 5)],
+            df[(df.distancias <= 5)],
             zona_origen=f"{var_zona}_o",
             zona_destino=f"{var_zona}_d",
             var_fex=var_fex,
@@ -999,7 +999,7 @@ def imprime_lineas_deseo(
         )
 
         lineas_deseo(
-            df[(df.distance_osm_drive <= 5)],
+            df[(df.distancias <= 5)],
             zonas,
             var_zona,
             var_fex,
@@ -1415,30 +1415,30 @@ def imprime_graficos_hora(
     # Distribución de viajes
     savefile_ = f"{savefile}_dist"
     vi = viajes[
-        (viajes.distance_osm_drive.notna())
-        & (viajes.distance_osm_drive > 0)
+        (viajes.distancias.notna())
+        & (viajes.distancias > 0)
         & (viajes.h3_o != viajes.h3_d)
     ]
 
     if len(vi) == 0:
         return None
 
-    vi["distance_osm_drive"] = vi["distance_osm_drive"].astype(int)
+    vi["distancias"] = vi["distancias"].astype(int)
 
     vi_modo = (
-        vi.groupby(["distance_osm_drive", "modo"], as_index=False)
+        vi.groupby(["distancias", "modo"], as_index=False)
         .factor_expansion_linea.sum()
         .rename(columns={"factor_expansion_linea": "cant"})
     )
 
     vi = (
-        vi.groupby("distance_osm_drive", as_index=False)
+        vi.groupby("distancias", as_index=False)
         .factor_expansion_linea.sum()
         .rename(columns={"factor_expansion_linea": "cant"})
     )
 
-    vi = vi.loc[vi.cant > 0, ["distance_osm_drive", "cant"]].sort_values(
-        "distance_osm_drive"
+    vi = vi.loc[vi.cant > 0, ["distancias", "cant"]].sort_values(
+        "distancias"
     )
 
     vi["pc"] = round(vi.cant / vi.cant.sum() * 100, 5)
@@ -1459,7 +1459,7 @@ def imprime_graficos_hora(
     vi_dash["tipo_dia"] = tipo_dia
     vi_dash["desc_dia"] = desc_dia
 
-    vi_dash = vi_dash[["desc_dia", "tipo_dia", "distance_osm_drive", "cant", "modo"]]
+    vi_dash = vi_dash[["desc_dia", "tipo_dia", "distancias", "cant", "modo"]]
     vi_dash.columns = ["desc_dia", "tipo_dia", "Distancia", "Viajes", "Modo"]
 
     conn_dash = iniciar_conexion_db(tipo="dash")
@@ -1493,7 +1493,7 @@ def imprime_graficos_hora(
         ax = fig.add_subplot(111)
 
         sns.histplot(
-            x="distance_osm_drive", weights="cant", data=vi, bins=len(vi), ax=ax
+            x="distancias", weights="cant", data=vi, bins=len(vi), ax=ax
         )  # element='poly',
         ax.set_title(title, fontsize=12)
         ax.set_xlabel("Distancia (kms)", fontsize=10)

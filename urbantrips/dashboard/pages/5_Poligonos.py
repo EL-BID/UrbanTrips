@@ -889,7 +889,7 @@ with st.expander("Matrices"):
             var_matriz = "factor_expansion_linea"
             normalize = col1.checkbox("Normalizar", value=True)
         if tipo_matriz == "Distancia promedio (kms)":
-            var_matriz = "distance_osm_drive"
+            var_matriz = "distancia"
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":
