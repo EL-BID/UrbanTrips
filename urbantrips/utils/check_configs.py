@@ -11,6 +11,8 @@ from urbantrips.utils.utils import (
     leer_alias,
 )
 
+from pathlib import Path
+import shutil
 
 def check_config_fecha(df, columns_with_date, date_format):
     """
@@ -997,3 +999,18 @@ def check_config(corrida):
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales_autogenerado.yaml"
     )
+
+    # Guarda una copia de autogenerado
+    base_path = Path() / 'configs'
+    
+    # Crear el directorio 'autogenerados' si no existe
+    autogen_dir = base_path / "autogenerados"
+    autogen_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Ruta del archivo original
+    origen = base_path / "configuraciones_generales_autogenerado.yaml"
+
+    destino = autogen_dir / f"configuraciones_generales_autogenerado_{corrida}.yaml"
+    
+    # Copiar el archivo
+    shutil.copy(origen, destino)

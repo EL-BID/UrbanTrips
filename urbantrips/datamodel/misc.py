@@ -93,13 +93,13 @@ def persist_datamodel_tables():
             "modos viajes",
             1,
         )
-
+   
     agrego_indicador(
         viajes,
         "Distancia de los viajes (promedio en kms)",
         "avg",
         0,
-        var="distance_osm_drive",
+        var="distancia",
         aggfunc="mean",
     )
 
@@ -108,7 +108,7 @@ def persist_datamodel_tables():
         "Distancia de los viajes (mediana en kms)",
         "avg",
         0,
-        var="distance_osm_drive",
+        var="distancia",
         aggfunc="median",
     )
 
@@ -118,7 +118,7 @@ def persist_datamodel_tables():
             f"Distancia de los viajes (promedio en kms) - {i}",
             "avg",
             0,
-            var="distance_osm_drive",
+            var="distancia",
             aggfunc="mean",
         )
 
@@ -128,7 +128,7 @@ def persist_datamodel_tables():
             f"Distancia de los viajes (mediana en kms) - {i}",
             "avg",
             0,
-            var="distance_osm_drive",
+            var="distancia",
             aggfunc="median",
         )
 
