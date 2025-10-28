@@ -486,6 +486,10 @@ def plot_cluster_in_map(
         archivo_salida (str, opcional): Ruta para guardar el archivo HTML.
     """
     # Merge
+    # carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
+    carto["id_linea"] = carto["id_linea"].astype(str)
+    data["id_linea"] = data["id_linea"].astype(str)
+    
     carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
 
     # Inicializar mapa
