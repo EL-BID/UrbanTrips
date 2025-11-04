@@ -3,10 +3,12 @@ import streamlit as st
 from pathlib import Path
 from dash_utils import (
     levanto_tabla_sql,
+    levanto_tabla_sql_local,
     guardar_tabla_sql,
     get_logo,
     configurar_selector_dia,
 )
+import numpy as np
 
 def normalizar_id_linea(col):
     def convertir(x):
@@ -56,8 +58,10 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
 
             if 'id_linea' in tabla_externa.columns:
                 tabla_externa['id_linea'] = normalizar_id_linea(tabla_externa['id_linea'])
-
-            tabla_externa['id_linea'] = tabla_externa['id_linea'].astype(str)
+                tabla_externa['id_linea'] = tabla_externa['id_linea'].astype(str)
+            if 'id_linea' in kpis.columns:
+                kpis['id_linea'] = normalizar_id_linea(kpis['id_linea'])
+                kpis['id_linea'] = kpis['id_linea'].astype(str)            
 
             st.success("Archivo cargado correctamente.")
             st.dataframe(tabla_externa)
@@ -96,30 +100,73 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                             kpis, tabla_externa, on=merge_keys, how="left"
                         )
                         st.session_state["archivo_anterior"] = archivo.name
+                        
+                        kpis = st.session_state["tabla_mergeada"].copy()
+
+                        cols_excluir = ["dia", "mes"]
+                        cols_incluir = [
+                                c for c in kpis.select_dtypes(include=[np.number]).columns
+                                if c not in cols_excluir
+                            ]
+                        cols_incluir = ['id_linea', 'nombre_linea', 'empresa', 'modo'] + cols_incluir
+
+                        promedios = kpis.loc[kpis.dia!='Promedios', cols_incluir].groupby(['id_linea', 'nombre_linea', 'empresa', 'modo'], as_index=False).mean().copy()
+                        promedios['dia'] = 'Promedios'
+                        promedios['mes'] = 'Promedios'
+
+                        kpis_merged = kpis[kpis.dia!='Promedios']
+                        
+                        kpis_merged = pd.concat([kpis_merged, promedios], ignore_index=True)
+                        st.session_state["tabla_mergeada"] = kpis_merged.copy()
+                        
                         guardar_tabla_sql(
                             st.session_state["tabla_mergeada"],
                             "kpis_lineas_merge",
                             "general",
                             modo="replace",
                         )
+
                         st.success("Merge reemplazado con éxito.")
-                        st.info("✅ Tabla guardada en `kpis_lineas`.")
+                        st.info("✅ Tabla guardada en `kpis_linea_merge`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
+
                 else:
                     if st.button("Hacer merge"):
                         st.session_state["tabla_mergeada"] = pd.merge(
                             kpis, tabla_externa, on=merge_keys, how="left"
                         )
                         st.session_state["archivo_anterior"] = archivo.name
+
+                        kpis = st.session_state["tabla_mergeada"].copy()
+
+                        cols_excluir = ["dia", "mes"]
+                        cols_incluir = [
+                                c for c in kpis.select_dtypes(include=[np.number]).columns
+                                if c not in cols_excluir
+                            ]
+                        cols_incluir = ['id_linea', 'nombre_linea', 'empresa', 'modo'] + cols_incluir
+
+                        promedios = kpis.loc[kpis.dia!='Promedios', cols_incluir].groupby(['id_linea', 'nombre_linea', 'empresa', 'modo'], as_index=False).mean().copy()
+                        promedios['dia'] = 'Promedios'
+                        promedios['mes'] = 'Promedios'
+
+                        kpis_merged = kpis[kpis.dia!='Promedios']
+                        
+                        kpis_merged = pd.concat([kpis_merged, promedios], ignore_index=True)
+                        st.session_state["tabla_mergeada"] = kpis_merged.copy()
+                        
                         guardar_tabla_sql(
                             st.session_state["tabla_mergeada"],
                             "kpis_lineas_merge",
                             "general",
                             modo="replace",
                         )
+                       
+                        
                         st.success("Merge realizado con éxito.")
                         st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
+
 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {e}")
@@ -143,6 +190,9 @@ if (
     df_base = st.session_state["tabla_mergeada"]
 else:
     df_base = st.session_state["kpis"]
+
+
+
 
 
 def save_escenarios(lista: list[dict]):
@@ -264,45 +314,110 @@ with st.expander("🗂️ Escenarios de clusterización", expanded=True):
 
 from clusters_utils import correr_clusters
 
-with st.expander("🧩 Clusterizar", expanded=False):
+with st.expander("🧩 Clusterizar", expanded=True):
+    # 1) Tomar base: mergeada si existe, si no kpis
+    if (
+        "tabla_mergeada" in st.session_state
+        and st.session_state["tabla_mergeada"] is not None
+    ):
+        df_base = st.session_state["tabla_mergeada"].copy()
+    else:
+        df_base = st.session_state["kpis"].copy()
 
-    # 1) ¿Hay datos en kpis_lineas?
-    df_kpis = st.session_state["kpis"]  # ya lo cargaste al inicio
-    kpis_ok = not df_kpis.empty
+    # 2) Selección de día / promedio
+    # (asumo que df_base SIEMPRE tiene columna 'dia')
+    dias_disponibles = sorted(df_base["dia"].dropna().unique())
+    dias_disponibles = [d for d in dias_disponibles if d not in ["Promedios"]]
+    day_sel = st.selectbox("Día", ["Promedios"] + dias_disponibles, index=0)
 
-    # 2) ¿Hay al menos un escenario?
+    # Cargar KPIs
+    kpis = levanto_tabla_sql_local("kpis_lineas", "general")
+    kpis_merge = levanto_tabla_sql_local("kpis_lineas_merge", "general")
+    if len(kpis_merge) > 0:
+        df_base = kpis_merge.copy()
+    else:
+        df_base = kpis.copy()
+    
+    df_kpis = df_base[df_base["dia"] == day_sel].copy()
+    st.markdown("#### 🟦 Tabla para clusterización (antes de limpiar)")
+    st.dataframe(df_kpis)
+
+    # 3) Detectar NaN según escenarios
     df_escenarios = levanto_tabla_sql("escenarios_clusterizacion", "insumos")
-    escenarios_ok = not df_escenarios.empty
+    if df_escenarios.empty:
+        st.error("No hay escenarios de clusterización cargados en la base.")
+        st.stop()
 
-    # Mensajes de estado
-    if not kpis_ok:
-        st.error("La tabla **kpis_lineas** está vacía. Primero cargá datos.")
-    if not escenarios_ok:
-        st.error("No existe ningún escenario guardado. Creá al menos uno.")
+    # Recolectar TODAS las variables que usan los escenarios
+    escenarios_con_nan = {}
+    todas_vars = set()
 
-    # Botón habilitado sólo si ambos requisitos se cumplen
-    days = sorted(df_kpis["dia"].dropna().unique())
-    days = [x for x in days if x not in ["Promedios"]]
-    day_sel = st.selectbox("Día", ["Promedios"] + days, index=0)
-    cluster_btn = st.button(
-        "🚀 Clusterizar escenarios", disabled=not (kpis_ok and escenarios_ok)
-    )
+    for _, esc in df_escenarios.iterrows():
+        vars_esc = [v.strip() for v in str(esc["variables"]).split(",") if v.strip()]
+        # filtrar solo las que existen en df_kpis (por si el merge trajo columnas raras)
+        vars_esc = [v for v in vars_esc if v in df_kpis.columns]
+        if not vars_esc:
+            continue
+        subset = df_kpis[vars_esc]
+        cols_con_nan = subset.columns[subset.isna().any()].tolist()
+        if cols_con_nan:
+            escenarios_con_nan[esc["nombre"]] = cols_con_nan
+            todas_vars.update(cols_con_nan)
+
+    # 3a) Construir versión limpia y versión borrados
+    if len(todas_vars) > 0:
+        todas_vars = list(todas_vars)  # <- importante: no usar set como indexador
+        # filas que tienen NaN en alguna de las variables usadas por los escenarios
+        df_borradas = df_kpis[df_kpis[todas_vars].isna().any(axis=1)].copy()
+        # versión limpia
+        df_limpio = df_kpis.dropna(subset=todas_vars).copy()
+    else:
+        # no hay NaN en las variables de los escenarios
+        df_borradas = pd.DataFrame()
+        df_limpio = df_kpis.copy()
+
+    # Mostrar diagnóstico
+    st.markdown("#### 🔍 Diagnóstico de NaN por escenario")
+    if escenarios_con_nan:
+        st.warning("Se detectaron escenarios con valores faltantes (NaN):")
+        for nombre, cols in escenarios_con_nan.items():
+            st.markdown(f"- **{nombre}** → {', '.join(cols)}")
+        st.info(
+            f"Si se limpian estas variables, se eliminarían **{len(df_borradas)}** filas."
+        )
+    else:
+        st.success("✅ No se detectaron NaN en las variables usadas por los escenarios.")
+
+    # Mostrar tabla limpia (solo si hubo NaN)
+    if not df_borradas.empty:
+        st.markdown("##### ✅ Tabla *limpia* que se usará para clusterizar")
+        st.dataframe(df_limpio)
+
+        st.markdown("##### 🗑️ Filas que no serán incluídas en el proceso de clusterización")
+        st.dataframe(df_borradas.reset_index(drop=True))
+    else:
+        st.markdown("##### ✅ No fue necesario limpiar. Se usará la tabla filtrada por día.")
+        st.dataframe(df_limpio.reset_index(drop=True))
+
+    # 4) ÚNICO BOTÓN: clusterizar
+    cluster_btn = st.button("🚀 Clusterizar con estos datos")
 
     if cluster_btn:
-        # ------------------------------------------------------------------
-        # Llamá aquí tu función real de clustering
-        # ------------------------------------------------------------------
+        # decidir qué df usar
+        if not df_borradas.empty:
+            df_para_cluster = df_limpio
+        else:
+            df_para_cluster = df_kpis
+
         st.info("Ejecutando clustering. Esto puede tardar unos segundos…")
         try:
-            df_kpis = df_kpis[df_kpis.dia == day_sel]
-            resultados = correr_clusters(df_kpis)  # <- tu función
+            resultados = correr_clusters(df_para_cluster)
             st.success("¡Clustering completado!")
 
             st.markdown("### 📁 Carpeta de resultados:")
             resultados_dir = Path.cwd() / "data" / "clusters" / "resultados"
             st.markdown("---")
 
-            # Enlace clicable (funciona en navegadores locales)
             if resultados_dir.exists():
                 st.code(str(resultados_dir), language="bash")
                 st.markdown(
