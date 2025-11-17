@@ -895,6 +895,8 @@ with st.expander("Matrices"):
         if tipo_matriz == "Velocidad promedio (km/h)":
             var_matriz = "travel_speed"
 
+        mmatriz_ = col1.checkbox("Mostrar tabla", value=False, key="mmatriz_")
+
         od_heatmap = pd.crosstab(
             index=st.session_state.matriz["Origen"],
             columns=st.session_state.matriz["Destino"],
@@ -929,5 +931,8 @@ with st.expander("Matrices"):
             fig.update_layout(width=1000, height=1000)
 
         col2.plotly_chart(fig)
+
+        if mmatriz_:
+            col2.write(st.session_state.matriz)
     else:
         col2.text("No hay datos para mostrar")
