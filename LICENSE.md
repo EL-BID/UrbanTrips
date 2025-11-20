@@ -1,11 +1,11 @@
-## AM-331-A3 Licencia de Software
-Effective: Octubre 2022
+## AM-331-A3 Licencia de Software 
+Effective: April 2018
 Contenido de la página
 
 El Software, con excepción de los Documentos de Soporte y Uso, deberá estar sujetos a los siguientes términos y condiciones, los cuales se empaquetarán como parte de cada Software bajo un archivo que llevará el nombre de "LICENCIA" :   
-"Copyright © 2020. Banco Interamericano de Desarrollo ("BID"). Uso autorizado."
+"Copyright © [2022]. Banco Interamericano de Desarrollo ("BID"). Uso autorizado."
 
-### 1. Licencia
+### 1. Licencia 
 Por medio de la presente licencia ("Licencia") no exclusiva, revocable, global y libre de regalías el BID otorga permiso al usuario ("Usuario") para reproducir, distribuir, ejecutar públicamente, prestar y poner a disposición del público, y modificar el software y sus modificaciones, por sí o como parte de una colección, siempre que sea para fines no comerciales, sujeto a los términos y condiciones aquí señalados.
 Salvo indicación en contrario, la Documentación de Soporte y Uso del software se licenciará bajo Creative Commons IGO 3.0 Atribución-NoComercial-SinObraDerivada (CC-IGO 3.0 BY-NC-ND).
 
@@ -18,7 +18,7 @@ El Software puede ser del tipo, pero sin estar limitado a (i) programa ejecutabl
 2.5  Software Derivado: obras derivadas del Software, tales como modificaciones, actualizaciones y mejoras de la misma.  
 2.6  Usuario: cualquier persona, natural o jurídica, que obtenga una copia del Software.  
 
-### 3.      Derechos del BID
+### 3.      Derechos del BID 
 3.1  El BID se reserva todos los derechos de propiedad intelectual, incluyendo sin limitación derechos de autor, relacionados con o asociados al Software.  
 3.2  El BID se reserva expresamente los derechos de ceder, transferir y/o sub-licenciar el Software y/o cualquiera de sus componentes a terceros sin previo aviso.  
 
@@ -59,9 +59,9 @@ El Usuario no podrá hacer uso del nombre y/o logo del BID para fines diferentes
 10.1.3  Infracción de derechos de autor de terceros por parte del Usuario con relación al uso del Software y el desarrollo de Software Derivado.  
 
 ### 11.  Terminación de la Licencia
-El BID podrá terminar de manera inmediata esta Licencia, con causa o sin causa, sin dar aviso previo al Usuario. La terminación con causa aplica en caso de que el BID determine, a su entera discreción, que el uso del Software es inconsistente con los términos y condiciones de esta Licencia.
+El BID podrá terminar de manera inmediata esta Licencia, con causa o sin causa, sin dar aviso previo al Usuario. La terminación con causa aplica en caso de que el BID determine, a su entera discreción, que el uso del Software es inconsistente con los términos y condiciones de esta Licencia. 
 
-### 12.  Devolución del Sistema Informático
+### 12.  Devolución del Sistema Informático 
 En caso de terminación de esta Licencia, indistintamente de la causa de terminación y conforme decida el BID, el Usuario deberá inmediatamente cesar el uso del Software y deberá destruir y/o devolver al BID cualesquiera programas, códigos, accesos, archivos o información, impresa y digital, que sean necesarios para que el BID tenga control sobre el Software, sin incluir medida de protección tecnológica alguna. En caso de que el Usuario haya desarrollado Software Derivado y el BID termine la Licencia, el Usuario deberá obtener autorización del BID, por escrito, para poder seguir usando el Software.
 
 ### 13.  Ley Aplicable
@@ -79,7 +79,7 @@ Nada de lo contenido en esta Licencia se interpretará como el establecimiento o
 ### 17.  Divisibilidad
 Si cualquier cláusula de esta Licencia es considerada inválida o inexigible, dicha invalidez o inexigibilidad no afectará a la validez ni la exigibilidad de las demás cláusulas, y dicha cláusula inválida o inexigible se considerará eliminada de esta Licencia.
 
-### 18.  Validez de Obligaciones
+### 18.  Validez de Obligaciones 
 En caso de terminación de esta Licencia sobrevivirán los derechos y las obligaciones previstas en las cláusulas Nos. 3, 7, 8, 9, 10, 13, 14, 15 y 19.
 
 ### 19.  Notificaciones
@@ -90,4 +90,3 @@ Esta Licencia sólo podrá ser modificada mediante autorización previa, expresa
 
 ### 21.  Acuerdo Final
 Esta Licencia constituye el acuerdo final entre las Partes y reemplaza todas las comunicaciones, entendimientos o acuerdos, escritos o verbales, de carácter previo entre las Partes con relación al objeto de esta Licencia. 
-
