@@ -22,6 +22,18 @@ def normalizar_id_linea(col):
         return s
     return col.apply(convertir)
 
+def normalizar_id_linea(col):
+    def convertir(x):
+        if pd.isna(x):
+            return None
+        s = str(x).strip()
+        # si es número entero o decimal → convertir a int y luego a str
+        if s.replace('.', '', 1).isdigit():
+            return str(int(float(s)))
+        # si no es número → dejarlo como está
+        return s
+    return col.apply(convertir)
+
 st.set_page_config(page_title="Indicadores Operativos por Línea", layout="wide")
 
 # Cabecera estándar
@@ -62,6 +74,7 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
             if 'id_linea' in kpis.columns:
                 kpis['id_linea'] = normalizar_id_linea(kpis['id_linea'])
                 kpis['id_linea'] = kpis['id_linea'].astype(str)            
+
 
             st.success("Archivo cargado correctamente.")
             st.dataframe(tabla_externa)
