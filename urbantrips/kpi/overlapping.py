@@ -125,7 +125,7 @@ def aggregate_demand_data(
         metadata = pd.read_sql(
             f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_branch_id},{comp_branch_id})",
             conn_insumos,
-            dtype={"id_linea": int, "id_ramal": int},
+            dtype={"id_linea": "Int64", "id_ramal": "Int64"},
         )
 
         base_branch_name = metadata.loc[
@@ -361,10 +361,11 @@ def compute_supply_overlapping(
             "alias_db", ""
         )
         conn_insumos = utils.iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+
         metadata = pd.read_sql(
             f"select id_linea,id_ramal,nombre_ramal from metadata_ramales where id_ramal in ({base_route_id},{comp_route_id})",
             conn_insumos,
-            dtype={"id_linea": int, "id_ramal": int},
+            dtype={"id_linea": "Int64", "id_ramal": "Int64"},
         )
         conn_insumos.close()
         base_line_id = metadata.loc[
