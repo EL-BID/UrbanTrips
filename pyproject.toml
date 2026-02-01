@@ -14,7 +14,7 @@ authors = [{name = "Felipe Gonzalez"},{name = "Sebastian Anapolsky"}]
 dependencies = [
     "contextily==1.6.2",
     "folium==0.18.0",
-    "geopandas==1.0.1",
+    "geopandas==1.1.2",
     "fiona==1.10.1",
     "h3==4.3.0",
     "httpcore==1.*",
