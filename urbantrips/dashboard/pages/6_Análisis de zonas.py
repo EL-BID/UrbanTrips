@@ -15,8 +15,10 @@ from dash_utils import (
     bring_latlon,
     configurar_selector_dia,
     get_h3_indices_in_geometry,
-    h3_to_polygon
+    h3_to_polygon,
+    leer_configs_generales,
 )
+
 # from urbantrips.carto.carto import get_h3_indices_in_geometry
 # from urbantrips.geo.geo import h3_to_polygon
 from streamlit_folium import folium_static
@@ -29,11 +31,6 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
     conn = iniciar_conexion_db(tipo=tabla_tipo)
 
     try:
-        if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
 
         tabla = pd.read_sql_query(query, conn)
     except:
@@ -92,9 +89,19 @@ def main():
     with st.expander("Selecciono zonas", expanded=True):
         col1, col2 = st.columns([1, 4])
 
-        # # Sidebar controls
-        # resolution = col1.slider("Selecciona la Resolución H3", min_value=0, max_value=15, value=8, step=1)
-        resolution = 8
+        try:
+            # --- Cargar configuraciones y conexiones en session_state ---
+            if "configs" not in st.session_state:
+                st.session_state.configs = leer_configs_generales(autogenerado=True)
+
+            configs = st.session_state.configs
+            # defino la resolución en base a las configuraciones generales
+            resolution = configs["resolucion_h3"]
+            st.write("Resolución h3 para etapas:", resolution)
+
+        except ValueError as e:
+            st.error(f"No se pudo leer la resolucion del config general: {e}. \n")
+            st.stop()
 
         # Initialize Folium map
         m = folium.Map(location=latlon, zoom_start=10)
@@ -150,7 +157,6 @@ def main():
             etapas1 = levanto_tabla_sql_local(
                 "etapas_agregadas", tabla_tipo="dash", query=query1
             )
-
             if len(etapas1) > 0:
                 etapas1["Zona_1"] = "Zona 1"
 
