@@ -25,7 +25,7 @@ from dash_utils import (
     h3_to_polygon,
     extract_hex_colors_from_cmap,
 )
-
+from shapely.ops import linemerge
 from urbantrips.utils.utils import guardar_tabla_sql
 from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 from urbantrips.utils.check_configs import check_config
@@ -38,6 +38,8 @@ from urbantrips.viz.viz import standarize_size
 from urbantrips.geo.geo import get_h3_buffer_ring_size, create_sections_geoms
 import mapclassify
 from folium import Figure
+import json
+from shapely.geometry import shape, LineString, MultiLineString
 
 
 def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
@@ -128,7 +130,7 @@ def traigo_mes_dia():
         "SELECT DISTINCT mes, tipo_dia FROM etapas_agregadas;",
     )
     mes = mes_dia.mes.values.tolist()
-    tipo_dia = mes_dia.tipo_dia.values.tolist()
+    tipo_dia = mes_dia.tipo_dia.values.tolist()    
     return mes, tipo_dia
 
 
@@ -412,12 +414,14 @@ for var in [
 ]:
     if var not in st.session_state:
         st.session_state[var] = None
+
 route_h3 = None
 st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
 alias_seleccionado = configurar_selector_dia()
+
 check_config(corrida=alias_seleccionado)
 st.text(f"Alias seleccionado: {alias_seleccionado}")
 
@@ -504,42 +508,174 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
         hour_range = [rango_desde, rango_hasta]
         st.session_state["hour_range_7"] = hour_range
 
-    # Display map with drawing tools
+   
     with col2:
         st.subheader("Dibujar la línea")
-
-        # Initialize Folium map
-        m = folium.Map(location=latlon, zoom_start=10)
-        draw = folium.plugins.Draw(
-            export=False,
-            draw_options={
-                "polygon": False,
-                "rectangle": False,
-                "circle": False,
-                "circlemarker": False,
-                "polyline": True,
-                "marker": False,
-            },
-            edit_options={"edit": True, "remove": True},
+    
+        fuente = st.radio(
+            "Fuente de la geometría",
+            ["Dibujar en el mapa", "Cargar GeoJSON"],
+            horizontal=True,
+            key="route_source_7",
         )
-        draw.add_to(m)
+    
+        geometry = None  # <- acá vamos a dejar la geometría final (LineString)
+    
+        if fuente == "Dibujar en el mapa":
+            m = folium.Map(location=latlon, zoom_start=10)
+            draw = folium.plugins.Draw(
+                export=False,
+                draw_options={
+                    "polygon": False,
+                    "rectangle": False,
+                    "circle": False,
+                    "circlemarker": False,
+                    "polyline": True,
+                    "marker": False,
+                },
+                edit_options={"edit": True, "remove": True},
+            )
+            draw.add_to(m)
+    
+            output = st_folium(m, width=700, height=700, key="map")
+    
+            if output.get("last_active_drawing"):
+                geometry_data = output["last_active_drawing"]["geometry"]
+                geometry = shape(geometry_data)
+    
+        else:
+            geojson_file = st.file_uploader(
+                "Subí un GeoJSON con una línea (FeatureCollection/Feature) o un archivo exportado por QGIS",
+                type=["geojson", "json"],
+                key="route_geojson_7",
+            )
+    
+            if geojson_file is not None:
+                try:
+                    geojson = json.load(geojson_file)
+    
+                    # Opción A (más robusta): leer con GeoPandas desde un archivo temporal
+                    # (Streamlit requiere escribirlo a disco si querés usar gpd.read_file)
+                    # Para evitar tocar mucho, hacemos parse directo con shapely:
+    
+                    # def _extract_line_from_geojson(obj):
+                    #     # obj puede ser FeatureCollection, Feature o Geometry
+                    #     if obj.get("type") == "FeatureCollection":
+                    #         geoms = [shape(f["geometry"]) for f in obj.get("features", []) if f.get("geometry")]
+                    #     elif obj.get("type") == "Feature":
+                    #         geoms = [shape(obj.get("geometry"))] if obj.get("geometry") else []
+                    #     else:
+                    #         geoms = [shape(obj)]
+    
+                    #     geoms = [g for g in geoms if g is not None and not g.is_empty]
+                    #     if not geoms:
+                    #         return None
+    
+                    #     # Si hay varias geometrías, las unimos/mergeamos si son líneas
+                    #     # (si hubiera polígonos por error, esto no va a ser una línea válida)
+                    #     g = linemerge(geoms) if len(geoms) > 1 else geoms[0]
+    
+                    #     # Normalizar MultiLineString -> LineString cuando sea posible
+                    #     if isinstance(g, MultiLineString):
+                    #         g = linemerge(g)
+    
+                    #     return g
+                    from shapely.geometry import shape, LineString, MultiLineString, Point
+                    from shapely.ops import linemerge
+                    import numpy as np
+                    
+                    def _extract_line_from_geojson(obj):
+                        """
+                        Acepta:
+                        - LineString / MultiLineString
+                        - Point o múltiples Point (estaciones)
+                        Devuelve:
+                        - LineString o None
+                        """
+                    
+                        # -------------------------
+                        # Extraer geometrías
+                        # -------------------------
+                        if obj.get("type") == "FeatureCollection":
+                            geoms = [shape(f["geometry"]) for f in obj.get("features", []) if f.get("geometry")]
+                        elif obj.get("type") == "Feature":
+                            geoms = [shape(obj.get("geometry"))] if obj.get("geometry") else []
+                        else:
+                            geoms = [shape(obj)]
+                    
+                        geoms = [g for g in geoms if g is not None and not g.is_empty]
+                    
+                        if not geoms:
+                            return None
+                    
+                        # -------------------------
+                        # Caso 1: ya es línea
+                        # -------------------------
+                        if all(g.geom_type in ("LineString", "MultiLineString") for g in geoms):
+                            g = linemerge(geoms) if len(geoms) > 1 else geoms[0]
+                            if g.geom_type == "MultiLineString":
+                                g = linemerge(g)
+                            return g if g.geom_type == "LineString" else None
+                    
+                        # -------------------------
+                        # Caso 2: son puntos (estaciones)
+                        # -------------------------
+                        if all(g.geom_type == "Point" for g in geoms):
+                            coords = np.array([(p.x, p.y) for p in geoms])
+                    
+                            # Si vienen ordenados, esto ya alcanza
+                            # Si no, hacemos un ordenamiento simple por distancia acumulada
+                            if len(coords) > 2:
+                                ordered = [coords[0]]
+                                remaining = list(coords[1:])
+                    
+                                while remaining:
+                                    last = ordered[-1]
+                                    dists = [np.linalg.norm(last - r) for r in remaining]
+                                    idx = int(np.argmin(dists))
+                                    ordered.append(remaining.pop(idx))
+                    
+                                coords = np.array(ordered)
+                    
+                            return LineString(coords)
+                    
+                        # -------------------------
+                        # Caso no soportado
+                        # -------------------------
+                        return None
 
-        output = st_folium(m, width=700, height=700, key="map")
-
-    if output.get("last_active_drawing"):
-        geometry_data = output["last_active_drawing"]["geometry"]
-        geometry = shape(geometry_data)
+    
+                    geometry = _extract_line_from_geojson(geojson)
+    
+                except Exception as e:
+                    st.error(f"No pude leer el GeoJSON. Detalle: {e}")
+                    geometry = None
+    
+    # -----------------------------
+    # Validación mínima 
+    # -----------------------------
+    if geometry is not None:
+        # Asegurar que sea línea (si te suben polygon por error)
+        if geometry.geom_type not in ("LineString", "MultiLineString"):
+            st.error(f"La geometría debe ser una línea. Recibí: {geometry.geom_type}")
+        else:
+            # Si llega MultiLineString, intentamos normalizar
+            if geometry.geom_type == "MultiLineString":
+                geometry = linemerge(geometry)
+                if geometry.geom_type != "LineString":
+                    st.error("La geometría es MultiLineString y no pude convertirla a una sola LineString.")
+                    geometry = None
+    
+    if geometry is not None:
         n_sections = st.session_state["n_sections_7"]
         if n_sections is None or n_sections == 0:
-            st.text(
-                "Por favor ingrese un número de secciones válido. Se usara 10 por defecto"
-            )
+            st.text("Por favor ingrese un número de secciones válido. Se usara 10 por defecto")
             n_sections = 10
             st.session_state["n_sections_7"] = n_sections
-
+    
         day_type = st.session_state["day_type_7"]
         hour_range = st.session_state["hour_range_7"]
-
+    
         route_geoms = gpd.GeoDataFrame(
             {
                 "id_linea": [-1],
@@ -550,6 +686,7 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
             },
             crs=4326,
         )
+
         # create section geoms
         section_geoms = create_route_section_points(route_geoms.iloc[0])
         section_geoms = create_sections_geoms(section_geoms, buffer_meters=False)
@@ -593,7 +730,7 @@ with st.expander("Demanda total y por linea"):
         st.warning("Por favor dibuje una línea en el mapa para ver la demanda")
         st.stop()
     legs = get_legs_from_draw_line(route_h3_buffer, hour_range, day_type)
-    st.text(f"Etapas totales en la zona: {int(legs.factor_expansion_linea.sum())}")
+    # st.text(f"Etapas totales en la zona: {int(legs.factor_expansion_linea.sum())}")
     lineas = legs.id_linea.unique().tolist()
     metadata = pd.read_sql(
         f"""
@@ -613,17 +750,297 @@ with st.expander("Demanda total y por linea"):
 
     resultados = legs.reindex(columns=["id_linea", "factor_expansion_linea"])
     resultados = resultados.groupby("id_linea").sum().reset_index()
-    resultados.factor_expansion_linea = resultados.factor_expansion_linea.map(int)
+    resultados.factor_expansion_linea = resultados.factor_expansion_linea.round().map(int)
     resultados = resultados.merge(metadata, on="id_linea", how="left")
     resultados = resultados.reindex(columns=["nombre_linea", "factor_expansion_linea"])
     resultados = resultados.rename(columns={"factor_expansion_linea": "Etapas totales"})
     resultados = resultados.sort_values("Etapas totales", ascending=False)
+    st.text(f"Etapas totales en la zona: {int(resultados['Etapas totales'].sum())}")
 
     col1, col2 = st.columns([1, 4])
     with col1:
         st.write(resultados)
+        # st.write(legs)
     with col2:
-        st.bar_chart(resultados, x="nombre_linea", y="Etapas totales")
+        # st.bar_chart(resultados, x="nombre_linea", y="Etapas totales")
+        import altair as alt
+
+        chart = (
+            alt.Chart(resultados)
+            .mark_bar()
+            .encode(
+                x=alt.X(
+                    "nombre_linea:N",
+                    sort=alt.EncodingSortField(
+                        field="Etapas totales",
+                        order="descending"
+                    )
+                ),
+                y="Etapas totales:Q",
+                tooltip=["nombre_linea", "Etapas totales"]
+            )
+        )
+        
+        st.altair_chart(chart, use_container_width=True)
+
+
+with st.expander("Superposición"):
+    if route_h3 is None:
+        st.warning("Por favor dibuje una línea en el mapa para ver la superposición")
+        st.stop()
+
+    if "resultados" not in locals() or resultados is None or resultados.empty:
+        st.warning("No hay resultados por línea para superponer.")
+        st.stop()
+
+    # -----------------------------
+    # 1) Top N + selección/deselección
+    # -----------------------------
+    top_n = st.slider("Cantidad de líneas a superponer (Top N por etapas)", 1, 30, 10, key="sup_top_n")
+
+    # Asegurar id_linea en resultados_sup
+    if "id_linea" not in resultados.columns:
+        name_to_id = (
+            metadata.drop_duplicates("nombre_linea")
+            .set_index("nombre_linea")["id_linea"]
+            .to_dict()
+        )
+        resultados_sup = resultados.copy()
+        resultados_sup["id_linea"] = resultados_sup["nombre_linea"].map(name_to_id)
+    else:
+        resultados_sup = resultados.copy()
+
+    resultados_sup = resultados_sup.dropna(subset=["id_linea"]).copy()
+    resultados_sup["id_linea"] = resultados_sup["id_linea"].astype(int)
+    resultados_sup = resultados_sup.head(top_n).copy()
+
+    if resultados_sup.empty:
+        st.warning("No pude determinar id_linea para superponer.")
+        st.stop()
+
+    # Label legible (OJO: cambia cuando cambian "Etapas totales" -> por eso se desincroniza el default)
+    if "Etapas totales" in resultados_sup.columns:
+        resultados_sup["label"] = (
+            resultados_sup["nombre_linea"].fillna("sin_nombre")
+            + " — "
+            + resultados_sup["Etapas totales"].astype(int).astype(str)
+            + " etapas"
+        )
+    else:
+        resultados_sup["label"] = resultados_sup["nombre_linea"].fillna("sin_nombre")
+
+    sel_key = "superpos_sel_lineas"
+    opts = resultados_sup["label"].tolist()
+
+    # --- FIX: defaults siempre deben existir en options ---
+    prev = st.session_state.get(sel_key, None)
+    if not prev:
+        default = opts[:]  # primera vez: todas
+    else:
+        default = [x for x in prev if x in opts]  # solo válidos
+        if len(default) == 0:
+            default = opts[:]  # fallback recomendado
+
+    seleccion = st.multiselect(
+        "Seleccionar líneas a mostrar",
+        options=opts,
+        default=default,
+        key="sup_multiselect",
+    )
+    st.session_state[sel_key] = seleccion
+
+    label_to_id = resultados_sup.set_index("label")["id_linea"].to_dict()
+    ids = [label_to_id[lbl] for lbl in seleccion if lbl in label_to_id]
+
+    # -----------------------------
+    # 2) Traer geometrías de líneas seleccionadas
+    # -----------------------------
+    gdf_lineas = levanto_tabla_sql("lines_geoms", "insumos")
+    if gdf_lineas is None or len(gdf_lineas) == 0:
+        st.warning("No pude levantar geometrías de líneas con levanto_tabla_sql('lines_geoms', 'insumos').")
+        st.stop()
+
+    if ids:
+        gdf_sup = gdf_lineas[gdf_lineas["id_linea"].isin(ids)].copy()
+    else:
+        gdf_sup = gdf_lineas.iloc[0:0].copy()
+
+    # Asegurar nombre_linea
+    if not gdf_sup.empty and "nombre_linea" not in gdf_sup.columns:
+        gdf_sup = gdf_sup.merge(metadata, on="id_linea", how="left")
+
+    # Agregar Etapas totales a gdf_sup (si existe)
+    if not gdf_sup.empty and "Etapas totales" in resultados_sup.columns:
+        gdf_sup = gdf_sup.merge(
+            resultados_sup.reindex(columns=["id_linea", "Etapas totales"]),
+            on="id_linea",
+            how="left",
+        )
+
+    # -----------------------------
+    # 3) H3 como buffer (hexágono = buffer)
+    # -----------------------------
+    st.markdown("### Superposición usando H3 como buffer")
+
+    h3_res_sup = st.selectbox(
+        "Resolución H3 (hexágonos que representan el buffer)",
+        options=list(range(5, 11)),
+        index=3,  # -> 8 si opciones=5..10
+        key="sup_h3_res",
+    )
+
+    def _line_to_h3_set(line_geom, h3_res):
+        core = create_coarse_h3_from_line(line_geom, h3_res, -999)["h3"].tolist()
+        return set(core)
+
+    drawn_geom = route_geoms.geometry.iloc[0]
+    h3_drawn = _line_to_h3_set(drawn_geom, h3_res_sup)
+
+    # -----------------------------
+    # 4) Superposición por línea + total
+    # -----------------------------
+    rows = []
+    h3_all_selected = set()
+
+    if not gdf_sup.empty:
+        for _, r in gdf_sup.iterrows():
+            idl = int(r["id_linea"])
+            name = r["nombre_linea"] if "nombre_linea" in r else str(idl)
+
+            h3_line = _line_to_h3_set(r.geometry, h3_res_sup)
+            h3_all_selected |= h3_line
+
+            inter = h3_drawn.intersection(h3_line)
+            union = h3_drawn.union(h3_line)
+
+            pct_on_drawn = (len(inter) / len(h3_drawn) * 100) if len(h3_drawn) else 0.0
+            pct_on_line = (len(inter) / len(h3_line) * 100) if len(h3_line) else 0.0
+            jaccard = (len(inter) / len(union)) if len(union) else 0.0
+
+            rows.append(
+                {
+                    "id_linea": idl,
+                    "nombre_linea": name,
+                    "hex_dibujada": len(h3_drawn),
+                    "hex_linea": len(h3_line),
+                    "hex_intersección": len(inter),
+                    "% sobre dibujada": round(pct_on_drawn, 1),
+                    "% sobre línea": round(pct_on_line, 1),
+                    "Jaccard": round(jaccard, 3),
+                }
+            )
+
+    df_overlap = pd.DataFrame(rows)
+
+    # TOTAL: unión de todas las líneas seleccionadas vs dibujada
+    h3_inter_total = h3_drawn.intersection(h3_all_selected)
+    h3_union_total = h3_drawn.union(h3_all_selected)
+
+    pct_total_on_drawn = (len(h3_inter_total) / len(h3_drawn) * 100) if len(h3_drawn) else 0.0
+    pct_total_on_selected = (len(h3_inter_total) / len(h3_all_selected) * 100) if len(h3_all_selected) else 0.0
+    jaccard_total = (len(h3_inter_total) / len(h3_union_total)) if len(h3_union_total) else 0.0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Hexágonos (línea dibujada)", f"{len(h3_drawn):,}")
+    c2.metric("Hexágonos (unión seleccionadas)", f"{len(h3_all_selected):,}")
+    c3.metric("Hexágonos (intersección total)", f"{len(h3_inter_total):,}")
+
+    st.write(
+        {
+            "% superposición TOTAL sobre dibujada": round(pct_total_on_drawn, 1),
+            "% superposición TOTAL sobre seleccionadas": round(pct_total_on_selected, 1),
+            "Jaccard TOTAL": round(jaccard_total, 3),
+        }
+    )
+
+    if not df_overlap.empty:
+        df_overlap = df_overlap.sort_values("% sobre dibujada", ascending=False)
+        st.dataframe(df_overlap, use_container_width=True)
+    else:
+        st.info("No hay líneas seleccionadas para calcular superposición (solo se muestra la línea dibujada).")
+
+    # -----------------------------
+    # 5) Mapa folium con colores:
+    #    - H3 seleccionadas: claro
+    #    - H3 dibujada: gris claro
+    #    - Intersección: oscuro
+    # -----------------------------
+    st.markdown("### Mapa de superposición (H3 claro/oscuro)")
+
+    colv1, colv2, colv3 = st.columns(3)
+    show_h3_selected = colv1.checkbox("Ver H3 líneas seleccionadas (claro)", value=True, key="sup_show_h3_selected")
+    show_h3_drawn = colv2.checkbox("Ver H3 línea dibujada (gris)", value=True, key="sup_show_h3_drawn")
+    show_h3_inter_total = colv3.checkbox("Ver H3 superpuesto (oscuro)", value=True, key="sup_show_h3_inter_total")
+
+    show_h3_inter_one = st.checkbox(
+        "Ver intersección por línea (además de la total)",
+        value=False,
+        key="sup_show_h3_inter_one",
+    )
+
+    center = drawn_geom.centroid
+    m_sup = folium.Map(location=[center.y, center.x], zoom_start=11, tiles="cartodbpositron")
+
+    # Línea dibujada (distintiva)
+    folium.GeoJson(
+        route_geoms.__geo_interface__,
+        name="Línea dibujada",
+        style_function=lambda x: {
+            "color": "#111111",
+            "weight": 8,
+            "opacity": 0.95,
+            "dashArray": "8, 6",
+        },
+        tooltip=folium.Tooltip("Línea dibujada"),
+    ).add_to(m_sup)
+
+    # Líneas seleccionadas (geom)
+    if not gdf_sup.empty:
+        tooltip_fields = ["nombre_linea", "id_linea"]
+        tooltip_aliases = ["Línea", "ID"]
+        if "Etapas totales" in gdf_sup.columns:
+            tooltip_fields = ["nombre_linea", "id_linea", "Etapas totales"]
+            tooltip_aliases = ["Línea", "ID", "Etapas totales"]
+
+        folium.GeoJson(
+            gdf_sup.__geo_interface__,
+            name="Líneas seleccionadas",
+            style_function=lambda x: {"color": "#ff0000", "weight": 3, "opacity": 0.8},
+            tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases),
+        ).add_to(m_sup)
+
+    def _add_h3_union_layer(h3_set, layer_name, color, fill_opacity):
+        if not h3_set:
+            return
+        geom_union = zona_to_geometry(list(h3_set))
+        folium.GeoJson(
+            gpd.GeoSeries([geom_union], crs=4326).__geo_interface__,
+            name=layer_name,
+            style_function=lambda x: {"color": color, "weight": 2, "fillOpacity": fill_opacity},
+        ).add_to(m_sup)
+
+    if show_h3_selected:
+        _add_h3_union_layer(h3_all_selected, f"H3 líneas seleccionadas (res {h3_res_sup})", "#ff0000", 0.08)
+
+    if show_h3_drawn:
+        _add_h3_union_layer(h3_drawn, f"H3 línea dibujada (res {h3_res_sup})", "#444444", 0.15)
+
+    if show_h3_inter_total:
+        _add_h3_union_layer(h3_inter_total, f"H3 superpuesto TOTAL (res {h3_res_sup})", "#1f77b4", 0.35)
+
+    if show_h3_inter_one and not df_overlap.empty and not gdf_sup.empty:
+        opciones_vis = df_overlap["nombre_linea"].tolist()
+        sel_vis = st.selectbox("Línea para visualizar intersección H3", options=opciones_vis, key="sup_sel_vis")
+
+        id_vis = int(df_overlap.loc[df_overlap["nombre_linea"] == sel_vis, "id_linea"].iloc[0])
+        geom_vis = gdf_sup.loc[gdf_sup["id_linea"] == id_vis, "geometry"].iloc[0]
+        h3_vis = _line_to_h3_set(geom_vis, h3_res_sup)
+        h3_inter_one = h3_drawn.intersection(h3_vis)
+
+        _add_h3_union_layer(h3_inter_one, f"H3 superpuesto — {sel_vis}", "#006400", 0.35)
+
+    folium.LayerControl(collapsed=True).add_to(m_sup)
+    st_folium(m_sup, width=900, height=700)
 
 with st.expander("Demanda por segmento de recorrido"):
     if route_h3 is None:
@@ -751,6 +1168,36 @@ with st.expander("Líneas de deseo por linea"):
     else:
         st.write("No hay sufiente demanda para computar las lineas de deseo")
 
+
+# --- ID del polígono dibujado (editable por el usuario) ---
+default_drawn_poli_id = "estimacion de demanda dibujada"
+
+if "drawn_poli_id" not in st.session_state or not st.session_state["drawn_poli_id"]:
+    st.session_state["drawn_poli_id"] = default_drawn_poli_id
+
+corrida = alias_seleccionado
+
+correr = st.selectbox(
+    "Corridas", options=[corrida, 'Todas'], index=0)
+if correr == 'Todas':
+    corridas = leer_configs_generales(autogenerado=False)['corridas']
+else:
+    corridas = [corrida]
+
+
+drawn_poli_id = st.text_input(
+    "ID del polígono (para guardar en insumos)",
+    value=st.session_state["drawn_poli_id"],
+    help="Este identificador se usará para guardar/actualizar el polígono en la tabla 'poligonos'.",
+    key="drawn_poli_id_input",
+).strip()
+
+
+
+# persistir (por si el usuario lo modifica)
+st.session_state["drawn_poli_id"] = drawn_poli_id if drawn_poli_id else default_drawn_poli_id
+drawn_poli_id = st.session_state["drawn_poli_id"]
+
 if st.button("Procesar polígono"):
     st.write(
         "Procesando polígono del recorrido para análisis de cuenca. Esto puede tomar unos minutos..."
@@ -760,8 +1207,12 @@ if st.button("Procesar polígono"):
 
     if len(poligonos) > 0:
         poligonos["wkt"] = poligonos.geometry.map(lambda g: g.wkt)
+    
+    drawn_poli_id = st.session_state["drawn_poli_id"]
+    st.write("Polígono: "+drawn_poli_id)
+    # drawn_poli_id = "estimacion de demanda dibujada"
 
-    drawn_poli_id = "estimacion de demanda dibujada"
+    
     drawn_poli = gdf.copy()
     drawn_poli["id"] = drawn_poli_id
     drawn_poli["tipo"] = "cuenca"
@@ -775,17 +1226,20 @@ if st.button("Procesar polígono"):
     st.write("Guardando poligono en base de insumos")
     guardar_tabla_sql(drawn_poli, "poligonos", "insumos", modo="replace")
 
-    corrida = alias_seleccionado
+    
     st.write("Corriendo cuencas para Polígonos ...")
 
-    preparo_indicadores_dash(
-        lineas_deseo=False,
-        poligonos=True,
-        kpis=False,
-        corrida=corrida,
-        resoluciones=[6],
-        poligon_id=drawn_poli_id,
-    )
+    
+    for corrida_tmp in corridas:
+        st.write('Corrida', corrida_tmp)
+        preparo_indicadores_dash(
+            lineas_deseo=False,
+            poligonos=True,
+            kpis=False,
+            corrida=corrida_tmp,
+            resoluciones=[6],
+            poligon_id=drawn_poli_id,
+        )
 
     st.cache_data.clear()
     st.write("Datos procesados, puede ver los patrones en el apartado Polígonos")

@@ -472,10 +472,17 @@ with st.expander("Líneas de Deseo", expanded=True):
         "agg_cols_viajes",
     ]
 
+    variables_bool = ['resumen']
+    
+
     # Inicializar todas las variables con None si no existen en session_state
     for var in variables:
         if var not in st.session_state:
             st.session_state[var] = ""
+            
+    for var in variables_bool:
+        if var not in st.session_state:
+            st.session_state[var] = False
 
     etapas_lst_ = levanto_tabla_sql(
         "poly_etapas", "dash", "SELECT DISTINCT dia FROM poly_etapas;"
@@ -601,7 +608,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
 
         if st.session_state.poly["tipo"].values[0] == "cuenca":
-            desc_cuenca = col3.checkbox("OD en cuenca", value=False)
+            desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
         else:
             desc_cuenca = False
 
@@ -640,6 +647,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             "desc_cuenca": desc_cuenca,
             "desc_et_vi": desc_et_vi,
             "mtabla": mtabla,
+            "resumen": st.session_state.resumen,
         }
 
         # Solo cargar datos si hay cambios en los filtros
@@ -895,15 +903,57 @@ with st.expander("Matrices"):
         if tipo_matriz == "Velocidad promedio (km/h)":
             var_matriz = "travel_speed"
 
+        st.session_state.resumen = col1.checkbox("Principales OD", value=False)
+
+        if st.session_state.poly["tipo"].values[0] == "cuenca":
+            mat_cuenca = col1.checkbox("Matriz de la cuenca", value=False)
+        else:
+            mat_cuenca = False
+        
         mmatriz_ = col1.checkbox("Mostrar tabla", value=False, key="mmatriz_")
 
-        od_heatmap = pd.crosstab(
-            index=st.session_state.matriz["Origen"],
-            columns=st.session_state.matriz["Destino"],
-            values=st.session_state.matriz[var_matriz],
-            aggfunc="sum",
-            normalize=normalize,
-        )
+        
+        col1.write(
+                'Cantidad total de viajes: ' +
+                f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
+            )
+
+        
+        matriz_tmp = st.session_state.matriz.copy()
+
+        if mat_cuenca:
+            matriz_tmp = matriz_tmp[(matriz_tmp.Origen.str.contains('cuenca')) & (matriz_tmp.Destino.str.contains('cuenca'))]            
+            col1.write(
+                'Cantidad total en cuenca: ' +
+                f"{int(matriz_tmp.factor_expansion_linea.sum()):,}"
+            )
+
+            
+        if not st.session_state.resumen:
+            od_heatmap = pd.crosstab(
+                index=matriz_tmp["Origen"],
+                columns=matriz_tmp["Destino"],
+                values=matriz_tmp[var_matriz],
+                aggfunc="sum",
+                normalize=normalize,
+            )
+        else:
+            matriz_resumen = matriz_tmp.copy()
+            matriz_resumen = matriz_resumen[matriz_resumen.resumen == 1]
+
+            od_heatmap = pd.crosstab(
+                index=matriz_resumen["Origen"],
+                columns=matriz_resumen["Destino"],
+                values=matriz_resumen[var_matriz],
+                aggfunc="sum",
+                normalize=normalize,
+            )
+
+            col1.write(
+                f"Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes"
+            )
+
+        
 
         if normalize:
             od_heatmap = (od_heatmap * 100).round(2)
@@ -933,6 +983,6 @@ with st.expander("Matrices"):
         col2.plotly_chart(fig)
 
         if mmatriz_:
-            col2.write(st.session_state.matriz)
+            col2.write(matriz_tmp)
     else:
         col2.text("No hay datos para mostrar")

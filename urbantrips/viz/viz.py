@@ -1619,8 +1619,8 @@ def imprime_burbujas(
                 db_path = os.path.join("resultados", "pdf", f"{alias}{savefile}.pdf")
                 fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-            if show_fig:
-                display(fig)
+            # if show_fig:
+            #     display(fig)
 
         except ValueError as e:
             print(e)
@@ -1957,8 +1957,8 @@ def imprime_od(
             else:
                 od_heatmap.to_excel(path_resultados / (db_path))
 
-        if show_fig:
-            display(fig)
+        # if show_fig:
+        #     display(fig)
 
         # Guardo datos para el dashboard
         if "h3_r" not in var_zona:
@@ -2243,8 +2243,8 @@ def lineas_deseo(
                         k_jenks=k_jenks,
                     )
 
-                if show_fig:
-                    display(fig)
+                # if show_fig:
+                #     display(fig)
             except ValueError as e:
                 print(e)
 

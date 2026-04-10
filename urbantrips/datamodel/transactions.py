@@ -865,6 +865,12 @@ def process_and_upload_gps_table(
 
     # subir datos a tablas temporales
     print("Subiendo tabla gps")
+        
+    configs = leer_configs_generales()
+    res = configs["resolucion_h3"]
+    
+    gps["h3"] = gps.apply(geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
+    
     gps.to_sql(
         "gps", conn, if_exists="append", index=False, method="multi", chunksize=40
     )
@@ -939,6 +945,7 @@ def compute_distance_km_gps(gps, use_pandana=False):
         reindex_cols = ["dia", "id_linea", "interno", "h3"]
 
     gps["h3"] = gps.apply(geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
+
 
     # order by day, line, vehicle and date
     gps = gps.sort_values(order_cols).reset_index(drop=True)
