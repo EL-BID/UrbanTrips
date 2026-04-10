@@ -673,9 +673,7 @@ def assign_gps_origin():
             print("legs sample:", legs_to_join[c].dropna().astype(str).head().tolist())
             print("gps  sample:", gps_to_join[c].dropna().astype(str).head().tolist())
             
-        print('XXXXXXX')
-        
-        # Join on closest date
+                # Join on closest date
         legs_to_gps_o = pd.merge_asof(
             legs_to_join,
             gps_to_join,
