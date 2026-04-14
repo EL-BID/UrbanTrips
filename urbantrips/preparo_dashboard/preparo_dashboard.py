@@ -813,6 +813,7 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
                 keep_geom_type=False,
             )
             poly_ovl = poly_ovl.dissolve(by=f"zona_{i}", as_index=False)
+            poly_ovl = poly_ovl[poly_ovl.geom_type.isin(["Polygon", "MultiPolygon"])]
             poly_ovl = gpd.overlay(
                 poly_ovl,
                 polygon[["geometry"]],
@@ -847,7 +848,6 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
             )
             poly_ovl_agg = poly_ovl.dissolve(by="id", as_index=False)
             poly_ovl_agg = fix_mixed_polygons(poly_ovl_agg)
-
             poly_ovl_agg = gpd.overlay(
                 poly_ovl_agg,
                 polygon[["geometry"]],

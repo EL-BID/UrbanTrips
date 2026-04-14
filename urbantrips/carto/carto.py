@@ -919,7 +919,7 @@ def create_coarse_h3_from_line(
     df_section_ids_LRS = create_route_section_ids(len(gdf))
 
     # Create cut points for each section based on H3 LRS
-    df_section_ids_LRS_cut = df_section_ids_LRS.copy()
+    df_section_ids_LRS_cut = df_section_ids_LRS.copy().drop_duplicates()
     df_section_ids_LRS_cut.loc[0] = -0.001
 
     # Use cut points to come up with a unique integer id
