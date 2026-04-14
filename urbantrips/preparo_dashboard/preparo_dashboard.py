@@ -25,6 +25,7 @@ from urbantrips.carto.carto import guardo_zonificaciones
 import unidecode
 import gc
 from datetime import datetime
+from shapely.geometry import MultiPolygon
 
 pd.set_option("future.no_silent_downcasting", True)
 
@@ -93,7 +94,6 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     print("Levanto Data Etapas y Viajes")
 
     # ── conexiones ──────────────────────────────────────────────────
-    conn_ins = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     conn_dat = iniciar_conexion_db(tipo="data", alias_db=alias_data)
 
     print("etapas")
@@ -274,7 +274,9 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
             "tarifa_agregada",
         ]
     ]
-    # gc.collect()
+
+    conn_dat.close()
+    
     return etapas, viajes
 
 
@@ -765,11 +767,35 @@ def construyo_matrices(
     )
 
     return matriz
+def fix_mixed_polygons(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Corrige mezcla Polygon/MultiPolygon para que GeoPandas overlay funcione.
+    No cambia la geometría, solo el tipo.
+    """
 
+    gdf = gdf.copy()
 
+    # eliminar geometrías nulas o vacías
+    gdf = gdf[~gdf.geometry.isna()]
+    gdf = gdf[~gdf.geometry.is_empty]
+
+    # quedarse solo con geometrías poligonales
+    gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
+
+    # convertir Polygon -> MultiPolygon
+    gdf["geometry"] = gdf.geometry.apply(
+        lambda g: MultiPolygon([g]) if g.geom_type == "Polygon" else g
+    )
+
+    return gdf
+    
 def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
 
     poly_sel = h3_to_geodataframe(polygons_h3, "h3_o")
+
+    poly_sel = fix_mixed_polygons(poly_sel)
+    polygon = fix_mixed_polygons(polygon)
+    
     poly_sel_all = pd.DataFrame([])
 
     if "res_" in res:
@@ -821,7 +847,7 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
                 keep_geom_type=False,
             )
             poly_ovl_agg = poly_ovl.dissolve(by="id", as_index=False)
-            poly_ovl = poly_ovl[poly_ovl.geom_type.isin(["Polygon", "MultiPolygon"])]
+            poly_ovl_agg = fix_mixed_polygons(poly_ovl_agg)
             poly_ovl_agg = gpd.overlay(
                 poly_ovl_agg,
                 polygon[["geometry"]],
@@ -1858,12 +1884,15 @@ def preparo_lineas_deseo(
                 if tipo_poly == "cuenca":
                     # reemplazo latitudes y longitudes de cuenca para normalizar
                     poly_var = i.replace("h3_", "").replace("_norm", "")
+
+
+                    
                     h3_equivalencias_agg = (
                         h3_equivalencias.groupby(
                             [f"zona_{zona}", f"lat_{zona}", f"lon_{zona}"],
                             as_index=False,
                         )
-                        .h3_o.count()
+                        ['h3_o'].count()
                         .drop(["h3_o"], axis=1)
                     )
 
@@ -2824,7 +2853,7 @@ def proceso_poligonos(
         construyo_indicadores(viajes_selec, poligonos=True, alias_db=alias_db)
 
 
-def crear_indices_unificados():
+def crear_indices_unificados(alias_db):
     """
     Crea índices en las bases SQLite usadas por el pipeline UrbanTrips:
     - data (etapas, viajes, transacciones, gps, services, kpi_by_day_line)
@@ -2834,9 +2863,9 @@ def crear_indices_unificados():
     """
 
     # ---- abrir conexiones ----
-    conn_data = iniciar_conexion_db(tipo="data")
-    conn_dash = iniciar_conexion_db(tipo="dash")
-    conn_ins = iniciar_conexion_db(tipo="insumos")
+    conn_data = iniciar_conexion_db(tipo="data", alias_db=alias_db)
+    conn_dash = iniciar_conexion_db(tipo="dash", alias_db=alias_db)
+    conn_ins = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
     # ---- helpers internos ----
     def _table_exists(conn, table):
@@ -3159,4 +3188,6 @@ def preparo_indicadores_dash(
             etapas=etapas.copy(), viajes=viajes.copy(), alias_data=corrida
         )
 
-    crear_indices_unificados()
+    crear_indices_unificados(corrida)
+
+    gc.collect()

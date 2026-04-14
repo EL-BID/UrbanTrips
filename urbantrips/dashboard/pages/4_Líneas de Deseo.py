@@ -1038,6 +1038,12 @@ with st.expander("Matrices"):
         st.session_state.mmatriz = mmatriz_
         col1.write(f"Día: {dia_seleccionado}")
         # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
+
+        col1.write(
+                'Cantidad total de viajes: ' +
+                f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
+            )
+        
         col1.write(f"Transferencias: {transfer_seleccionado}")
         col1.write(f"Modos: {modo_seleccionado}")
         col1.write(f"Rango hora: {rango_hora_seleccionado}")

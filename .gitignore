@@ -151,3 +151,13 @@ data/data_ciudad/zona_voi.geojson
 *.geojson
 *.sqlite-shm
 *.sqlite-wal
+*.sqlite
+*.csv
+*.csv
+checks.py
+data/data_ciudad/martes_trx.csv
+urbantrips/utils/check.py
+urbantrips/dashboard/pages/11_demanda2.py
+*.csv
+data/data_ciudad/meta_lineas_mza
+data/data_ciudad/martes_trx.csv
