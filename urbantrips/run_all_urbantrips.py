@@ -1,6 +1,6 @@
 import argparse
 from urbantrips.utils.run_process import run_all
-
+import time
 """
 ────────────────────────────────────────────────────────────
 📝 Ejemplos de uso desde consola (Windows o Linux):
@@ -8,16 +8,16 @@ from urbantrips.utils.run_process import run_all
 python run_all_urbantrips.py
     → Corre solo las pendientes y crea el dashboard
 
-python run_all_urbantrips.py --borrar_corrida all
+python urbantrips/run_all_urbantrips.py --borrar_corrida all
     → Borra todo y vuelve a correr desde cero, creando dashboard
 
-python run_all_urbantrips.py --borrar_corrida alias1
+python urbantrips/run_all_urbantrips.py --borrar_corrida alias1
     → Borra y vuelve a correr el alias 'alias1' y lo que falte, creando dashboard
 
-python run_all_urbantrips.py --no_dashboard
+python urbantrips/run_all_urbantrips.py --no_dashboard
     → Corre pendientes sin crear el dashboard
 
-python run_all_urbantrips.py --borrar_corrida alias1 --no_dashboard
+python urbantrips/run_all_urbantrips.py --borrar_corrida alias1 --no_dashboard
     → Borra 'alias1', corre lo que falte, y no crea dashboard
 ────────────────────────────────────────────────────────────
 """
@@ -42,6 +42,7 @@ def main(borrar_corrida="", crear_dashboard=True):
 
 
 if __name__ == "__main__":
+    inicio = time.time()
     parser = argparse.ArgumentParser(
         description="Ejecuta corridas de UrbanTrips con opciones de borrado y dashboard."
     )
@@ -65,3 +66,11 @@ if __name__ == "__main__":
         borrar_corrida=args.borrar_corrida,
         crear_dashboard=not args.no_dashboard,  # por defecto es True, salvo que se indique --no_dashboard
     )
+    fin = time.time()
+
+    print("")
+    print("")
+    print("")
+    print("")
+    print("")
+    print('tiempo total', round((fin-inicio)/60, 2))

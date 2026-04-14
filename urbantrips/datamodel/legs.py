@@ -644,12 +644,36 @@ def assign_gps_origin():
 
         # gps.loc[:, ["fecha"]] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
         gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+        
+        # for dfx in [legs, gps]:
+        #     dfx["fecha"] = pd.to_datetime(dfx["fecha"], errors="coerce")
+        #     dfx["dia"] = dfx["dia"].astype(str).str.strip()
+
+        #     dfx["id_linea"] = pd.to_numeric(dfx["id_linea"], errors="coerce").astype("Int64")
+        #     dfx["id_ramal"] = pd.to_numeric(dfx["id_ramal"], errors="coerce").astype("Int64")
+        #     dfx["interno"] = pd.to_numeric(dfx["interno"], errors="coerce").astype("Int64")
 
         cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
         legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
         gps_to_join = gps.reindex(columns=cols).sort_values("fecha")
+        
+        print('x')
+        cols_merge = ["fecha", "dia", "id_linea", "id_ramal", "interno"]
 
-        # Join on closest date
+        print("legs_to_join")
+        print(legs_to_join[cols_merge].dtypes)
+
+        print("\ngps_to_join")
+        print(gps_to_join[cols_merge].dtypes)
+        print('x')
+        for c in ["dia", "id_linea", "id_ramal", "interno"]:
+            print(f"\n--- {c} ---")
+            print("legs dtype:", legs_to_join[c].dtype)
+            print("gps  dtype:", gps_to_join[c].dtype)
+            print("legs sample:", legs_to_join[c].dropna().astype(str).head().tolist())
+            print("gps  sample:", gps_to_join[c].dropna().astype(str).head().tolist())
+            
+                # Join on closest date
         legs_to_gps_o = pd.merge_asof(
             legs_to_join,
             gps_to_join,

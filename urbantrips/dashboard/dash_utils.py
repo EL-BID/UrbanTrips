@@ -18,35 +18,100 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 
-def leer_configs_generales(autogenerado=True):
-    """
-    Lee el archivo de configuración YAML, probando primero con UTF-8
-    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
-    """
-    archivo = (
-        "configuraciones_generales_autogenerado.yaml"
-        if autogenerado
-        else "configuraciones_generales.yaml"
-    )
-    path = os.path.join("configs", archivo)
+# def leer_configs_generales(autogenerado=True):
+#     """
+#     Lee el archivo de configuración YAML, probando primero con UTF-8
+#     y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
+#     """
+#     archivo = (
+#         "configuraciones_generales_autogenerado.yaml"
+#         if autogenerado
+#         else "configuraciones_generales.yaml"
+#     )
+#     path = os.path.join("configs", archivo)
+
+#     try:
+#         with open(path, "r", encoding="utf-8") as file:
+#             return yaml.safe_load(file)
+#     except UnicodeDecodeError:
+#         try:
+#             with open(path, "r", encoding="latin-1") as file:
+#                 return yaml.safe_load(file)
+#         except yaml.YAMLError as error:
+#             print(f"❌ Error YAML en archivo con latin-1: {error}")
+#         except Exception as e:
+#             print(f"❌ Error general con latin-1: {e}")
+#     except yaml.YAMLError as error:
+#         print(f"❌ Error YAML en archivo con UTF-8: {error}")
+#     except Exception as e:
+#         print(f"❌ Error general leyendo archivo: {e}")
+
+#     return {}
+
+
+def _load_yaml_simple(path: Path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except UnicodeDecodeError:
+        with open(path, "r", encoding="latin-1") as f:
+            data = yaml.safe_load(f)
+    return data if data else {}
+
+
+def _find_first_valid_yaml(autogen_dir: Path):
+    base_path = Path("configs") / "configuraciones_generales.yaml"
+    if not base_path.exists():
+        raise FileNotFoundError(f"No existe {base_path}")
+
+    base = _load_yaml_simple(base_path)
 
     try:
-        with open(path, "r", encoding="utf-8") as file:
-            return yaml.safe_load(file)
-    except UnicodeDecodeError:
-        try:
-            with open(path, "r", encoding="latin-1") as file:
-                return yaml.safe_load(file)
-        except yaml.YAMLError as error:
-            print(f"❌ Error YAML en archivo con latin-1: {error}")
-        except Exception as e:
-            print(f"❌ Error general con latin-1: {e}")
-    except yaml.YAMLError as error:
-        print(f"❌ Error YAML en archivo con UTF-8: {error}")
+        tmp = base["corridas"][0]
     except Exception as e:
-        print(f"❌ Error general leyendo archivo: {e}")
+        raise KeyError("No se pudo obtener base['corridas'][0]") from e
 
-    return {}
+    origen = autogen_dir / f"configuraciones_generales_autogenerado_{tmp}.yaml"
+
+    if not origen.exists():
+        raise FileNotFoundError(f"No existe el autogenerado esperado: {origen}")
+
+    if origen.stat().st_size == 0:
+        raise ValueError(f"El autogenerado esperado está vacío: {origen}")
+
+    return origen
+
+
+from pathlib import Path
+import yaml
+import shutil
+
+
+def leer_configs_generales(autogenerado=True):
+    path = Path("configs") / ("configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml")
+    autogen_dir = Path("configs") / "autogenerados"
+
+    print(path)
+
+    # Solo para autogenerado: si falta o está vacío, copiar
+    if autogenerado and ((not path.exists()) or path.stat().st_size == 0):
+        origen = _find_first_valid_yaml(autogen_dir)
+        shutil.copy(origen, path)
+
+    # Parsear (si falla y autogenerado=True, reemplazar y reintentar una vez)
+    try:
+        return _load_yaml_simple(path)
+    except yaml.YAMLError as e:
+        print(f"❌ Error YAML: {e}")
+
+        if autogenerado:
+            origen = _find_first_valid_yaml(autogen_dir)
+            shutil.copy(origen, path)
+            return _load_yaml_simple(path)
+
+        return {}
+    
+
 
 
 def leer_alias(tipo="dash"):
@@ -299,7 +364,7 @@ def create_linestring_od(
 
     # Create LineString objects from the coordinates
     geometry = [
-        LineString([(row["lon_o"], row["lat_o"]), (row["lon_d"], row["lat_d"])])
+        LineString([(row[lon_o], row[lat_o]), (row[lon_d], row[lat_d])])
         for _, row in df.iterrows()
     ]
 
@@ -929,15 +994,15 @@ def extract_hex_colors_from_cmap(cmap, n=5):
 def bring_latlon():
     try:
         latlon = levanto_tabla_sql(
-            "agg_etapas",
-            "dash",
-            "SELECT lat1, lon1 FROM agg_viajes ORDER BY factor_expansion_linea DESC LIMIT 1000;",
-        )
-        lat = latlon["lat1"].mean()
-        lon = latlon["lon1"].mean()
+                    "agg_etapas",
+                    "dash",
+                    "SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY factor_expansion_linea DESC LIMIT 1000;",
+                )
+        lat = latlon["lat1_norm"].mean()
+        lon = latlon["lon1_norm"].mean()
         latlon = [lat, lon]
     except:
-        latlon = [-34.593, -58.451]
+    	latlon = [-32.891401, -68.843242]
     return latlon
 
 
@@ -1399,6 +1464,15 @@ def configurar_selector_dia():
         
     return seleccion
 
+def tabla_existe(conn, table_name):
+    try:
+        conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
+        return True
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return False
+        else:
+            raise
 
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
@@ -1412,7 +1486,7 @@ def guardar_tabla_sql(
     tabla_tipo (str): Tipo de conexión a la base de datos.
     alias_db (str): Alias para identificar el archivo de base de datos.
     filtros (dict, optional): Filtros para eliminar registros si modo='append'. Las claves son los nombres
-                               de los campos y los valores pueden ser un valor único o una lista de valores.
+                               de los campos y los valores pueden ser un valor unico o una lista de valores.
     modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
     """
     # Conectar a la base de datos
@@ -1489,22 +1563,24 @@ import mapclassify
 def calcular_bins(df_viajes, var_fex, k_max, cut_col="cuts"):
     """
     Aplica Fisher–Jenks para generar cortes y asigna la columna de categorías:
-      - Si hay un solo valor único, asigna ese valor como etiqueta única.
+      - Si hay un solo valor unico, asigna ese valor como etiqueta única.
       - Si hay >1 valor, intenta k=k_max…2; si falla, usa [mínimo, máximo].
       - Limpia duplicados consecutivos en los bins.
       - Añade en la copia del DataFrame una columna `cut_col` con los intervalos.
     """
+    
     valores = df_viajes[var_fex]
     if valores.isnull().any():
         raise ValueError(f"La columna {var_fex} contiene valores nulos")
     valores = valores.astype(float)
 
-    # Caso único
+    # Caso unico
     if valores.nunique() == 1:
-        único = int(valores.iloc[0])
+        unico = int(valores.iloc[0])
         df = df_viajes.copy()
-        df[cut_col] = str(único)
-        return df
+        df[cut_col] = str(unico)
+        labels = [str(unico)]
+        return df, labels
 
     v_min, v_max = valores.min(), valores.max()
     raw_bins = None
