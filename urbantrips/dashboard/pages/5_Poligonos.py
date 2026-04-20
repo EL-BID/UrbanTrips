@@ -593,7 +593,6 @@ with st.expander("Líneas de Deseo", expanded=True):
         )
 
         desc_origenes = col3.checkbox(":blue[Origenes]", value=False)
-
         desc_destinos = col3.checkbox(":orange[Destinos]", value=False)
 
         desc_zonif = col3.checkbox("Mostrar zonificación", value=True)
