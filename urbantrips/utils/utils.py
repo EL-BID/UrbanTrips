@@ -19,17 +19,16 @@ import math
 def duracion(f):
     @wraps(f)
     def wrap(*args, **kw):
-        print("")
+        print('')
         print(
             f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True
         )
-        print("-" * (len(f.__name__) + 22))
+        print("=" * (len(f.__name__) + 22))
 
         ts = time.time()
         result = f(*args, **kw)
         te = time.time()
         print(f"Finalizado {f.__name__}. Tardo {te - ts:.2f} segundos")
-        print("")
         return result
 
     return wrap
@@ -194,8 +193,6 @@ def create_data_dash_dbs(alias_db):
     # dashborad tables
     create_dash_tables(alias_db)
 
-    print("Fin crear base")
-    print("Todas las tablas creadas")
 
 
 def create_other_inputs_tables(alias_db):
@@ -708,9 +705,11 @@ def create_basic_data_model_tables(alias_db):
             h3_o text,
             h3_d text,
             od_validado int,
+            etapa_validada int,
             factor_expansion_original float,
             factor_expansion_linea float,
             factor_expansion_tarjeta float,
+            factor_expansion_etapa float,
             distancia float,
             travel_time_min float
             )
@@ -1194,7 +1193,7 @@ def agrego_indicador(
     """
 
     df = df_indicador.copy()
-
+    
     conn_data = iniciar_conexion_db(tipo="data")
 
     try:
@@ -1205,8 +1204,7 @@ def agrego_indicador(
             """,
             conn_data,
         )
-    except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola...", e)
+    except DatabaseError as e:        
         indicadores = pd.DataFrame([])
 
     if var not in df.columns:
@@ -1219,101 +1217,108 @@ def agrego_indicador(
         df = df.rename(columns={var: "indicador"})
 
     df = df[(df.indicador.notna())].copy()
+    
+    if len(df) == 0:
+        print('**')
+        print(f'Para el indicador "{var}" no hay datos para agregar')
+        print('**')
+    else:
 
-    if (not var_fex) | (aggfunc == "sum"):
-        resultado = (
-            df.groupby("dia", as_index=False).agg({"indicador": aggfunc}).round(2)
-        )
+        if (not var_fex) | (aggfunc == "sum"):
+            resultado = (
+                df.groupby("dia", as_index=False).agg({"indicador": aggfunc}).round(2)
+            )
 
-    elif aggfunc == "mean":
-        resultado = (
-            df.groupby("dia")
-            .apply(lambda x: np.average(x["indicador"], weights=x[var_fex]))
-            .reset_index()
-            .rename(columns={0: "indicador"})
-            .round(2)
-        )
+        elif aggfunc == "mean":
 
-    elif aggfunc == "median":
-        resultado = (
-            df.groupby("dia")
-            .apply(
-                lambda x: ws.weighted_median(
-                    x["indicador"].tolist(), weights=x[var_fex].tolist()
+            resultado = (
+                df.groupby("dia")
+                .apply(lambda x: np.average(x["indicador"], weights=x[var_fex]))
+            )
+            resultado = resultado.reset_index()
+            resultado.columns = ["dia", "indicador"]
+            resultado = resultado.round(2)
+
+        elif aggfunc == "median":
+            resultado = (
+                df.groupby("dia")
+                .apply(
+                    lambda x: ws.weighted_median(
+                        x["indicador"].tolist(), weights=x[var_fex].tolist()
+                    )
                 )
             )
-            .reset_index()
-            .rename(columns={0: "indicador"})
-            .round(2)
-        )
+            resultado = resultado.reset_index()
+            resultado.columns = ["dia", "indicador"]
+            resultado = resultado.round(2)
 
-    resultado["detalle"] = detalle
-    resultado = resultado[["dia", "detalle", "indicador"]]
-    resultado["tabla"] = tabla
-    resultado["nivel"] = nivel
+        resultado["detalle"] = detalle
+        resultado = resultado[["dia", "detalle", "indicador"]]
+        resultado["tabla"] = tabla
+        resultado["nivel"] = nivel
 
-    if len(indicadores) > 0:
-        indicadores = indicadores[
-            ~(
-                (indicadores.dia.isin(resultado.dia.unique()))
-                & (indicadores.detalle == detalle)
-                & (indicadores.tabla == tabla)
-            )
-        ]
+        if len(indicadores) > 0:
+            indicadores = indicadores[
+                ~(
+                    (indicadores.dia.isin(resultado.dia.unique()))
+                    & (indicadores.detalle == detalle)
+                    & (indicadores.tabla == tabla)
+                )
+            ]
 
-    indicadores = pd.concat([indicadores, resultado], ignore_index=True)
-    if nivel > 0:
-        for i in indicadores[
-            (indicadores.tabla == tabla) & (indicadores.nivel == nivel)
-        ].dia.unique():
-            for x in indicadores.loc[
-                (indicadores.tabla == tabla)
-                & (indicadores.nivel == nivel)
-                & (indicadores.dia == i),
-                "detalle",
-            ]:
-                valores = round(
+        indicadores = pd.concat([indicadores, resultado], ignore_index=True)
+        if nivel > 0:
+            for i in indicadores[
+                (indicadores.tabla == tabla) & (indicadores.nivel == nivel)
+            ].dia.unique():
+                for x in indicadores.loc[
+                    (indicadores.tabla == tabla)
+                    & (indicadores.nivel == nivel)
+                    & (indicadores.dia == i),
+                    "detalle",
+                ]:
+                    valores = round(
+                        indicadores.loc[
+                            (indicadores.tabla == tabla)
+                            & (indicadores.nivel == nivel)
+                            & (indicadores.dia == i)
+                            & (indicadores.detalle == x),
+                            "indicador",
+                        ].values[0]
+                        / indicadores.loc[
+                            (indicadores.tabla == tabla)
+                            & (indicadores.nivel == nivel - 1)
+                            & (indicadores.dia == i),
+                            "indicador",
+                        ].values[0]
+                        * 100,
+                        1,
+                    )
                     indicadores.loc[
                         (indicadores.tabla == tabla)
                         & (indicadores.nivel == nivel)
                         & (indicadores.dia == i)
                         & (indicadores.detalle == x),
-                        "indicador",
-                    ].values[0]
-                    / indicadores.loc[
-                        (indicadores.tabla == tabla)
-                        & (indicadores.nivel == nivel - 1)
-                        & (indicadores.dia == i),
-                        "indicador",
-                    ].values[0]
-                    * 100,
-                    1,
-                )
-                indicadores.loc[
-                    (indicadores.tabla == tabla)
-                    & (indicadores.nivel == nivel)
-                    & (indicadores.dia == i)
-                    & (indicadores.detalle == x),
-                    "porcentaje",
-                ] = valores
+                        "porcentaje",
+                    ] = valores
 
-    indicadores.fillna(0, inplace=True)
+        indicadores.fillna(0, inplace=True)
 
-    SAFE_CHUNKSIZE = (
-        math.floor((999 / len(indicadores.columns)) * 0.9)
-        if len(indicadores.columns) > 0
-        else 1
-    )
-    indicadores.to_sql(
-        "indicadores",
-        conn_data,
-        if_exists="replace",
-        index=False,
-        method="multi",
-        chunksize=SAFE_CHUNKSIZE,
-    )
+        SAFE_CHUNKSIZE = (
+            math.floor((999 / len(indicadores.columns)) * 0.9)
+            if len(indicadores.columns) > 0
+            else 1
+        )
+        indicadores.to_sql(
+            "indicadores",
+            conn_data,
+            if_exists="replace",
+            index=False,
+            method="multi",
+            chunksize=SAFE_CHUNKSIZE,
+        )
 
-    conn_data.close()
+        conn_data.close()
 
 
 @duracion
@@ -1630,36 +1635,6 @@ def normalize_vars(tabla):
     return tabla
 
 
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-
-    if alias_db and not alias_db.endswith("_"):
-        alias_db += "_"
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
-
-    try:
-        if len(query) == 0:
-            query = f"SELECT * FROM {tabla_sql}"
-        tabla = pd.read_sql_query(query, conn)
-    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
-        if "no such table" in str(e):
-            print(f"La tabla '{tabla_sql}' no existe.")
-            tabla = pd.DataFrame([])
-        else:
-            raise
-
-    conn.close()
-
-    if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, crs=4326)
-        tabla = tabla.drop(["wkt"], axis=1)
-
-    tabla = normalize_vars(tabla)
-
-    return tabla
-
-
 def calculate_weighted_means(
     df_,
     aggregate_cols,
@@ -1734,69 +1709,269 @@ def tabla_existe(conn, table_name):
             raise
 
 
+
+def _aplicar_pragmas_wal(conn):
+    """Aplica pragmas de performance WAL a una conexión SQLite abierta."""
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-64000")  # 64 MB
+    conn.execute("PRAGMA temp_store=MEMORY")
+
+
+def _drop_indices(conn, table_name):
+    """Devuelve lista de índices existentes y los elimina."""
+    cur = conn.execute(
+        f"SELECT name, sql FROM sqlite_master "
+        f"WHERE type='index' AND tbl_name='{table_name}' AND sql IS NOT NULL"
+    )
+    indices = cur.fetchall()
+    for name, _ in indices:
+        conn.execute(f"DROP INDEX IF EXISTS {name}")
+    conn.commit()
+    return indices
+
+
+def _recreate_indices(conn, indices):
+    """Recrea los índices a partir del SQL original."""
+    for _, sql in indices:
+        if sql:
+            conn.execute(sql)
+    conn.commit()
+
+
+def _executemany_df(df: pd.DataFrame, table_name: str, conn, if_exists: str = "append", indices=None):
+    """
+    Escribe un DataFrame en SQLite usando executemany.
+    Reemplaza to_sql(..., method='multi') manteniendo la misma semántica
+    de if_exists='replace' / 'append'.
+    Recibe índices opcionales desde el caller para evitar doble drop.
+    """
+    if df.empty:
+        return
+
+    if if_exists == "replace":
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+    def _sqlite_type(series):
+        if pd.api.types.is_float_dtype(series):
+            return "REAL"
+        elif pd.api.types.is_integer_dtype(series):
+            return "INTEGER"
+        else:
+            return "TEXT"
+
+    cols_def = ", ".join(f'"{c}" {_sqlite_type(df[c])}' for c in df.columns)
+    conn.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols_def})')
+
+    # Solo dropear índices si no vienen del caller
+    if indices is None:
+        indices = _drop_indices(conn, table_name)
+
+    cols_str = ", ".join(f'"{c}"' for c in df.columns)
+    placeholders = ", ".join(["?"] * len(df.columns))
+    sql = f'INSERT INTO "{table_name}" ({cols_str}) VALUES ({placeholders})'
+
+    CHUNK = 10_000
+    total_chunks = math.ceil(len(df) / CHUNK)
+    t0 = time.time()
+    t_chunk = time.time()
+
+    # print(f"\n  Escribiendo {len(df):,} registros en '{table_name}' ({total_chunks} chunks de {CHUNK:,})")
+
+    for i in range(0, len(df), CHUNK):
+        chunk = df.iloc[i : i + CHUNK]
+        conn.executemany(sql, chunk.itertuples(index=False, name=None))
+        n_chunk = i // CHUNK + 1
+        elapsed_chunk = time.time() - t_chunk
+        elapsed_total = time.time() - t0
+        pct = n_chunk / total_chunks * 100
+        restante = (elapsed_total / n_chunk) * (total_chunks - n_chunk)
+        # print(
+        #     f"  chunk {n_chunk:>{len(str(total_chunks))}}/{total_chunks} "
+        #     f"({pct:5.1f}%) — chunk: {elapsed_chunk:.1f}s — "
+        #     f"total: {elapsed_total/60:.1f}min — restante: {restante/60:.1f}min",
+        #     end="\r",
+        # )
+        t_chunk = time.time()
+
+    conn.commit()
+    # print(f"\nEscritura finalizada en {(time.time()-t0)/60:.1f} min")
+
+    if indices:
+        # print(f"  Recreando {len(indices)} índices...", end=" ")
+        t_idx = time.time()
+        _recreate_indices(conn, indices)
+        # print(f"hecho en {(time.time()-t_idx)/60:.1f} min")
+
+    # print(f"Escritura en {table_name} - Total finalizado en {(time.time()-t0)/60:.1f} min")
+
+
+def levanto_tabla_sql(
+    tabla_sql,
+    tabla_tipo="dash",
+    query="",
+    alias_db="",
+    index_cols=None,
+):
+    """
+    Lee una tabla SQLite y la devuelve como DataFrame.
+    Si la tabla tiene columna 'wkt', devuelve GeoDataFrame (CRS 4326).
+    Si la tabla no existe, devuelve DataFrame vacío.
+
+    Parameters
+    ----------
+    tabla_sql : str
+        Nombre de la tabla.
+    tabla_tipo : str
+        DB a conectar: "dash" (default), "data", "insumos", "general".
+    query : str
+        Query personalizada. Si se omite, ejecuta SELECT * FROM tabla_sql.
+    alias_db : str
+        Prefijo del archivo SQLite. Si se omite, se lee desde configuración.
+    index_cols : list of str
+        Columnas sobre las que crear índices (CREATE INDEX IF NOT EXISTS).
+        Mejora performance en JOINs y filtros. Default: None.
+
+    Examples
+    --------
+    # Lectura simple
+    etapas = levanto_tabla_sql("etapas", tabla_tipo="data")
+
+    # Query personalizada con índice
+    etapas = levanto_tabla_sql(
+        "etapas",
+        tabla_tipo="data",
+        query="SELECT e.* FROM etapas e JOIN dias_ultima_corrida d ON e.dia = d.dia",
+        index_cols=["dia"],
+    )
+    """
+
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    _aplicar_pragmas_wal(conn)
+
+    if index_cols:
+        for col in index_cols:
+            idx_name = f"idx_{tabla_sql}_{col}"
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tabla_sql}({col})"
+            )
+        conn.commit()
+
+    try:
+        if len(query) == 0:
+            query = f"SELECT * FROM {tabla_sql}"
+        tabla = pd.read_sql_query(query, conn)
+    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
+        if "no such table" in str(e):
+            print(f"La tabla '{tabla_sql}' no existe.")
+            tabla = pd.DataFrame([])
+        else:
+            raise
+
+    conn.close()
+
+    if "wkt" in tabla.columns and not tabla.empty:
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
+        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla = tabla.drop(["wkt"], axis=1)
+
+    tabla = normalize_vars(tabla)
+
+    return tabla
+
+
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
 ):
     """
-    Guarda un DataFrame en una base de datos SQLite. Convierte automáticamente tipos no compatibles.
+    Guarda un DataFrame en SQLite usando executemany + WAL (alta performance).
+    Convierte geometrías a WKT y tipos no compatibles a string automáticamente.
+    Dropea índices antes de escribir y los recrea al final para máxima velocidad.
 
-    Si existe una columna 'geometry', la convierte a WKT y la guarda como 'wkt'.
+    Parameters
+    ----------
+    df : DataFrame o GeoDataFrame
+        Datos a guardar. Si contiene columna 'geometry', se convierte a WKT
+        y se guarda como 'wkt'. Tipos no compatibles con SQLite se convierten
+        a string automáticamente.
+    table_name : str
+        Nombre de la tabla destino en la base de datos.
+    tabla_tipo : str
+        DB a conectar: "dash" (default), "data", "insumos", "general".
+    filtros : dict
+        Elimina registros coincidentes antes del append. Soporta escalares
+        (igualdad) y listas (IN). Solo aplica con modo="append". Default: None.
+    alias_db : str
+        Prefijo del archivo SQLite. Si se omite, se lee desde configuración.
+    modo : str
+        "append" (default): agrega filas. "replace": recrea la tabla completa.
+
+    Examples
+    --------
+    # Append simple
+    guardar_tabla_sql(etapas, "etapas", tabla_tipo="data")
+
+    # Reemplazar tabla completa
+    guardar_tabla_sql(kpis, "kpis_resumen", tabla_tipo="dash", modo="replace")
+
+    # Append eliminando registros previos del mismo día
+    guardar_tabla_sql(
+        etapas, "etapas", tabla_tipo="data",
+        filtros={"dia": "2024-03-15"},
+    )
+
+    # Filtro con múltiples valores
+    guardar_tabla_sql(
+        etapas, "etapas", tabla_tipo="data",
+        filtros={"dia": ["2024-03-15", "2024-03-16"], "id_linea": 41},
+    )
     """
-
+    t0 = time.time()
     if not isinstance(df, pd.DataFrame):
         raise TypeError(
             f"Se esperaba un DataFrame, pero se recibió un {type(df).__name__}"
         )
 
-    # Asegurar alias con guión bajo
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
-    # Clonar para no modificar el original
     df = df.copy()
 
-    # Si existe 'geometry', convertir a WKT y renombrar como 'wkt'
     if "geometry" in df.columns:
         df["wkt"] = df["geometry"].apply(
             lambda g: g.wkt if isinstance(g, shapely_geom.BaseGeometry) else None
         )
         df.drop(columns=["geometry"], inplace=True)
 
-    # Convertir columnas no compatibles con SQLite
-    for col in df.columns:
-        sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+    for col in df.select_dtypes(include="object").columns:
+        sample = df[col].dropna()
+        if len(sample) == 0:
+            continue
+        first = sample.iloc[0]
+        if not isinstance(first, (str, int, float, bool)):
+            df[col] = df[col].astype(str).where(df[col].notna(), None)
 
-        if isinstance(sample, (list, dict)):
-            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
-
-        elif not pd.api.types.is_scalar(sample):
-            df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
-
-    # Conexión a base de datos
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    _aplicar_pragmas_wal(conn)
     cursor = conn.cursor()
 
     try:
         if modo == "replace":
-            SAFE_CHUNKSIZE = (
-                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
-            )
-            df.to_sql(
-                table_name,
-                conn,
-                if_exists="replace",
-                index=False,
-                method="multi",
-                chunksize=SAFE_CHUNKSIZE,
-            )
-            print(f"Tabla '{table_name}' reemplazada exitosamente.")
+            _executemany_df(df, table_name, conn, if_exists="replace")
+            print(f"Tabla '{table_name}' reemplazada exitosamente. Total finalizado en {(time.time()-t0)/60:.1f} min")
         else:
             table_exists = tabla_existe(conn, table_name)
 
+            # 1. Dropear índices primero
+            indices = _drop_indices(conn, table_name) if table_exists else []
+
+            # 2. DELETE con filtros (ahora sin índices que mantener, más rápido)
             if table_exists and filtros:
                 condiciones = []
                 valores = []
-
                 for campo, valor in filtros.items():
                     if isinstance(valor, list):
                         condiciones.append(
@@ -1806,25 +1981,15 @@ def guardar_tabla_sql(
                     else:
                         condiciones.append(f"{campo} = ?")
                         valores.append(valor)
-
                 where_clause = " AND ".join(condiciones)
                 cursor.execute(
                     f"DELETE FROM {table_name} WHERE {where_clause}", valores
                 )
                 conn.commit()
 
-            SAFE_CHUNKSIZE = (
-                math.floor((999 / len(df.columns)) * 0.9) if len(df.columns) > 0 else 1
-            )
-            df.to_sql(
-                table_name,
-                conn,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=SAFE_CHUNKSIZE,
-            )
-            print(f"Datos agregados exitosamente en '{table_name}'.")
+            # 3. Escribir pasando índices ya dropeados para no repetir el drop
+            _executemany_df(df, table_name, conn, if_exists="append", indices=indices)
+            # print(f"Datos agregados exitosamente en '{table_name}'. Total finalizado en {(time.time()-t0)/60:.1f} min")
 
     finally:
         cursor.close()

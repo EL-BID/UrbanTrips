@@ -10,16 +10,15 @@ from dash_utils import (
 )
 
 
-try:
-
-    from urbantrips.utils import utils
-    from urbantrips.kpi import overlapping as ovl
-    from urbantrips.viz import overlapping as ovl_viz
-except ImportError as e:
-    st.error(
-        f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-    )
-    st.stop()
+# try:
+from urbantrips.utils import utils
+from urbantrips.kpi import overlapping as ovl
+from urbantrips.viz import overlapping as ovl_viz
+# except ImportError as e:
+#     st.error(
+#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
+#     )
+#     st.stop()
 
 
 # --- Función para levantar tablas SQL y almacenar en session_state ---

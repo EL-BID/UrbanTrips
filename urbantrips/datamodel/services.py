@@ -1,6 +1,9 @@
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
+from urbantrips.utils.utils import (guardar_tabla_sql, levanto_tabla_sql, duracion)
+
+
 
 import warnings
 
@@ -11,7 +14,7 @@ warnings.filterwarnings(
     module=r".*urbantrips.*services",  # tu módulo
 )
 
-
+@duracion
 def process_services(line_ids=None):
     """
     Download unprocessed gps data and classify them into services
@@ -42,15 +45,13 @@ def process_services(line_ids=None):
         else:
             line_ids_str = None
 
-        print("Eliminando datos anteriores")
         delete_old_services_data(line_ids_str)
-        print("Fin de borrado de datos anteriores")
-        if line_ids is not None:
-            print(f"para id lineas {line_ids_str}")
-        else:
-            print("para todas las lineas")
 
-        print("Descargando paradas y puntos gps")
+        if line_ids is not None:
+            print(f"Descargando paradas y puntos gps para id lineas {line_ids_str}")
+        else:
+            print("Descargando paradas y puntos gps para todas las lineas")
+
         gps_points, stops = get_stops_and_gps_data(line_ids_str)
 
         if gps_points is None:
@@ -254,6 +255,15 @@ def process_line_services(gps_points, stops):
         method="multi",
         chunksize=40,
     )
+    
+    # dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")    
+    # guardar_tabla_sql(
+    #     services_gps_points,
+    #     "services_gps_points",
+    #     tabla_tipo="data",
+    #     modo="append",
+    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    # )
 
     # print("Creando tabla de servicios")
     # process services gps points into services table
@@ -274,6 +284,14 @@ def process_line_services(gps_points, stops):
         method="multi",
         chunksize=40,
     )
+    # dias_ultima_corrida = utils.levanto_tabla_sql("dias_ultima_corrida", "data")
+    # guardar_tabla_sql(
+    #     stats,
+    #     "services_stats",
+    #     tabla_tipo="data",
+    #     modo="append",
+    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    # )
     return stats
 
 

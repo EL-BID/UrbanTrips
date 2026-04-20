@@ -26,7 +26,6 @@ from streamlit_folium import folium_static
 
 import mapclassify
 
-import mapclassify
 import numpy as np
 from collections import OrderedDict
 
@@ -605,10 +604,21 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         st.session_state.show_poly = col3.checkbox("Mostrar polígono", value=True)
 
+        # st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
+
+        # if st.session_state.poly["tipo"].values[0] == "cuenca":
+        #     desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+        # else:
+        #     desc_cuenca = False
         st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
 
-        if st.session_state.poly["tipo"].values[0] == "cuenca":
-            desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+        poly = st.session_state.poly
+
+        if poly is not None and not poly.empty and "tipo" in poly.columns:
+            if poly["tipo"].iloc[0] == "cuenca":
+                desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+            else:
+                desc_cuenca = False
         else:
             desc_cuenca = False
 

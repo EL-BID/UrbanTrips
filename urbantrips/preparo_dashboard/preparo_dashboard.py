@@ -91,15 +91,12 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     más rápidos y ordenados.
     """
 
-    print("Levanto Data Etapas y Viajes")
-
     # ── conexiones ──────────────────────────────────────────────────
     conn_dat = iniciar_conexion_db(tipo="data", alias_db=alias_data)
 
-    print("etapas")
     # ── 1. leer etapas y viajes (filtrados) ─────────────────────────
     etapas = pd.read_sql_query("SELECT * FROM etapas  WHERE od_validado = 1", conn_dat)
-    print("viajes")
+    
     viajes = pd.read_sql_query("SELECT * FROM viajes  WHERE od_validado = 1", conn_dat)
 
     etapas["tarifa_agregada"] = clasificar_tarifa_agregada_social(etapas["tarifa"])
@@ -108,7 +105,7 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     viajes["genero_agregado"] = clasificar_genero_agregado(viajes["genero"])
 
     # ── 2. incorporar travel_time_min y velocidades ─────────────────
-    print("travel speed")
+
     etapas[["travel_speed"]] = np.nan
     viajes[["travel_speed"]] = np.nan
 
@@ -168,7 +165,7 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     )
 
     # ── 4. partición modal (vectorizada) ────────────────────────────
-    print("modal")
+
     keys_mod = ["dia", "id_tarjeta", "id_viaje"]
     tmp = etapas.groupby(keys_mod, sort=False).agg(
         n_unique=("modo", "nunique"),
@@ -299,7 +296,7 @@ def format_dataframe(df):
 
 
 def construyo_indicadores(viajes, poligonos=False, alias_db=""):
-    print("Construyo indicadores")
+
     if poligonos:
         nombre_tabla = "poly_indicadores"
     else:
@@ -1773,7 +1770,6 @@ def preparo_lineas_deseo(
         ]
 
         for zona in zonas:
-            print("")
             print(f"Polígono {id_polygon} - Tipo: {tipo_poly} - Zona: {zona}")
 
             if id_polygon != "NONE":
@@ -2533,13 +2529,6 @@ def preparo_lineas_deseo(
                     ["poly_inicio", "poly_fin"], axis=1
                 )
 
-                print(
-                    "Guardar",
-                    zona,
-                    etapas_agrupadas_zon.factor_expansion_linea.sum().round(),
-                    len(etapas_agrupadas_zon),
-                )
-
                 guardar_tabla_sql(
                     etapas_agrupadas_zon,
                     "agg_etapas",
@@ -2585,11 +2574,11 @@ def preparo_lineas_deseo(
                     },
                     alias_db=alias_db,
                 )
-    print("")
+
 
 
 def guarda_particion_modal(etapas, alias_db=""):
-    print("Guarda partición modal")
+
     df_dummies = pd.get_dummies(etapas.modo)
     etapas = pd.concat([etapas, df_dummies], axis=1)
     cols_dummies = df_dummies.columns.tolist()
@@ -2726,7 +2715,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
 
 
 def resumen_x_linea(etapas, viajes, alias_db=""):
-    print("Resumen por líneas")
+    
     gps = levanto_tabla_sql("gps", "data", alias_db=alias_db)
     gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
     lineas = levanto_tabla_sql("metadata_lineas", "insumos")
@@ -2834,7 +2823,6 @@ def proceso_poligonos(
         configs = leer_configs_generales()
         res = configs["resolucion_h3"]
 
-        print("identifica viajes en polígonos")
         # Select cases based fron polygon
         etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
             etapas, viajes, poligonos, res=res
@@ -3109,7 +3097,6 @@ def crear_indices_unificados(alias_db):
     conn_data.close()
     conn_dash.close()
     conn_ins.close()
-    print("Índices creados")
 
 
 @duracion
@@ -3162,7 +3149,7 @@ def preparo_indicadores_dash(
     etapas, viajes = load_and_process_data(alias_data=corrida)
 
     if lineas_deseo:
-        print("Proceso lineas de deseo")
+        # print("Proceso lineas de deseo")
         proceso_lineas_deseo(
             etapas=etapas.copy(),
             viajes=viajes.copy(),
@@ -3172,7 +3159,7 @@ def preparo_indicadores_dash(
             resoluciones=resoluciones,
         )
     if poligonos:
-        print("Proceso Polígonos")
+        # print("Proceso Polígonos")
         proceso_poligonos(
             etapas=etapas.copy(),
             viajes=viajes.copy(),
@@ -3183,7 +3170,7 @@ def preparo_indicadores_dash(
         )
 
     if kpis:
-        print("Proceso kpis")
+        # print("Proceso kpis")
         kpis = calculo_kpi_lineas(
             etapas=etapas.copy(), viajes=viajes.copy(), alias_data=corrida
         )

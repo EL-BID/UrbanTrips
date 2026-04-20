@@ -11,7 +11,7 @@ from urbantrips.utils.utils import (
     create_directories,
     levanto_tabla_sql,
 )
-
+import time
 
 from urbantrips.datamodel import legs, trips
 from urbantrips.datamodel import transactions as trx
@@ -22,7 +22,7 @@ from urbantrips.carto import carto, routes
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 from urbantrips.kpi.kpi import compute_kpi
-from urbantrips.datamodel.misc import persist_datamodel_tables
+from urbantrips.datamodel.misc import persist_indicators
 from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 
 
@@ -128,9 +128,6 @@ def procesar_transacciones(corrida):
     # Infer legs destinations
     dest.infer_destinations()
 
-    # Create distances table
-    carto.create_distances_table(use_parallel=False)
-
     if nombre_archivo_gps is not None:
         services.process_services(line_ids=None)
 
@@ -144,6 +141,9 @@ def procesar_transacciones(corrida):
         # Assign stations to legs for travel times
         legs.assign_stations_od()
 
+    # compute travel time for trips
+    trips.compute_trips_travel_time()
+
     # Add distances and travel times to legs
     legs.add_distance_and_travel_time()
 
@@ -151,10 +151,7 @@ def procesar_transacciones(corrida):
     trips.rearrange_trip_id_same_od()
 
     # Produce trips and users tables from legs
-    trips.create_trips_from_legs()
-
-    # compute travel time for trips
-    trips.compute_trips_travel_time()
+    trips.create_trips_from_legs_and_fex()
 
     trips.add_distance_and_travel_time()
 
@@ -170,7 +167,8 @@ def procesar_transacciones(corrida):
     # Compute KPI
     compute_kpi()
 
-    persist_datamodel_tables()
+    # Agrego datos de indicadores
+    persist_indicators()
 
 
 def borrar_corridas(alias_db="all"):
@@ -240,7 +238,7 @@ def borrar_corridas(alias_db="all"):
 
 
 def run_all(borrar_corrida="", crear_dashboard=True):
-
+    inicio = time.time()
     print(f"[INFO] borrar_corrida = '{borrar_corrida}'")
     print(f"[INFO] crear_dashboard = {crear_dashboard}")
 
@@ -253,8 +251,12 @@ def run_all(borrar_corrida="", crear_dashboard=True):
         procesar_transacciones(corrida)
         if crear_dashboard:
             preparo_indicadores_dash(corrida)
-        
+
         print("Fin corrida", corrida)
         print('###############################################')
-        print('###############################################')
-        print('###############################################')
+
+
+    print("")
+    fin = time.time()
+    print('tiempo total de la corrida', round((fin-inicio)/60, 2))
+

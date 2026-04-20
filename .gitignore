@@ -161,3 +161,8 @@ urbantrips/dashboard/pages/11_demanda2.py
 *.csv
 data/data_ciudad/meta_lineas_mza
 data/data_ciudad/martes_trx.csv
+*.duckdb
+dead_code_analysis.md
+*.parquet
+etapas_tmp_1
+etapas_tmp_2

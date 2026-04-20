@@ -22,7 +22,7 @@ from urbantrips.utils.utils import (
     check_date_type,
     create_line_ids_sql_filter,
 )
-
+from urbantrips.carto.compute_distances import compute_od_distances
 # KPI WRAPPER
 
 
@@ -81,9 +81,7 @@ def compute_kpi():
 
     else:
 
-        print("No hay servicios procesados.")
-        print("Puede correr la funcion services.process_services()")
-        print("si cuenta con una tabla de gps que indique servicios")
+        print("No hay servicios procesados. Puede correr la funcion services.process_services() si cuenta con una tabla de gps que indique servicios")
 
 
 # SECTION LOAD KPI
@@ -479,7 +477,7 @@ def read_data_for_daily_kpi():
 
         return legs, gps
 
-    print("Leyendo datos de oferta")
+    # print("Leyendo datos de oferta")
     q = f"""
     select g.* from gps g
     JOIN dias_ultima_corrida d
@@ -488,7 +486,6 @@ def read_data_for_daily_kpi():
     """
     gps = pd.read_sql(q, conn_data)
 
-    print("Leyendo datos de demanda")
     q = f"""
         SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
         e.h3_d, e.factor_expansion_linea
@@ -498,69 +495,29 @@ def read_data_for_daily_kpi():
         where e.od_validado==1
     """
     legs = pd.read_sql(q, conn_data)
-
+    
     if (len(gps) > 0) & (len(legs) > 0):
         # add distances
-        legs = add_distances_to_legs(legs)
+        # legs = add_distances_to_legs(legs)
+        legs = compute_od_distances(
+            od_df             = legs,
+            origin_col        = "h3_o",
+            dest_col          = "h3_d",
+            distance_col      = 'distance',
+            unit              = 'km',
+            db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
+            network_cache_dir = "data/matriz_distancia",
+            symmetric         = False,
+            precompute_dist   = 50_000,   
+            max_tile_deg      = 99,      
+            verbose           = False
+        )
     else:
         print("No hay datos sin KPI procesados")
         legs = pd.DataFrame()
         gps = pd.DataFrame()
-    print("Fin carga de datos de oferta y demanda")
+    # print("Fin carga de datos de oferta y demanda")
     return legs, gps
-
-
-def add_distances_to_legs(legs):
-    """
-    Takes legs data and add distances to each leg
-
-    Parameters
-    ----------
-    legs : pandas.DataFrame
-        DataFrame with legs data
-
-    Returns
-    -------
-    legs : pandas.DataFrame
-        DataFrame with legs and distances data
-
-    """
-    configs = leer_configs_generales()
-    h3_original_res = configs["resolucion_h3"]
-    min_distance = h3.average_hexagon_edge_length(res=h3_original_res, unit="km")
-
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    print("Leyendo distancias")
-    distances = pd.read_sql_query(
-        """
-        SELECT *
-        FROM distancias
-        """,
-        conn_insumos,
-    )
-
-    # TODO: USE DIFERENT DISTANCES, GRAPH
-
-    print("Sumando distancias a etapas")
-    # use distances h3 when osm missing
-    distances.loc[:, ["distance"]] = distances.distance_osm_drive.combine_first(
-        distances.distance_h3
-    )
-    distances = distances.reindex(columns=["h3_o", "h3_d", "distance"])
-
-    # add legs' distances
-    legs = legs.merge(distances, how="left", on=["h3_o", "h3_d"])
-
-    # add minimum distance in km as length of h3
-    legs.distance = legs.distance.map(lambda x: max(x, min_distance))
-
-    no_distance = legs.distance.isna().sum() / len(legs) * 100
-    print("Hay un {:.2f} % de etapas sin distancias ".format(no_distance))
-    conn_insumos.close()
-
-    return legs
 
 
 @duracion
@@ -838,7 +795,20 @@ def compute_kpi_by_service():
     service_demand = pd.concat([valid_demand, invalid_demand])
 
     # add distances to demand data
-    service_demand = add_distances_to_legs(legs=service_demand)
+    # service_demand = add_distances_to_legs(legs=service_demand)
+    service_demand = compute_od_distances(
+        od_df             = service_demand,
+        origin_col        = "h3_o",
+        dest_col          = "h3_d",
+        distance_col      = 'distance',
+        unit              = 'km',
+        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
+        network_cache_dir = "data/matriz_distancia",
+        symmetric         = False,
+        precompute_dist   = 50_000,   
+        max_tile_deg      = 99,      
+        verbose           = False
+    )
 
     # compute demand stats
     service_demand_stats = service_demand.groupby(
@@ -1032,13 +1002,26 @@ def run_basic_kpi(id_linea=[]):
         id_linea_str = ", ".join(map(str, id_linea))
         q += f" and id_linea in ({id_linea_str})"
     q += ";"
-    print("Leyendo datos de demanda")
-    legs = pd.read_sql(q, conn_data)
 
+    legs = pd.read_sql(q, conn_data)
+            
     if len(legs) < 5:
         return None
 
-    legs = add_distances_to_legs(legs=legs)
+    # legs = add_distances_to_legs(legs=legs)
+    legs = compute_od_distances(
+        od_df             = legs,
+        origin_col        = "h3_o",
+        dest_col          = "h3_d",
+        distance_col      = 'distance',
+        unit              = 'km',
+        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
+        network_cache_dir = "data/matriz_distancia",
+        symmetric         = False,
+        precompute_dist   = 50_000,   
+        max_tile_deg      = 99,      
+        verbose           = False
+    )
 
     # if there is no full timestamp
     if legs["tiempo"].isna().all():
@@ -1064,7 +1047,7 @@ def run_basic_kpi(id_linea=[]):
     # else compute commercial speed based on gps or demand
     else:
         if gps_table_exists():
-            print("Calculando velocidades comerciales usando tabla gps")
+            # print("Calculando velocidades comerciales usando tabla gps")
             speed_vehicle_hour = compute_speed_by_day_veh_hour()
         else:
             # compute mean veh speed using demand data
@@ -1074,7 +1057,7 @@ def run_basic_kpi(id_linea=[]):
                 legs.loc[:, "datetime"], format="%Y-%m-%d %H:%M:%S"
             )
 
-            print("Calculando velocidades comerciales")
+            # print("Calculando velocidades comerciales")
             # compute vehicle speed per hour
             speed_vehicle_hour = legs.groupby(
                 ["dia", "id_linea", "id_ramal", "interno"]
@@ -1090,7 +1073,7 @@ def run_basic_kpi(id_linea=[]):
 
     speed_vehicle_hour = speed_vehicle_hour.dropna()
 
-    print("Eliminando casos atipicos en velocidades comerciales")
+    # print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour.groupby(
@@ -1138,7 +1121,7 @@ def run_basic_kpi(id_linea=[]):
 
     legs["speed_kmh"] = legs.speed_kmh_veh_h.combine_first(legs.speed_kmh_line_h)
 
-    print("Calculando pasajero equivalente otros KPI por dia" ", linea, interno y hora")
+    # print("Calculando pasajero equivalente otros KPI por dia" ", linea, interno y hora")
 
     # get an vehicle space equivalent passenger
     legs["eq_pax"] = (legs.distance / legs.speed_kmh) * legs.factor_expansion_linea
@@ -1171,7 +1154,7 @@ def run_basic_kpi(id_linea=[]):
     kpi_by_veh["of"] = kpi_by_veh.eq_pax / 60 * 100
 
     # remove outliers
-    print("Eliminando casos atipicos en pasajeros equivalentes")
+    # print("Eliminando casos atipicos en pasajeros equivalentes")
 
     of_threshold = 120
     of_mask = kpi_by_veh["of"] > of_threshold
@@ -1181,7 +1164,7 @@ def run_basic_kpi(id_linea=[]):
 
     kpi_by_veh.loc[of_mask, "of"] = None
 
-    print("Subiendo a la base de datos")
+    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = [
         "dia",
@@ -1205,7 +1188,7 @@ def run_basic_kpi(id_linea=[]):
         index=False,
     )
 
-    print("Calculando pasajero equivalente otros KPI por dia, linea y hora")
+    # print("Calculando pasajero equivalente otros KPI por dia, linea y hora")
 
     # COMPUTE KPI BY DAY LINE HOUR
 
@@ -1245,7 +1228,7 @@ def run_basic_kpi(id_linea=[]):
     )
     kpi_by_line_hr = kpi_by_line_hr.rename(columns={"speed_kmh_line_h": "speed_kmh"})
 
-    print("Subiendo a la base de datos")
+    # print("Subiendo a la base de datos")
 
     # create month
     kpi_by_line_hr["yr_mo"] = kpi_by_line_hr.dia.str[:7]
@@ -1263,7 +1246,7 @@ def run_basic_kpi(id_linea=[]):
     )
 
     # COMPUTE KPI BY DAY AND LINE
-    print("Calculando pasajero equivalente otros KPI por dia y linea")
+    # print("Calculando pasajero equivalente otros KPI por dia y linea")
 
     # compute daily stats
     ocupation_factor_line = (
@@ -1306,7 +1289,7 @@ def run_basic_kpi(id_linea=[]):
 
     kpi_by_line_day["yr_mo"] = kpi_by_line_day.dia.str[:7]
 
-    print("Subiendo a la base de datos")
+    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
@@ -1329,7 +1312,7 @@ def run_basic_kpi(id_linea=[]):
 def compute_basic_kpi_line_typeday():
     conn_data = iniciar_conexion_db(tipo="data")
 
-    print("Borrando datos desactualizados por tipo de dia")
+    # print("Borrando datos desactualizados por tipo de dia")
 
     # delete old type of day data data
     delete_q = """
@@ -1360,7 +1343,7 @@ def compute_basic_kpi_line_typeday():
         as_index=False,
     ).mean()
 
-    print("Subiendo a la base de datos")
+    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
@@ -1379,7 +1362,7 @@ def compute_basic_kpi_line_typeday():
 def compute_basic_kpi_line_hr_typeday():
     conn_data = iniciar_conexion_db(tipo="data")
 
-    print("Borrando datos desactualizados por tipo de dia")
+    # print("Borrando datos desactualizados por tipo de dia")
 
     # delete old type of day data data
     delete_q = """
@@ -1406,7 +1389,7 @@ def compute_basic_kpi_line_hr_typeday():
         ["dia", "yr_mo", "id_linea", "hora"], as_index=False
     ).mean()
 
-    print("Subiendo a la base de datos")
+    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
 
@@ -1541,7 +1524,7 @@ def compute_dispatched_services_by_line_hour_day():
     processed_days = processed_days.dia
     processed_days = ", ".join([f"'{val}'" for val in processed_days])
 
-    print("Leyendo datos de servicios")
+    # print("Leyendo datos de servicios")
 
     daily_services_q = f"""
     select
@@ -1558,7 +1541,7 @@ def compute_dispatched_services_by_line_hour_day():
 
     if len(daily_services) > 0:
 
-        print("Procesando servicios por hora")
+        # print("Procesando servicios por hora")
 
         daily_services["hora"] = daily_services.min_datetime.str[10:13].map(int)
 
@@ -1569,7 +1552,7 @@ def compute_dispatched_services_by_line_hour_day():
             ["id_linea", "dia", "hora"], as_index=False
         ).agg(servicios=("hora", "count"))
 
-        print("Fin procesamiento servicios por hora")
+        # print("Fin procesamiento servicios por hora")
 
         print("Subiendo datos a la DB")
 
@@ -1593,7 +1576,7 @@ def compute_dispatched_services_by_line_hour_day():
         conn_data.close()
         conn_dash.close()
 
-        print("Datos subidos a la DB")
+        # print("Datos subidos a la DB")
     else:
         print("Todos los dias fueron procesados")
 
@@ -1675,7 +1658,7 @@ def compute_dispatched_services_by_line_hour_typeday():
         conn_data.close()
         conn_dash.close()
 
-        print("Datos subidos a la DB")
+        # print("Datos subidos a la DB")
 
     else:
         print("No hay datos de servicios por hora")

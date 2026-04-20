@@ -102,8 +102,6 @@ def cal_velocidad_comercial(servicios):
 
 def levanto_data(alias_data, alias_insumos, etapas=[], viajes=[]):
 
-    print("Preparo Datos")
-
     gps = levanto_tabla_sql("gps", "data", alias_db=alias_data)
 
     trx = levanto_tabla_sql("transacciones", "data", alias_db=alias_data)
@@ -146,8 +144,6 @@ def levanto_data(alias_data, alias_insumos, etapas=[], viajes=[]):
 
 @duracion
 def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
-
-    print("Agrego líneas")
 
     # Agregado de transacciones
     resumen_tarifas = (
@@ -338,7 +334,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
 
 @duracion
 def calculo_kpi_lineas(alias_data="", alias_insumos="", etapas=[], viajes=[]):
-    print("calculo kpi lineas")
+
     trx, etapas, gps, servicios, kpis_varios, lineas = levanto_data(
         alias_data, alias_insumos, etapas=etapas, viajes=viajes
     )

@@ -37,7 +37,6 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
 
         tabla = pd.read_sql_query(query, conn)
     except:
-        print(f"{tabla_sql} no existe")
         tabla = pd.DataFrame([])
 
     conn.close()

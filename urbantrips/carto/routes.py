@@ -150,7 +150,6 @@ def infer_routes_geoms(plotear_lineas=False):
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
 
-    print("Subiendo recorridos a la db...")
     recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
 
     # Elminar geometrias invalidas
