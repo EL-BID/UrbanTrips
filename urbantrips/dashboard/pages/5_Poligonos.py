@@ -469,6 +469,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         "desc_distancia",
         "agg_cols_etapas",
         "agg_cols_viajes",
+        "poly"
     ]
 
     variables_bool = ['resumen']
@@ -489,6 +490,10 @@ with st.expander("Líneas de Deseo", expanded=True):
     poligonos = levanto_tabla_sql("poligonos", "insumos")
 
     # st.session_state.etapas = traigo()
+
+    if len(poligonos) == 0:
+        st.info("No hay polígono cargado.")
+        st.stop()
 
     if (len(poligonos) > 0) & (len(etapas_lst_) > 0):
 
