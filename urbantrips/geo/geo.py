@@ -73,7 +73,7 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
         + f"{buff_max} m entre el origen de la etapa siguiente y las "
         + "estaciones de la línea de la etapa a validar"
     )
-    print("Si desea mayor precisión utilice un número más grande de " + "resolucion h3")
+    print("Si desea mayor precisión utilice un número más grande de resolucion h3")
 
     return ring_size
 
