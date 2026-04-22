@@ -84,8 +84,6 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
-    print("RING SIZE ", ring_size)
-
     conn_data = iniciar_conexion_db(tipo="data")
 
     alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
@@ -122,23 +120,16 @@ def update_stations_catchment_area(ring_size):
     ON obgh.id_ramal = mr.id_ramal
     """
     h3_recorridos = pd.read_sql(q, conn_insumos)
-    print(len(h3_recorridos.id_linea_agg.unique()))
 
     if len(h3_recorridos) > 0:
         h3_recorridos["parada_en_recorridos"] = True
         paradas_etapas["id_linea_recorridos"] = paradas_etapas["id_linea_agg"].isin(
             h3_recorridos["id_linea_agg"].unique()
         )
-        print("PARADAS EN ETAPAS 1")
-        print(len(paradas_etapas.id_linea_agg.unique()))
-
-        print("LINEAS EN RECORRIDOS", paradas_etapas["id_linea_recorridos"].sum())
 
         paradas_etapas = paradas_etapas.merge(
             h3_recorridos, on=["id_linea_agg", "parada"], how="left"
         )
-        print("PARADAS EN ETAPAS 2")
-        print(len(paradas_etapas.id_linea_agg.unique()))
 
         paradas_etapas["parada_en_recorridos"] = (
             paradas_etapas["parada_en_recorridos"].fillna(False).astype(bool)
@@ -146,12 +137,6 @@ def update_stations_catchment_area(ring_size):
 
         paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (
             ~paradas_etapas.parada_en_recorridos
-        )
-
-        print(
-            paradas_etapas.drop(columns=["id_linea_agg", "parada"]).sample(
-                30, random_state=1
-            )
         )
 
         paradas_pre = len(paradas_etapas)
@@ -190,7 +175,7 @@ def update_stations_catchment_area(ring_size):
         )
 
         # Subir a la db
-        print("Subiendo matriz a db")
+        # print("Subiendo matriz a db")
         matriz_nueva.to_sql(
             "matriz_validacion", conn_insumos, if_exists="append", index=False
         )
@@ -200,6 +185,9 @@ def update_stations_catchment_area(ring_size):
             "La matriz de validacion ya tiene los datos más actuales"
             + " en base a la informacion existente en la tabla de etapas"
         )
+
+    conn_data.close()
+    conn_insumos.close()
     return None
 
 
@@ -365,7 +353,7 @@ def guardo_zonificaciones():
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
         poligonos_db = levanto_tabla_sql("poligonos", "insumos")
-        print(poligonos_db.head(2))
+
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
 
@@ -379,394 +367,42 @@ def guardo_zonificaciones():
 
             guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
 
-
-@duracion
-def create_distances_table(use_parallel=False):
-    """
-    Esta tabla toma los h3 de la tablas de etapas
-    y calcula diferentes distancias para cada par que no tenga
-    """
-
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    print("Verifica viajes sin distancias calculadas")
-
-    q = """
-    select distinct h3_o,h3_d
-    from etapas
-    WHERE h3_d != ''
-    """
-
-    pares_h3_data = pd.read_sql_query(q, conn_data)
-
-    q = """
-    select h3_o,h3_d, 1 as d from distancias
-    """
-    pares_h3_distancias = pd.read_sql_query(q, conn_insumos)
-
-    # Unir pares od h desde data y desde distancias y quedarse con
-    # los que estan en data pero no en distancias
-    pares_h3 = pares_h3_data.merge(pares_h3_distancias, how="left")
-    pares_h3 = pares_h3.loc[
-        (pares_h3.d.isna()) & (pares_h3.h3_o != pares_h3.h3_d), ["h3_o", "h3_d"]
-    ]
-
-    if len(pares_h3) > 0:
-        pares_h3_norm = normalizo_lat_lon(pares_h3)
-
-        # usa la función osmnx para distancias en caso de error con Pandana
-        print(
-            "Este proceso puede demorar algunas horas dependiendo del tamaño "
-            + " de la ciudad y si se corre por primera vez por lo que en la base"
-            + " de insumos no estan estos pares"
-        )
-
-        agg2_total = (
-            pares_h3_norm.groupby(["h3_o_norm", "h3_d_norm"], as_index=False)
-            .size()
-            .drop(["size"], axis=1)
-        )
-
-        print(f"Hay {len(agg2_total)} nuevos pares od para sumar a tabla distancias")
-        print(f"de los {len(pares_h3_data)} originales en la data.")
-        print("")
-        print("Procesa distancias con Pandana")
-
-        agg2 = compute_distances_osm(
-            agg2_total,
-            h3_o="h3_o_norm",
-            h3_d="h3_d_norm",
-            processing="pandana",
-            modes=["drive"],
-            use_parallel=False,
-        )
-
-        if len(agg2) > 0:
-
-            dist1 = agg2.copy()
-            dist1["h3_o"] = dist1["h3_o_norm"]
-            dist1["h3_d"] = dist1["h3_d_norm"]
-            dist2 = agg2.copy()
-            dist2["h3_d"] = dist2["h3_o_norm"]
-            dist2["h3_o"] = dist2["h3_d_norm"]
-            distancias_new = pd.concat([dist1, dist2], ignore_index=True)
-            distancias_new = distancias_new.groupby(
-                ["h3_o", "h3_d", "h3_o_norm", "h3_d_norm"], as_index=False
-            )[["distance_osm_drive", "distance_h3"]].first()
-
-            distancias_new.to_sql(
-                "distancias", conn_insumos, if_exists="append", index=False
-            )
-
-        else:
-            print("Procesa distancias con OSMNX")
-            # Determine the size of each chunk (500 rows in this case)
-            chunk_size = 25000
-
-            # Get the total number of rows in the DataFrame
-            total_rows = len(agg2_total)
-
-            # Loop through the DataFrame in chunks of 500 rows
-            for start in range(0, total_rows, chunk_size):
-                end = start + chunk_size
-                # Select the chunk of 500 rows from the DataFrame
-                agg2 = agg2_total.iloc[start:end].copy()
-                # Call the process_chunk function with the selected chunk
-                print(
-                    f"Bajando distancias entre {start} a {end} de {len(agg2_total)} - {str(datetime.now())[:19]}"
-                )
-
-                agg2 = compute_distances_osm(
-                    agg2,
-                    h3_o="h3_o_norm",
-                    h3_d="h3_d_norm",
-                    processing="osmnx",
-                    modes=["drive"],
-                    use_parallel=use_parallel,
-                )
-
-                dist1 = agg2.copy()
-                dist1["h3_o"] = dist1["h3_o_norm"]
-                dist1["h3_d"] = dist1["h3_d_norm"]
-                dist2 = agg2.copy()
-                dist2["h3_d"] = dist2["h3_o_norm"]
-                dist2["h3_o"] = dist2["h3_d_norm"]
-                distancias_new = pd.concat([dist1, dist2], ignore_index=True)
-                distancias_new = distancias_new.groupby(
-                    ["h3_o", "h3_d", "h3_o_norm", "h3_d_norm"], as_index=False
-                )[["distance_osm_drive", "distance_h3"]].first()
-
-                distancias_new.to_sql(
-                    "distancias", conn_insumos, if_exists="append", index=False
-                )
-
-                conn_insumos.close()
-
-        conn_insumos.close()
-        conn_data.close()
-
-
-def compute_distances_osmx(df, mode, use_parallel):
-    """
-    Takes a dataframe with pairs of h3 with origins and destinations
-    and computes distances between those pairs using OSMNX.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame representing a chunk with OD pairs
-        with h3 indexes
-    modes: list
-        list of modes to compute distances for. Must be a valid
-        network_type parameter for either osmnx graph_from_bbox
-        or pandana pdna_network_from_bbox
-    use_parallel: bool
-        use parallel processing when computin omsnx distances
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame containing od pairs with distances
-    """
-    print("Computando distancias entre pares OD con OSMNX")
-    ymin, xmin, ymax, xmax = (
-        min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
-        min(df["lon_o_tmp"].min(), df["lon_d_tmp"].min()),
-        max(df["lat_o_tmp"].max(), df["lat_d_tmp"].max()),
-        max(df["lon_o_tmp"].max(), df["lon_d_tmp"].max()),
-    )
-    xmin -= 0.2
-    ymin -= 0.2
-    xmax += 0.2
-    ymax += 0.2
-
-    G = ox.graph_from_bbox(ymax, ymin, xmax, xmin, network_type=mode)
-    G = ox.add_edge_speeds(G)
-    G = ox.add_edge_travel_times(G)
-
-    nodes_from = ox.distance.nearest_nodes(
-        G, df["lon_o_tmp"].values, df["lat_o_tmp"].values, return_dist=True
-    )
-
-    nodes_to = ox.distance.nearest_nodes(
-        G, df["lon_d_tmp"].values, df["lat_d_tmp"].values, return_dist=True
-    )
-    nodes_from = nodes_from[0]
-    nodes_to = nodes_to[0]
-
-    if use_parallel:
-        results = run_network_distance_parallel(mode, G, nodes_from, nodes_to)
-        df[f"distance_osm_{mode}"] = results
-
-    else:
-        df = run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to)
-    return df
-
-
-def compute_distances_pandana(df, mode):
-    """
-    Takes a dataframe with pairs of h3 with origins and destinations
-    and computes distances between those pairs using pandana.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame representing a chunk with OD pairs
-        with h3 indexes
-    modes: list
-        list of modes to compute distances for. Must be a valid
-        network_type parameter for either osmnx graph_from_bbox
-        or pandana pdna_network_from_bbox
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame containing od pairs with distances
-    """
-
-    print("Computando distancias entre pares OD con Pandana")
-    ymin, xmin, ymax, xmax = (
-        min(df["lat_o_tmp"].min(), df["lat_d_tmp"].min()),
-        min(df["lon_o_tmp"].min(), df["lon_d_tmp"].min()),
-        max(df["lat_o_tmp"].max(), df["lat_d_tmp"].max()),
-        max(df["lon_o_tmp"].max(), df["lon_d_tmp"].max()),
-    )
-    xmin -= 0.2
-    ymin -= 0.2
-    xmax += 0.2
-    ymax += 0.2
-
-    network = osm_pandana.pdna_network_from_bbox(
-        ymin, xmin, ymax, xmax, network_type=mode
-    )
-
-    df["node_from"] = network.get_node_ids(df["lon_o_tmp"], df["lat_o_tmp"]).values
-    df["node_to"] = network.get_node_ids(df["lon_d_tmp"], df["lat_d_tmp"]).values
-    df[f"distance_osm_{mode}"] = network.shortest_path_lengths(
-        df["node_to"].values, df["node_from"].values
-    )
-    return df
-
-
-def compute_distances_osm(
-    df,
-    h3_o="",
-    h3_d="",
-    processing="pandana",
-    modes=["drive", "walk"],
-    use_parallel=False,
-):
-    """
-    Takes a dataframe with pairs of h3 with origins and destinations
-    and computes distances between those pairs.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame representing a chunk with OD pairs
-        with h3 indexes
-    h3_o: str (h3Index)
-        origin h3 index
-    h3_d: str (h3Index)
-        destination h3 index
-    processing: str
-        processing method, either use 'osmnx' or 'pandana'
-    modes: list
-        list of modes to compute distances for. Must be a valid
-        network_type parameter for either osmnx graph_from_bbox
-        or pandana pdna_network_from_bbox
-    use_parallel: bool
-        use parallel processing when computin omsnx distances
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame containing od pairs with distances
-    """
-
-    cols = df.columns.tolist()
-
-    df["origin"] = df[h3_o].apply(h3togeo)
-    df["lon_o_tmp"] = df["origin"].apply(bring_latlon, latlon="lon")
-    df["lat_o_tmp"] = df["origin"].apply(bring_latlon, latlon="lat")
-
-    df["destination"] = df[h3_d].apply(h3togeo)
-    df["lon_d_tmp"] = df["destination"].apply(bring_latlon, latlon="lon")
-    df["lat_d_tmp"] = df["destination"].apply(bring_latlon, latlon="lat")
-
-    var_distances = []
-
-    for mode in modes:
-
-        if processing == "pandana":
-            max_retries = 10
-            retries = 0
-            while retries < max_retries:
-                try:
-                    # computing distances with pandana
-                    df = compute_distances_pandana(df=df, mode=mode)
-                    break
-                except (
-                    Exception
-                ) as e:  # Captura excepciones específicas si es necesario
-                    retries += 1
-                    print(f"Intento {retries} con Pandana falló: {e}")
-                    if retries == max_retries:
-                        print(
-                            "No se pudo computar distancias con Pandana después de varios intentos. Recurriendo a OSMNX."
-                        )
-
-                        library_name = "Pandana"
-                        version = get_library_version(library_name)
-                        if version:
-                            print(f"{library_name} version {version} is installed.")
-                        else:
-                            print(f"{library_name} is not installed.")
-
-                        library_name = "OSMnet"
-                        version = get_library_version(library_name)
-                        if version:
-                            print(f"{library_name} version {version} is installed.")
-                        else:
-                            print(f"{library_name} is not installed.")
-                        return pd.DataFrame([])
-                        df = compute_distances_osmx(
-                            df=df, mode=mode, use_parallel=use_parallel
-                        )
-
-    var_distances += [f"distance_osm_{mode}"]
-    df[f"distance_osm_{mode}"] = (df[f"distance_osm_{mode}"] / 1000).round(2)
-
-    condition = ("distance_osm_drive" in df.columns) & (
-        "distance_osm_walk" in df.columns
-    )
-
-    if condition:
-        mask = (df.distance_osm_drive * 1.3) < df.distance_osm_walk
-        df.loc[mask, "distance_osm_walk"] = df.loc[mask, "distance_osm_drive"]
-
-    if "distance_osm_drive" in df.columns:
-        df.loc[df.distance_osm_drive > 2000, "distance_osm_drive"] = np.nan
-    if "distance_osm_walk" in df.columns:
-        df.loc[df.distance_osm_walk > 2000, "distance_osm_walk"] = np.nan
-
-    df = df[cols + var_distances].copy()
-
-    # get distance between h3 cells
-    resolution = h3.get_resolution(df[h3_o].iloc[0])
-    distance_between_hex = h3.average_hexagon_edge_length(resolution, unit="km")
-    distance_between_hex = distance_between_hex * 2
-
-    if (len(h3_o) > 0) & (len(h3_d) > 0):
-        df["distance_h3"] = df[[h3_o, h3_d]].apply(
-            h3dist,
-            axis=1,
-            distancia_entre_hex=distance_between_hex,
-            h3_o=h3_o,
-            h3_d=h3_d,
-        )
-
-    return df
-
-
-def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
-    """
-    This function will run the networkd distance using
-    pandas apply method
-    """
-    df["node_from"] = nodes_from
-    df["node_to"] = nodes_to
-
-    df = df.reset_index().rename(columns={"index": "idmatrix"})
-    df[f"distance_osm_{mode}"] = df.apply(
-        lambda x: distancias_osmnx(
-            x["idmatrix"],
-            x["node_from"],
-            x["node_to"],
-            G=G,
-            lenx=len(df),
-        ),
-        axis=1,
-    )
-    return df
-
-
-def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
-    """
-    Función de apoyo de measure_distances_osm
-    """
-
-    if idmatrix % 2000 == 0:
-        date_str = datetime.now().strftime("%H:%M:%S")
-        print(f"{date_str} processing {int(idmatrix)} / ")
-
-    try:
-        ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
-    except NetworkXNoPath:
-        ret = np.nan
-    return ret
+# def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
+#     """
+#     This function will run the networkd distance using
+#     pandas apply method
+#     """
+#     df["node_from"] = nodes_from
+#     df["node_to"] = nodes_to
+
+#     df = df.reset_index().rename(columns={"index": "idmatrix"})
+#     df[f"distance_osm_{mode}"] = df.apply(
+#         lambda x: distancias_osmnx(
+#             x["idmatrix"],
+#             x["node_from"],
+#             x["node_to"],
+#             G=G,
+#             lenx=len(df),
+#         ),
+#         axis=1,
+#     )
+#     return df
+
+
+# def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
+#     """
+#     Función de apoyo de measure_distances_osm
+#     """
+
+#     if idmatrix % 2000 == 0:
+#         date_str = datetime.now().strftime("%H:%M:%S")
+#         print(f"{date_str} processing {int(idmatrix)} / ")
+
+#     try:
+#         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
+#     except NetworkXNoPath:
+#         ret = np.nan
+#     return ret
 
 
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):

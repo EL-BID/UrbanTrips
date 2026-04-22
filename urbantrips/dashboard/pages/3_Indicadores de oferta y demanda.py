@@ -23,14 +23,14 @@ from dash_utils import (
     configurar_selector_dia,
 )
 
-try:
-    from urbantrips.utils.utils import iniciar_conexion_db
-    from urbantrips.utils import utils
-except ImportError as e:
-    st.error(
-        f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-    )
-    st.stop()
+# try:
+from urbantrips.utils.utils import iniciar_conexion_db
+from urbantrips.utils import utils
+# except ImportError as e:
+#     st.error(
+#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
+#     )
+#     st.stop()
 
 
 def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):

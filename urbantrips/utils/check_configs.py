@@ -825,7 +825,6 @@ def check_config_errors(config_default):
     for i in errores:
         error_txt += "ERROR: " + i + "\n"
     assert error_txt == "\n", error_txt
-    print("Se concluyó el chequeo del archivo de configuración")
 
 
 def check_configs_file():
@@ -941,8 +940,6 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
         # Sobrescribir en UTF-8
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(texto)
-
-        print(f"✅ Codificación corregida a UTF-8 sin modificar contenido: {path}")
 
     except Exception as e:
         print(f"❌ Error procesando {path}: {e}")

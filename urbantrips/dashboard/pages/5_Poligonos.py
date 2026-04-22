@@ -26,7 +26,6 @@ from streamlit_folium import folium_static
 
 import mapclassify
 
-import mapclassify
 import numpy as np
 from collections import OrderedDict
 
@@ -470,6 +469,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         "desc_distancia",
         "agg_cols_etapas",
         "agg_cols_viajes",
+        "poly"
     ]
 
     variables_bool = ['resumen']
@@ -490,6 +490,10 @@ with st.expander("Líneas de Deseo", expanded=True):
     poligonos = levanto_tabla_sql("poligonos", "insumos")
 
     # st.session_state.etapas = traigo()
+
+    if len(poligonos) == 0:
+        st.info("No hay polígono cargado.")
+        st.stop()
 
     if (len(poligonos) > 0) & (len(etapas_lst_) > 0):
 
@@ -594,7 +598,6 @@ with st.expander("Líneas de Deseo", expanded=True):
         )
 
         desc_origenes = col3.checkbox(":blue[Origenes]", value=False)
-
         desc_destinos = col3.checkbox(":orange[Destinos]", value=False)
 
         desc_zonif = col3.checkbox("Mostrar zonificación", value=True)
@@ -605,10 +608,22 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         st.session_state.show_poly = col3.checkbox("Mostrar polígono", value=True)
 
+        # st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
+
+        # if st.session_state.poly["tipo"].values[0] == "cuenca":
+        #     desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+        # else:
+        #     desc_cuenca = False
         st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
 
-        if st.session_state.poly["tipo"].values[0] == "cuenca":
-            desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+        poly = st.session_state.poly
+
+        if poly is not None and not poly.empty and "tipo" in poly.columns:
+            if poly["tipo"].iloc[0] == "cuenca":
+                desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
+            else:
+                desc_cuenca = False
+
         else:
             desc_cuenca = False
 

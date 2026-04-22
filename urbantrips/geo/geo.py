@@ -63,7 +63,7 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     else:
         ring_size = ceil(buffer_meters / lado / 2)
         buff_max = (lado * 2 * ring_size) + lado
-    print(f"Se utilizarán hexágonos con un lado igual a {round(lado)} m. ")
+    print(f"Se utilizarán hexágonos H3 de resolución {resolucion_h3} con un lado igual a {round(lado)} m. ")
     print(
         f"Para la matriz de validacion se usará un buffer de {ring_size}"
         + " hexágonos."
@@ -73,7 +73,7 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
         + f"{buff_max} m entre el origen de la etapa siguiente y las "
         + "estaciones de la línea de la etapa a validar"
     )
-    print("Si desea mayor precisión utilice un número más grande de " + "resolucion h3")
+    print("Si desea mayor precisión utilice un número más grande de resolucion h3")
 
     return ring_size
 

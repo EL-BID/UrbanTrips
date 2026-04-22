@@ -11,11 +11,9 @@ from urbantrips.utils.utils import (
 
 
 @duracion
-def persist_datamodel_tables():
+def persist_indicators():
     """
-    Esta funcion lee los datos de etapas, viajes y usuarios
-    le suma informacion de distancias y de zonas
-    y las guarda en csv
+    Esta funcion crea tabla de indicatores clave
     """
 
     alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
@@ -30,28 +28,28 @@ def persist_datamodel_tables():
     """
     etapas = pd.read_sql_query(q, conn_data)
 
-    agrego_indicador(etapas, "Cantidad total de etapas", "etapas_expandidas", 0)
+    agrego_indicador(etapas, "Cantidad total de etapas", "etapas_expandidas", 0, var_fex="factor_expansion_linea")
 
     for i in etapas.modo.unique():
         agrego_indicador(
-            etapas.loc[etapas.modo == i], f"Etapas {i}", "etapas_expandidas", 1
+            etapas.loc[etapas.modo == i], f"Etapas {i}", "etapas_expandidas", 1, var_fex="factor_expansion_linea"
         )
 
     agrego_indicador(
         etapas.groupby(
             ["dia", "id_tarjeta"], as_index=False
-        ).factor_expansion_linea.sum(),
+        ).factor_expansion_tarjeta.max(),
         "Cantidad de tarjetas finales",
         "usuarios",
         0,
-        var_fex="",
+        var_fex="factor_expansion_tarjeta",
     )
 
     agrego_indicador(
         etapas.groupby(
             ["dia", "id_tarjeta"], as_index=False
         ).factor_expansion_linea.min(),
-        "Cantidad total de usuarios",
+        "Cantidad total de tarjetas",
         "usuarios expandidos",
         0,
     )
@@ -69,47 +67,51 @@ def persist_datamodel_tables():
     agrego_indicador(viajes, "Cantidad de registros en viajes", "viajes", 0, var_fex="")
 
     agrego_indicador(
-        viajes, "Cantidad total de viajes expandidos", "viajes expandidos", 0
+        viajes, "Cantidad total de viajes expandidos", "viajes expandidos", 0, var_fex="factor_expansion_linea"
     )
     agrego_indicador(
         viajes[(viajes.distancia <= 5)],
         "Cantidad de viajes cortos (<5kms)",
         "viajes expandidos",
         1,
+        var_fex="factor_expansion_linea"
     )
     agrego_indicador(
         viajes[(viajes.cant_etapas > 1)],
         "Cantidad de viajes con transferencia",
         "viajes expandidos",
         1,
+        var_fex="factor_expansion_linea"
     )
 
-    agrego_indicador(viajes, "Cantidad total de viajes expandidos", "modos viajes", 0)
 
     for i in viajes.modo.unique():
         agrego_indicador(
             viajes.loc[(viajes.od_validado == 1) & (viajes.modo == i)],
             f"Viajes {i}",
             "modos viajes",
-            1,
+            0,
+            var_fex="factor_expansion_linea"
         )
    
     agrego_indicador(
-        viajes,
+        viajes[viajes.od_validado == 1],
         "Distancia de los viajes (promedio en kms)",
         "avg",
         0,
         var="distancia",
         aggfunc="mean",
+        var_fex="factor_expansion_linea"
     )
 
     agrego_indicador(
-        viajes,
+        viajes[viajes.od_validado == 1],
         "Distancia de los viajes (mediana en kms)",
         "avg",
         0,
         var="distancia",
         aggfunc="median",
+        var_fex="factor_expansion_linea"
     )
 
     for i in viajes.modo.unique():
@@ -120,6 +122,7 @@ def persist_datamodel_tables():
             0,
             var="distancia",
             aggfunc="mean",
+            var_fex="factor_expansion_linea"
         )
 
     for i in viajes.modo.unique():
@@ -130,6 +133,7 @@ def persist_datamodel_tables():
             0,
             var="distancia",
             aggfunc="median",
+            var_fex="factor_expansion_linea"
         )
 
     agrego_indicador(
@@ -139,10 +143,11 @@ def persist_datamodel_tables():
         0,
         var="cant_etapas",
         aggfunc="mean",
+        var_fex="factor_expansion_linea"
     )
 
     # USUARIOS
-    print("Leyendo informacion de usuarios...")
+    
     usuarios = pd.read_sql_query(
         """
                                 SELECT *
@@ -159,6 +164,7 @@ def persist_datamodel_tables():
         0,
         var="cant_viajes",
         aggfunc="mean",
+        var_fex="factor_expansion_linea"
     )
 
     conn_data.close()

@@ -1506,7 +1506,7 @@ def guardar_tabla_sql(
             method="multi",
             chunksize=40,
         )
-        print(f"Tabla '{table_name}' reemplazada exitosamente.")
+
     else:
         table_exists = tabla_existe(conn, table_name)
 
@@ -1536,7 +1536,6 @@ def guardar_tabla_sql(
             method="multi",
             chunksize=40,
         )
-        print(f"Datos agregados exitosamente en '{table_name}'.")
 
     # Cierra conexión
     cursor.close()

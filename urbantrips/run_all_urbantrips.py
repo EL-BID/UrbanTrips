@@ -69,8 +69,5 @@ if __name__ == "__main__":
     fin = time.time()
 
     print("")
-    print("")
-    print("")
-    print("")
-    print("")
-    print('tiempo total', round((fin-inicio)/60, 2))
+    print('tiempo total de la corrida', round((fin-inicio)/60, 2))
+
