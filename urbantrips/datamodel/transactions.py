@@ -907,6 +907,8 @@ def process_and_upload_gps_table(
     gps = gps.reindex(columns=cols)
 
     # subir datos a tablas temporales
+
+    print("Subiendo tabla gps")
         
     configs = leer_configs_generales()
     res = configs["resolucion_h3"]
@@ -925,6 +927,7 @@ def process_and_upload_gps_table(
                         filtros={"dia": dias_ultima_corrida["dia"].tolist()},
                     )
     
+
 
 def count_unique_vehicles(s):
     return len(s.unique())

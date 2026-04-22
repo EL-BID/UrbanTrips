@@ -70,3 +70,4 @@ if __name__ == "__main__":
 
     print("")
     print('tiempo total de la corrida', round((fin-inicio)/60, 2))
+

@@ -779,6 +779,7 @@ def fix_mixed_polygons(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # quedarse solo con geometrías poligonales
     gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
 
+
     # convertir Polygon -> MultiPolygon
     gdf["geometry"] = gdf.geometry.apply(
         lambda g: MultiPolygon([g]) if g.geom_type == "Polygon" else g
@@ -810,6 +811,7 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
                 keep_geom_type=False,
             )
             poly_ovl = poly_ovl.dissolve(by=f"zona_{i}", as_index=False)
+            poly_ovl = poly_ovl[poly_ovl.geom_type.isin(["Polygon", "MultiPolygon"])]
             poly_ovl = gpd.overlay(
                 poly_ovl,
                 polygon[["geometry"]],

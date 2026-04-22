@@ -623,6 +623,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
             else:
                 desc_cuenca = False
+
         else:
             desc_cuenca = False
 
