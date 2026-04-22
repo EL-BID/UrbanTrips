@@ -367,6 +367,7 @@ def guardo_zonificaciones():
 
             guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
 
+
 # def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
 #     """
 #     This function will run the networkd distance using
@@ -557,7 +558,9 @@ def create_coarse_h3_from_line(
     # Create cut points for each section based on H3 LRS
     df_section_ids_LRS_cut = df_section_ids_LRS.copy().drop_duplicates()
     df_section_ids_LRS_cut.loc[0] = -0.001
-
+    df_section_ids_LRS_cut = df_section_ids_LRS_cut.drop_duplicates().reset_index(
+        drop=True
+    )
     # Use cut points to come up with a unique integer id
     df_section_ids = list(range(1, len(df_section_ids_LRS_cut)))
 

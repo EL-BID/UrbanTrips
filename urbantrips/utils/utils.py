@@ -19,7 +19,7 @@ import math
 def duracion(f):
     @wraps(f)
     def wrap(*args, **kw):
-        print('')
+        print("")
         print(
             f"{f.__name__} ({str(datetime.datetime.now())[:19]})\n", end="", flush=True
         )
@@ -194,7 +194,6 @@ def create_data_dash_dbs(alias_db):
     create_dash_tables(alias_db)
 
 
-
 def create_other_inputs_tables(alias_db):
 
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
@@ -271,6 +270,7 @@ def create_other_inputs_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS official_lines_geoms
         (id_linea INT PRIMARY KEY     NOT NULL,
+        direction INT not null,
         wkt text not null
         )
         ;
@@ -563,6 +563,7 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms
         (id_ramal INT PRIMARY KEY     NOT NULL,
+        direction int not null,
         wkt text not null
         )
         ;
@@ -573,6 +574,7 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS inferred_lines_geoms
         (id_linea INT PRIMARY KEY     NOT NULL,
+        direction int not null,
         wkt text not null
         )
         ;
@@ -583,6 +585,7 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS lines_geoms
         (id_linea INT PRIMARY KEY     NOT NULL,
+        direction int not null,
         wkt text not null
         )
         ;
@@ -593,6 +596,7 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS branches_geoms
         (id_ramal INT PRIMARY KEY     NOT NULL,
+        direction int not null,
         wkt text not null
         )
         ;
@@ -633,6 +637,7 @@ def create_stops_and_routes_carto_tables(alias_db):
         """
         CREATE TABLE IF NOT EXISTS official_branches_geoms_h3
         (id_ramal INT PRIMARY KEY     NOT NULL,
+        direction int not null,
         section_id int,
         h3 text,
         wkt text not null
@@ -1193,7 +1198,7 @@ def agrego_indicador(
     """
 
     df = df_indicador.copy()
-    
+
     conn_data = iniciar_conexion_db(tipo="data")
 
     try:
@@ -1204,7 +1209,7 @@ def agrego_indicador(
             """,
             conn_data,
         )
-    except DatabaseError as e:        
+    except DatabaseError as e:
         indicadores = pd.DataFrame([])
 
     if var not in df.columns:
@@ -1217,11 +1222,11 @@ def agrego_indicador(
         df = df.rename(columns={var: "indicador"})
 
     df = df[(df.indicador.notna())].copy()
-    
+
     if len(df) == 0:
-        print('**')
+        print("**")
         print(f'Para el indicador "{var}" no hay datos para agregar')
-        print('**')
+        print("**")
     else:
 
         if (not var_fex) | (aggfunc == "sum"):
@@ -1231,21 +1236,17 @@ def agrego_indicador(
 
         elif aggfunc == "mean":
 
-            resultado = (
-                df.groupby("dia")
-                .apply(lambda x: np.average(x["indicador"], weights=x[var_fex]))
+            resultado = df.groupby("dia").apply(
+                lambda x: np.average(x["indicador"], weights=x[var_fex])
             )
             resultado = resultado.reset_index()
             resultado.columns = ["dia", "indicador"]
             resultado = resultado.round(2)
 
         elif aggfunc == "median":
-            resultado = (
-                df.groupby("dia")
-                .apply(
-                    lambda x: ws.weighted_median(
-                        x["indicador"].tolist(), weights=x[var_fex].tolist()
-                    )
+            resultado = df.groupby("dia").apply(
+                lambda x: ws.weighted_median(
+                    x["indicador"].tolist(), weights=x[var_fex].tolist()
                 )
             )
             resultado = resultado.reset_index()
@@ -1709,7 +1710,6 @@ def tabla_existe(conn, table_name):
             raise
 
 
-
 def _aplicar_pragmas_wal(conn):
     """Aplica pragmas de performance WAL a una conexión SQLite abierta."""
     conn.execute("PRAGMA journal_mode=WAL")
@@ -1739,7 +1739,9 @@ def _recreate_indices(conn, indices):
     conn.commit()
 
 
-def _executemany_df(df: pd.DataFrame, table_name: str, conn, if_exists: str = "append", indices=None):
+def _executemany_df(
+    df: pd.DataFrame, table_name: str, conn, if_exists: str = "append", indices=None
+):
     """
     Escribe un DataFrame en SQLite usando executemany.
     Reemplaza to_sql(..., method='multi') manteniendo la misma semántica
@@ -1855,9 +1857,7 @@ def levanto_tabla_sql(
     if index_cols:
         for col in index_cols:
             idx_name = f"idx_{tabla_sql}_{col}"
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tabla_sql}({col})"
-            )
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tabla_sql}({col})")
         conn.commit()
 
     try:
@@ -1961,7 +1961,9 @@ def guardar_tabla_sql(
     try:
         if modo == "replace":
             _executemany_df(df, table_name, conn, if_exists="replace")
-            print(f"Tabla '{table_name}' reemplazada exitosamente. Total finalizado en {(time.time()-t0)/60:.1f} min")
+            print(
+                f"Tabla '{table_name}' reemplazada exitosamente. Total finalizado en {(time.time()-t0)/60:.1f} min"
+            )
         else:
             table_exists = tabla_existe(conn, table_name)
 

@@ -4,10 +4,8 @@ import geopandas as gpd
 import networkx as nx
 from osmnx import distance
 import statsmodels.api as sm
-from shapely import LineString
-# from shapely.geometry import LineString, Point
-# from shapely.validation import explain_validity
-
+import h3
+from shapely import LineString, Polygon
 from itertools import repeat
 import numpy as np
 import warnings
@@ -28,11 +26,12 @@ from urbantrips.utils.utils import (
 
 
 import warnings
+
 warnings.filterwarnings(
     "ignore",
     message="invalid value encountered in line_locate_point_normalized",
     category=RuntimeWarning,
-    module=r"shapely\.linear"
+    module=r"shapely\.linear",
 )
 
 
@@ -61,14 +60,16 @@ def process_routes_geoms():
     geojson_name = configs["recorridos_geojson"]
     geojson_path = os.path.join("data", "data_ciudad", geojson_name)
     geojson_data = gpd.read_file(geojson_path)
-
     branches_present = configs["lineas_contienen_ramales"]
 
     # Check columns
     check_route_geoms_columns(geojson_data, branches_present)
+
     # if data has lines and branches, split them
     if branches_present:
-        branches_routes = geojson_data.reindex(columns=["id_ramal", "geometry"])
+        branches_routes = geojson_data.reindex(
+            columns=["id_ramal", "direction", "geometry"]
+        )
 
         print("Calculando recorridos en h3 con resolucion ", h3_legs_res)
         branches_routes_h3 = [
@@ -91,7 +92,9 @@ def process_routes_geoms():
         )
 
         branches_routes["wkt"] = branches_routes.geometry.to_wkt()
-        branches_routes = branches_routes.reindex(columns=["id_ramal", "wkt"])
+        branches_routes = branches_routes.reindex(
+            columns=["id_ramal", "direction", "wkt"]
+        )
 
         branches_routes.to_sql(
             "official_branches_geoms",
@@ -104,18 +107,18 @@ def process_routes_geoms():
         lines_routes = create_line_geom_from_branches(geojson_data)
 
     else:
-        lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
+        lines_routes = geojson_data.reindex(
+            columns=["id_linea", "direction", "geometry"]
+        )
 
-    assert (
-        not lines_routes.id_linea.duplicated().any()
-    ), "id_linea duplicados en geojson de recorridos"
+    assert not lines_routes.duplicated(
+        subset=["id_linea", "direction"]
+    ).any(), "id_linea duplicados en geojson de recorridos"
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 
-    lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
+    lines_routes = lines_routes.reindex(columns=["id_linea", "direction", "wkt"])
     print("Subiendo tabla de recorridos")
-
-    # TODO: create line geoms in h3 series of cells
 
     # Upload geoms
     lines_routes.to_sql(
@@ -156,7 +159,10 @@ def infer_routes_geoms(plotear_lineas=False):
     validas = recorridos_lowess.geometry.map(lambda g: g.is_valid)
 
     recorridos_lowess = recorridos_lowess.loc[validas, :]
-    recorridos_lowess = recorridos_lowess.reindex(columns=["id_linea", "wkt"])
+    recorridos_lowess["direction"] = 0
+    recorridos_lowess = recorridos_lowess.reindex(
+        columns=["id_linea", "direction", "wkt"]
+    )
 
     recorridos_lowess.to_sql(
         "inferred_lines_geoms",
@@ -184,10 +190,11 @@ def build_routes_from_official_inferred():
     conn_insumos.execute(
         """
         INSERT INTO lines_geoms
-            select i.id_linea,coalesce(o.wkt,i.wkt) as wkt
+            select i.id_linea, i.direction, coalesce(o.wkt,i.wkt) as wkt
             from inferred_lines_geoms i
             left join official_lines_geoms o
             on i.id_linea = o.id_linea
+            and i.direction = o.direction
         ;
         """
     )
@@ -226,10 +233,10 @@ def create_line_geom_from_branches(geojson_data):
     epsg_m = geo.get_epsg_m()
     geojson_data = geojson_data.to_crs(epsg=epsg_m)
 
-    lines_routes = geojson_data.groupby("id_linea", as_index=False).apply(
-        get_line_lowess_from_branch_routes
-    )
-    lines_routes.columns = ["id_linea", "geometry"]
+    lines_routes = geojson_data.groupby(
+        ["id_linea", "direction"], as_index=False
+    ).apply(get_line_lowess_from_branch_routes)
+    lines_routes.columns = ["id_linea", "direction", "geometry"]
     lines_routes = gpd.GeoDataFrame(lines_routes, geometry="geometry", crs=epsg_m)
 
     lines_routes = lines_routes.to_crs(epsg=4326)
@@ -260,24 +267,27 @@ def get_line_lowess_from_branch_routes(gdf):
 
 def check_route_geoms_columns(geojson_data, branches_present):
     # Check all columns are present
-    cols = ["id_linea", "geometry"]
+    cols = ["id_linea", "direction", "geometry"]
 
     assert (
         not geojson_data.id_linea.isna().any()
     ), "id_linea vacios en geojson recorridos"
-    # assert geojson_data.dtypes['id_linea'] == int,\
-    #     "id_linea deben ser int en geojson recorridos"
+    assert (
+        not geojson_data.direction.isna().any()
+    ), "direction vacios en geojson recorridos"
+    # check all values for direction are 0 or 1
+    assert geojson_data.direction.isin(
+        [0, 1]
+    ).all(), "direction debe ser 0 o 1 en geojson recorridos"
 
     if branches_present:
         cols.append("id_ramal")
         assert (
             not geojson_data.id_ramal.isna().any()
         ), "id_ramal vacios en geojson recorridos"
-        assert (
-            not geojson_data.id_ramal.duplicated().any()
-        ), "id_ramal duplicados en geojson recorridos"
-        # assert geojson_data.dtypes['id_ramal'] == int,\
-        #     "id_ramal deben ser int en geojson recorridos"
+        assert not geojson_data.duplicated(
+            subset=["id_ramal", "direction"]
+        ).any(), "id_ramal duplicados en geojson recorridos"
 
     cols = pd.Series(cols)
     columns_ok = cols.isin(geojson_data.columns)
@@ -391,7 +401,6 @@ def process_routes_metadata():
 
     info["modo"] = info["modo"].replace(modos_homologados)
 
-    
     # fuerza la columna a object para que acepte strings
     info["nombre_linea_agg"] = info["nombre_linea_agg"].astype("object")
     # fill missing line agg
@@ -863,3 +872,348 @@ def build_gps_route_sections_df(row):
         }
     )
     return gps_route_sections_df
+
+
+def turn_route_geom_into_h3_cells(
+    # route_geom, route_id_column, route_type, direction,
+    row,
+    route_id_column,
+    res=10,
+):
+    """
+    Convierte la geometría de una ruta en una secuencia de celdas H3,
+    interpolando puntos a lo largo de la ruta y asignándoles celdas H3.
+    """
+    print(row)
+    print(route_id_column)
+    print(row[route_id_column])
+    route_geom = row.geometry
+    direction = row.direction
+    route_id = row[route_id_column]
+
+    epsg_m = geo.get_epsg_m()
+    route_geom_m = (
+        gpd.GeoSeries(route_geom, crs=4326).to_crs(epsg=epsg_m).geometry.iloc[0]
+    )
+
+    interpolating_distance = h3.average_hexagon_edge_length(10, unit="m") * 0.5
+
+    # Interpolate points along the route geometry at regular intervals
+    points = interpolate_points(
+        route_geom_m=route_geom_m, interpolating_distance=interpolating_distance
+    )
+
+    # create a GeoDataFrame from the interpolated points indexed in h3 res 10
+    points["h3_id"] = points.geometry.apply(lambda p: h3.latlng_to_cell(p.y, p.x, res))
+    points["block"] = (points["h3_id"] != points["h3_id"].shift()).cumsum()
+
+    geom_h3 = points.drop_duplicates(subset=["h3_id", "block"]).reset_index(drop=True)
+    geom_h3 = gpd.GeoDataFrame(
+        geom_h3, geometry=geom_h3["h3_id"].map(h3_to_polygon), crs="EPSG:4326"
+    )
+    geom_h3 = geom_h3.sort_values("lrs").reset_index(drop=True)
+    geom_h3["section_id"] = range(len(geom_h3))
+
+    """
+    cell_shift = points.loc[
+        points["h3_id"] != points["h3_id"].shift(), "h3_id"
+    ].value_counts()
+    cells_with_shift = cell_shift[cell_shift > 1].index.tolist()
+
+    if len(cells_with_shift) > 0:
+        print(
+            f"⚠️  Warning: Detected {len(cells_with_shift)} cells with multiple visits:"
+        )
+        for cell in cells_with_shift[:10]:  # Show up to 10 problematic cells
+            print(f"  Cell {cell} visited {cell_shift[cell]} times")
+        if len(cells_with_shift) > 10:
+            print(f"  ... and {len(cells_with_shift) - 10} more")
+    """
+
+    # First, check how many gaps exist
+    gaps = []
+    for i in range(len(geom_h3) - 1):
+        current_cell = geom_h3.iloc[i]["h3_id"]
+        next_cell = geom_h3.iloc[i + 1]["h3_id"]
+        if not h3.are_neighbor_cells(current_cell, next_cell):
+            distance = h3.grid_distance(current_cell, next_cell)
+            gaps.append({"from_idx": i, "to_idx": i + 1, "distance": distance})
+
+    print(f"Found {len(gaps)} gaps in the route:")
+    if len(gaps) > 0:
+        print(f"Found {len(gaps)} gaps ")
+    else:
+        print("  No gaps found - route is fully connected!")
+    only_one_cell_gaps = [g["distance"] <= 2 for g in gaps]
+    if not all(only_one_cell_gaps):
+        print(
+            f"⚠️  Warning: {sum(not d for d in only_one_cell_gaps)} gaps have distance greater than 2, which may indicate significant route discontinuities."
+        )
+
+    if len(gaps) > 0:
+        geom_h3_filled = fill_h3_gaps(
+            geom_h3=geom_h3, line_geom=route_geom, h3_column="h3_id", verbose=False
+        )
+    else:
+        geom_h3_filled = geom_h3.copy()
+
+    # Validate that the filled route is fully connected
+    non_adjacent_count = 0
+    for i in range(len(geom_h3_filled) - 1):
+        current_cell = geom_h3_filled.iloc[i]["h3_id"]
+        next_cell = geom_h3_filled.iloc[i + 1]["h3_id"]
+        if not h3.are_neighbor_cells(current_cell, next_cell):
+            non_adjacent_count += 1
+            print(f"❌ Cells at positions {i} and {i+1} are still NOT adjacent")
+
+    if non_adjacent_count == 0:
+        print("✅ SUCCESS! All consecutive cells in the filled route are adjacent.")
+        print(f"   Route length: {len(geom_h3_filled)} cells")
+    else:
+        print(f"\n⚠️  Warning: {non_adjacent_count} gaps remain")
+
+    geom_h3_filled[route_id_column] = route_id
+    geom_h3_filled["direction"] = direction
+    geom_h3_filled = geom_h3_filled.rename(columns={"h3_id": "h3"})
+    geom_h3_filled["wkt"] = geom_h3_filled.geometry.to_wkt()
+
+    geom_h3_filled = geom_h3_filled.reindex(
+        columns=[route_id_column, "direction", "section_id", "h3", "wkt"]
+    )
+    return geom_h3_filled
+
+
+def fill_h3_gaps(geom_h3, line_geom, h3_column="h3_id", verbose=True):
+    """
+    Fill gaps in an H3 route by adding shortest paths between non-adjacent consecutive cells.
+
+    When cell at position i is not adjacent to cell at position i+1, this function:
+    1. Finds the shortest path between them using h3.grid_path_cells()
+    2. Inserts the intermediate cells
+    3. Updates section_id values to maintain sequence
+
+    Parameters:
+    -----------
+    geom_h3 : GeoDataFrame
+        GeoDataFrame with H3 cell identifiers and section_id
+    h3_column : str
+        Name of the column containing H3 cell IDs (default: 'h3_10')
+    verbose : bool
+        Print information about gaps filled
+
+    Returns:
+    --------
+    GeoDataFrame
+        GeoDataFrame with gaps filled
+    """
+
+    # Start with a copy
+    df = geom_h3.copy().reset_index(drop=True)
+
+    # We'll build a new dataframe with filled gaps
+    new_rows = []
+    section_counter = 0
+    total_gaps_filled = 0
+
+    for i in range(len(df)):
+        current_row = df.iloc[i]
+        current_cell = current_row[h3_column]
+
+        # Add current row with updated section_id
+        current_row_dict = current_row.to_dict()
+        current_row_dict["section_id"] = section_counter
+        new_rows.append(current_row_dict)
+        section_counter += 1
+
+        # Check if there's a next cell
+        if i < len(df) - 1:
+            next_cell = df.iloc[i + 1][h3_column]
+
+            # Check if current and next are adjacent
+            if not h3.are_neighbor_cells(current_cell, next_cell):
+                # Find shortest path between them
+                distance = h3.grid_distance(current_cell, next_cell)
+                if distance == 2:
+                    print(
+                        "Distance of 2 detected between cells at positions {} and {}. Attempting to fill gap with common neighbor.".format(
+                            i, i + 1
+                        )
+                    )
+                    # find adjacent cells to current and next_cell
+                    neighbors_current = set(h3.grid_ring(current_cell, 1))
+                    neighbors_next = set(h3.grid_ring(next_cell, 1))
+                    common_neighbors = neighbors_current.intersection(neighbors_next)
+
+                    if common_neighbors:
+                        # If there's a common neighbor, we can fill the gap with that cell
+                        inter_cell = common_neighbors.pop()  # Get one common neighbor
+                        cell_polygon = h3_to_polygon(inter_cell)
+                        # check if the intermediate cell intersects the line geometry
+                        print()
+                        if not cell_polygon.intersects(line_geom):
+                            print("inter_cell", inter_cell)
+                            print(
+                                "Retry next common neighbor for cells at positions {} and {} as the first one does not intersect the line geometry.".format(
+                                    i, i + 1
+                                )
+                            )
+                            inter_cell = (
+                                common_neighbors.pop()
+                            )  # Get one common neighbor
+                            cell_polygon = h3_to_polygon(inter_cell)
+                            if not cell_polygon.intersects(line_geom):
+                                print("inter_cell", inter_cell)
+
+                                print(
+                                    "Warning: No common neighbor intersects the line geometry for cells at positions {} and {}.".format(
+                                        i, i + 1
+                                    )
+                                )
+
+                        new_row = {
+                            h3_column: inter_cell,
+                            "section_id": section_counter,
+                            "geometry": cell_polygon,
+                            "is_filled_gap": True,  # Mark as filled gap
+                        }
+                        # Copy other relevant columns if they exist
+                        for col in ["lrs"]:
+                            if col in current_row:
+                                new_row[col] = None  # or interpolate if needed
+
+                        new_rows.append(new_row)
+                        section_counter += 1
+                        total_gaps_filled += 1
+                    else:
+                        if verbose:
+                            print(
+                                f"Warning: No common neighbor found between cells at {i} and {i+1}. Distance: {distance}"
+                            )
+                else:
+
+                    # grid_path_cells returns the path including start and end
+                    path = h3.grid_path_cells(current_cell, next_cell)
+
+                    # Skip first (current) and last (next) cells as they're already in the sequence
+                    intermediate_cells = path[1:-1]
+
+                    total_gaps_filled += 1
+
+                    # Add intermediate cells
+                    for inter_cell in intermediate_cells:
+                        # Create a new row for each intermediate cell
+                        new_row = {
+                            h3_column: inter_cell,
+                            "section_id": section_counter,
+                            "geometry": h3_to_polygon(inter_cell),
+                            "is_filled_gap": True,  # Mark as filled gap
+                        }
+                        # Copy other relevant columns if they exist
+                        for col in ["lrs"]:
+                            if col in current_row:
+                                new_row[col] = None  # or interpolate if needed
+
+                        new_rows.append(new_row)
+                        section_counter += 1
+
+    # Create new GeoDataFrame
+    result_df = gpd.GeoDataFrame(new_rows, crs=geom_h3.crs)
+
+    if verbose:
+        print(f"\nSummary:")
+        print(f"  Original cells: {len(df)}")
+        print(f"  Gaps filled: {total_gaps_filled}")
+        print(f"  Cells added: {len(result_df) - len(df)}")
+        print(f"  Total cells: {len(result_df)}")
+
+    return result_df
+
+
+def interpolate_points(route_geom_m, interpolating_distance=5):
+    """Crea puntos cada X metros a lo largo de una línea (LRS)"""
+    epsg_m = geo.get_epsg_m()
+
+    distancias = np.arange(0, route_geom_m.length, interpolating_distance)
+    if distancias[-1] < route_geom_m.length:
+        distancias = np.append(distancias, route_geom_m.length)
+
+    puntos = [route_geom_m.interpolate(d) for d in distancias]
+
+    gdf_pts = gpd.GeoDataFrame({"lrs": distancias}, geometry=puntos, crs=epsg_m)
+    gdf_pts = gdf_pts.sort_values("lrs").reset_index(drop=True)
+
+    return gdf_pts.to_crs(epsg=4326)
+
+
+def h3_to_polygon(hex_id):
+    """Convierte un ID de H3 en una geometría de Polygon para GeoPandas"""
+    boundary = h3.cell_to_boundary(hex_id)
+    return Polygon([(lng, lat) for lat, lng in boundary])
+
+
+def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
+    # parent_res = 9
+    parent_routes_h3_gdf = route_h3.copy()
+    parent_routes_h3_gdf = gpd.GeoDataFrame(
+        parent_routes_h3_gdf.drop("wkt", axis=1),
+        geometry=gpd.GeoSeries.from_wkt(parent_routes_h3_gdf.wkt),
+        crs="EPSG:4326",
+    )
+
+    if "id_ramal" in route_h3.columns:
+        route_id_column = "id_ramal"
+    else:
+        route_id_column = "id_linea"
+
+    parent_routes_h3_gdf["parent_h3"] = parent_routes_h3_gdf["h3"].map(
+        lambda x: h3.cell_to_parent(x, parent_res)
+    )
+    parent_routes_h3_gdf["block"] = (
+        parent_routes_h3_gdf["parent_h3"] != parent_routes_h3_gdf["parent_h3"].shift()
+    ).cumsum()
+
+    # Para el par block y parent_h3, se podria borrar la celd res 10 cuyo
+    #  parent_h3 no toca el pedazo de ruta que le corresponde a la celda child res 10
+    child_cell_union_route_line = (
+        gpd.overlay(
+            route_geom,
+            parent_routes_h3_gdf,
+            how="union",
+            keep_geom_type=True,
+        )
+        .dropna(subset=["section_id"])
+        .reindex(columns=["h3", "block", "parent_h3", "geometry"])
+    )
+    child_cell_union_route_line["parent_geometry"] = child_cell_union_route_line[
+        "parent_h3"
+    ].map(h3_to_polygon)
+
+    idx_to_remove = [
+        (row["h3"], row.block)
+        for i, row in child_cell_union_route_line.iterrows()
+        if not row.geometry.intersects(row.parent_geometry)
+    ]
+    parent_routes_h3_gdf = parent_routes_h3_gdf[
+        ~parent_routes_h3_gdf.set_index(["h3", "block"]).index.isin(idx_to_remove)
+    ].reset_index(drop=True)
+    parent_routes_h3_gdf["block"] = (
+        parent_routes_h3_gdf["parent_h3"] != parent_routes_h3_gdf["parent_h3"].shift()
+    ).cumsum()
+
+    # Get a single geometry for each parent_h3 and block combination
+    parent_routes_h3_gdf = parent_routes_h3_gdf.groupby(
+        ["parent_h3", "block"], as_index=False
+    ).first()
+    parent_routes_h3_gdf["geometry"] = parent_routes_h3_gdf["parent_h3"].map(
+        h3_to_polygon
+    )
+    parent_routes_h3_gdf = parent_routes_h3_gdf.sort_values("section_id").reset_index(
+        drop=True
+    )
+    parent_routes_h3_gdf["section_id"] = range(len(parent_routes_h3_gdf))
+    parent_routes_h3_gdf["wkt"] = parent_routes_h3_gdf.geometry.to_wkt()
+
+    parent_routes_h3_gdf = parent_routes_h3_gdf.reindex(
+        columns=[route_id_column, "direction", "parent_h3", "section_id", "wkt"]
+    )
+    return parent_routes_h3_gdf

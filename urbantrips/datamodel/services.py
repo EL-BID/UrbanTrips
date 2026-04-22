@@ -1,8 +1,7 @@
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
-from urbantrips.utils.utils import (guardar_tabla_sql, levanto_tabla_sql, duracion)
-
+from urbantrips.utils.utils import guardar_tabla_sql, levanto_tabla_sql, duracion
 
 
 import warnings
@@ -13,6 +12,7 @@ warnings.filterwarnings(
     category=RuntimeWarning,
     module=r".*urbantrips.*services",  # tu módulo
 )
+
 
 @duracion
 def process_services(line_ids=None):
@@ -224,10 +224,17 @@ def process_line_services(gps_points, stops):
     else:
         line_stops_gdf = None
 
+    configs = utils.leer_configs_generales()
+    trust_service_type_gps = configs["utilizar_servicios_gps"]
+
     # print("Asignando servicios")
     gps_points_with_new_service_id = (
         gps_points.groupby(["dia", "id_ramal", "interno"], as_index=False)
-        .apply(classify_line_gps_points_into_services, line_stops_gdf=line_stops_gdf)
+        .apply(
+            classify_line_gps_points_into_services,
+            line_stops_gdf=line_stops_gdf,
+            trust_service_type_gps=trust_service_type_gps,
+        )
         .droplevel(0)
     )
 
@@ -255,8 +262,8 @@ def process_line_services(gps_points, stops):
         method="multi",
         chunksize=40,
     )
-    
-    # dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")    
+
+    # dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
     # guardar_tabla_sql(
     #     services_gps_points,
     #     "services_gps_points",
@@ -534,7 +541,12 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
 
 
 def classify_line_gps_points_into_services(
-    line_gps_points, line_stops_gdf, debug=False, *args, **kwargs
+    line_gps_points,
+    line_stops_gdf,
+    debug=False,
+    trust_service_type_gps=True,
+    *args,
+    **kwargs,
 ):
     """
     Takes gps points and stops for a given line and classifies each point into
