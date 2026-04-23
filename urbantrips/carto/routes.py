@@ -72,17 +72,12 @@ def process_routes_geoms():
         )
 
         print("Calculando recorridos en h3 con resolucion ", h3_legs_res)
-        branches_routes_h3 = [
-            create_coarse_h3_from_line(
-                branch_geom.geometry, h3_legs_res, branch_geom.id_ramal
-            )
-            for _, branch_geom in branches_routes.iterrows()
-        ]
-        branches_routes_h3 = pd.concat(branches_routes_h3, ignore_index=True)
-        branches_routes_h3["wkt"] = branches_routes_h3.geometry.to_wkt()
-        branches_routes_h3 = branches_routes_h3.reindex(
-            columns=["route_id", "section_id", "h3", "wkt"]
-        ).rename(columns={"route_id": "id_ramal"})
+        routes_h3 = []
+        for i, route in branches_routes.iterrows():
+            print(f"Procesando ruta: {route.id_ramal}")
+            geom_h3 = turn_route_geom_into_h3_cells(route, route_id_column="id_ramal")
+            routes_h3.append(geom_h3)
+        branches_routes_h3 = pd.concat(routes_h3, ignore_index=True)
 
         branches_routes_h3.to_sql(
             "official_branches_geoms_h3",
@@ -115,6 +110,13 @@ def process_routes_geoms():
         subset=["id_linea", "direction"]
     ).any(), "id_linea duplicados en geojson de recorridos"
 
+    routes_h3 = []
+    for i, route in lines_routes.iterrows():
+        print(f"Procesando ruta: {route.id_linea}")
+        geom_h3 = turn_route_geom_into_h3_cells(route, route_id_column="id_linea")
+        routes_h3.append(geom_h3)
+    lines_routes_h3 = pd.concat(routes_h3, ignore_index=True)
+
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "direction", "wkt"])
@@ -128,6 +130,12 @@ def process_routes_geoms():
         index=False,
     )
 
+    lines_routes_h3.to_sql(
+        "official_lines_geoms_h3",
+        conn_insumos,
+        if_exists="replace",
+        index=False,
+    )
     conn_insumos.close()
 
 
