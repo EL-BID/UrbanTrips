@@ -108,7 +108,7 @@ def process_routes_geoms():
 
     assert (
         not lines_routes.id_linea.duplicated().any()
-    ), "id_linea duplicados en geojson de recorridos"
+    ), "id_linea duplicados en geojson de recorridos - Verificar si no contiene ramales (y modificar parámetro en configuraciones_generales.yaml)"
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 

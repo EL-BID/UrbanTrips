@@ -876,17 +876,47 @@ def process_and_upload_gps_table(
                 "Revisar el configs para servicios_gps"
             )
 
-    if "distance" not in gps.columns:
-        gps["distance"] = None
+    # if "distance" not in gps.columns:
+    #     gps["distance"] = None
 
-    if gps["distance"].isna().all():
-        gps = compute_distance_km_gps(gps, use_pandana=True)
-    else:
-        gps = gps.rename(columns={"distance": "distance_km"})
+    # if gps["distance"].isna().all():
+    #     gps = compute_distance_km_gps(gps, use_pandana=True)
+    # else:
+    #     gps = gps.rename(columns={"distance": "distance_km"})
+    gps = compute_distance_km_gps(gps, use_pandana=True)
+
 
     # if branches are not present, add branch id as the same as line
     if not configs["lineas_contienen_ramales"]:
         gps.loc[:, "id_ramal"] = gps["id_linea"].copy()
+
+    cols = ["id_linea", "id_ramal", "interno", "fecha"]
+
+    gps = gps.sort_values(cols).copy()
+
+    if "distance_servicio_mts_agg" in gps.columns and gps["distance_servicio_mts_agg"].notna().any():
+        gps["distance_servicio_mts"] = (
+            gps.groupby(["id_linea", "id_ramal", "interno"])["distance_servicio_mts_agg"]
+            .diff()
+        )
+
+        # corregir
+        gps["distance_servicio_mts"] = gps["distance_servicio_mts"].fillna(0)        
+        gps.loc[gps["distance_servicio_mts"] < 0, "distance_servicio_mts"] = 0
+
+    if (
+        "distance_servicio_mts" in gps.columns
+        and gps["distance_servicio_mts"].notna().any()
+        and "distance_servicio_mts_agg" not in gps.columns
+    ):
+        gps["distance_servicio_mts_agg"] = (
+            gps.groupby(["id_linea", "id_ramal", "interno"])["distance_servicio_mts"]
+            .cumsum()
+        )
+        # corregir
+        gps["distance_servicio_mts_agg"] = gps["distance_servicio_mts_agg"].fillna(0)        
+        gps.loc[gps["distance_servicio_mts_agg"] < 0, "distance_servicio_mts_agg"] = 0
+
 
     cols = [
         "id",
@@ -899,8 +929,11 @@ def process_and_upload_gps_table(
         "latitud",
         "longitud",
         "velocity",
+        "id_servicio",
         "service_type",
         "distance_km",
+        "distance_servicio_mts",
+        "distance_servicio_mts_agg",
         "h3",
     ]
 
@@ -1016,8 +1049,8 @@ def compute_distance_km_gps(gps, use_pandana=False):
     
     gps = compute_od_distances(
         od_df             = gps,
-        origin_col        = "h3",
-        dest_col          = "h3_lag",
+        origin_col        = "h3_lag",
+        dest_col          = "h3",
         distance_col      = 'distance_km',
         unit              = 'km',
         db_path           = "data/matriz_distancia/matriz_distancia.duckdb",

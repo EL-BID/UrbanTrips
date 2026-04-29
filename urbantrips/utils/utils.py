@@ -1070,7 +1070,10 @@ def create_gps_table(alias_db):
                 latitud FLOAT,
                 longitud FLOAT,
                 velocity float,
+                id_servicio int,
                 service_type text,
+                distance_servicio_mts int,
+                distance_servicio_mts_agg int,
                 distance_km float,
                 h3 text
                 )

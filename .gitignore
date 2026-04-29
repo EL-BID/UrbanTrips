@@ -166,3 +166,5 @@ dead_code_analysis.md
 *.parquet
 etapas_tmp_1
 etapas_tmp_2
+data/data_ciudad/martes_trx.csv
+data/data_ciudad/miercoles_trx.csv

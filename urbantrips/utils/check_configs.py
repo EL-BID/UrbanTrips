@@ -14,24 +14,6 @@ from urbantrips.utils.utils import (
 from pathlib import Path
 import shutil
 
-def check_config_fecha(df, columns_with_date, date_format):
-    """
-    Esta funcion toma un dataframe, una columna donde se guardan fechas,
-    un formato de fecha, intenta parsear las fechas y arroja un error
-    si mas del 80% de las fechas no pueden parsearse
-    """
-    fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
-
-    # Chequear si el formato funciona
-    checkeo = fechas.isna().sum() / len(df)
-    string = (
-        f"El formato de fecha {date_format} no es correcto. Actualmente se pierden el "
-        + f"{round((checkeo * 100),2)} por ciento de registros"
-        + f"\nVerifique que coincida con el formato de fecha del archivo según este ejemplo de la tabla {df[columns_with_date].sample(1).values[0]}"
-    )
-    assert checkeo < 0.8, string
-
-
 def check_if_list(string):
     result = string
     if type(string) == str:
@@ -67,6 +49,10 @@ def check_config_fecha(df, columns_with_date, date_format):
     un formato de fecha, intenta parsear las fechas y arroja un error
     si mas del 80% de las fechas no pueden parsearse
     """
+    assert columns_with_date in df.columns, (
+        f"Columna requerida '{columns_with_date}' no encontrada en el archivo. "
+        f"Columnas disponibles: {list(df.columns)}"
+    )
     fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
 
     # Chequear si el formato funciona
@@ -241,11 +227,16 @@ def revise_configs(configs):
     return config_default
 
 
-def write_config(config_default):
-    path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
+def write_config(config_default, autogenerado=True):
+    filename = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
 
-    with open(path, "w") as file:
+    path = os.path.join("configs", filename)
 
+    with open(path, "w", encoding="utf-8") as file:
         file.write("# Archivo de configuración para urbantrips\n\n")
 
         for i in config_default.item.unique():
@@ -262,34 +253,32 @@ def write_config(config_default):
                     if len(x.subvar) > 0:
                         if _ == 0:
                             file.write(f"{x.variable}: \n")
+
                         if type(x.default) != list:
-
                             if x.default != "":
-
                                 if (type(x.default) == str) & ~(
                                     (x.default == "True") | (x.default == "False")
                                 ):
-                                    # subvars
                                     file.write(
                                         f'    {x.subvar}: "{x.default}"'.ljust(67)
                                     )
-
                                 else:
-                                    # subvars
-                                    file.write(f"    {x.subvar}: {x.default}".ljust(67))
-
+                                    file.write(
+                                        f"    {x.subvar}: {x.default}".ljust(67)
+                                    )
                             else:
-                                # subvars
                                 file.write(f"    {x.subvar}: ".ljust(67))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}")
 
                         else:
-
                             file.write(f"    {x.subvar}: ".ljust(15))
                             file.write("[".ljust(52))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}".ljust(15))
+
                             file.write("\n")
 
                             for z in x.default:
@@ -301,18 +290,15 @@ def write_config(config_default):
                         file.write("\n")
 
                     else:
-
                         if x.default != "":
                             if (type(x.default) == str) & ~(
                                 (x.default == "True") | (x.default == "False")
                             ):
-                                # subvars
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
                             else:
-                                # subvars
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
                         else:
-                            file.write(f"{x.variable}:".ljust(67))  # subvars
+                            file.write(f"{x.variable}:".ljust(67))
 
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
@@ -326,10 +312,8 @@ def write_config(config_default):
                                 (x.default == "True") | (x.default == "False")
                             ):
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
-
                             else:
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
-
                         else:
                             file.write(f"{x.variable}: ".ljust(67))
 
@@ -337,11 +321,12 @@ def write_config(config_default):
                             file.write(f"# {x.descripcion_campo}")
 
                     else:
-
                         file.write(f"    {x.variable}: ".ljust(15))
                         file.write("[".ljust(48))
+
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
+
                         file.write("\n")
 
                         for z in x.default:
@@ -959,6 +944,7 @@ def check_config(corrida):
     Returns:
     None
     """
+
     print("Usando corrida", corrida)
 
     corregir_codificacion_a_utf8_sin_modificar_texto(
@@ -971,7 +957,9 @@ def check_config(corrida):
 
     # leo el config autogenerado
     configs_usuario = leer_configs_generales(autogenerado=False)
-    alias_default = configs_usuario.get("alias_db", "alias")
+    configs_base = revise_configs(configs_usuario)
+    write_config(configs_base, autogenerado=False)
+    alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general
     alias_insumos = {
@@ -991,7 +979,7 @@ def check_config(corrida):
     config_default = add_dash_and_data_dbs(config_default, corrida)
 
     # Guarda el config autogenerado
-    write_config(config_default)
+    write_config(config_default, autogenerado=True)
     check_config_errors(config_default)
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales_autogenerado.yaml"
