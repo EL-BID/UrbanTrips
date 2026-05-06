@@ -461,6 +461,7 @@ def check_config_errors(config_default):
         vars_required += [[i.variable, i.subvar]]
 
     orden_trx = None
+    date_format = ""
 
     errores = []
     nombre_archivo_trx = config_default.loc[
@@ -472,12 +473,12 @@ def check_config_errors(config_default):
         ]
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print(f"--Archivo de transacciones en proceso: {ruta}")
+        print(f"Archivo de transacciones en proceso: {ruta}")
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
             trx = pd.read_csv(ruta, nrows=1000)
-
+            
             # check date
             columns_with_date = config_default.loc[
                 (config_default.variable == "nombres_variables_trx")
@@ -487,8 +488,7 @@ def check_config_errors(config_default):
 
             date_format = config_default.loc[
                 (config_default.variable == "formato_fecha"), "default"
-            ].values[0]
-
+            ].values[0]            
             check_result = check_config_fecha(
                 df=trx, columns_with_date=columns_with_date, date_format=date_format
             )
@@ -658,7 +658,7 @@ def check_config_errors(config_default):
             errores += [
                 "El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"
             ]
-
+        
         # ordenamiento de transacciones
         if (
             config_default[
@@ -668,7 +668,7 @@ def check_config_errors(config_default):
         ):
             if len(date_format) < 14:
                 errores += [
-                    'La variable "fecha_trx" debe tener hora/minuto para ordenamiento'
+                    f'La variable "fecha_trx" debe tener hora/minuto para ordenamiento {date_format}'
                 ]
         elif (
             config_default[
@@ -944,8 +944,6 @@ def check_config(corrida):
     Returns:
     None
     """
-
-    print("Usando corrida", corrida)
 
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales.yaml"

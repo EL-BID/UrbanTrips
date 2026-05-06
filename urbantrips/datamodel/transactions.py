@@ -51,8 +51,8 @@ def create_transactions(
         modos_homologados = configs["modos"]
         zipped = zip(modos_homologados.values(), modos_homologados.keys())
         modos_homologados = {k: v for k, v in zipped}
-        print("Utilizando los siguientes modos homologados")
-        print(modos_homologados)
+        print("Utilizando los siguientes modos homologados", modos_homologados)
+        
     except KeyError:
         pass
 
@@ -941,7 +941,7 @@ def process_and_upload_gps_table(
 
     # subir datos a tablas temporales
 
-    print("Subiendo tabla gps")
+    # print("Subiendo tabla gps")
         
     configs = leer_configs_generales()
     res = configs["resolucion_h3"]

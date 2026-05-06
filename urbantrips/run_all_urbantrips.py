@@ -5,7 +5,7 @@ import time
 ────────────────────────────────────────────────────────────
 📝 Ejemplos de uso desde consola (Windows o Linux):
 
-python run_all_urbantrips.py
+python urbantrips/run_all_urbantrips.py
     → Corre solo las pendientes y crea el dashboard
 
 python urbantrips/run_all_urbantrips.py --borrar_corrida all

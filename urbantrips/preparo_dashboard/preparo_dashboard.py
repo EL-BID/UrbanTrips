@@ -106,25 +106,25 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
 
     # ── 2. incorporar travel_time_min y velocidades ─────────────────
 
-    etapas[["travel_speed"]] = np.nan
-    viajes[["travel_speed"]] = np.nan
+    etapas[["kmh_od"]] = np.nan
+    viajes[["kmh_od"]] = np.nan
 
     etapas["travel_time_min"] = (
         pd.to_numeric(etapas["travel_time_min"], errors="coerce").fillna(0).astype(int)
     )
 
-    etapas["travel_speed"] = np.where(
+    etapas["kmh_od"] = np.where(
         etapas["travel_time_min"] > 0,
         (etapas["distancia"] / (etapas["travel_time_min"] / 60)).round(1),
         np.nan,
     )
 
-    viajes["travel_speed"] = np.where(
+    viajes["kmh_od"] = np.where(
         viajes["travel_time_min"] > 0,
         (viajes["distancia"] / (viajes["travel_time_min"] / 60)).round(1),
         np.nan,
     )
-    viajes.loc[viajes["travel_speed"] >= 80, "travel_speed"] = np.nan
+    viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
 
     # ── 3. flags y rangos horarios (vectorizado) ────────────────────
     viajes["transferencia"] = (viajes["cant_etapas"] > 1).astype(int)
@@ -196,7 +196,7 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
     # ── 6. rellenar nulos finales ───────────────────────────────────
     for df in (etapas, viajes):
         df["travel_time_min"] = df["travel_time_min"].fillna(0).astype("float32")
-        df["travel_speed"] = df["travel_speed"].fillna(0).astype("float32")
+        df["kmh_od"] = df["kmh_od"].fillna(0).astype("float32")
 
     # ── 7. columnas finales ─────────────────────────────────────────
     etapas = etapas[
@@ -224,7 +224,7 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
             "factor_expansion_tarjeta",
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
@@ -261,7 +261,7 @@ def load_and_process_data(alias_data: str = "", alias_insumos: str = ""):
             "factor_expansion_tarjeta",
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "diff_time",
             "modo_agregado",
             "rango_hora",
@@ -735,10 +735,10 @@ def construyo_matrices(
             "lon4",
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
         ],
         weight_col="factor_expansion_linea",
-        zero_to_nan=["lat1", "lon1", "lat4", "lon4", "travel_time_min", "travel_speed"],
+        zero_to_nan=["lat1", "lon1", "lat4", "lon4", "travel_time_min", "kmh_od"],
     )
 
     zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
@@ -1008,7 +1008,7 @@ def agg_matriz(
         "rango_hora",
         "distancia_agregada",
     ],
-    weight_col=["distancia", "travel_time_min", "travel_speed"],
+    weight_col=["distancia", "travel_time_min", "kmh_od"],
     weight_var="factor_expansion_linea",
     agg_transferencias=False,
     agg_modo=False,
@@ -1051,7 +1051,7 @@ def imprimo_matrices_od(alias_db=""):
     agg_distancia = True
 
     matrices_all.loc[matrices_all.travel_time_min == 0, "travel_time_min"] = np.nan
-    matrices_all.loc[matrices_all.travel_speed == 0, "travel_speed"] = np.nan
+    matrices_all.loc[matrices_all.kmh_od == 0, "kmh_od"] = np.nan
     matrices = (
         matrices_all.groupby(
             [
@@ -1080,7 +1080,7 @@ def imprimo_matrices_od(alias_db=""):
                 "lon4",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "factor_expansion_linea",
             ]
         ]
@@ -1100,7 +1100,7 @@ def imprimo_matrices_od(alias_db=""):
             "rango_hora",
             "distancia_agregada",
         ],
-        weight_col=["distancia", "travel_time_min", "travel_speed"],
+        weight_col=["distancia", "travel_time_min", "kmh_od"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
@@ -1154,13 +1154,12 @@ def imprimo_matrices_od(alias_db=""):
 
 
 def crea_socio_indicadores(etapas, viajes, alias_db=""):
-    print("Creo indicadores de género y tarifa_agregada")
 
     socio_indicadores = pd.DataFrame([])
     viajes.loc[viajes.travel_time_min == 0, "travel_time_min"] = np.nan
-    viajes.loc[viajes.travel_speed == 0, "travel_speed"] = np.nan
+    viajes.loc[viajes.kmh_od == 0, "kmh_od"] = np.nan
     etapas.loc[etapas.travel_time_min == 0, "travel_time_min"] = np.nan
-    etapas.loc[etapas.travel_speed == 0, "travel_speed"] = np.nan
+    etapas.loc[etapas.kmh_od == 0, "kmh_od"] = np.nan
 
     viajesx = calculate_weighted_means(
         viajes,
@@ -1168,7 +1167,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
         weighted_mean_cols=[
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -1182,7 +1181,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
         weighted_mean_cols=[
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -1200,7 +1199,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
             "tarifa_agregada",
             "modo",
         ],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     )
@@ -1215,7 +1214,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
             "tarifa_agregada",
             "modo",
         ],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=False,
     ).round(3)
@@ -1224,7 +1223,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
     etapasxx = calculate_weighted_means(
         etapasx,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "modo"],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     ).round(3)
@@ -1235,7 +1234,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
     etapasxx = calculate_weighted_means(
         etapasx,
         aggregate_cols=["dia", "mes", "tipo_dia", "tarifa_agregada", "modo"],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     ).round(3)
@@ -1249,7 +1248,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
         weighted_mean_cols=[
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -1325,7 +1324,7 @@ def crea_socio_indicadores(etapas, viajes, alias_db=""):
             "modo",
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "cant_viajes",
             "diff_time",
@@ -1593,7 +1592,7 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ],
@@ -1639,7 +1638,7 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ]
@@ -1663,7 +1662,7 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
                 "ultimo_viaje",
@@ -1717,7 +1716,7 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
                 "polygon",
@@ -1765,7 +1764,7 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ]
@@ -2066,7 +2065,7 @@ def preparo_lineas_deseo(
                     "distancia_agregada",
                     "distancia",
                     "travel_time_min",
-                    "travel_speed",
+                    "kmh_od",
                     "factor_expansion_linea",
                 ]
             ]
@@ -2126,7 +2125,7 @@ def preparo_lineas_deseo(
             weighted_mean_cols = [
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -2149,7 +2148,7 @@ def preparo_lineas_deseo(
                 "lat4_norm",
                 "lon4_norm",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
             ]
 
             etapas_agrupadas_zon = agrupar_viajes(
@@ -2262,7 +2261,7 @@ def preparo_lineas_deseo(
             weighted_mean_cols = [
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -2349,14 +2348,14 @@ def preparo_lineas_deseo(
                 "lon4",
                 "distancia",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
             ]
             zero_to_nan = [
                 "lat1",
                 "lon1",
                 "lat4",
                 "lon4",
-                "travel_speed",
+                "kmh_od",
                 "travel_time_min",
             ]
 
@@ -2631,8 +2630,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
         calculate_weighted_means(
             etapas,
             aggregate_cols=cols + ["modo"],
-            weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
-            zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+            weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
+            zero_to_nan=["distancia", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
         )
@@ -2696,7 +2695,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
             "transacciones",
             "distancia_media",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_internos_en_trx",
             "cant_internos_en_gps",
             "tot_veh",
@@ -2743,7 +2742,7 @@ def resumen_x_linea(etapas, viajes, alias_db=""):
             "transacciones",
             "distancia_media",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_internos_en_trx",
             "cant_internos_en_gps",
             "tot_veh",
@@ -2782,7 +2781,7 @@ def resumen_x_linea(etapas, viajes, alias_db=""):
             "transacciones",
             "distancia_media",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_internos_en_trx",
             "cant_internos_en_gps",
             "tot_veh",

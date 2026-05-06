@@ -77,7 +77,7 @@ def inicializo_ambiente():
 
 def procesar_transacciones(corrida):
     # Chequear consistencia y crear configuracion
-    # check_config(corrida)
+    check_config(corrida)
 
     # Read config file
     configs = utils.leer_configs_generales()
@@ -143,8 +143,8 @@ def procesar_transacciones(corrida):
     # compute travel time for trips
     trips.compute_trips_travel_time()
 
-    # Add distances and travel times to legs
-    legs.add_distance_and_travel_time()
+    # # Add distances and travel times to legs
+    # legs.add_distance_and_travel_time()
 
     # Fix trips with same OD
     trips.rearrange_trip_id_same_od()
@@ -152,7 +152,7 @@ def procesar_transacciones(corrida):
     # Produce trips and users tables from legs
     trips.create_trips_from_legs_and_fex()
 
-    trips.add_distance_and_travel_time()
+    # trips.add_distance_and_travel_time()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms()

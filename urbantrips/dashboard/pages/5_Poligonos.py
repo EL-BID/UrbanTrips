@@ -916,7 +916,7 @@ with st.expander("Matrices"):
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":
-            var_matriz = "travel_speed"
+            var_matriz = "kmh_od"
 
         st.session_state.resumen = col1.checkbox("Principales OD", value=False)
 

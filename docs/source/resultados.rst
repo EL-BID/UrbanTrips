@@ -1005,7 +1005,7 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - *h3_d_norm*
      - text
      - indice h3 de destino con el sentido normalizado.
-   * - *distance_osm_drive*
+   * - *distance_od*
      - float
      - distancia calculada sobre red de callejero en km - manejando.    
    * - *distance_osm_walk*

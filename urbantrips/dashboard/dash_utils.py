@@ -421,9 +421,9 @@ def agg_matriz(
         "genero_agregado",
         "tarifa_agregada",
     ],
-    weight_col=["distancia", "travel_time_min", "travel_speed"],
+    weight_col=["distancia", "travel_time_min", "kmh_od"],
     weight_var="factor_expansion_linea",
-    zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+    zero_to_nan=["distancia", "travel_time_min", "kmh_od"],
     agg_transferencias=False,
     agg_modo=False,
     agg_hora=False,
@@ -805,8 +805,8 @@ def create_data_folium(
             "genero_agregado",
             "tarifa_agregada",
         ],
-        weight_col=["distancia", "travel_time_min", "travel_speed"],
-        zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+        weight_col=["distancia", "travel_time_min", "kmh_od"],
+        zero_to_nan=["distancia", "travel_time_min", "kmh_od"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
@@ -1243,7 +1243,7 @@ def traigo_tablas_con_filtros(
         weighted_mean_cols = [
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "lat1",
             "lon1",
             "lat2",
@@ -1264,7 +1264,7 @@ def traigo_tablas_con_filtros(
             "lon4",
             "distancia",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
         ]
 
         agg_etapas = calculate_weighted_means(

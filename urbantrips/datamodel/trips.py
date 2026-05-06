@@ -535,29 +535,34 @@ def compute_trips_travel_time():
     # print("Insertando tiempos de viaje a etapas en base a gps y estaciones")
 
     q = """
-    INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
-    SELECT e.dia, e.id,e.id_tarjeta,  e.id_etapa,e.id_viaje,
-    (ifnull(tg.travel_time_min,0) + ifnull(ts.travel_time_min,0)) tt
+    INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min, distance_route, distance_route_gps)
+    SELECT e.dia, e.id, e.id_tarjeta, e.id_etapa, e.id_viaje,
+        (ifnull(tg.travel_time_min,0) + ifnull(ts.travel_time_min,0)) tt,
+        tg.distance_route,
+        tg.distance_route_gps
     FROM etapas e
     JOIN dias_ultima_corrida d
-    ON e.dia = d.dia
+        ON e.dia = d.dia
     LEFT JOIN travel_times_gps tg
-    ON e.id = tg.id
+        ON e.id = tg.id
     LEFT JOIN travel_times_stations ts
-    ON e.id = ts.id
+        ON e.id = ts.id
     WHERE e.od_validado = 1
     AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
     """
     conn_data.execute(q)
     conn_data.commit()
-    
+
     q = """
-    INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
-    SELECT tt.dia, tt.id_tarjeta,tt.id_viaje, sum(tt.travel_time_min) AS travel_time_min 
+    INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min, distance_route, distance_route_gps)
+    SELECT tt.dia, tt.id_tarjeta, tt.id_viaje, 
+        sum(tt.travel_time_min) AS travel_time_min,
+        sum(tt.distance_route) AS distance_route,
+        sum(tt.distance_route_gps) AS distance_route_gps
     FROM travel_times_legs tt
     JOIN dias_ultima_corrida d
-    ON tt.dia = d.dia
-    GROUP BY tt.dia, tt.id_tarjeta,tt.id_viaje ;
+        ON tt.dia = d.dia
+    GROUP BY tt.dia, tt.id_tarjeta, tt.id_viaje;
     """
     conn_data.execute(q)
     conn_data.commit()
@@ -624,13 +629,17 @@ def add_distance_and_travel_time():
 
     q_update = """
     UPDATE viajes
-    SET travel_time_min = t.travel_time_min
+    SET travel_time_min = t.travel_time_min,
+        distance_route = t.distance_route,
+        distance_route_gps = t.distance_route_gps
     FROM (
         SELECT
             dia,
             id_tarjeta,
             id_viaje,
-            SUM(COALESCE(travel_time_min, 0)) AS travel_time_min
+            SUM(COALESCE(travel_time_min, 0)) AS travel_time_min,
+            SUM(distance_route) AS distance_route,
+            SUM(distance_route_gps) AS distance_route_gps
         FROM travel_times_legs
         GROUP BY dia, id_tarjeta, id_viaje
     ) t

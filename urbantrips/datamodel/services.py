@@ -2,7 +2,7 @@ import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
 from urbantrips.utils.utils import (guardar_tabla_sql, levanto_tabla_sql, duracion)
-
+import numpy as np
 
 
 import warnings
@@ -247,56 +247,93 @@ def process_line_services(gps_points, stops):
             "node_id",
         ]
     )
-    services_gps_points.to_sql(
-        "services_gps_points",
-        conn_data,
-        if_exists="append",
-        index=False,
-        method="multi",
-        chunksize=40,
-    )
-    
-    # dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")    
-    # guardar_tabla_sql(
-    #     services_gps_points,
+    # services_gps_points.to_sql(
     #     "services_gps_points",
-    #     tabla_tipo="data",
-    #     modo="append",
-    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    #     conn_data,
+    #     if_exists="append",
+    #     index=False,
+    #     method="multi",
+    #     chunksize=40,
     # )
+    
+    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")    
+    guardar_tabla_sql(
+        services_gps_points,
+        "services_gps_points",
+        tabla_tipo="data",
+        modo="append",
+        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    )
 
     # print("Creando tabla de servicios")
     # process services gps points into services table
     line_services = create_line_services_table(gps_points_with_new_service_id)
-    line_services.to_sql("services", conn_data, if_exists="append", index=False)
+    
+    # line_services.to_sql("services", conn_data, if_exists="append", index=False)
+    
+    dt = (
+        pd.to_datetime(
+            line_services["max_datetime"],
+            format="%Y-%m-%d %H:%M:%S",
+            errors="coerce"
+        )
+        -
+        pd.to_datetime(
+            line_services["min_datetime"],
+            format="%Y-%m-%d %H:%M:%S",
+            errors="coerce"
+        )
+    ).dt.total_seconds() / 3600
+
+    # evitar divisiones por cero
+    dt = dt.replace(0, np.nan)
+
+    line_services["velocidad_comercial_kmh"] = (
+        line_services["distance_km"] / dt
+    ).round(2)
+
+    line_services["velocidad_comercial_kmh_gps"] = (
+        line_services["distance_km_gps"] / dt
+    ).round(2)
+    
+    guardar_tabla_sql(
+        line_services,
+        "services",
+        tabla_tipo="data",
+        modo="append",
+        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    )
 
     # print("Creando estadisticos de servicios")
     # create stats for each line and day
-    stats = line_services.groupby(
-        ["id_linea", "id_ramal", "dia"], as_index=False
-    ).apply(compute_new_services_stats)
+    # stats = line_services.groupby(
+    #     ["id_linea", "id_ramal", "dia"], as_index=False
+    # ).apply(compute_new_services_stats)
+    
+    stats = compute_services_stats(line_services)
 
-    stats.to_sql(
-        "services_stats",
-        conn_data,
-        if_exists="append",
-        index=False,
-        method="multi",
-        chunksize=40,
-    )
-    # dias_ultima_corrida = utils.levanto_tabla_sql("dias_ultima_corrida", "data")
-    # guardar_tabla_sql(
-    #     stats,
+    # stats.to_sql(
     #     "services_stats",
-    #     tabla_tipo="data",
-    #     modo="append",
-    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    #     conn_data,
+    #     if_exists="append",
+    #     index=False,
+    #     method="multi",
+    #     chunksize=40,
     # )
+    
+    guardar_tabla_sql(
+        stats,
+        "services_stats",
+        tabla_tipo="data",
+        modo="append",
+        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    )
     return stats
 
 
 def create_line_services_table(line_day_gps_points):
     # get  basic stats for each service
+    
     line_services = line_day_gps_points.groupby(
         ["id_linea", "id_ramal", "dia", "interno", "original_service_id", "service_id"],
         as_index=False,
@@ -304,10 +341,13 @@ def create_line_services_table(line_day_gps_points):
         is_idling=("idling", "sum"),
         total_points=("idling", "count"),
         distance_km=("distance_km", "sum"),
+        distance_km_gps=("distance_servicio_mts", "sum"),
         min_ts=("fecha", "min"),
         max_ts=("fecha", "max"),
     )
-
+    
+    line_services['distance_km_gps'] = (line_services['distance_km_gps'] / 1000).round(2)
+    
     line_services.loc[:, ["min_datetime"]] = line_services.min_ts.map(
         lambda ts: str(pd.Timestamp(ts, unit="s"))
     )
@@ -318,7 +358,7 @@ def create_line_services_table(line_day_gps_points):
     # compute idling proportion for each service
     line_services["prop_idling"] = (
         line_services.is_idling / line_services["total_points"]
-    )
+    ).round(2)
     line_services = line_services.drop(["is_idling"], axis=1)
 
     # stablish valid services
@@ -596,83 +636,103 @@ def classify_line_gps_points_into_services(
     return line_gps_points
 
 
-def compute_new_services_stats(line_day_services):
-    """
-    Takes a gps tracking points for a line in a given day
-    with service id and computes stats for services
+import numpy as np
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        line_day_services stats table for a given day
 
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with stats for each line and day
-    """
-    id_linea = line_day_services.id_linea.unique()
-    id_ramal = line_day_services.id_ramal.unique()
+def compute_services_stats(line_services):
+    group_cols = ["id_linea", "id_ramal", "dia"]
 
-    dia = line_day_services.dia.unique()
+    base_stats = (
+        line_services
+        .assign(
+            servicio_original_key=lambda df: (
+                df["interno"].astype(str) + "_" + df["original_service_id"].astype(str)
+            ),
+            servicio_corto=lambda df: df["total_points"] <= 5,
+            servicio_corto_idling=lambda df: (
+                (df["prop_idling"] >= 0.5) & (df["total_points"] <= 5)
+            ),
+            distancia_valida=lambda df: np.where(
+                df["valid"], df["distance_km"], 0
+            ),
+        )
+        .groupby(group_cols, as_index=False)
+        .agg(
+            cant_servicios_originales=("servicio_original_key", "nunique"),
+            cant_servicios_nuevos=("service_id", "count"),
+            cant_servicios_nuevos_validos=("valid", "sum"),
+            n_servicios_nuevos_cortos=("servicio_corto", "sum"),
+            n_servicios_cortos_idling=("servicio_corto_idling", "sum"),
+            distancia_recorrida_original=("distance_km", "sum"),
+            distancia_recorrida_original_gps=("distance_km_gps", "sum"),
+            distancia_recorrida_valida=("distancia_valida", "sum"),
+        )
+    )
 
-    n_original_services = line_day_services.drop_duplicates(
-        subset=["interno", "original_service_id"]
-    ).shape[0]
+    base_stats["prop_servicos_cortos_nuevos_idling"] = np.where(
+        base_stats["n_servicios_nuevos_cortos"] > 0,
+        (
+            base_stats["n_servicios_cortos_idling"]
+            / base_stats["n_servicios_nuevos_cortos"]
+        ).round(2),
+        np.nan,
+    )
 
-    n_new_services = len(line_day_services)
-    n_new_valid_services = line_day_services.valid.sum()
-    n_services_short = (line_day_services.total_points <= 5).sum()
+    base_stats["distancia_recorrida_original"] = (
+        base_stats["distancia_recorrida_original"].round()
+    )
 
-    if n_services_short > 0:
-        short_idling_services = (
-            (line_day_services.prop_idling >= 0.5)
-            & (line_day_services.total_points <= 5)
-        ).sum()
-        prop_short_idling = short_idling_services / n_services_short
+    base_stats["prop_distancia_recuperada"] = np.where(
+        base_stats["distancia_recorrida_original"] > 0,
+        (
+            base_stats["distancia_recorrida_valida"]
+            / base_stats["distancia_recorrida_original"]
+        ).round(2),
+        np.nan,
+    )
+
+    valid_services = line_services.loc[line_services["valid"]].copy()
+
+    if not valid_services.empty:
+        sub_services = (
+            valid_services
+            .groupby(group_cols + ["interno", "original_service_id"])["service_id"]
+            .nunique()
+            .reset_index(name="n_subservicios")
+        )
+
+        no_change_stats = (
+            sub_services
+            .assign(original_sin_dividir=lambda df: df["n_subservicios"] == 1)
+            .groupby(group_cols, as_index=False)
+            .agg(
+                servicios_originales_sin_dividir=(
+                    "original_sin_dividir",
+                    "mean",
+                )
+            )
+        )
+
+        no_change_stats["servicios_originales_sin_dividir"] = (
+            no_change_stats["servicios_originales_sin_dividir"].round(2)
+        )
+
+        base_stats = base_stats.merge(
+            no_change_stats,
+            on=group_cols,
+            how="left",
+        )
     else:
-        prop_short_idling = None
+        base_stats["servicios_originales_sin_dividir"] = np.nan
 
-    original_services_distance = round(line_day_services.distance_km.sum())
-    new_services_distance = round(
-        line_day_services.loc[line_day_services["valid"], "distance_km"].sum()
-        / original_services_distance,
-        2,
+    stats = base_stats.drop(
+        columns=[
+            "n_servicios_cortos_idling",
+            "distancia_recorrida_valida",
+        ]
     )
 
-    sub_services = (
-        line_day_services.loc[line_day_services["valid"], :]
-        .groupby(["interno", "original_service_id"])
-        .apply(lambda df: len(df.service_id.unique()))
-    )
-
-    if len(sub_services):
-        sub_services = sub_services.value_counts(normalize=True)
-
-        if 1 in sub_services.index:
-            original_service_no_change = round(sub_services[1], 2)
-        else:
-            original_service_no_change = 0
-    else:
-        original_service_no_change = None
-
-    day_line_stats = pd.DataFrame(
-        {
-            "id_linea": id_linea,
-            "id_ramal": id_ramal,
-            "dia": dia,
-            "cant_servicios_originales": n_original_services,
-            "cant_servicios_nuevos": n_new_services,
-            "cant_servicios_nuevos_validos": n_new_valid_services,
-            "n_servicios_nuevos_cortos": n_services_short,
-            "prop_servicos_cortos_nuevos_idling": prop_short_idling,
-            "distancia_recorrida_original": original_services_distance,
-            "prop_distancia_recuperada": new_services_distance,
-            "servicios_originales_sin_dividir": original_service_no_change,
-        },
-        index=[0],
-    )
-    return day_line_stats
+    return stats
 
 
 def find_change_in_direction(df):

@@ -706,7 +706,7 @@ def compute_kpi_by_service():
 
     conn_data = iniciar_conexion_db(tipo="data")
 
-    print("Leyendo demanda por servicios validos")
+    # print("Leyendo demanda por servicios validos")
 
     q_valid_services = """
         WITH demand AS (
@@ -737,7 +737,7 @@ def compute_kpi_by_service():
 
     valid_demand = pd.read_sql(q_valid_services, conn_data)
 
-    print("Leyendo demanda por servicios invalidos")
+    # print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
         WITH demand as (
             select e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,

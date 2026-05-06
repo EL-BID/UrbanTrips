@@ -62,6 +62,7 @@ nombres_variables_gps:
     distance_servicio_mts_agg_gps:                                 # Distancia gps agregada en metros
     id_servicio_gps:                                               # id del servicio
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
+    dominio_gps:                                                   # Dominio o Mounting kit del vehículo
 
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")

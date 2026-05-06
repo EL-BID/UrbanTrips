@@ -172,8 +172,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         utils.calculate_weighted_means(
             etapas,
             aggregate_cols=cols + ["modo"],
-            weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
-            zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+            weighted_mean_cols=["distancia", "travel_time_min", "kmh_od"],
+            zero_to_nan=["distancia", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
         )
@@ -287,7 +287,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
             "sin_descuento",
             "tarifa_social",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_internos_en_gps",
             "cant_internos_en_trx",
             "flota",

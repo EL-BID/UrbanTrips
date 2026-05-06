@@ -194,7 +194,7 @@ def traigo_viajes_linea(
     etapas_agregadas["distancia_agregada"] = 99
     etapas_agregadas["distancia"] = 0
     etapas_agregadas["travel_time_min"] = 0
-    etapas_agregadas["travel_speed"] = 0
+    etapas_agregadas["kmh_od"] = 0
     etapas_agregadas["id_polygon"] = "NONE"
 
     return etapas_agregadas
@@ -1059,7 +1059,7 @@ with st.expander("Matrices"):
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":
-            var_matriz = "travel_speed"
+            var_matriz = "kmh_od"
 
         if not st.session_state.resumen:
             od_heatmap = pd.crosstab(

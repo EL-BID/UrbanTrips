@@ -206,7 +206,7 @@ def create_other_inputs_tables(alias_db):
         h3_d text NOT NULL,
         h3_o_norm text NOT NULL,
         h3_d_norm text NOT NULL,
-        distance_osm_drive float,
+        distance_od float,
         distance_osm_walk float,
         distance_h3 float
         )
@@ -711,6 +711,8 @@ def create_basic_data_model_tables(alias_db):
             factor_expansion_tarjeta float,
             factor_expansion_etapa float,
             distancia float,
+            distance_route float, 
+            distance_route_gps float,
             travel_time_min float
             )
         ;
@@ -772,8 +774,9 @@ def create_basic_data_model_tables(alias_db):
             factor_expansion_linea,
             factor_expansion_tarjeta,
             distancia float, 
+            distance_route float, 
+            distance_route_gps float,
             travel_time_min float
-
             )
         ;
         """
@@ -891,7 +894,12 @@ def create_basic_data_model_tables(alias_db):
         dia text,
         id int not null,
         travel_time_min float,
-        travel_speed float
+        distance_od float,        
+        distance_route float, 
+        distance_route_gps float,        
+        kmh_od float,
+        kmh_route float,
+        kmh_route_gps float,
         )
         ;
         """
@@ -911,7 +919,7 @@ def create_basic_data_model_tables(alias_db):
         dia text,
         id int not null,
         travel_time_min float,
-        travel_speed float
+        kmh_od float
         )
         ;
         """
@@ -933,7 +941,9 @@ def create_basic_data_model_tables(alias_db):
         id_etapa int,
         id_viaje int,
         id_tarjeta text,
-        travel_time_min float
+        travel_time_min float,
+        distance_route float, 
+        distance_route_gps float
         )
         ;
         """
@@ -946,7 +956,9 @@ def create_basic_data_model_tables(alias_db):
         dia text,
         id_tarjeta text,
         id_viaje int,
-        travel_time_min float
+        travel_time_min float,
+        distance_route float, 
+        distance_route_gps float
         )
         ;
         """
@@ -1119,12 +1131,15 @@ def create_gps_table(alias_db):
                 service_id int,
                 total_points int,
                 distance_km float,
+                distance_km_gps float,
                 min_ts int,
                 max_ts int,
                 min_datetime text,
                 max_datetime text,
                 prop_idling float,
-                valid int
+                valid int,
+                velocidad_comercial_kmh float,
+                velocidad_comercial_kmh_gps float
                 )
             ;
             """
@@ -1157,6 +1172,7 @@ def create_gps_table(alias_db):
                 n_servicios_nuevos_cortos int ,
                 prop_servicos_cortos_nuevos_idling float,
                 distancia_recorrida_original float,
+                distancia_recorrida_original_gps float,
                 prop_distancia_recuperada float,
                 servicios_originales_sin_dividir float
                 )
