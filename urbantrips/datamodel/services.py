@@ -124,6 +124,9 @@ def get_stops_and_gps_data(line_ids_str):
         gps_query = gps_query + ";"
 
     gps_points = pd.read_sql(gps_query, conn_data)
+    
+    gps_points = gps_points.rename(columns={"distance_km": "distance_route", "distance_servicio_mts": "distance_route_gps"})
+    gps_points["distance_route_gps"] = (gps_points["distance_route_gps"] / 1000).round(2)
 
     gps_points = gpd.GeoDataFrame(
         gps_points,
@@ -262,7 +265,7 @@ def process_line_services(gps_points, stops):
         "services_gps_points",
         tabla_tipo="data",
         modo="append",
-        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+        filtros={"dia": dias_ultima_corrida["dia"].tolist(), "id_linea": [line_id]},
     )
 
     # print("Creando tabla de servicios")
@@ -288,12 +291,12 @@ def process_line_services(gps_points, stops):
     # evitar divisiones por cero
     dt = dt.replace(0, np.nan)
 
-    line_services["velocidad_comercial_kmh"] = (
-        line_services["distance_km"] / dt
+    line_services["kmh_route"] = (
+        line_services["distance_route"] / dt
     ).round(2)
 
-    line_services["velocidad_comercial_kmh_gps"] = (
-        line_services["distance_km_gps"] / dt
+    line_services["kmh_route_gps"] = (
+        line_services["distance_route_gps"] / dt
     ).round(2)
     
     guardar_tabla_sql(
@@ -301,32 +304,17 @@ def process_line_services(gps_points, stops):
         "services",
         tabla_tipo="data",
         modo="append",
-        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+        filtros={"dia": dias_ultima_corrida["dia"].tolist(), "id_linea": [line_id]},
     )
-
-    # print("Creando estadisticos de servicios")
-    # create stats for each line and day
-    # stats = line_services.groupby(
-    #     ["id_linea", "id_ramal", "dia"], as_index=False
-    # ).apply(compute_new_services_stats)
     
     stats = compute_services_stats(line_services)
-
-    # stats.to_sql(
-    #     "services_stats",
-    #     conn_data,
-    #     if_exists="append",
-    #     index=False,
-    #     method="multi",
-    #     chunksize=40,
-    # )
     
     guardar_tabla_sql(
         stats,
         "services_stats",
         tabla_tipo="data",
         modo="append",
-        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+        filtros={"dia": dias_ultima_corrida["dia"].tolist(), "id_linea": [line_id]},
     )
     return stats
 
@@ -340,13 +328,13 @@ def create_line_services_table(line_day_gps_points):
     ).agg(
         is_idling=("idling", "sum"),
         total_points=("idling", "count"),
-        distance_km=("distance_km", "sum"),
-        distance_km_gps=("distance_servicio_mts", "sum"),
+        distance_route=("distance_route", "sum"),
+        distance_route_gps=("distance_route_gps", "sum"),
         min_ts=("fecha", "min"),
         max_ts=("fecha", "max"),
     )
     
-    line_services['distance_km_gps'] = (line_services['distance_km_gps'] / 1000).round(2)
+    line_services['distance_route_gps'] = (line_services['distance_route_gps'] / 1000).round(2)
     
     line_services.loc[:, ["min_datetime"]] = line_services.min_ts.map(
         lambda ts: str(pd.Timestamp(ts, unit="s"))
@@ -621,7 +609,7 @@ def classify_line_gps_points_into_services(
         )
 
     # Classify idling points when there is no movement
-    line_gps_points.loc[:, ["idling"]] = line_gps_points.distance_km < 0.1
+    line_gps_points.loc[:, ["idling"]] = line_gps_points.distance_route < 0.1
 
     # create a unique id from both old and new
     new_ids = line_gps_points.reindex(
@@ -653,7 +641,7 @@ def compute_services_stats(line_services):
                 (df["prop_idling"] >= 0.5) & (df["total_points"] <= 5)
             ),
             distancia_valida=lambda df: np.where(
-                df["valid"], df["distance_km"], 0
+                df["valid"], df["distance_route"], 0
             ),
         )
         .groupby(group_cols, as_index=False)
@@ -663,8 +651,8 @@ def compute_services_stats(line_services):
             cant_servicios_nuevos_validos=("valid", "sum"),
             n_servicios_nuevos_cortos=("servicio_corto", "sum"),
             n_servicios_cortos_idling=("servicio_corto_idling", "sum"),
-            distancia_recorrida_original=("distance_km", "sum"),
-            distancia_recorrida_original_gps=("distance_km_gps", "sum"),
+            distance_route=("distance_route", "sum"),
+            distance_route_gps=("distance_route_gps", "sum"),
             distancia_recorrida_valida=("distancia_valida", "sum"),
         )
     )
@@ -678,15 +666,15 @@ def compute_services_stats(line_services):
         np.nan,
     )
 
-    base_stats["distancia_recorrida_original"] = (
-        base_stats["distancia_recorrida_original"].round()
+    base_stats["distance_route"] = (
+        base_stats["distance_route"].round()
     )
 
     base_stats["prop_distancia_recuperada"] = np.where(
-        base_stats["distancia_recorrida_original"] > 0,
+        base_stats["distance_route"] > 0,
         (
             base_stats["distancia_recorrida_valida"]
-            / base_stats["distancia_recorrida_original"]
+            / base_stats["distance_route"]
         ).round(2),
         np.nan,
     )

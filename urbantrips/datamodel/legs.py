@@ -624,7 +624,7 @@ def assign_gps_origin():
 
 
 @duracion
-def assign_gps_destination():
+def assign_time_distances():
     """
     This function read legs data and if there is gps table
     assigns a gps to the leg origin
@@ -632,6 +632,34 @@ def assign_gps_destination():
 
     configs = leer_configs_generales()
     nombre_archivo_gps = configs["nombre_archivo_gps"]
+    
+    query = """
+    SELECT e.*
+    FROM etapas e
+    JOIN dias_ultima_corrida d
+    ON e.dia = d.dia
+    WHERE e.od_validado = 1
+    ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
+    """        
+    legs_all = levanto_tabla_sql(
+        'etapas',
+        'data',
+        query=query
+    )
+            
+    legs_all = compute_od_distances(
+        od_df             = legs_all,
+        origin_col        = "h3_o",
+        dest_col          = "h3_d",
+        distance_col      = 'distance_od',
+        unit              = 'km',
+        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
+        network_cache_dir = "data/matriz_distancia",
+        symmetric         = False,
+        precompute_dist   = 50_000,   
+        max_tile_deg      = 99,      
+        verbose           = True
+    )
 
     if nombre_archivo_gps is not None:
 
@@ -653,56 +681,6 @@ def assign_gps_destination():
             lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
         matriz = matriz[matriz.ring < 3]
-
-        dias_ultima_corrida = levanto_tabla_sql('dias_ultima_corrida', 'data')
-        dias = dias_ultima_corrida['dia'].unique().tolist()
-        
-        dias_sql = ",".join([f"'{d}'" for d in dias])
-        
-        query = f"""
-        select *
-        from etapas
-        where dia in ({dias_sql}) and od_validado==1
-        order by dia,id_tarjeta,id_viaje,id_etapa,id_linea,id_ramal,interno
-        ;
-        """
-        
-        legs_all = levanto_tabla_sql(
-            'etapas',
-            'data',
-            query=query
-        )
-
-        # print("Leyendo datos de etapas con GPS")
-        # legs = pd.read_sql_query(
-        #     """
-        #     SELECT e.*
-        #     FROM etapas e
-        #     JOIN dias_ultima_corrida d
-        #     ON e.dia = d.dia
-        #     JOIN (SELECT DISTINCT id_linea FROM gps) idg
-        #     ON e.id_linea = idg.id_linea
-        #     WHERE od_validado==1
-        #     order by e.dia,e.id_tarjeta,e.id_viaje,e.id_etapa, 
-        #     e.id_linea,e.id_ramal,e.interno
-        #     ;
-        #     """,
-        #     conn_data,
-        # )
-                
-        legs_all = compute_od_distances(
-            od_df             = legs_all,
-            origin_col        = "h3_o",
-            dest_col          = "h3_d",
-            distance_col      = 'distance_od',
-            unit              = 'km',
-            db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
-            network_cache_dir = "data/matriz_distancia",
-            symmetric         = False,
-            precompute_dist   = 50_000,   
-            max_tile_deg      = 99,      
-            verbose           = True
-        )
 
         q = """
         select g.* 
@@ -929,7 +907,7 @@ def assign_gps_destination():
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 50),
+            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 70),
             "kmh_od",
         ] = np.nan
 
@@ -943,7 +921,7 @@ def assign_gps_destination():
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= 50),
+            (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= 70),
             "kmh_route",
         ] = np.nan
 
@@ -952,7 +930,7 @@ def assign_gps_destination():
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= 50),
+            (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= 70),
             "kmh_route_gps",
         ] = np.nan
 
@@ -979,15 +957,70 @@ def assign_gps_destination():
         
         travel_times = travel_times.drop(['distance_od'], axis=1)
 
-        travel_times = legs_all[['dia', 'id', 'distance_od']].merge(travel_times, how='left')
+        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']].merge(travel_times, how='left')
+        
+        travel_times_trips = (
+                travel_times
+                .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+                [["travel_time_min", "distance_od", "distance_route", "distance_route_gps"]]
+                .sum(min_count=1)
+            )
+        
+        travel_times_trips["kmh_od"] = (
+            travel_times_trips["distance_od"] / (travel_times_trips["travel_time_min"] / 60)
+        ).round(1)
 
-        guardar_tabla_sql(
-            travel_times,
-            "travel_times_gps",
-            tabla_tipo="data",
-            modo="append",
-            filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-        )
+        travel_times_trips["kmh_route"] = (
+            travel_times_trips["distance_route"] / (travel_times_trips["travel_time_min"] / 60)
+        ).round(1)
+
+        travel_times_trips["kmh_route_gps"] = (
+            travel_times_trips["distance_route_gps"] / (travel_times_trips["travel_time_min"] / 60)
+        ).round(1)
+
+        for col in ["kmh_od", "kmh_route", "kmh_route_gps"]:
+            travel_times_trips.loc[
+                (travel_times_trips[col] == np.inf) | (travel_times_trips[col] >= 70), col
+            ] = np.nan
+
+    else:
+        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'distance_od']].copy()
+        dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
+
+        travel_times_trips = (
+                travel_times
+                .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+                [["distance_od"]]
+                .sum(min_count=1)
+            )
+
+    travel_times = travel_times.reindex(
+        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min", 
+                 "distance_od", "distance_route", "distance_route_gps",
+                 "kmh_od", "kmh_route", "kmh_route_gps"]
+    )
+
+    travel_times_trips = travel_times_trips.reindex(
+        columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
+                 "distance_od", "distance_route", "distance_route_gps",
+                 "kmh_od", "kmh_route", "kmh_route_gps"]
+    )
+        
+    guardar_tabla_sql(
+        travel_times,
+        "travel_times_legs",
+        tabla_tipo="data",
+        modo="append",
+        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    )
+    
+    guardar_tabla_sql(
+        travel_times_trips,
+        "travel_times_trips",
+        tabla_tipo="data",
+        modo="append",
+        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
+    )
         
 
 def distancia_h3_gps_leg(row):
@@ -1015,7 +1048,7 @@ def assign_stations_od():
         q = """
             SELECT e.dia,e.id,e.id_linea,e.id_ramal,e.h3_o,e.h3_d
             FROM etapas e  
-            LEFT JOIN travel_times_gps tt 
+            LEFT JOIN travel_times_legs tt 
             ON e.dia = tt.dia 
             AND e.id = tt.id 
             WHERE tt.id IS NULL
@@ -1232,7 +1265,7 @@ def assign_stations_od():
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 50),
+            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 70),
             "kmh_od",
         ] = np.nan
 

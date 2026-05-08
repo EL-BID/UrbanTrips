@@ -192,7 +192,7 @@ def traigo_viajes_linea(
     etapas_agregadas["genero_agregado"] = 99
     etapas_agregadas["tarifa_agregada"] = 99
     etapas_agregadas["distancia_agregada"] = 99
-    etapas_agregadas["distancia"] = 0
+    etapas_agregadas["distance_od"] = 0
     etapas_agregadas["travel_time_min"] = 0
     etapas_agregadas["kmh_od"] = 0
     etapas_agregadas["id_polygon"] = "NONE"
@@ -507,7 +507,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         rango_hora_seleccionado = col1.selectbox(
             "Rango hora", options=[text for text in lista_rango_hora]
         )
-        distancia_seleccionada = col1.selectbox("Distancia", options=lista_distancia)
+        distancia_seleccionada = col1.selectbox("distance_od", options=lista_distancia)
         genero_agregado_seleccionado = col1.selectbox(
             "Género", options=[text for text in lista_genero_agregado]
         )
@@ -829,7 +829,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         ["tabla", "Genero", "Tarifa", "Modo"], as_index=False
                     )[
                         [
-                            "Distancia",
+                            "distance_od",
                             "Tiempo de viaje",
                             "Velocidad",
                             "Etapas promedio",
@@ -1055,7 +1055,7 @@ with st.expander("Matrices"):
             col1.write(f"Línea: {nombre_linea_seleccionado}")
 
         if tipo_matriz == "Distancia promedio (kms)":
-            var_matriz = "distancia"
+            var_matriz = "distance_od"
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":

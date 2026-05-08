@@ -22,11 +22,17 @@ def persist_indicators():
     conn_data = iniciar_conexion_db(tipo="data")
 
     q = """
-        SELECT *
-        from etapas e
-        where e.od_validado==1
-    """
+            SELECT e.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
+                tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+            FROM etapas e
+            JOIN dias_ultima_corrida d
+            ON e.dia = d.dia
+            LEFT JOIN travel_times_legs tt
+            ON e.id = tt.id
+            WHERE e.od_validado = 1
+        """
     etapas = pd.read_sql_query(q, conn_data)
+    
 
     agrego_indicador(etapas, "Cantidad total de etapas", "etapas_expandidas", 0, var_fex="factor_expansion_linea")
 
@@ -56,13 +62,20 @@ def persist_indicators():
 
     # VIAJES
     viajes = pd.read_sql_query(
-        """
-                                select *
-                                from viajes
-                                where od_validado==1
-                               """,
-        conn_data,
-    )
+            """
+            SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route, 
+                tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+            FROM viajes v
+            JOIN dias_ultima_corrida d
+            ON v.dia = d.dia
+            LEFT JOIN travel_times_trips tt
+            ON v.dia = tt.dia
+            AND v.id_tarjeta = tt.id_tarjeta
+            AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+            """,
+            conn_data,
+        )
 
     agrego_indicador(viajes, "Cantidad de registros en viajes", "viajes", 0, var_fex="")
 
@@ -70,7 +83,7 @@ def persist_indicators():
         viajes, "Cantidad total de viajes expandidos", "viajes expandidos", 0, var_fex="factor_expansion_linea"
     )
     agrego_indicador(
-        viajes[(viajes.distancia <= 5)],
+        viajes[(viajes.distance_od <= 5)],
         "Cantidad de viajes cortos (<5kms)",
         "viajes expandidos",
         1,
@@ -99,7 +112,7 @@ def persist_indicators():
         "Distancia de los viajes (promedio en kms)",
         "avg",
         0,
-        var="distancia",
+        var="distance_od",
         aggfunc="mean",
         var_fex="factor_expansion_linea"
     )
@@ -109,7 +122,7 @@ def persist_indicators():
         "Distancia de los viajes (mediana en kms)",
         "avg",
         0,
-        var="distancia",
+        var="distance_od",
         aggfunc="median",
         var_fex="factor_expansion_linea"
     )
@@ -120,7 +133,7 @@ def persist_indicators():
             f"Distancia de los viajes (promedio en kms) - {i}",
             "avg",
             0,
-            var="distancia",
+            var="distance_od",
             aggfunc="mean",
             var_fex="factor_expansion_linea"
         )
@@ -131,7 +144,7 @@ def persist_indicators():
             f"Distancia de los viajes (mediana en kms) - {i}",
             "avg",
             0,
-            var="distancia",
+            var="distance_od",
             aggfunc="median",
             var_fex="factor_expansion_linea"
         )

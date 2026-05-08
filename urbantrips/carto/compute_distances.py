@@ -21,7 +21,7 @@ Uso
     )
 
     # Solo la Serie
-    df["distancia"] = compute_od_distances(...)["distance_m"]
+    df["distance_od"] = compute_od_distances(...)["distance_m"]
 
 Uso para areas grandes (AMBA y similares)
 -----------------------------------------

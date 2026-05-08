@@ -190,7 +190,7 @@ def update_stations_catchment_area(ring_size):
     conn_insumos.close()
     return None
 
-
+@duracion
 def guardo_zonificaciones():
     """
     Processes and updates zoning information in the database based on configuration

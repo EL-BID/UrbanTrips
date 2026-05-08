@@ -199,20 +199,20 @@ def create_other_inputs_tables(alias_db):
 
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
 
-    conn_insumos.execute(
-        """
-        CREATE TABLE IF NOT EXISTS distancias
-        (h3_o text NOT NULL,
-        h3_d text NOT NULL,
-        h3_o_norm text NOT NULL,
-        h3_d_norm text NOT NULL,
-        distance_od float,
-        distance_osm_walk float,
-        distance_h3 float
-        )
+    # conn_insumos.execute(
+    #     """
+    #     CREATE TABLE IF NOT EXISTS distancias
+    #     (h3_o text NOT NULL,
+    #     h3_d text NOT NULL,
+    #     h3_o_norm text NOT NULL,
+    #     h3_d_norm text NOT NULL,
+    #     distance_od float,
+    #     distance_osm_walk float,
+    #     distance_h3 float
+    #     )
 
-        """
-    )
+    #     """
+    # )
 
     conn_insumos.execute(
         """
@@ -508,20 +508,22 @@ def create_dash_tables(alias_db):
 
     conn_dash.execute(
         """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
-                (
-                dia text not null,
-                yr_mo text,
-                id_linea int not null,
-                nombre_linea text,
-                hora int  not null,
-                veh float,
-                pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
+        CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+            (
+            dia text not null,
+            yr_mo text,
+            id_linea int not null,
+            hora int not null,
+            veh float,
+            pax float,
+            eq_pax float,
+            eq_pax_gps float,
+            dmt_route float,
+            dmt_route_gps float,
+            of float,
+            kmh_route float
+            )
+        ;
             """
     )
 
@@ -709,11 +711,7 @@ def create_basic_data_model_tables(alias_db):
             factor_expansion_original float,
             factor_expansion_linea float,
             factor_expansion_tarjeta float,
-            factor_expansion_etapa float,
-            distancia float,
-            distance_route float, 
-            distance_route_gps float,
-            travel_time_min float
+            factor_expansion_etapa float
             )
         ;
         """
@@ -772,11 +770,7 @@ def create_basic_data_model_tables(alias_db):
             tarifa text,
             od_validado int,
             factor_expansion_linea,
-            factor_expansion_tarjeta,
-            distancia float, 
-            distance_route float, 
-            distance_route_gps float,
-            travel_time_min float
+            factor_expansion_tarjeta
             )
         ;
         """
@@ -889,24 +883,27 @@ def create_basic_data_model_tables(alias_db):
 
     conn_data.execute(
         """
-        CREATE TABLE IF NOT EXISTS travel_times_gps
+        CREATE TABLE IF NOT EXISTS travel_times_legs
         (
         dia text,
         id int not null,
+        id_tarjeta text,
+        id_viaje int,
+        id_etapa int,
         travel_time_min float,
-        distance_od float,        
-        distance_route float, 
-        distance_route_gps float,        
+        distance_od float,
+        distance_route float,
+        distance_route_gps float,
         kmh_od float,
         kmh_route float,
-        kmh_route_gps float,
+        kmh_route_gps float
         )
         ;
         """
     )
     conn_data.execute(
         """
-        CREATE INDEX  IF NOT EXISTS travel_times_gps_idx ON travel_times_gps (
+        CREATE INDEX  IF NOT EXISTS travel_times_legs_idx ON travel_times_legs (
         "id"
         );
         """
@@ -932,22 +929,22 @@ def create_basic_data_model_tables(alias_db):
         """
     )
 
-    conn_data.execute(
-        """
-        CREATE TABLE IF NOT EXISTS travel_times_legs
-        (
-        dia text,
-        id int not null,
-        id_etapa int,
-        id_viaje int,
-        id_tarjeta text,
-        travel_time_min float,
-        distance_route float, 
-        distance_route_gps float
-        )
-        ;
-        """
-    )
+    # conn_data.execute(
+    #     """
+    #     CREATE TABLE IF NOT EXISTS travel_times_legs
+    #     (
+    #     dia text,
+    #     id int not null,
+    #     id_etapa int,
+    #     id_viaje int,
+    #     id_tarjeta text,
+    #     travel_time_min float,
+    #     distance_route float, 
+    #     distance_route_gps float
+    #     )
+    #     ;
+    #     """
+    # )
 
     conn_data.execute(
         """
@@ -957,8 +954,12 @@ def create_basic_data_model_tables(alias_db):
         id_tarjeta text,
         id_viaje int,
         travel_time_min float,
+        distance_od float,
         distance_route float, 
-        distance_route_gps float
+        distance_route_gps float,
+        kmh_od float,
+        kmh_route float,
+        kmh_route_gps float        
         )
         ;
         """
@@ -1130,16 +1131,16 @@ def create_gps_table(alias_db):
                 original_service_id int,
                 service_id int,
                 total_points int,
-                distance_km float,
-                distance_km_gps float,
                 min_ts int,
                 max_ts int,
                 min_datetime text,
                 max_datetime text,
                 prop_idling float,
                 valid int,
-                velocidad_comercial_kmh float,
-                velocidad_comercial_kmh_gps float
+                distance_route float,
+                distance_route_gps float,
+                kmh_route float,
+                kmh_route_gps float
                 )
             ;
             """
@@ -1171,8 +1172,8 @@ def create_gps_table(alias_db):
                 cant_servicios_nuevos_validos int,
                 n_servicios_nuevos_cortos int ,
                 prop_servicos_cortos_nuevos_idling float,
-                distancia_recorrida_original float,
-                distancia_recorrida_original_gps float,
+                distance_route float,
+                distance_route_gps float,
                 prop_distancia_recuperada float,
                 servicios_originales_sin_dividir float
                 )
@@ -1372,129 +1373,160 @@ def create_kpi_tables(alias_db):
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS kpi_by_day_line
-                (
-                id_linea int not null,
-                dia text not null,
-                tot_veh int,
-                tot_km float,
-                tot_pax foat,
-                dmt_mean foat,
-                dmt_median float,
-                pvd float,
-                kvd float,
-                ipk float,
-                fo_mean float,
-                fo_median float
-                )
-            ;
+        CREATE TABLE IF NOT EXISTS kpi_by_day_line
+            (
+            id_linea int not null,
+            dia text not null,
+            tot_veh int,
+            tot_km float,
+            tot_km_gps float,
+            tot_pax float,
+            dmt_mean_od float,
+            dmt_mean_route float,
+            dmt_mean_route_gps float,
+            dmt_median_od float,
+            dmt_median_route float,
+            dmt_median_route_gps float,
+            pvd float,
+            kvd float,
+            kvd_gps float,
+            ipk_route float,
+            ipk_route_gps float,
+            fo_mean_od float,
+            fo_mean_route float,
+            fo_mean_route_gps float,
+            fo_median_od float,
+            fo_median_route float,
+            fo_median_route_gps float
+            )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS kpi_by_day_line_service
+            (
+            id_linea int not null,
+            dia text not null,
+            id_ramal int,
+            interno text not null,
+            service_id int not null,
+            hora_inicio float,
+            hora_fin float,
+            tot_km float,
+            tot_km_gps float,
+            tot_pax float,
+            dmt_mean_od float,
+            dmt_mean_route float,
+            dmt_mean_route_gps float,
+            dmt_median_od float,
+            dmt_median_route float,
+            dmt_median_route_gps float,
+            ipk_route float,
+            ipk_route_gps float,
+            fo_mean_od float,
+            fo_mean_route float,
+            fo_mean_route_gps float,
+            fo_median_od float,
+            fo_median_route float,
+            fo_median_route_gps float
+            )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS services_by_line_hour
+            (
+            id_linea int not null,
+            dia text not null,
+            hora int not null,
+            servicios float not null
+            )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS basic_kpi_by_vehicle_hr
+            (
+            dia text not null,
+            id_linea int not null,
+            id_ramal int,
+            interno int not null,
+            hora int not null,
+            tot_pax float,
+            eq_pax float,
+            eq_pax_gps float,
+            dmt_route float,
+            dmt_route_gps float,
+            of float,
+            kmh_route float,
+            kmh_route_gps float
+            )
+        ;
+        """
+    )
+
+    conn_data.execute(
+        """
+        CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
+            (
+            dia text not null,
+            yr_mo text,
+            id_linea int not null,
+            hora int not null,
+            veh float,
+            pax float,
+            eq_pax float,
+            eq_pax_gps float,
+            dmt_route float,
+            dmt_route_gps float,
+            of float,
+            kmh_route float
+            )
+        ;
             """
     )
 
     conn_data.execute(
         """
-            CREATE TABLE IF NOT EXISTS kpi_by_day_line_service
-                (
-                id_linea int not null,
-                dia text not null,
-                id_ramal int,
-                interno text not null,
-                service_id int not null,
-                hora_inicio float,
-                hora_fin float,
-                tot_km float,
-                tot_pax float,
-                dmt_mean float,
-                dmt_median float,
-                ipk float,
-                fo_mean float,
-                fo_median float
-                )
-            ;
-            """
-    )
-
-    conn_data.execute(
+        CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
+            (
+            dia text not null,
+            yr_mo text,
+            id_linea int not null,
+            veh float,
+            pax float,
+            eq_pax float,
+            eq_pax_gps float,
+            dmt_route float,
+            dmt_route_gps float,
+            of float,
+            kmh_route float
+            )
+        ;
         """
-            CREATE TABLE IF NOT EXISTS services_by_line_hour
-                (
-                id_linea int not null,
-                dia text not null,
-                hora int  not null,
-                servicios float  not null
-                )
-            ;
-            """
-    )
-
-    conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_vehicle_hr
-                (
-                dia text not null,
-                id_linea int not null,
-                id_ramal int,
-                interno int not null,
-                hora int  not null,
-                tot_pax float,
-                eq_pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
-            """
-    )
-
-    conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_hr
-                (
-                dia text not null,
-                yr_mo text,
-                id_linea int not null,
-                hora int  not null,
-                veh float,
-                pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
-            """
-    )
-
-    conn_data.execute(
-        """
-            CREATE TABLE IF NOT EXISTS basic_kpi_by_line_day
-                (
-                dia text not null,
-                yr_mo text,
-                id_linea int not null,
-                veh float,
-                pax float,
-                dmt float,
-                of float,
-                speed_kmh float
-                )
-            ;
-            """
     )
 
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section
-        (id_linea int not null,
-        yr_mo text,
-        day_type text nor null,
-        n_sections int,
-        hour_min int,
-        hour_max int,
-        section_id_o int not null,
-        section_id_d int not null,
-        legs int not null,
-        prop float not null
-        )
+            (
+            id_linea int not null,
+            yr_mo text,
+            day_type text not null,
+            n_sections int,
+            hour_min int,
+            hour_max int,
+            section_id_o int not null,
+            section_id_d int not null,
+            legs int not null,
+            prop float not null
+            )
         ;
         """
     )
@@ -1502,39 +1534,40 @@ def create_kpi_tables(alias_db):
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS overlapping_by_route
-        (
-        dia text not null,
-        base_line_id int not null,
-        base_branch_id int,
-        comp_line_id int not null,
-        comp_branch_id int,
-        res_h3 int,
-        overlap float,
-        type_overlap text
-        )
+            (
+            dia text not null,
+            base_line_id int not null,
+            base_branch_id int,
+            comp_line_id int not null,
+            comp_branch_id int,
+            res_h3 int,
+            overlap float,
+            type_overlap text
+            )
         ;
         """
     )
+
     conn_data.execute(
         """
         CREATE TABLE IF NOT EXISTS supply_stats_by_section_id
-        (
-        id_linea int not null,
-        yr_mo text not null,
-        day_type text not null,
-        n_sections int not null,
-        section_meters int,
-        sentido text not null,
-        section_id int not null,
-        hour_min int,
-        hour_max int,
-        n_vehicles int,
-        avg_speed float,
-        median_speed float,
-        speed_interval float,
-        frequency float,
-        frequency_interval text
-        )
+            (
+            id_linea int not null,
+            yr_mo text not null,
+            day_type text not null,
+            n_sections int not null,
+            section_meters int,
+            sentido text not null,
+            section_id int not null,
+            hour_min int,
+            hour_max int,
+            n_vehicles int,
+            avg_speed float,
+            median_speed float,
+            speed_interval float,
+            frequency float,
+            frequency_interval text
+            )
         ;
         """
     )

@@ -43,6 +43,7 @@ def inicializo_ambiente():
     path_insumos = Path() / "data" / "db" / f"{path_insumos}_insumos.sqlite"
 
     if not path_insumos.is_file():
+        print("================================================")
         print("Inicializo ambiente por primera vez")
 
         # Crear directorios basicos de trabajo:
@@ -133,26 +134,18 @@ def procesar_transacciones(corrida):
         # Assign a gps point id to legs' origins
         legs.assign_gps_origin()
 
-        # Assign a gps point id to legs' destination
-        legs.assign_gps_destination()
+    # Fix trips with same OD
+    trips.rearrange_trip_id_same_od()
+
+    # Assign a gps point id to legs' destination
+    legs.assign_time_distances()
 
     if tiempos_viaje_estaciones is not None:
         # Assign stations to legs for travel times
         legs.assign_stations_od()
 
-    # compute travel time for trips
-    trips.compute_trips_travel_time()
-
-    # # Add distances and travel times to legs
-    # legs.add_distance_and_travel_time()
-
-    # Fix trips with same OD
-    trips.rearrange_trip_id_same_od()
-
     # Produce trips and users tables from legs
     trips.create_trips_from_legs_and_fex()
-
-    # trips.add_distance_and_travel_time()
 
     # Inferir route geometries based on legs data
     routes.infer_routes_geoms()

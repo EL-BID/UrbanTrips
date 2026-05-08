@@ -1460,7 +1460,7 @@ def imprime_graficos_hora(
     vi_dash["desc_dia"] = desc_dia
 
     vi_dash = vi_dash[["desc_dia", "tipo_dia", "distancias", "cant", "modo"]]
-    vi_dash.columns = ["desc_dia", "tipo_dia", "Distancia", "Viajes", "Modo"]
+    vi_dash.columns = ["desc_dia", "tipo_dia", "distance_od", "Viajes", "Modo"]
 
     conn_dash = iniciar_conexion_db(tipo="dash")
     query = f"""
@@ -2670,7 +2670,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
                 "pax",
                 "dmt",
                 "of",
-                "speed_kmh",
+                "kmh_route",
             ]
         )
 

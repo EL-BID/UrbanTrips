@@ -311,6 +311,7 @@ def create_trips_from_legs_and_fex():
                 modo="append",
                 filtros={"dia": dias_ultima_corrida["dia"].tolist()},
             )
+    
 
     # ------------------------------------------------------------------
     # 8. Crear tabla de usuarios
@@ -521,51 +522,6 @@ def rearrange_trip_id_same_od():
     df = df[cols_df]
 
     guardar_tabla_sql(df, "etapas", "data", {"dia": df.dia.unique().tolist()})
-
-
-@duracion
-def compute_trips_travel_time():
-    """
-    This function reads from legs travel time in gps and stations
-    and computes travel times for trips
-    """
-
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # print("Insertando tiempos de viaje a etapas en base a gps y estaciones")
-
-    q = """
-    INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min, distance_route, distance_route_gps)
-    SELECT e.dia, e.id, e.id_tarjeta, e.id_etapa, e.id_viaje,
-        (ifnull(tg.travel_time_min,0) + ifnull(ts.travel_time_min,0)) tt,
-        tg.distance_route,
-        tg.distance_route_gps
-    FROM etapas e
-    JOIN dias_ultima_corrida d
-        ON e.dia = d.dia
-    LEFT JOIN travel_times_gps tg
-        ON e.id = tg.id
-    LEFT JOIN travel_times_stations ts
-        ON e.id = ts.id
-    WHERE e.od_validado = 1
-    AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
-    """
-    conn_data.execute(q)
-    conn_data.commit()
-
-    q = """
-    INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min, distance_route, distance_route_gps)
-    SELECT tt.dia, tt.id_tarjeta, tt.id_viaje, 
-        sum(tt.travel_time_min) AS travel_time_min,
-        sum(tt.distance_route) AS distance_route,
-        sum(tt.distance_route_gps) AS distance_route_gps
-    FROM travel_times_legs tt
-    JOIN dias_ultima_corrida d
-        ON tt.dia = d.dia
-    GROUP BY tt.dia, tt.id_tarjeta, tt.id_viaje;
-    """
-    conn_data.execute(q)
-    conn_data.commit()
 
 @duracion
 def add_distance_and_travel_time():

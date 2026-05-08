@@ -167,12 +167,12 @@ def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
 
     if len(candidatas) > 0:
         _dist_vec = np.vectorize(_h3_grid_distance_safe)
-        candidatas["distancia"] = _dist_vec(
+        candidatas["distance_od"] = _dist_vec(
             candidatas["lag_etapa"].values, candidatas["h3_d"].values
         )
         candidatas = (
             candidatas
-            .sort_values("distancia")
+            .sort_values("distance_od")
             .drop_duplicates(subset=["id_linea_agg", "lag_etapa"], keep="first")
         )
 
