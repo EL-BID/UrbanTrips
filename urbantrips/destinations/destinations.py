@@ -355,16 +355,7 @@ def infer_destinations():
     etapas.loc[mask, 'h3_d'] = ""    
     etapas.loc[mask, 'etapa_validada'] = 0
     etapas.loc[mask, 'od_validado'] = 0
-       
-    # print("Subiendo datos a etapas", str(datetime.now())[:19])
-    # etapas.to_sql(
-    #     "etapas",
-    #     conn_data,
-    #     if_exists="append",
-    #     index=False,
-    #     method="multi",
-    #     chunksize=40,
-    # )
+
     
     conn_data.close()
     

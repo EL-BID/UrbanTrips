@@ -234,7 +234,6 @@ def process_line_services(gps_points, stops):
         .droplevel(0)
     )
 
-    # print("Subiendo servicios a la db")
     # save result to services table
     services_gps_points = gps_points_with_new_service_id.reindex(
         columns=[

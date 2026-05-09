@@ -186,8 +186,6 @@ def create_transactions(
     if not configs["lineas_contienen_ramales"]:
         trx.loc[:, "id_ramal"] = trx["id_linea"].copy()
 
-    print(f"Subiendo {len(trx)} registros a la db")
-
     if "genero" not in trx.columns:
         trx["genero"] = "-"
     if "tarifa" not in trx.columns:
@@ -710,7 +708,6 @@ def geolocalizar_trx(
     ]
     trx_eco = trx_eco.reindex(columns=cols)
 
-    # print("Subiendo datos a tablas temporales")
     # trx_eco.to_sql(
     #     "trx_eco", conn, if_exists="append", index=False, method="multi", chunksize=40
     # )
@@ -939,10 +936,6 @@ def process_and_upload_gps_table(
 
     gps = gps.reindex(columns=cols)
 
-    # subir datos a tablas temporales
-
-    # print("Subiendo tabla gps")
-        
     configs = leer_configs_generales()
     res = configs["resolucion_h3"]
     

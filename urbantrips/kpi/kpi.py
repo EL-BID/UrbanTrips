@@ -42,6 +42,83 @@ def _weighted_median(values, weights):
         data=values[mask].tolist(), weights=weights[mask].tolist()
     )
 
+
+def _compute_demand_stats_vectorized(df, group_cols):
+    """
+    Versión vectorizada de demand_stats sobre un DataFrame agrupado por group_cols.
+
+    Computa para cada grupo:
+      - tot_pax: suma de factor_expansion_linea
+      - dmt_mean_od / dmt_mean_route / dmt_mean_route_gps: medias ponderadas
+      - dmt_median_od / dmt_median_route / dmt_median_route_gps: medianas ponderadas
+
+    Equivalente exacto al groupby().apply(demand_stats) pero mucho más rápido:
+    las medias ponderadas se calculan con groupby+sum nativos de pandas (en C)
+    en lugar de un loop de Python por grupo. Las medianas ponderadas siguen
+    requiriendo apply (no son vectorizables), pero se hacen en una pasada
+    única por grupo en lugar de tres llamadas separadas.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame con columnas distance_od, distance_route, distance_route_gps,
+        factor_expansion_linea.
+    group_cols : list of str
+        Columnas por las que agrupar.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame con group_cols + tot_pax + 3 dmt_mean_* + 3 dmt_median_*.
+    """
+    w = df["factor_expansion_linea"]
+    df = df.assign(
+        _w_od=df["distance_od"] * w,
+        _w_route=df["distance_route"] * w,
+        _w_route_gps=df["distance_route_gps"] * w,
+        _w_od_valid=np.where(df["distance_od"].notna() & w.notna(), w, np.nan),
+        _w_route_valid=np.where(df["distance_route"].notna() & w.notna(), w, np.nan),
+        _w_route_gps_valid=np.where(df["distance_route_gps"].notna() & w.notna(), w, np.nan),
+    )
+
+    # Medias ponderadas y tot_pax: agregaciones vectorizadas en C
+    agg = df.groupby(group_cols, as_index=False).agg(
+        tot_pax=("factor_expansion_linea", "sum"),
+        _sum_w_od=("_w_od", "sum"),
+        _sum_w_route=("_w_route", "sum"),
+        _sum_w_route_gps=("_w_route_gps", "sum"),
+        _sum_weights_od=("_w_od_valid", "sum"),
+        _sum_weights_route=("_w_route_valid", "sum"),
+        _sum_weights_route_gps=("_w_route_gps_valid", "sum"),
+    )
+
+    # División segura para obtener medias (NaN cuando suma de pesos es 0)
+    agg["dmt_mean_od"] = agg["_sum_w_od"] / agg["_sum_weights_od"].replace(0, np.nan)
+    agg["dmt_mean_route"] = agg["_sum_w_route"] / agg["_sum_weights_route"].replace(0, np.nan)
+    agg["dmt_mean_route_gps"] = agg["_sum_w_route_gps"] / agg["_sum_weights_route_gps"].replace(0, np.nan)
+
+    # Medianas ponderadas: no vectorizables, una sola apply por grupo que computa las 3
+    def _three_medians(g):
+        w_arr = g["factor_expansion_linea"].values
+        return pd.Series({
+            "dmt_median_od": _weighted_median(g["distance_od"].values, w_arr),
+            "dmt_median_route": _weighted_median(g["distance_route"].values, w_arr),
+            "dmt_median_route_gps": _weighted_median(g["distance_route_gps"].values, w_arr),
+        })
+
+    medians = (
+        df.groupby(group_cols, as_index=False)
+        .apply(_three_medians)
+    )
+
+    # Combinar
+    result = agg.merge(medians, on=group_cols, how="left")
+    result = result.drop(columns=[
+        "_sum_w_od", "_sum_w_route", "_sum_w_route_gps",
+        "_sum_weights_od", "_sum_weights_route", "_sum_weights_route_gps",
+    ])
+    return result
+
 @duracion
 def compute_kpi():
     """
@@ -51,7 +128,6 @@ def compute_kpi():
     dia y linea y por dia, linea, interno
     """
 
-    print("Produciendo indicadores operativos...")
     conn_data = iniciar_conexion_db(tipo="data")
 
     cur = conn_data.cursor()
@@ -332,9 +408,7 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
 
         # Assign a direction based on line progression
         df = df.reindex(columns=["dia", "o_proj", "d_proj", "factor_expansion_linea"])
-        df["sentido"] = [
-            "ida" if row.o_proj <= row.d_proj else "vuelta" for _, row in df.iterrows()
-        ]
+        df["sentido"] = np.where(df["o_proj"] <= df["d_proj"], "ida", "vuelta")
 
         # Compute total legs per direction
         # First totals per day
@@ -366,8 +440,35 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         # remove legs with no origin or destination projected
         df = df.dropna(subset=["o_proj", "d_proj"])
 
-        legs_dict = df.to_dict("records")
-        leg_route_sections_df = pd.concat(map(build_leg_route_sections_df, legs_dict))
+        # Vectorized expansion: cada etapa se replica una vez por cada sección
+        # que atraviesa. Equivalente a build_leg_route_sections_df aplicado fila
+        # por fila, pero sin crear un DataFrame por etapa.
+        # Lógica: en "ida" se va de o_proj a d_proj; en "vuelta" se invierte
+        # para que el rango sea siempre creciente.
+        df_v = df.reset_index(drop=True)
+        o_proj = df_v["o_proj"].astype(int).values
+        d_proj = df_v["d_proj"].astype(int).values
+        sentido = df_v["sentido"].values
+
+        # rangos en orden creciente según sentido
+        section_start = np.where(sentido == "ida", o_proj, d_proj)
+        section_end   = np.where(sentido == "ida", d_proj, o_proj)
+        lengths = section_end - section_start + 1
+
+        # secciones expandidas para todas las etapas
+        section_ids_expanded = np.concatenate([
+            np.arange(s, e + 1) for s, e in zip(section_start, section_end)
+        ])
+
+        # índice de fila origen para cada sección expandida
+        row_idx = np.repeat(np.arange(len(df_v)), lengths)
+
+        leg_route_sections_df = pd.DataFrame({
+            "dia":                    df_v["dia"].values[row_idx],
+            "sentido":                sentido[row_idx],
+            "section_id":             section_ids_expanded,
+            "factor_expansion_linea": df_v["factor_expansion_linea"].values[row_idx],
+        })
 
         # compute total legs by section and direction
         # first adding totals per day
@@ -748,6 +849,10 @@ def compute_kpi_by_service():
 
     conn_data = iniciar_conexion_db(tipo="data")
 
+    import time
+    t0 = time.time()
+    print("\n[compute_kpi_by_service] inicio")
+
     # print("Leyendo demanda por servicios validos")
 
     q_valid_services = """
@@ -779,6 +884,8 @@ def compute_kpi_by_service():
         """
 
     valid_demand = pd.read_sql(q_valid_services, conn_data)
+    print(f"  [{time.time()-t0:>6.1f}s] query valid_demand        | {len(valid_demand):>10,} filas")
+    t1 = time.time()
 
     # print("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
@@ -830,6 +937,8 @@ def compute_kpi_by_service():
         """
 
     invalid_demand_dups = pd.read_sql(q_invalid_services, conn_data)
+    print(f"  [{time.time()-t0:>6.1f}s] query invalid_demand      | {len(invalid_demand_dups):>10,} filas | {time.time()-t1:.1f}s")
+    t1 = time.time()
 
     # remove duplicates leaving the first, i.e. next valid service in time
     invalid_demand = invalid_demand_dups.drop_duplicates(subset=["id"], keep="first")
@@ -837,11 +946,22 @@ def compute_kpi_by_service():
 
     # create single demand by service df
     service_demand = pd.concat([valid_demand, invalid_demand])
+    print(f"  [{time.time()-t0:>6.1f}s] concat demand             | {len(service_demand):>10,} filas")
+    t1 = time.time()
 
     # compute demand stats
-    service_demand_stats = service_demand.groupby(
-        ["dia", "id_linea", "id_ramal", "interno", "service_id"], as_index=False
-    ).apply(demand_stats)
+    n_grupos = service_demand.groupby(
+        ["dia", "id_linea", "id_ramal", "interno", "service_id"]
+    ).ngroups
+    print(f"  [{time.time()-t0:>6.1f}s] grupos a procesar         | {n_grupos:>10,} grupos")
+    t1 = time.time()
+
+    service_demand_stats = _compute_demand_stats_vectorized(
+        service_demand,
+        group_cols=["dia", "id_linea", "id_ramal", "interno", "service_id"],
+    )
+    print(f"  [{time.time()-t0:>6.1f}s] groupby+apply demand_stats| {len(service_demand_stats):>10,} filas | {time.time()-t1:.1f}s")
+    t1 = time.time()
 
     # read supply service data
     service_supply_q = """
@@ -852,6 +972,8 @@ def compute_kpi_by_service():
             services where valid = 1
         """
     service_supply = pd.read_sql(service_supply_q, conn_data)
+    print(f"  [{time.time()-t0:>6.1f}s] query supply              | {len(service_supply):>10,} filas | {time.time()-t1:.1f}s")
+    t1 = time.time()
 
     # merge supply and demand data
     service_stats = service_supply.merge(
@@ -921,12 +1043,17 @@ def compute_kpi_by_service():
     for col in ratio_cols:
         service_stats[col] = service_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
 
+    print(f"  [{time.time()-t0:>6.1f}s] cálculos KPI completos    | {time.time()-t1:.1f}s")
+    t1 = time.time()
+
     service_stats.to_sql(
         "kpi_by_day_line_service",
         conn_data,
         if_exists="append",
         index=False,
     )
+    print(f"  [{time.time()-t0:>6.1f}s] escritura DB              | {len(service_stats):>10,} filas | {time.time()-t1:.1f}s")
+    print(f"[compute_kpi_by_service] FIN — total {time.time()-t0:.1f}s\n")
 
     return service_stats
 
@@ -1030,7 +1157,6 @@ def gps_table_exists():
     else:
         return True
 
-@duracion
 def run_basic_kpi(id_linea=[]):
     """
     Computes basic KPI at vehicle-hour, line-hour, and line-day level
@@ -1358,7 +1484,6 @@ def compute_basic_kpi_line_typeday():
     conn_data.execute(delete_q)
     conn_data.commit()
 
-    print("Calculando KPI basicos por tipo de dia")
     kpi_by_line_day = pd.read_sql("select * from basic_kpi_by_line_day;", conn_data)
 
     weekend = pd.to_datetime(kpi_by_line_day["dia"].copy()).dt.dayofweek > 4
@@ -1408,7 +1533,6 @@ def compute_basic_kpi_line_hr_typeday():
     conn_data.execute(delete_q)
     conn_data.commit()
 
-    print("Calculando KPI basicos por tipo de dia")
     kpi_by_line_hr = pd.read_sql("select * from basic_kpi_by_line_hr;", conn_data)
 
     weekend = pd.to_datetime(kpi_by_line_hr["dia"].copy()).dt.dayofweek > 4

@@ -57,7 +57,6 @@ def upload_stops_table(stops):
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
 
-    print("Subiendo paradas a stops")
     stops.to_sql("stops", conn_insumos, if_exists="replace", index=False)
     conn_insumos.close()
 
@@ -328,7 +327,6 @@ def upload_travel_times_stations():
             not travel_times_stations.isna().any().all()
         ), "Hay datos faltantes en la tabla"
 
-        print("Subiendo tabla de tiempos de viaje entre estaciones a la DB")
         travel_times_stations.to_sql(
             "travel_times_stations", conn_insumos, if_exists="replace", index=False
         )

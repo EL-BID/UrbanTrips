@@ -3265,26 +3265,26 @@ def preparo_indicadores_dash(
 
     etapas, viajes = load_and_process_data(alias_data=corrida)
 
-    # if lineas_deseo:
-    #     # print("Proceso lineas de deseo")
-    #     proceso_lineas_deseo(
-    #         etapas=etapas.copy(),
-    #         viajes=viajes.copy(),
-    #         zonificaciones=zonificaciones.copy(),
-    #         equivalencias_zonas=equivalencias_zonas.copy(),
-    #         alias_data=corrida,
-    #         resoluciones=resoluciones,
-    #     )
-    # if poligonos:
-    #     # print("Proceso Polígonos")
-    #     proceso_poligonos(
-    #         etapas=etapas.copy(),
-    #         viajes=viajes.copy(),
-    #         zonificaciones=zonificaciones.copy(),
-    #         alias_db=corrida,
-    #         resoluciones=resoluciones,
-    #         poligon_id=poligon_id,
-    #     )
+    if lineas_deseo:
+        # print("Proceso lineas de deseo")
+        proceso_lineas_deseo(
+            etapas=etapas.copy(),
+            viajes=viajes.copy(),
+            zonificaciones=zonificaciones.copy(),
+            equivalencias_zonas=equivalencias_zonas.copy(),
+            alias_data=corrida,
+            resoluciones=resoluciones,
+        )
+    if poligonos:
+        # print("Proceso Polígonos")
+        proceso_poligonos(
+            etapas=etapas.copy(),
+            viajes=viajes.copy(),
+            zonificaciones=zonificaciones.copy(),
+            alias_db=corrida,
+            resoluciones=resoluciones,
+            poligon_id=poligon_id,
+        )
 
     if kpis:
         # print("Proceso kpis")

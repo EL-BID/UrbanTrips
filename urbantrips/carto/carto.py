@@ -174,8 +174,6 @@ def update_stations_catchment_area(ring_size):
             areas_influencia_nuevas, how="left", on="parada"
         )
 
-        # Subir a la db
-        # print("Subiendo matriz a db")
         matriz_nueva.to_sql(
             "matriz_validacion", conn_insumos, if_exists="append", index=False
         )

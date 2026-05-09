@@ -300,9 +300,6 @@ def create_trips_from_legs_and_fex():
     )
     viajes = viajes.reindex(columns=[c for c in viajes_cols if c in viajes.columns])
 
-    # print("Subiendo tabla de viajes a la db...")
-    # _delete_dias(conn, "viajes", dias_ultima_corrida)
-    # _upload_chunked(viajes, "viajes", conn)
     dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
     guardar_tabla_sql(
                 viajes,
@@ -347,50 +344,6 @@ def create_trips_from_legs_and_fex():
     print(f"transacciones_linea total:       {transacciones_linea.transacciones.sum():.0f}")
     print(f"factor_expansion_linea total:    {etapas.factor_expansion_linea.sum():.0f}")
     print("========== Verificación de factores de expansión==========")
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-# def _delete_dias(conn, table, dias_ultima_corrida):
-#     """Delete rows for given days using parameterized query."""
-#     dias = dias_ultima_corrida["dia"].tolist()
-#     placeholders = ", ".join("?" * len(dias))
-#     conn.execute(f"DELETE FROM {table} WHERE dia IN ({placeholders})", dias)
-#     conn.commit()
-
-
-# def _upload_chunked(df, table, conn, chunk_size=500_000):
-#     """Upload large dataframes to SQLite efficiently."""
-#     print(f"Subiendo datos a {table} ({len(df)} registros) - {str(datetime.now())[:19]}")
-
-#     # Pragmas de performance
-#     conn.execute("PRAGMA journal_mode = WAL")
-#     conn.execute("PRAGMA synchronous = OFF")
-#     conn.execute("PRAGMA cache_size = -2000000")  # 2GB cache
-
-#     cols = df.columns.tolist()
-#     placeholders = ", ".join("?" * len(cols))
-#     col_names = ", ".join(cols)
-#     sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
-
-#     cursor = conn.cursor()
-#     cursor.execute("BEGIN TRANSACTION")
-#     try:
-#         for i in range(0, len(df), chunk_size):
-#             chunk = df.iloc[i: i + chunk_size]
-#             cursor.executemany(sql, chunk.values.tolist())
-#             print(f"  {min(i + chunk_size, len(df)):,} / {len(df):,} registros...")
-#         conn.commit()
-#     except Exception:
-#         conn.rollback()
-#         raise
-#     finally:
-#         # Restaurar pragmas seguros
-#         conn.execute("PRAGMA synchronous = FULL")
-
-    
 
 
 @duracion

@@ -113,8 +113,7 @@ def process_routes_geoms():
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "wkt"])
-    print("Subiendo tabla de recorridos")
-
+    
     # TODO: create line geoms in h3 series of cells
 
     # Upload geoms
