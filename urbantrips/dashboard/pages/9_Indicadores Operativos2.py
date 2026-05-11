@@ -15,6 +15,7 @@ Las tres distancias disponibles son:
 - route_gps: distancia recorrida según odómetro de la validadora
 """
 
+import html as _html
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -218,9 +219,69 @@ HELP_TEXTS = {
 }
 
 
+LABELS_TWO_LINE = {
+    "id_linea": "ID<br>línea",
+    "nombre_linea": "Línea",
+    "id_ramal": "Ramal",
+    "interno": "Interno",
+    "service_id": "Servicio",
+    "modo": "Modo",
+    "empresa": "Empresa",
+    "dia": "Día",
+    "yr_mo": "Año-Mes",
+    "hora": "Hora",
+    "hora_inicio": "Hora<br>inicio",
+    "hora_fin": "Hora<br>fin",
+    "tot_veh": "Vehículos",
+    "tot_km": "Km<br>recorrido",
+    "tot_km_gps": "Km<br>odómetro",
+    "veh": "Vehículos",
+    "servicios": "Servicios",
+    "tot_pax": "Pasajeros",
+    "pax": "Pasajeros",
+    "factor_expansion_linea": "Factor<br>expansión",
+    "dmt_mean_od": "DMT media<br>red",
+    "dmt_mean_route": "DMT media<br>recorrida",
+    "dmt_mean_route_gps": "DMT media<br>odóm.",
+    "dmt_median_od": "DMT med.<br>red",
+    "dmt_median_route": "DMT med.<br>recorrida",
+    "dmt_median_route_gps": "DMT med.<br>odóm.",
+    "dmt_route": "DMT<br>recorrido",
+    "dmt_route_gps": "DMT<br>odómetro",
+    "pvd": "PVD",
+    "kvd": "KVD<br>recorrido",
+    "kvd_gps": "KVD<br>odómetro",
+    "ipk_route": "IPK<br>recorrido",
+    "ipk_route_gps": "IPK<br>odómetro",
+    "ekd_mean_od": "EKD media<br>red",
+    "ekd_mean_route": "EKD media<br>recorrida",
+    "ekd_mean_route_gps": "EKD media<br>odóm.",
+    "eko": "EKO",
+    "eko_gps": "EKO<br>odóm.",
+    "fo_mean_od": "FO medio<br>red",
+    "fo_mean_route": "FO medio<br>recorrida",
+    "fo_mean_route_gps": "FO medio<br>odóm.",
+    "fo_median_od": "FO med.<br>red",
+    "fo_median_route": "FO med.<br>recorrida",
+    "fo_median_route_gps": "FO med.<br>odóm.",
+    "eq_pax": "Pax<br>equiv.",
+    "eq_pax_gps": "Pax equiv.<br>odóm.",
+    "of": "Ocupación",
+    "kmh_route": "Vel.<br>recorrido",
+    "kmh_route_gps": "Vel.<br>odómetro",
+    "kmh_od": "Vel.<br>red",
+    "travel_time_min": "T. viaje<br>(min)",
+}
+
+
 def label_of(col: str) -> str:
     """Etiqueta amigable; si no está en LABELS devuelve el nombre crudo."""
     return LABELS.get(col, col)
+
+
+def label_html(col: str) -> str:
+    """Etiqueta para tablas HTML (puede contener <br> para dos renglones)."""
+    return LABELS_TWO_LINE.get(col, label_of(col))
 
 
 def help_of(col: str) -> str | None:
@@ -378,38 +439,83 @@ def metric_with_help(container, col_key, value_str, custom_label=None):
     container.metric(label, value_str, help=help_of(col_key))
 
 
+_INT_COLS = {
+    "tot_veh", "tot_pax", "veh", "pax", "servicios",
+    "hora", "hora_inicio", "hora_fin", "id_linea",
+    "id_ramal", "interno", "service_id",
+}
+
+_TABLE_CSS = (
+    "<style>"
+    ".kpi-tbl{width:100%;border-collapse:collapse;font-size:0.82rem}"
+    ".kpi-tbl th{background:rgba(120,120,120,.12);text-align:center;"
+    "padding:5px 8px;border:1px solid rgba(120,120,120,.25);"
+    "white-space:normal;min-width:55px;vertical-align:bottom;line-height:1.3}"
+    ".kpi-tbl td{padding:3px 8px;border:1px solid rgba(120,120,120,.15);"
+    "white-space:nowrap}"
+    ".kpi-tbl tr:nth-child(even){background:rgba(120,120,120,.04)}"
+    "</style>"
+)
+
+
+def _fmt_ar(val, col: str) -> str:
+    """Formato numérico argentino: punto como miles, coma como decimal."""
+    if pd.isna(val):
+        return "–"
+    if col.startswith("fo_") or col == "of":
+        return f"{float(val):.3f}".replace(".", ",")
+    if col in _INT_COLS:
+        try:
+            return f"{int(round(float(val))):,}".replace(",", ".")
+        except Exception:
+            return str(val)
+    try:
+        s = f"{float(val):,.2f}"          # "1,234.56"
+        int_part, dec_part = s.split(".")
+        return f"{int_part.replace(',', '.')},{dec_part}"   # "1.234,56"
+    except Exception:
+        return str(val)
+
+
 def show_table(df: pd.DataFrame, key: str):
-    """Renderiza tabla con tooltips por columna y descarga CSV."""
+    """Renderiza tabla HTML con encabezados en dos renglones y formato argentino."""
     if df.empty:
         st.info("No hay datos para los filtros seleccionados.")
         return
 
-    column_config = {}
-    for col in df.columns:
-        col_label = label_of(col)
-        col_help = help_of(col)
-        if pd.api.types.is_numeric_dtype(df[col]):
-            # FO se muestra como decimal con 2-3 dígitos (no como porcentaje
-            # porque ya viene en proporción 0-1 o como % en `of`)
-            if col.startswith("fo_") or col == "of":
-                fmt = "%.3f"
-            elif col in {"tot_veh", "tot_pax", "veh", "pax", "servicios",
-                          "hora", "hora_inicio", "hora_fin", "id_linea",
-                          "id_ramal", "interno", "service_id"}:
-                fmt = "%d"
-            else:
-                fmt = "%.2f"
-            column_config[col] = st.column_config.NumberColumn(
-                col_label, help=col_help, format=fmt
-            )
-        else:
-            column_config[col] = st.column_config.Column(col_label, help=col_help)
+    _MAX_ROWS = 2000
+    display_df = df.head(_MAX_ROWS) if len(df) > _MAX_ROWS else df
+    if len(df) > _MAX_ROWS:
+        st.warning(f"Mostrando {_MAX_ROWS:,} de {len(df):,} filas.")
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config=column_config,
+    cols = display_df.columns.tolist()
+
+    header_cells = "".join(
+        f'<th title="{_html.escape(help_of(c) or "")}">{label_html(c)}</th>'
+        for c in cols
+    )
+
+    row_parts = []
+    for _, row in display_df.iterrows():
+        cells = ""
+        for c in cols:
+            val = row[c]
+            if pd.api.types.is_numeric_dtype(display_df[c]):
+                cells += f'<td style="text-align:right">{_fmt_ar(val, c)}</td>'
+            else:
+                txt = _html.escape(str(val)) if pd.notna(val) else "–"
+                cells += f"<td>{txt}</td>"
+        row_parts.append(f"<tr>{cells}</tr>")
+
+    st.markdown(
+        _TABLE_CSS
+        + '<div style="overflow-x:auto;max-height:500px;overflow-y:auto">'
+        + '<table class="kpi-tbl"><thead><tr>'
+        + header_cells
+        + "</tr></thead><tbody>"
+        + "".join(row_parts)
+        + "</tbody></table></div>",
+        unsafe_allow_html=True,
     )
     st.download_button(
         label="Descargar CSV",
@@ -421,15 +527,22 @@ def show_table(df: pd.DataFrame, key: str):
 
 
 def format_value(val, col):
+    """Formato argentino para st.metric."""
     if pd.isna(val):
         return "–"
     if col.startswith("fo_") or col == "of":
-        return f"{val:.3f}"
-    if col in {"tot_veh", "tot_pax", "veh", "pax", "servicios"}:
-        return f"{int(round(val)):,}"
-    if isinstance(val, (int, float)) and float(val).is_integer():
-        return f"{int(round(val)):,}"
-    return f"{val:,.2f}"
+        return f"{float(val):.3f}".replace(".", ",")
+    if col in _INT_COLS or (isinstance(val, (int, float)) and float(val).is_integer()):
+        try:
+            return f"{int(round(float(val))):,}".replace(",", ".")
+        except Exception:
+            return str(val)
+    try:
+        s = f"{float(val):,.2f}"
+        int_part, dec_part = s.split(".")
+        return f"{int_part.replace(',', '.')},{dec_part}"
+    except Exception:
+        return str(val)
 
 
 # -----------------------------------------------------------------------------

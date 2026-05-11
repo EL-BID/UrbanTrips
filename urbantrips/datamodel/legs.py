@@ -888,61 +888,106 @@ def assign_time_distances():
 
         gps_anchors = legs_to_gps_o.merge(legs_to_gps_d_dist, on="id_legs")
 
-        # â”€â”€ distance_route y distance_route_gps: distancia recorrida entre anclas GPS â”€â”€
+        # ──────────────────────────────────────────────────────────────────
+        # distance_route y distance_route_gps: distancia recorrida entre anclas GPS
+        # ──────────────────────────────────────────────────────────────────
         #
-        # Ancla origen (id_gps_o): ping GPS mÃ¡s cercano al momento de la transacciÃ³n,
-        #   calculado previamente en assign_gps_origin() y persistido en legs_to_gps_origin.
-        # Ancla destino (id_gps_d): ping GPS mÃ¡s cercano al destino inferido de la etapa,
-        #   calculado en el loop horaÃ—dÃ­a de esta misma funciÃ³n (etapas_result).
+        # Para cada etapa se calcula la distancia recorrida por el vehículo entre
+        # el ping GPS de origen y el ping GPS de destino. Hay dos fuentes:
         #
-        # Para cada etapa se suman los tramos GPS entre ambas anclas. La distancia de
-        # cada ping estÃ¡ registrada como el incremento desde el ping anterior (distance_km,
-        # distance_servicio_mts), por lo que el ping de origen se excluye de la suma
-        # (su valor corresponde al tramo previo al viaje) y el de destino se incluye.
+        #   distance_route     → suma de distance_km          (calculado por urbantrips)
+        #   distance_route_gps → suma de distance_servicio_mts (odómetro del operador)
         #
-        # ImplementaciÃ³n: en lugar de expandir todos los pings intermedios con un join
-        # (costoso en memoria para datasets grandes), se usa distancia acumulada por
-        # (dia, id_linea, id_ramal, interno) y se resuelve como resta de extremos:
-        #   distance_route = acum_d - acum_o  â‰¡  Î£ distance_km(rank_o+1 .. rank_d)
+        # distance_servicio_mts puede no estar reportado:
+        #   - Mendoza, AMBA cuando el operador no provee odómetro: todos None
+        #   - Algunas líneas sí lo reportan y otras no
+        #   - Una línea puede reportarlo de forma parcial (algunos pings sí, otros no)
         #
-        # Supuesto: origen y destino pertenecen siempre al mismo servicio continuo del
-        # interno. Si acum_d < acum_o, indica error de asignaciÃ³n upstream (anclas de
-        # servicios distintos) â†’ distance_route negativa â†’ detectar en QA.
+        # Estrategia: cumsum sobre el valor con None→0 para no contaminar la
+        # acumulada, más cumsum del conteo de NaN. Una etapa queda con
+        # distance_route_gps = NaN solo si entre sus anclas hubo algún ping
+        # sin odómetro reportado. Si todos los tramos intermedios están
+        # reportados, el valor se calcula correctamente.
         #
-        # Dos mÃ©tricas de distancia:
-        #   distance_route     â†’ suma de distance_km      (km, fuente: odÃ³metro/GPS)
-        #   distance_route_gps â†’ suma de distance_servicio_mts / 1000  (km, fuente: operador)
-        #   Cuando distance_servicio_mts es todo nulo (operador no lo provee), distance_route_gps queda NaN.
+        # distance_route se computa siempre (distance_km es siempre numérico).
+        #
+        # Supuesto general: origen y destino pertenecen al mismo servicio
+        # continuo del interno. Si acum_d < acum_o, indica error de asignación
+        # upstream (anclas de servicios distintos) → distance_route negativa
+        # → detectar en QA.
 
         gps_ranked = gps.reindex(
-            columns=["id", "dia", "id_linea", "id_ramal", "interno", "distance_km", "distance_servicio_mts"]
+            columns=["id", "dia", "id_linea", "id_ramal", "interno",
+                     "distance_km", "distance_servicio_mts"]
         ).copy()
 
-        # Calcular distancia acumulada por servicio (dia Ã— linea Ã— ramal Ã— interno).
+        # Asegurar tipo numérico — la tabla gps puede traer distance_servicio_mts
+        # como object (None literal) cuando el operador no reporta odómetro.
+        # cumsum no soporta dtype object, hay que coercer a float antes.
+        gps_ranked["distance_km"] = pd.to_numeric(
+            gps_ranked["distance_km"], errors="coerce"
+        )
+        gps_ranked["distance_servicio_mts"] = pd.to_numeric(
+            gps_ranked["distance_servicio_mts"], errors="coerce"
+        )
+
+        # Acumulada de distance_km por servicio (dia × linea × ramal × interno).
         # El GPS ya viene ordenado por fecha, por lo que cumsum respeta el orden temporal.
         gps_ranked["acum_km"] = gps_ranked.groupby(
             ["dia", "id_linea", "id_ramal", "interno"]
         )["distance_km"].cumsum()
-        gps_ranked["acum_mts"] = gps_ranked.groupby(
-            ["dia", "id_linea", "id_ramal", "interno"]
-        )["distance_servicio_mts"].cumsum()
 
-        # Lookup de acumulada en cada ancla mediante el id de ping GPS
-        acum_km_map  = gps_ranked.set_index("id")["acum_km"]
-        acum_mts_map = gps_ranked.set_index("id")["acum_mts"]
+        # Acumulada de distance_servicio_mts: dos cumsums separadas para tolerar
+        # NaN sin contaminar tramos limpios.
+        # - acum_mts: cumsum sobre el valor con NaN→0 (acumulada utilizable)
+        # - acum_mts_nan_count: cumsum del indicador de NaN (permite invalidar
+        #   solo las etapas cuyas anclas caen en tramos con algún None)
+        dist_mts = gps_ranked["distance_servicio_mts"]
+        group_keys = [
+            gps_ranked["dia"], gps_ranked["id_linea"],
+            gps_ranked["id_ramal"], gps_ranked["interno"],
+        ]
+        gps_ranked["acum_mts"] = (
+            dist_mts.fillna(0).groupby(group_keys).cumsum()
+        )
+        gps_ranked["acum_mts_nan_count"] = (
+            dist_mts.isna().astype(int).groupby(group_keys).cumsum()
+        )
+
+        # Lookup de acumuladas en cada ancla mediante el id de ping GPS
+        acum_km_map      = gps_ranked.set_index("id")["acum_km"]
+        acum_mts_map     = gps_ranked.set_index("id")["acum_mts"]
+        acum_nan_map     = gps_ranked.set_index("id")["acum_mts_nan_count"]
 
         gps_anchors["acum_km_o"]  = gps_anchors["id_gps_o"].map(acum_km_map)
         gps_anchors["acum_km_d"]  = gps_anchors["id_gps_d"].map(acum_km_map)
         gps_anchors["acum_mts_o"] = gps_anchors["id_gps_o"].map(acum_mts_map)
         gps_anchors["acum_mts_d"] = gps_anchors["id_gps_d"].map(acum_mts_map)
+        gps_anchors["nan_o"]      = gps_anchors["id_gps_o"].map(acum_nan_map)
+        gps_anchors["nan_d"]      = gps_anchors["id_gps_d"].map(acum_nan_map)
 
-        # Resta de acumuladas â†’ distancia recorrida entre anclas (una fila por etapa)
+        # Resta de acumuladas → distancia recorrida entre anclas
         gps_distances = gps_anchors.reindex(columns=["id_legs"]).copy()
-        gps_distances["distance_route"]     = gps_anchors["acum_km_d"].values  - gps_anchors["acum_km_o"].values
-        gps_distances["distance_route_gps"] = (gps_anchors["acum_mts_d"].values - gps_anchors["acum_mts_o"].values) / 1000
+        gps_distances["distance_route"] = (
+            gps_anchors["acum_km_d"].values - gps_anchors["acum_km_o"].values
+        )
+
+        # distance_route_gps: si hubo algún NaN en distance_servicio_mts entre
+        # las anclas, el resultado es NaN. Si todos los pings intermedios
+        # tienen el valor reportado, se calcula normalmente.
+        nan_entre_anclas = (
+            gps_anchors["nan_d"].values - gps_anchors["nan_o"].values
+        )
+        diff_mts = (
+            gps_anchors["acum_mts_d"].values - gps_anchors["acum_mts_o"].values
+        )
+        gps_distances["distance_route_gps"] = np.where(
+            nan_entre_anclas > 0,
+            np.nan,
+            diff_mts / 1000,
+        )
         gps_distances = gps_distances.rename(columns={"id_legs": "id"})
 
-        # â”€â”€ travel_time_min y kmh_od â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         travel_times = legs.reindex(
             columns=["dia", "id", "fecha", "distance_od"]
         ).merge(
