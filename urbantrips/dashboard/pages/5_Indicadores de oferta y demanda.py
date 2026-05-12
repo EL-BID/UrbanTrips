@@ -876,7 +876,7 @@ with st.expander("Factor de ocupación por horas"):
         sns.lineplot(
             data=kpi_stats_line_plot,
             x="hora",
-            y="veh",
+            y="tot_veh",
             ax=ax,
             color="Purple",
             label="Oferta - veh/hr",

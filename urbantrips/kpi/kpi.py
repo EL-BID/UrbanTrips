@@ -150,10 +150,7 @@ def compute_kpi():
 
     if (len(legs) > 0) & (len(gps) > 0):
         # compute KPI per line and date
-        compute_kpi_by_line_day(legs=legs, gps=gps)
-
-        # compute KPI per line and type of day
-        compute_kpi_by_line_typeday()
+        compute_kpi_by_line_day(legs=legs)
 
     # Run KPI at service level
     cur = conn_data.cursor()
@@ -167,9 +164,6 @@ def compute_kpi():
 
         # compute amount of hourly services by line and day
         compute_dispatched_services_by_line_hour_day()
-
-        # compute amount of hourly services by line and type of day
-        compute_dispatched_services_by_line_hour_typeday()
 
     else:
 
@@ -620,18 +614,16 @@ def read_data_for_daily_kpi():
     # print("Fin carga de datos de oferta y demanda")
     return legs, gps
 
-def compute_kpi_by_line_day(legs, gps):
+def compute_kpi_by_line_day(legs):
     """
-    Takes data for supply and demand and computes KPI at line level
-    for each day
+    Takes demand data and computes KPI at line level for each day.
+    Supply metrics (tot_veh, tot_km, tot_km_gps) are read directly
+    from services WHERE valid = 1, without any vehicle expansion factor.
 
     Parameters
     ----------
     legs : pandas.DataFrame
         DataFrame with legs data
-
-    gps : pandas.DataFrame
-        DataFrame with vehicle gps data
 
     Returns
     -------
@@ -640,25 +632,39 @@ def compute_kpi_by_line_day(legs, gps):
     """
     conn_data = iniciar_conexion_db(tipo="data")
 
-    # get veh expansion factors for supply data
-    q = "select id_linea,dia,veh_exp from vehicle_expansion_factors"
-    vehicle_expansion_factor = pd.read_sql(q, conn_data)
-    gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
-
     # demand data
     day_demand_stats = (
         legs.dropna(subset=["distance_od", "factor_expansion_linea"])
         .groupby(["id_linea", "dia"], as_index=False)
         .apply(demand_stats)
     )
+    day_stats = day_demand_stats.copy()
 
-    # supply data
-    day_supply_stats = gps.groupby(["id_linea", "dia"], as_index=False).apply(
-        supply_stats
+    # supply: read from services filtered to valid=1 (no expansion factor)
+    services_data = pd.read_sql(
+        "SELECT dia, id_linea, interno, distance_route, distance_route_gps"
+        " FROM services WHERE valid = 1",
+        conn_data,
     )
-
-    day_stats = day_demand_stats.merge(
-        day_supply_stats, how="inner", on=["id_linea", "dia"]
+    services_tot_veh = (
+        services_data
+        .groupby(["dia", "id_linea"], as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "tot_veh"})
+    )
+    services_tot_km = (
+        services_data
+        .groupby(["dia", "id_linea"], as_index=False)
+        .agg(
+            tot_km=("distance_route", "sum"),
+            tot_km_gps=("distance_route_gps", "sum"),
+        )
+        .round(2)
+    )
+    day_stats = (
+        day_stats
+        .merge(services_tot_veh, on=["dia", "id_linea"], how="left")
+        .merge(services_tot_km, on=["dia", "id_linea"], how="left")
     )
 
     # Safe division: replace 0 with NaN in denominators
@@ -708,10 +714,11 @@ def compute_kpi_by_line_day(legs, gps):
         """SELECT * FROM dias_ultima_corrida""",
         conn_data,
     )
-    # borro si ya existen etapas de una corrida anterior
+    # borro filas de corridas anteriores y registros de tipo de día agregado
     values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
     query = f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})"
     conn_data.execute(query)
+    conn_data.execute("DELETE FROM kpi_by_day_line WHERE dia IN ('weekday','weekend')")
     conn_data.commit()
     ratio_cols = [
         "pvd", "kvd", "kvd_gps", "ipk_route", "ipk_route_gps",
@@ -1070,15 +1077,6 @@ def demand_stats(df):
     return pd.Series(d)
 
 
-def supply_stats(df):
-    d = {}
-    d["tot_veh"] = len(df.interno.unique()) * df.veh_exp.unique()[0]
-    d["tot_km"] = df.distance_km.sum() * df.veh_exp.unique()[0]
-    d["tot_km_gps"] = (df.distance_servicio_mts.sum() / 1000) * df.veh_exp.unique()[0]
-
-    return pd.Series(d, index=["tot_veh", "tot_km", "tot_km_gps"])
-
-
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
@@ -1361,10 +1359,9 @@ def run_basic_kpi(id_linea=[]):
     supply = (
         legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "hora"])
         .drop_duplicates()
-        .groupby(["dia", "id_linea", "hora"])
-        .size()
-        .reset_index()
-        .rename(columns={0: "veh"})
+        .groupby(["dia", "id_linea", "hora"], as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "tot_veh"})
     )
 
     demand = (
@@ -1394,13 +1391,15 @@ def run_basic_kpi(id_linea=[]):
     kpi_by_line_hr = kpi_by_line_hr.rename(columns={"kmh_route_line_h": "kmh_route"})
     kpi_by_line_hr["yr_mo"] = kpi_by_line_hr.dia.str[:7]
 
-    cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "eq_pax", "eq_pax_gps",
+    cols = ["dia", "yr_mo", "id_linea", "hora", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
             "dmt_route", "dmt_route_gps", "of", "kmh_route"]
     kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
 
     for col in ["pax", "eq_pax", "eq_pax_gps", "dmt_route", "dmt_route_gps", "of", "kmh_route"]:
         kpi_by_line_hr[col] = kpi_by_line_hr[col].replace([np.inf, -np.inf], np.nan).round(2)
 
+    conn_data.execute("DELETE FROM basic_kpi_by_line_hr WHERE dia IN ('weekday','weekend')")
+    conn_data.commit()
     kpi_by_line_hr.to_sql("basic_kpi_by_line_hr", conn_data, if_exists="append", index=False)
 
     # COMPUTE KPI BY DAY AND LINE
@@ -1411,12 +1410,14 @@ def run_basic_kpi(id_linea=[]):
     )
 
     daily_supply = (
-        legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno"])
-        .drop_duplicates()
-        .groupby(["dia", "id_linea"])
-        .size()
-        .reset_index()
-        .rename(columns={0: "veh"})
+        pd.read_sql(
+            f"SELECT dia, id_linea, interno FROM services WHERE valid = 1"
+            f" AND dia NOT IN ({processed_days})",
+            conn_data,
+        )
+        .groupby(["dia", "id_linea"], as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "tot_veh"})
     )
 
     daily_demand = (
@@ -1446,14 +1447,13 @@ def run_basic_kpi(id_linea=[]):
     kpi_by_line_day = kpi_by_line_day.rename(columns={"kmh_route_line_day": "kmh_route"})
     kpi_by_line_day["yr_mo"] = kpi_by_line_day.dia.str[:7]
 
-    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "eq_pax", "eq_pax_gps",
+    cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
         "dmt_route", "dmt_route_gps", "of", "kmh_route"]
-    
-    kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
-    kpi_by_line_day.to_sql("basic_kpi_by_line_day", conn_data, if_exists="append", index=False)
 
-    compute_basic_kpi_line_typeday()
-    compute_basic_kpi_line_hr_typeday()
+    kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
+    conn_data.execute("DELETE FROM basic_kpi_by_line_day WHERE dia IN ('weekday','weekend')")
+    conn_data.commit()
+    kpi_by_line_day.to_sql("basic_kpi_by_line_day", conn_data, if_exists="append", index=False)
 
     conn_data.close()
 
@@ -1491,7 +1491,7 @@ def compute_basic_kpi_line_typeday():
     kpi_by_line_day.loc[weekend, ["dia"]] = "weekend"
 
     # average totals — of is recomputed from these
-    totals_cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "eq_pax", "eq_pax_gps",
+    totals_cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
                    "dmt_route", "dmt_route_gps", "kmh_route"]
     kpi_by_line_typeday = kpi_by_line_day[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea"], as_index=False
@@ -1500,7 +1500,7 @@ def compute_basic_kpi_line_typeday():
     # recompute of from averaged totals
     kpi_by_line_typeday["of"] = kpi_by_line_typeday.eq_pax / 60 * 100
 
-    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "eq_pax", "eq_pax_gps",
+    cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
             "dmt_route", "dmt_route_gps", "of", "kmh_route"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
     kpi_by_line_typeday.to_sql("basic_kpi_by_line_day", conn_data, if_exists="append", index=False)
@@ -1541,7 +1541,7 @@ def compute_basic_kpi_line_hr_typeday():
 
     # average totals — of is recomputed from these
     totals_cols = ["dia", "yr_mo", "id_linea", "hora",
-                   "veh", "pax", "eq_pax", "eq_pax_gps",
+                   "tot_veh", "pax", "eq_pax", "eq_pax_gps",
                    "dmt_route", "dmt_route_gps", "kmh_route"]
     kpi_by_line_typeday = kpi_by_line_hr[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea", "hora"], as_index=False
@@ -1551,7 +1551,7 @@ def compute_basic_kpi_line_hr_typeday():
     kpi_by_line_typeday["of"] = kpi_by_line_typeday.eq_pax / 60 * 100
 
     cols = ["dia", "yr_mo", "id_linea", "hora",
-            "veh", "pax", "eq_pax", "eq_pax_gps",
+            "tot_veh", "pax", "eq_pax", "eq_pax_gps",
             "dmt_route", "dmt_route_gps", "of", "kmh_route"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
     kpi_by_line_typeday.to_sql("basic_kpi_by_line_hr", conn_data, if_exists="append", index=False)
@@ -1704,11 +1704,14 @@ def compute_dispatched_services_by_line_hour_day():
             ["id_linea", "dia", "hora"], as_index=False
         ).agg(servicios=("hora", "count"))
 
-        # print("Fin procesamiento servicios por hora")
-
         cols = ["id_linea", "dia", "hora", "servicios"]
 
         dispatched_services_stats = dispatched_services_stats.reindex(columns=cols)
+
+        conn_data.execute("DELETE FROM services_by_line_hour WHERE dia IN ('weekday','weekend')")
+        conn_data.commit()
+        conn_dash.execute("DELETE FROM services_by_line_hour WHERE dia IN ('weekday','weekend')")
+        conn_dash.commit()
 
         dispatched_services_stats.to_sql(
             "services_by_line_hour",

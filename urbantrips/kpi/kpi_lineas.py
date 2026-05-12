@@ -264,12 +264,27 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         if i not in all.columns:
             all[i] = 0
 
-    all["vehiculos_operativos"] = (
-        all["cant_internos_en_gps"]
-        .where(all["cant_internos_en_gps"] > 0, all["cant_internos_en_trx"])
-        .fillna(all["flota"])
-        .astype("Int64")
+    # vehiculos_operativos: conteo directo de internos con al menos un servicio valid=1
+    veh_validos = (
+        servicios[servicios.valid == 1]
+        .groupby(cols, as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "vehiculos_operativos"})
     )
+    all = all.drop(columns=["vehiculos_operativos"], errors="ignore").merge(
+        veh_validos, on=cols, how="left"
+    )
+
+    # tot_km: solo km de servicios con valid=1
+    all["tot_km"] = all["serv_distance_route"]
+
+    # tot_veh sincronizado con vehiculos_operativos corregido
+    all["tot_veh"] = all["vehiculos_operativos"]
+
+    # Recalcular ratios que dependen de tot_veh y tot_km
+    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["kvd"] = (all["tot_km"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["ipk_route"] = (all["tot_pax"] / all["tot_km"].replace(0, pd.NA)).round(1)
 
     all = all[
         [

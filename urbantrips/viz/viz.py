@@ -2604,7 +2604,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
         sns.lineplot(
             data=kpi_stats_line_plot,
             x="hora",
-            y="veh",
+            y="tot_veh",
             ax=ax,
             color="Purple",
             label="Oferta",
@@ -2666,7 +2666,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
                 "id_linea",
                 "nombre_linea",
                 "hora",
-                "veh",
+                "tot_veh",
                 "pax",
                 "dmt",
                 "of",

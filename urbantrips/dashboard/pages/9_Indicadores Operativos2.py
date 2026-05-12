@@ -72,10 +72,9 @@ LABELS = {
     "hora_fin": "Hora fin",
 
     # Oferta
-    "tot_veh": "Vehículos (tot_veh)",
+    "tot_veh": "Vehículos",
     "tot_km": "Km recorrido (tot_km)",
     "tot_km_gps": "Km odómetro (tot_km_gps)",
-    "veh": "Vehículos (veh)",
     "servicios": "Servicios (servicios)",
 
     # Demanda
@@ -141,13 +140,11 @@ HELP_TEXTS = {
     "hora_fin": "Hora de finalización del servicio.",
 
     # Oferta
-    "tot_veh": "Cantidad total de vehículos que operaron en el día, expandida "
-               "por el factor de expansión vehicular.",
+    "tot_veh": "Cantidad de vehículos únicos con al menos un servicio válido (valid=1).",
     "tot_km": "Kilómetros recorridos totales calculados sobre la traza GPS por "
               "UrbanTrips. Incluye expansión vehicular.",
     "tot_km_gps": "Kilómetros recorridos según el odómetro reportado por la "
                   "validadora a bordo. Incluye expansión vehicular.",
-    "veh": "Cantidad de vehículos únicos que operaron (sin expansión).",
     "servicios": "Cantidad de servicios despachados en la hora.",
 
     # Demanda
@@ -235,7 +232,6 @@ LABELS_TWO_LINE = {
     "tot_veh": "Vehículos",
     "tot_km": "Km<br>recorrido",
     "tot_km_gps": "Km<br>odómetro",
-    "veh": "Vehículos",
     "servicios": "Servicios",
     "tot_pax": "Pasajeros",
     "pax": "Pasajeros",
@@ -348,6 +344,9 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
 
 
 kpi_day = add_metadata(kpi_day)
+# kpi_by_day_line no incluye yr_mo; se deriva desde dia para habilitar el gráfico de evolución
+if "yr_mo" not in kpi_day.columns:
+    kpi_day["yr_mo"] = kpi_day["dia"].where(kpi_day["dia"].str.len() == 10).str[:7]
 basic_day = add_metadata(basic_day)
 basic_hr = add_metadata(basic_hr)
 services_hr = add_metadata(services_hr)
@@ -440,7 +439,7 @@ def metric_with_help(container, col_key, value_str, custom_label=None):
 
 
 _INT_COLS = {
-    "tot_veh", "tot_pax", "veh", "pax", "servicios",
+    "tot_veh", "tot_pax", "pax", "servicios",
     "hora", "hora_inicio", "hora_fin", "id_linea",
     "id_ramal", "interno", "service_id",
 }
@@ -651,7 +650,7 @@ with st.expander("KPIs operativos básicos", expanded=False):
         else:
             cols_show = [
                 "nombre_linea", "modo", "dia",
-                "veh", "pax", "eq_pax", "eq_pax_gps",
+                "tot_veh", "pax", "eq_pax", "eq_pax_gps",
                 "dmt_route", "dmt_route_gps",
                 "of", "kmh_route",
             ]
@@ -688,7 +687,7 @@ with st.expander("KPIs operativos básicos", expanded=False):
 
             cols_show = [
                 "nombre_linea", "dia", "hora",
-                "veh", "pax", "eq_pax", "eq_pax_gps",
+                "tot_veh", "pax", "eq_pax", "eq_pax_gps",
                 "dmt_route", "dmt_route_gps",
                 "of", "kmh_route",
             ]
