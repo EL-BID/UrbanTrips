@@ -1014,8 +1014,8 @@ def compute_kpi_by_service():
     service_stats["fo_median_route"] = service_stats["ekd_median_route"] / service_stats["eko"]
     service_stats["fo_median_route_gps"] = service_stats["ekd_median_route_gps"] / service_stats["eko_gps"]
 
-    service_stats["hora_inicio"] = service_stats.min_datetime.str[10:13].map(int)
-    service_stats["hora_fin"] = service_stats.max_datetime.str[10:13].map(int)
+    service_stats["hora_inicio"] = service_stats.min_datetime.str[11:16]
+    service_stats["hora_fin"] = service_stats.max_datetime.str[11:16]
 
     # reindex to meet schema
     cols = [

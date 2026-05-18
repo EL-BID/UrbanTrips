@@ -126,7 +126,8 @@ def get_stops_and_gps_data(line_ids_str):
     gps_points = pd.read_sql(gps_query, conn_data)
     
     gps_points = gps_points.rename(columns={"distance_km": "distance_route", "distance_servicio_mts": "distance_route_gps"})
-    gps_points["distance_route_gps"] = (gps_points["distance_route_gps"] / 1000).round(2)
+    
+    gps_points["distance_route_gps"] = (gps_points["distance_route_gps"]).round(2)
 
     gps_points = gpd.GeoDataFrame(
         gps_points,
@@ -332,8 +333,6 @@ def create_line_services_table(line_day_gps_points):
         min_ts=("fecha", "min"),
         max_ts=("fecha", "max"),
     )
-    
-    line_services['distance_route_gps'] = (line_services['distance_route_gps'] / 1000).round(2)
     
     line_services.loc[:, ["min_datetime"]] = line_services.min_ts.map(
         lambda ts: str(pd.Timestamp(ts, unit="s"))

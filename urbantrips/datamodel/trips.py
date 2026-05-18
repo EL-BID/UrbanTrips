@@ -75,6 +75,11 @@ def create_trips_from_legs_and_fex():
         (etapas["latitud"] == 0) & (etapas["longitud"] == 0),
         "od_validado",
     ] = 0
+    
+    etapas.loc[
+        (etapas.distance_od == 0) | (etapas["distance_od"].isna()),
+        "od_validado",
+    ] = 0
 
     # Guardar validación individual de la etapa antes de aplicar
     # la lógica de cadena que puede sobreescribir od_validado

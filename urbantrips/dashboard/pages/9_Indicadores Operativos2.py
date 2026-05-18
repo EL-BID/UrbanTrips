@@ -70,6 +70,9 @@ LABELS = {
     "hora": "Hora",
     "hora_inicio": "Hora inicio",
     "hora_fin": "Hora fin",
+    "duracion_min": "Duración (min)",
+    "duracion_mean": "Duración media (min)",
+    "duracion_median": "Duración mediana (min)",
 
     # Oferta
     "tot_veh": "Vehículos",
@@ -136,15 +139,18 @@ HELP_TEXTS = {
     "dia": "Fecha (YYYY-MM-DD) o tipo de día agregado (weekday/weekend).",
     "yr_mo": "Año-mes (YYYY-MM) para análisis de evolución temporal.",
     "hora": "Hora del día (0-23).",
-    "hora_inicio": "Hora de inicio del servicio.",
-    "hora_fin": "Hora de finalización del servicio.",
+    "hora_inicio": "Hora de inicio del servicio (HH:MM).",
+    "hora_fin": "Hora de finalización del servicio (HH:MM).",
+    "duracion_min": "Duración del servicio en minutos (diferencia entre hora fin y hora inicio).",
+    "duracion_mean": "Duración promedio de los servicios en minutos (desde inicio hasta fin del recorrido).",
+    "duracion_median": "Duración mediana de los servicios en minutos. Más robusta que el promedio ante servicios atípicamente cortos o largos.",
 
     # Oferta
     "tot_veh": "Cantidad de vehículos únicos con al menos un servicio válido (valid=1).",
     "tot_km": "Kilómetros recorridos totales calculados sobre la traza GPS por "
-              "UrbanTrips. Incluye expansión vehicular.",
+              "UrbanTrips.",
     "tot_km_gps": "Kilómetros recorridos según el odómetro reportado por la "
-                  "validadora a bordo. Incluye expansión vehicular.",
+                  "validadora a bordo.",
     "servicios": "Cantidad de servicios despachados en la hora.",
 
     # Demanda
@@ -229,6 +235,9 @@ LABELS_TWO_LINE = {
     "hora": "Hora",
     "hora_inicio": "Hora<br>inicio",
     "hora_fin": "Hora<br>fin",
+    "duracion_min": "Duración<br>(min)",
+    "duracion_mean": "Duración<br>media (min)",
+    "duracion_median": "Duración<br>mediana (min)",
     "tot_veh": "Vehículos",
     "tot_km": "Km<br>recorrido",
     "tot_km_gps": "Km<br>odómetro",
@@ -313,6 +322,74 @@ def load_services_by_line_hour() -> pd.DataFrame:
     return levanto_tabla_sql("services_by_line_hour", "data")
 
 
+@st.cache_data(show_spinner=False)
+def load_fleet_combos() -> pd.DataFrame:
+    """Combinaciones únicas (id_linea, id_ramal, interno) desde kpi_by_day_line_service."""
+    query = """
+        SELECT DISTINCT id_linea, id_ramal, interno
+        FROM kpi_by_day_line_service
+        WHERE id_ramal IS NOT NULL
+    """
+    try:
+        return levanto_tabla_sql_local("kpi_by_day_line_service", "data", query=query)
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_service_duration_agg(line_ids: list, day_filter: str):
+    """
+    Lee duración de servicios desde la tabla `services` y devuelve
+    dos DataFrames con agregaciones por (día, línea) y por (día, línea, hora).
+    Retorna (pd.DataFrame(), pd.DataFrame()) si la tabla no existe o hay error.
+    """
+    if not line_ids:
+        return pd.DataFrame(), pd.DataFrame()
+    line_ids_str = ",".join(str(int(i)) for i in line_ids)
+    where_dia = "" if day_filter == "Todos" else f"AND dia = '{day_filter}'"
+    query = f"""
+        SELECT
+            dia, id_linea,
+            CAST(strftime('%H', min_datetime) AS INTEGER) AS hora,
+            (CAST(strftime('%s', max_datetime) AS INTEGER) -
+             CAST(strftime('%s', min_datetime) AS INTEGER)) / 60.0 AS duracion_min
+        FROM services
+        WHERE valid = 1 AND id_linea IN ({line_ids_str}) {where_dia}
+    """
+    try:
+        raw = levanto_tabla_sql_local("services", "data", query=query)
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+    if raw.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    day_agg = (
+        raw.groupby(["id_linea", "dia"], as_index=False)
+        .agg(
+            servicios=("duracion_min", "count"),
+            duracion_mean=("duracion_min", "mean"),
+            duracion_median=("duracion_min", "median"),
+        )
+    )
+    day_agg[["duracion_mean", "duracion_median"]] = day_agg[
+        ["duracion_mean", "duracion_median"]
+    ].round(1)
+
+    hr_agg = (
+        raw.groupby(["id_linea", "dia", "hora"], as_index=False)
+        .agg(
+            servicios=("duracion_min", "count"),
+            duracion_mean=("duracion_min", "mean"),
+            duracion_median=("duracion_min", "median"),
+        )
+    )
+    hr_agg[["duracion_mean", "duracion_median"]] = hr_agg[
+        ["duracion_mean", "duracion_median"]
+    ].round(1)
+
+    return day_agg, hr_agg
+
+
 def load_kpi_by_service(line_ids: list, day_filter: str) -> pd.DataFrame:
     """Tabla potencialmente grande: se filtra desde SQL para evitar cargar todo."""
     if not line_ids:
@@ -351,11 +428,121 @@ basic_day = add_metadata(basic_day)
 basic_hr = add_metadata(basic_hr)
 services_hr = add_metadata(services_hr)
 
-# -----------------------------------------------------------------------------
-# Filtros globales
-# -----------------------------------------------------------------------------
-
 st.markdown("## Indicadores Operativos")
+
+# ── Totales generales del sistema ─────────────────────────────────────────
+
+def _fmt_totales_int(val) -> str:
+    if val is None:
+        return "–"
+    try:
+        return f"{int(val):,}".replace(",", ".")
+    except Exception:
+        return "–"
+
+
+def _fmt_totales_float(val, decimals: int = 2) -> str:
+    try:
+        if val is None or pd.isna(val):
+            return "–"
+        s = f"{float(val):,.{decimals}f}"
+        ip, dp = s.split(".")
+        return f"{ip.replace(',', '.')},{dp}"
+    except Exception:
+        return "–"
+
+
+def _totales_para_lineas(line_ids: list) -> dict:
+    """Calcula métricas totales para un conjunto de id_linea."""
+    _ids = set(line_ids)
+
+    _fc = load_fleet_combos()
+    _fc_f = _fc[_fc["id_linea"].isin(_ids)] if not _fc.empty else pd.DataFrame()
+
+    n_ramales = (
+        len(_fc_f[["id_linea", "id_ramal"]].drop_duplicates())
+        if not _fc_f.empty
+        else 0
+    )
+
+    _kd = kpi_day[kpi_day["id_linea"].isin(_ids)] if not kpi_day.empty else pd.DataFrame()
+    n_veh = (
+        int(round(_kd.groupby("dia")["tot_veh"].sum().mean()))
+        if not _kd.empty and "tot_veh" in _kd.columns
+        else 0
+    )
+    _sh = services_hr[services_hr["id_linea"].isin(_ids)] if not services_hr.empty else pd.DataFrame()
+    n_servicios = (
+        int(round(
+            _sh.groupby(["dia", "id_linea"])["servicios"].sum()
+            .groupby("id_linea").mean().sum()
+        ))
+        if not _sh.empty and {"servicios", "dia", "id_linea"}.issubset(_sh.columns)
+        else 0
+    )
+
+    ipk = (
+        _kd["ipk_route"].mean()
+        if not _kd.empty and "ipk_route" in _kd.columns
+        else None
+    )
+    _bd = basic_day[basic_day["id_linea"].isin(_ids)] if not basic_day.empty else pd.DataFrame()
+    vel = (
+        _bd["kmh_route"].mean()
+        if not _bd.empty and "kmh_route" in _bd.columns
+        else None
+    )
+
+    return dict(n_ramales=n_ramales, n_veh=n_veh, n_servicios=n_servicios,
+                ipk=ipk, vel=vel)
+
+
+with st.container(border=True):
+    st.markdown("**Totales generales del sistema**")
+
+    if not kpi_day.empty and "modo" in kpi_day.columns:
+        _modos_list = sorted(kpi_day["modo"].dropna().unique().astype(str).tolist())
+        _grupos = {
+            m: kpi_day[kpi_day["modo"] == m]["id_linea"].unique().tolist()
+            for m in _modos_list
+        }
+    elif not kpi_day.empty:
+        _grupos = {"Sistema": kpi_day["id_linea"].unique().tolist()}
+    else:
+        _grupos = {}
+
+    _th = (
+        "style='background:rgba(120,120,120,.12);padding:4px 12px;"
+        "text-align:center;font-size:.72rem;font-weight:600;"
+        "border-bottom:1px solid rgba(120,120,120,.3)'"
+    )
+    _td = "style='padding:4px 12px;text-align:right;font-size:.82rem'"
+    _td_l = "style='padding:4px 12px;text-align:left;font-size:.82rem;font-weight:500'"
+    _rows = "".join(
+        f"<tr>"
+        f"<td {_td_l}>{_modo_label}</td>"
+        f"<td {_td}>{_fmt_totales_int(kpi_day[kpi_day['id_linea'].isin(_ids)]['id_linea'].nunique())}</td>"
+        + (lambda t: (
+            f"<td {_td}>{_fmt_totales_int(t['n_ramales'])}</td>"
+            f"<td {_td}>{_fmt_totales_int(t['n_veh'])}</td>"
+            f"<td {_td}>{_fmt_totales_int(t['n_servicios'])}</td>"
+            f"<td {_td}>{_fmt_totales_float(t['ipk'])}</td>"
+            f"<td {_td}>{_fmt_totales_float(t['vel'], 1)}</td>"
+        ))(_totales_para_lineas(_ids))
+        + "</tr>"
+        for _modo_label, _ids in _grupos.items()
+    )
+    st.markdown(
+        "<table style='width:100%;border-collapse:collapse'>"
+        f"<thead><tr>"
+        f"<th {_th}>Modo</th><th {_th}>Líneas</th><th {_th}>Ramales</th>"
+        f"<th {_th}>Vehículos/día</th><th {_th}>Servicios/día</th>"
+        f"<th {_th}>IPK promedio</th><th {_th}>Vel. prom. (km/h)</th>"
+        f"</tr></thead><tbody>{_rows}</tbody></table>",
+        unsafe_allow_html=True,
+    )
+
+# ── Filtros globales ───────────────────────────────────────────────────────
 
 col_f1, col_f2, col_f3 = st.columns([4, 2, 3])
 
@@ -440,13 +627,12 @@ def metric_with_help(container, col_key, value_str, custom_label=None):
 
 _INT_COLS = {
     "tot_veh", "tot_pax", "pax", "servicios",
-    "hora", "hora_inicio", "hora_fin", "id_linea",
-    "id_ramal", "interno", "service_id",
+    "hora", "id_linea", "id_ramal", "interno", "service_id",
 }
 
 _TABLE_CSS = (
     "<style>"
-    ".kpi-tbl{width:100%;border-collapse:collapse;font-size:0.82rem}"
+    ".kpi-tbl{width:100%;border-collapse:collapse;font-size:0.78rem}"
     ".kpi-tbl th{background:rgba(120,120,120,.12);text-align:center;"
     "padding:5px 8px;border:1px solid rgba(120,120,120,.25);"
     "white-space:normal;min-width:55px;vertical-align:bottom;line-height:1.3}"
@@ -641,6 +827,8 @@ with st.expander("KPIs por línea y día", expanded=True):
 # -----------------------------------------------------------------------------
 
 with st.expander("KPIs operativos básicos", expanded=False):
+    srv_day_agg, srv_hr_agg = load_service_duration_agg(line_ids_sel, day_sel)
+
     tab_day, tab_hr = st.tabs(["Por día", "Perfil horario"])
 
     with tab_day:
@@ -648,11 +836,15 @@ with st.expander("KPIs operativos básicos", expanded=False):
         if df_bd.empty:
             st.info("Sin datos.")
         else:
+            if not srv_day_agg.empty:
+                df_bd = df_bd.merge(srv_day_agg, on=["id_linea", "dia"], how="left")
             cols_show = [
                 "nombre_linea", "modo", "dia",
-                "tot_veh", "pax", "eq_pax", "eq_pax_gps",
+                "tot_veh", "servicios",
+                "pax", "eq_pax", "eq_pax_gps",
                 "dmt_route", "dmt_route_gps",
                 "of", "kmh_route",
+                "duracion_mean", "duracion_median",
             ]
             cols_show = [c for c in cols_show if c in df_bd.columns]
             show_table(
@@ -665,8 +857,13 @@ with st.expander("KPIs operativos básicos", expanded=False):
         if df_bh.empty:
             st.info("Sin datos.")
         else:
-            hr_options = ["pax", "eq_pax", "of", "kmh_route",
-                           "dmt_route", "dmt_route_gps"]
+            if not srv_hr_agg.empty:
+                df_bh = df_bh.merge(srv_hr_agg, on=["id_linea", "dia", "hora"], how="left")
+            hr_options = [
+                "pax", "eq_pax", "of", "kmh_route",
+                "dmt_route", "dmt_route_gps",
+                "servicios", "duracion_mean", "duracion_median",
+            ]
             hr_options = [c for c in hr_options if c in df_bh.columns]
             metric_hr = st.selectbox(
                 "Indicador",
@@ -687,9 +884,11 @@ with st.expander("KPIs operativos básicos", expanded=False):
 
             cols_show = [
                 "nombre_linea", "dia", "hora",
-                "tot_veh", "pax", "eq_pax", "eq_pax_gps",
+                "tot_veh", "servicios",
+                "pax", "eq_pax", "eq_pax_gps",
                 "dmt_route", "dmt_route_gps",
                 "of", "kmh_route",
+                "duracion_mean", "duracion_median",
             ]
             cols_show = [c for c in cols_show if c in df_bh.columns]
             show_table(
@@ -732,14 +931,31 @@ with st.expander("KPIs por servicio", expanded=False):
         if interno_sel != "Todos":
             df_srv_f = df_srv_f[df_srv_f["interno"].astype(str) == interno_sel]
 
+        if "hora_inicio" in df_srv_f.columns and "hora_fin" in df_srv_f.columns:
+            def _parse_hhmm(val):
+                try:
+                    s = str(val).strip()
+                    if ":" in s:
+                        h, m = s.split(":")
+                        return int(h) * 60 + int(m)
+                    return int(float(s)) * 60
+                except Exception:
+                    return pd.NA
+            df_srv_f["duracion_min"] = (
+                df_srv_f["hora_fin"].map(_parse_hhmm) -
+                df_srv_f["hora_inicio"].map(_parse_hhmm)
+            )
+
         cols_show = [
             "nombre_linea", "dia", "id_ramal", "interno", "service_id",
-            "hora_inicio", "hora_fin",
+            "hora_inicio", "hora_fin", "duracion_min",
             "tot_km", "tot_km_gps", "tot_pax",
         ]
         cols_show += cols_for_distances("dmt_mean", ["od", "route", "route_gps"])
+        cols_show += cols_for_distances("dmt_median", ["od", "route", "route_gps"])
         cols_show += ["ipk_route", "ipk_route_gps"]
         cols_show += cols_for_distances("fo_mean", ["od", "route", "route_gps"])
+        cols_show += cols_for_distances("fo_median", ["od", "route", "route_gps"])
         cols_show = [c for c in cols_show if c in df_srv_f.columns]
 
         st.markdown(f"**{len(df_srv_f):,} servicios**")
