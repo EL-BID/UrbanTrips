@@ -127,7 +127,7 @@ def get_stops_and_gps_data(line_ids_str):
     
     gps_points = gps_points.rename(columns={"distance_km": "distance_route", "distance_servicio_mts": "distance_route_gps"})
     
-    gps_points["distance_route_gps"] = (gps_points["distance_route_gps"]).round(2)
+    gps_points["distance_route_gps"] = (gps_points["distance_route_gps"] / 1000).round(2)
 
     gps_points = gpd.GeoDataFrame(
         gps_points,

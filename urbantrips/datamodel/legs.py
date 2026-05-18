@@ -24,7 +24,7 @@ from urbantrips.utils.utils import (
 # from urbantrips.kpi.kpi import add_distances_to_legs
 from urbantrips.carto.compute_distances import compute_od_distances
 import warnings
-
+import time
 warnings.filterwarnings(
     "ignore",
     message="The behavior of DataFrame concatenation with empty or all-NA entries is deprecated",
@@ -721,20 +721,20 @@ def assign_time_distances():
         legs_days.sort()
         legs_hours.sort()
 
-        import time
-        print(f"Imputando GPS de destino | {len(legs_days)} dÃ­as Ã— {len(legs_hours)} horas = {len(legs_days)*len(legs_hours)} iteraciones")
-        print(f"  Etapas Ãºnicas totales: {legs['id'].nunique():,} | Filas en legs: {len(legs):,} | Pings GPS disponibles: {len(gps):,}")
-        print(f"  Lineas en legs: {legs['id_linea'].nunique()} | Lineas en GPS: {gps['id_linea'].nunique()}")
-        t_total_start = time.time()
+        # import time
+        # print(f"Imputando GPS de destino | {len(legs_days)} dÃ­as Ã— {len(legs_hours)} horas = {len(legs_days)*len(legs_hours)} iteraciones")
+        # print(f"  Etapas Ãºnicas totales: {legs['id'].nunique():,} | Filas en legs: {len(legs):,} | Pings GPS disponibles: {len(gps):,}")
+        # print(f"  Lineas en legs: {legs['id_linea'].nunique()} | Lineas en GPS: {gps['id_linea'].nunique()}")
+        # t_total_start = time.time()
         iter_times = []
         etapas_asignadas_total = 0
 
         for dia in legs_days:
-            t_dia_start = time.time()
+            # t_dia_start = time.time()
             n_asignadas_dia = 0
 
             for hora in legs_hours:
-                t_iter_start = time.time()
+                # t_iter_start = time.time()
 
                 # Filtrar las etapas por la hora especÃ­fica y eliminar valores nulos en 'h3_d'
                 etapas_tx = legs.loc[
@@ -838,31 +838,31 @@ def assign_time_distances():
                     # Agregar resultado a la lista
                     etapas_result_list.append(etapas_tx)
 
-                t_iter = time.time() - t_iter_start
-                iter_times.append(t_iter)
-                if n_etapas_unicas > 0:
-                    print(
-                        f"  dia={dia} hora={hora:02d} | "
-                        f"etapas={n_etapas_unicas:>7,} "
-                        f"post_matriz={n_post_matriz:>9,} (x{factor_matriz:.1f}) "
-                        f"gps={n_gps:>8,} "
-                        f"expanded={n_expanded:>9,} "
-                        f"post_fecha={n_post_fecha:>9,} "
-                        f"asignadas={n_asignadas_iter:>7,} ({round(n_asignadas_iter/n_etapas_unicas*100) if n_etapas_unicas else 0}%) "
-                        f"| {t_iter:.1f}s"
-                    )
+                # t_iter = time.time() - t_iter_start
+                # iter_times.append(t_iter)
+                # if n_etapas_unicas > 0:
+                #     print(
+                #         f"  dia={dia} hora={hora:02d} | "
+                #         f"etapas={n_etapas_unicas:>7,} "
+                #         f"post_matriz={n_post_matriz:>9,} (x{factor_matriz:.1f}) "
+                #         f"gps={n_gps:>8,} "
+                #         f"expanded={n_expanded:>9,} "
+                #         f"post_fecha={n_post_fecha:>9,} "
+                #         f"asignadas={n_asignadas_iter:>7,} ({round(n_asignadas_iter/n_etapas_unicas*100) if n_etapas_unicas else 0}%) "
+                #         f"| {t_iter:.1f}s"
+                #     )
 
             etapas_asignadas_total += n_asignadas_dia
-            t_dia = time.time() - t_dia_start
+            # t_dia = time.time() - t_dia_start
             legs_dia = legs[legs["dia"] == dia]["id"].nunique()
-            print(f"  â†’ DÃ­a {dia}: {n_asignadas_dia:,} asignadas de {legs_dia:,} etapas ({round(n_asignadas_dia/legs_dia*100) if legs_dia else 0}%) | {t_dia:.1f}s")
+            # print(f"  â†’ DÃ­a {dia}: {n_asignadas_dia:,} asignadas de {legs_dia:,} etapas ({round(n_asignadas_dia/legs_dia*100) if legs_dia else 0}%) | {t_dia:.1f}s")
 
-        t_total = time.time() - t_total_start
-        legs_total_unicas = legs["id"].nunique()
-        print(f"\nLoop destino completado en {t_total:.1f}s ({t_total/60:.1f} min)")
-        print(f"  Total asignadas: {etapas_asignadas_total:,} de {legs_total_unicas:,} etapas ({round(etapas_asignadas_total/legs_total_unicas*100) if legs_total_unicas else 0}%)")
-        if iter_times:
-            print(f"  Tiempo promedio por iteraciÃ³n: {sum(iter_times)/len(iter_times):.2f}s | MÃ¡s lenta: {max(iter_times):.2f}s")
+        # t_total = time.time() - t_total_start
+        # legs_total_unicas = legs["id"].nunique()
+        # print(f"\nLoop destino completado en {t_total:.1f}s ({t_total/60:.1f} min)")
+        # print(f"  Total asignadas: {etapas_asignadas_total:,} de {legs_total_unicas:,} etapas ({round(etapas_asignadas_total/legs_total_unicas*100) if legs_total_unicas else 0}%)")
+        # if iter_times:
+        #     print(f"  Tiempo promedio por iteraciÃ³n: {sum(iter_times)/len(iter_times):.2f}s | MÃ¡s lenta: {max(iter_times):.2f}s")
 
         # Concatenar todos los resultados acumulados
         etapas_result = pd.concat(etapas_result_list, ignore_index=True)
@@ -1107,6 +1107,8 @@ def assign_time_distances():
                  "kmh_od", "kmh_route", "kmh_route_gps"]
     )
         
+    travel_times['distance_route_gps'] = travel_times['distance_route_gps'].round(2)
+            
     guardar_tabla_sql(
         travel_times,
         "travel_times_legs",

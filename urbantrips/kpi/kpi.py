@@ -639,7 +639,7 @@ def compute_kpi_by_line_day(legs):
         .apply(demand_stats)
     )
     day_stats = day_demand_stats.copy()
-
+        
     # supply: read from services filtered to valid=1 (no expansion factor)
     services_data = pd.read_sql(
         "SELECT dia, id_linea, interno, distance_route, distance_route_gps"
@@ -676,6 +676,7 @@ def compute_kpi_by_line_day(legs):
     day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
     day_stats["kvd"] = day_stats.tot_km / tot_veh_safe
     day_stats["kvd_gps"] = day_stats.tot_km_gps / tot_veh_safe
+    
     day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
     day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
 
@@ -727,7 +728,9 @@ def compute_kpi_by_line_day(legs):
     ]
     for col in ratio_cols:
         day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
-        
+    
+    day_stats['tot_pax'] = day_stats['tot_pax'].fillna(0).round(0).astype(int)  
+    
     day_stats.to_sql(
         "kpi_by_day_line",
         conn_data,
@@ -735,7 +738,7 @@ def compute_kpi_by_line_day(legs):
         index=False,
     )
 
-    return day_stats
+    # return day_stats
 
 def compute_kpi_by_line_typeday():
     """
@@ -815,10 +818,19 @@ def compute_kpi_by_line_typeday():
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
     ]
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
+    
+    cols_float = ['tot_veh', 'tot_km', 'tot_km_gps', 'dmt_mean_od', 'dmt_mean_route', 'dmt_mean_route_gps', 'dmt_median_od',
+       'dmt_median_route', 'dmt_median_route_gps', 'pvd', 'kvd', 'kvd_gps',
+       'ipk_route', 'ipk_route_gps', 'fo_mean_od', 'fo_mean_route',
+       'fo_mean_route_gps', 'fo_median_od', 'fo_median_route', 
+       'fo_median_route_gps']
+    for i in cols_float:
+        type_of_day_stats[i] = type_of_day_stats[i].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
 
+    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", 'data')
     print("Subiendo indicadores por linea a la db")
     type_of_day_stats.to_sql(
-        "kpi_by_day_line", conn_data, if_exists="append", index=False
+        "kpi_by_day_line", conn_data, if_exists="append", index=False, filtros={"dia": dias_ultima_corrida["dia"].tolist()} 
     )
     
     ratio_cols = [
@@ -952,7 +964,14 @@ def compute_kpi_by_service():
     invalid_demand = invalid_demand.dropna(subset=["service_id"])
 
     # create single demand by service df
-    service_demand = pd.concat([valid_demand, invalid_demand])
+    
+    dfs = [
+        df for df in [valid_demand, invalid_demand]
+        if not df.empty
+    ]
+    
+    service_demand = pd.concat(dfs, ignore_index=True)
+    
     print(f"  [{time.time()-t0:>6.1f}s] concat demand             | {len(service_demand):>10,} filas")
     t1 = time.time()
 
@@ -1053,6 +1072,8 @@ def compute_kpi_by_service():
     print(f"  [{time.time()-t0:>6.1f}s] cálculos KPI completos    | {time.time()-t1:.1f}s")
     t1 = time.time()
 
+    service_stats['tot_pax'] = service_stats['tot_pax'].fillna(0).round(0).astype(int)
+    
     service_stats.to_sql(
         "kpi_by_day_line_service",
         conn_data,

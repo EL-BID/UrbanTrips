@@ -33,24 +33,35 @@ def create_trips_from_legs_and_fex():
     # ------------------------------------------------------------------
     # print("Leyendo datos de etapas para producir viajes")
 
-    dias_ultima_corrida = pd.read_sql_query(
-        "SELECT * FROM dias_ultima_corrida", conn
-    )
+    # dias_ultima_corrida = pd.read_sql_query(
+    #     "SELECT * FROM dias_ultima_corrida", conn
+    # )
 
-    etapas = pd.read_sql_query(
-        """
-        SELECT e.*
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        """,
-        conn,
-    )
+    # etapas = pd.read_sql_query(
+    #     """
+    #     SELECT e.*
+    #     FROM etapas e
+    #     JOIN dias_ultima_corrida d ON e.dia = d.dia
+    #     """,
+    #     conn,
+    # )
 
     transacciones_linea = pd.read_sql_query(
         """
         SELECT t.*
         FROM transacciones_linea t
         JOIN dias_ultima_corrida d ON t.dia = d.dia
+        """,
+        conn,
+    )
+    
+    etapas = pd.read_sql_query(
+        """
+        SELECT e.*, 
+            tt.distance_od
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        LEFT JOIN travel_times_legs tt ON e.id = tt.id        
         """,
         conn,
     )
@@ -80,7 +91,9 @@ def create_trips_from_legs_and_fex():
         (etapas.distance_od == 0) | (etapas["distance_od"].isna()),
         "od_validado",
     ] = 0
-
+    
+    etapas = etapas.drop(columns=["distance_od"])
+    
     # Guardar validación individual de la etapa antes de aplicar
     # la lógica de cadena que puede sobreescribir od_validado
     etapas["etapa_validada"] = etapas["od_validado"]

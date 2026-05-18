@@ -1240,7 +1240,7 @@ def agrego_indicador(
     
     if len(df) == 0:
         print('**')
-        print(f'Para el indicador "{var}" no hay datos para agregar')
+        print(f'Para el indicador "{var} {detalle} {tabla}" no hay datos para agregar')
         print('**')
     else:
 
