@@ -1098,20 +1098,156 @@ def demand_stats(df):
     return pd.Series(d)
 
 
+def _build_speed_aggregates(legs, distance_col, speed_leg_col,
+                             svh_precomputed=None,
+                             speed_veh_h_col="kmh_route_veh_h",
+                             gps_distance_for_compute=None):
+    """
+    Construye speed_vehicle_hour, speed_line_hour y speed_line_day
+    aplicando filtros (cap 60 km/h, 2σ) sobre velocidad veh-hora.
+
+    Parameters
+    ----------
+    legs : DataFrame
+        etapas con columnas dia, id_linea, id_ramal, interno, hora, tiempo.
+    distance_col : str
+        nombre de la columna de distancia en legs ('distance_route' o
+        'distance_route_gps'). Documenta el pipeline.
+    speed_leg_col : str
+        nombre de la columna leg-level de velocidad en legs
+        ('kmh_route_leg' o 'kmh_route_gps_leg'). Documenta el pipeline.
+    svh_precomputed : DataFrame or None
+        Si se provee, se usa como punto de partida en vez de llamar a
+        compute_speed_by_day_veh_hour() o reconstruir desde demanda.
+        Debe traer la columna `speed_veh_h_col` con la velocidad a usar
+        en este pipeline.
+    speed_veh_h_col : str
+        Nombre de la columna en svh_precomputed que contiene la velocidad
+        veh-hora a usar en este pipeline. Default 'kmh_route_veh_h' (ping
+        based). Para el pipeline GPS pasar 'kmh_route_gps_veh_h'.
+    gps_distance_for_compute : str or None
+        legacy, no se usa.
+
+    Returns
+    -------
+    (speed_vehicle_hour, speed_line_hour, speed_line_day) : tuple of DataFrames
+        speed_vehicle_hour con columna 'kmh_veh_h';
+        speed_line_hour con columna 'kmh_line_h';
+        speed_line_day con columna 'kmh_line_day'.
+    """
+    if svh_precomputed is not None:
+        # Tomar solo las claves + la columna de velocidad pedida,
+        # y renombrarla al nombre interno 'kmh_veh_h'
+        keep_cols = ["dia", "id_linea", "id_ramal", "interno", "hora"]
+        if speed_veh_h_col not in svh_precomputed.columns:
+            raise ValueError(
+                f"svh_precomputed no tiene la columna esperada {speed_veh_h_col}. "
+                f"Columnas disponibles: {svh_precomputed.columns.tolist()}"
+            )
+        svh = svh_precomputed[keep_cols + [speed_veh_h_col]].copy()
+        svh = svh.rename(columns={speed_veh_h_col: "kmh_veh_h"})
+    elif legs["tiempo"].isna().all():
+        # fallback 15 km/h cuando no hay timestamps
+        unique_line_ids = legs.id_linea.unique()
+        id_lines = np.repeat(unique_line_ids, 24)
+        hours = list(range(0, 24)) * len(unique_line_ids)
+        svh = pd.DataFrame({
+            "id_linea": id_lines,
+            "hora": hours,
+            "kmh_veh_h": [15] * 24 * len(unique_line_ids),
+        })
+        svh = (
+            legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno"])
+            .drop_duplicates()
+            .merge(svh, on=["id_linea"], how="left")
+        )
+    else:
+        if gps_table_exists():
+            # Esta rama se mantiene por compatibilidad pero idealmente
+            # se llega acá solo cuando svh_precomputed=None y no hay
+            # razón para no precomputar
+            svh_full = compute_speed_by_day_veh_hour()
+            svh = svh_full[["dia", "id_linea", "id_ramal", "interno", "hora",
+                            speed_veh_h_col]].copy()
+            svh = svh.rename(columns={speed_veh_h_col: "kmh_veh_h"})
+        else:
+            legs2 = legs.copy()
+            legs2.loc[:, "datetime"] = legs2.dia + " " + legs2.tiempo
+            legs2.loc[:, "time"] = pd.to_datetime(
+                legs2.loc[:, "datetime"], format="%Y-%m-%d %H:%M:%S"
+            )
+            svh = legs2.groupby(
+                ["dia", "id_linea", "id_ramal", "interno"]
+            ).apply(compute_speed_by_veh_hour)
+            svh = svh.droplevel(4).reset_index().rename(
+                columns={"kmh_route_veh_h": "kmh_veh_h"}
+            )
+
+    # Filtros outliers
+    speed_max = 60
+    svh.loc[svh.kmh_veh_h > speed_max, "kmh_veh_h"] = speed_max
+    svh = svh.dropna()
+
+    speed_dev = svh.groupby(
+        ["dia", "id_linea", "id_ramal"], as_index=False
+    ).agg(mean=("kmh_veh_h", "mean"), std=("kmh_veh_h", "std"))
+    speed_dev["speed_min"] = speed_dev["mean"] - (2 * speed_dev["std"]).map(
+        lambda x: max(1, x)
+    )
+    speed_dev = speed_dev.reindex(
+        columns=["dia", "id_linea", "id_ramal", "speed_min"]
+    )
+
+    svh = svh.merge(speed_dev, on=["dia", "id_linea", "id_ramal"], how="left")
+    mask = (svh.kmh_veh_h < speed_max) & (svh.kmh_veh_h > svh.speed_min)
+    svh = svh.loc[
+        mask, ["dia", "id_linea", "id_ramal", "interno", "hora", "kmh_veh_h"]
+    ]
+
+    slh = (
+        svh.drop(["id_ramal", "interno"], axis=1)
+        .groupby(["dia", "id_linea", "hora"], as_index=False)
+        .mean()
+        .rename(columns={"kmh_veh_h": "kmh_line_h"})
+    )
+    sld = (
+        svh.drop(["id_ramal", "interno", "hora"], axis=1)
+        .groupby(["dia", "id_linea"], as_index=False)
+        .mean()
+        .rename(columns={"kmh_veh_h": "kmh_line_day"})
+    )
+
+    return svh, slh, sld
+
 # GENERAL PURPOSE KPI WITH NO GPS
-
-
 def compute_speed_by_day_veh_hour():
     """
-    This function read gps data and computes
-    average speed by veh for each day and line
+    Reads GPS data and computes average vehicle speed by (day, line, ramal,
+    interno, hour) for each day.
+
+    Returns two parallel speed series, one per source of distance:
+      - kmh_route_veh_h:     based on distance_km (ping-based, computed by
+                             UrbanTrips from GPS ping positions).
+      - kmh_route_gps_veh_h: based on distance_servicio_mts (odometer
+                             reading from the validator, converted to km).
+
+    Both share the same time deltas (delta_hr) because they refer to the
+    same vehicle over the same intervals; what differs is the distance
+    measure each interval reports.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: dia, id_linea, id_ramal, interno, hora,
+        kmh_route_veh_h, kmh_route_gps_veh_h.
+        Rows where both speeds are non-positive are dropped.
     """
     conn_data = iniciar_conexion_db(tipo="data")
     processed_days = get_processed_days(table_name="basic_kpi_by_line_day")
 
-    # read data
     q = f"""
-    select dia,id_linea,id_ramal,fecha,interno,velocity,distance_km 
+    select dia, id_linea, id_ramal, fecha, interno, velocity,
+           distance_km, distance_servicio_mts
     from gps
     where dia not in ({processed_days})
     ;
@@ -1119,7 +1255,7 @@ def compute_speed_by_day_veh_hour():
     gps_df = pd.read_sql(q, conn_data)
     conn_data.close()
 
-    # create a lag in date
+    # Crear lag de fecha por vehículo
     gps_df = gps_df.sort_values(["dia", "id_linea", "id_ramal", "interno", "fecha"])
     gps_df["fecha_lag"] = (
         gps_df.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "fecha"])
@@ -1127,36 +1263,46 @@ def compute_speed_by_day_veh_hour():
         .shift(-1)
     )
 
-    # compute delta in time
+    # Delta de tiempo
     gps_df = gps_df.dropna(subset=["fecha", "fecha_lag"])
-    gps_df.loc[:, ["delta_hr"]] = (gps_df.fecha_lag - gps_df.fecha) / (60 * 60)
+    gps_df["delta_hr"] = (gps_df.fecha_lag - gps_df.fecha) / 3600
     gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
 
-    # compute speed in kmr
-    gps_df.loc[:, ["kmh_route_veh_h"]] = gps_df.distance_km / gps_df.delta_hr
+    # Dos velocidades en paralelo, una por cada distancia
+    gps_df["distance_km_gps"] = gps_df.distance_servicio_mts / 1000
+    gps_df["kmh_route_veh_h"] = gps_df.distance_km / gps_df.delta_hr
+    gps_df["kmh_route_gps_veh_h"] = gps_df.distance_km_gps / gps_df.delta_hr
     gps_df["hora"] = pd.to_datetime(gps_df["fecha"], unit="s").dt.hour
 
-    # get mean speed by day, linea, veh
-    speed_vehicle_hour_gps = (
+    # Promediar ambas por veh-hora
+    speed_vehicle_hour = (
         gps_df.reindex(
             columns=[
-                "dia",
-                "id_linea",
-                "id_ramal",
-                "interno",
-                "hora",
-                "kmh_route_veh_h",
+                "dia", "id_linea", "id_ramal", "interno", "hora",
+                "kmh_route_veh_h", "kmh_route_gps_veh_h",
             ]
         )
         .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
         .mean()
     )
 
-    speed_vehicle_hour_gps = speed_vehicle_hour_gps.loc[
-        speed_vehicle_hour_gps.kmh_route_veh_h > 0, :
-    ]
+    # Conservar filas donde al menos una de las dos velocidades sea válida
+    keep = (
+        (speed_vehicle_hour.kmh_route_veh_h > 0)
+        | (speed_vehicle_hour.kmh_route_gps_veh_h > 0)
+    )
+    speed_vehicle_hour = speed_vehicle_hour.loc[keep, :]
 
-    return speed_vehicle_hour_gps
+    # Velocidades 0 o negativas se convierten en NaN para que no envenenen
+    # los promedios ni el cap de outliers aguas abajo
+    speed_vehicle_hour.loc[
+        speed_vehicle_hour.kmh_route_veh_h <= 0, "kmh_route_veh_h"
+    ] = np.nan
+    speed_vehicle_hour.loc[
+        speed_vehicle_hour.kmh_route_gps_veh_h <= 0, "kmh_route_gps_veh_h"
+    ] = np.nan
+
+    return speed_vehicle_hour
 
 
 def gps_table_exists():
@@ -1176,6 +1322,8 @@ def gps_table_exists():
     else:
         return True
 
+
+
 def run_basic_kpi(id_linea=[]):
     """
     Computes basic KPI at vehicle-hour, line-hour, and line-day level
@@ -1186,33 +1334,31 @@ def run_basic_kpi(id_linea=[]):
     Outlier speeds are capped at 60 km/h and low-speed outliers are
     removed using a 2-standard-deviation filter.
 
-    The occupation factor (of) is computed from eq_pax, which uses
-    distance_route (GPS-ping-based route distance calculated by
-    UrbanTrips) and kmh_route. A parallel eq_pax_gps uses
-    distance_route_gps (odometer reading from the validator) and
-    kmh_route_gps instead. Coverage of eq_pax_gps is lower than
-    eq_pax for two reasons: distance_route_gps may be None when the
-    validator does not report odometer data, and kmh_route_gps is set
-    to NaN when the implied speed exceeds 100 km/h. NaN values in
-    eq_pax_gps are excluded from aggregations, so of computed from
-    eq_pax and the implicit of from eq_pax_gps have different
-    denominators and should not be compared directly.
+    Both kmh_route and kmh_route_gps follow the same three-layer fallback:
+    leg-level (travel_times_legs) > vehicle-hour > line-hour. The two
+    metrics differ at every layer: at the leg level they come from
+    travel_times_legs columns computed with distance_route vs
+    distance_route_gps; at the vehicle-hour layer they come from two
+    parallel speed series computed from gps.distance_km vs
+    gps.distance_servicio_mts (see compute_speed_by_day_veh_hour);
+    at the line-hour layer they aggregate these veh-hour series.
 
-    DMT (dmt_route, dmt_route_gps) is computed as a weighted average
-    of leg distances, weighted by factor_expansion_linea. NaN distances
-    are excluded from the weighted average.
+    The occupation factor (of) is computed from eq_pax = distance_route /
+    kmh_route * factor_expansion_linea. A parallel eq_pax_gps uses
+    distance_route_gps / kmh_route_gps. Coverage of eq_pax_gps may still
+    be slightly lower because distance_route_gps can be None when the
+    validator does not report odometer data.
 
     Parameters
     ----------
     id_linea : list of int, optional
         If provided, only process legs for those line ids.
-        Default is [] (process all lines).
 
     Returns
     -------
     None
-        Results are written directly to basic_kpi_by_vehicle_hr,
-        basic_kpi_by_line_hr, and basic_kpi_by_line_day tables.
+        Results are written to basic_kpi_by_vehicle_hr,
+        basic_kpi_by_line_hr, and basic_kpi_by_line_day.
     """
     conn_data = iniciar_conexion_db(tipo="data")
 
@@ -1236,101 +1382,70 @@ def run_basic_kpi(id_linea=[]):
     if len(legs) < 5:
         return None
 
-    if legs["tiempo"].isna().all():
-        unique_line_ids = legs.id_linea.unique()
-        id_lines = np.repeat(unique_line_ids, 24)
-        hours = list(range(0, 24)) * len(unique_line_ids)
-
-        speed_vehicle_hour = pd.DataFrame(
-            {
-                "id_linea": id_lines,
-                "hora": hours,
-                "kmh_route_veh_h": [15] * 24 * len(unique_line_ids),
-            }
-        )
-        speed_vehicle_hour = (
-            legs.reindex(columns=["dia", "id_linea", "id_ramal", "interno"])
-            .drop_duplicates()
-            .merge(speed_vehicle_hour, on=["id_linea"], how="left")
-        )
-    else:
-        if gps_table_exists():
-            speed_vehicle_hour = compute_speed_by_day_veh_hour()
-        else:
-            legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
-            legs.loc[:, ["time"]] = pd.to_datetime(
-                legs.loc[:, "datetime"], format="%Y-%m-%d %H:%M:%S"
-            )
-            speed_vehicle_hour = legs.groupby(
-                ["dia", "id_linea", "id_ramal", "interno"]
-            ).apply(compute_speed_by_veh_hour)
-            speed_vehicle_hour = speed_vehicle_hour.droplevel(4).reset_index()
-
-    speed_max = 60
-    speed_vehicle_hour.loc[
-        speed_vehicle_hour.kmh_route_veh_h > speed_max, "kmh_route_veh_h"
-    ] = speed_max
-    speed_vehicle_hour = speed_vehicle_hour.dropna()
-
-    speed_dev = speed_vehicle_hour.groupby(
-        ["dia", "id_linea", "id_ramal"], as_index=False
-    ).agg(mean=("kmh_route_veh_h", "mean"), std=("kmh_route_veh_h", "std"))
-    speed_dev["speed_min"] = speed_dev["mean"] - (2 * speed_dev["std"]).map(
-        lambda x: max(1, x)
-    )
-    speed_dev = speed_dev.reindex(columns=["dia", "id_linea", "id_ramal", "speed_min"])
-
-    speed_vehicle_hour = speed_vehicle_hour.merge(
-        speed_dev, on=["dia", "id_linea", "id_ramal"], how="left"
-    )
-    speed_mask = (speed_vehicle_hour.kmh_route_veh_h < speed_max) & (
-        speed_vehicle_hour.kmh_route_veh_h > speed_vehicle_hour.speed_min
-    )
-    speed_vehicle_hour = speed_vehicle_hour.loc[
-        speed_mask,
-        ["dia", "id_linea", "id_ramal", "interno", "hora", "kmh_route_veh_h"],
-    ]
-
-    speed_line_hour = (
-        speed_vehicle_hour.drop(["id_ramal", "interno"], axis=1)
-        .groupby(["dia", "id_linea", "hora"], as_index=False)
-        .mean()
-        .rename(columns={"kmh_route_veh_h": "kmh_route_line_h"})
-    )
-    speed_line_day = (
-        speed_vehicle_hour.drop(["id_ramal", "interno", "hora"], axis=1)
-        .groupby(["dia", "id_linea"], as_index=False)
-        .mean()
-        .rename(columns={"kmh_route_veh_h": "kmh_route_line_day"})
-    )
-
-    # rename kmh_route from travel_times_legs to preserve it across the merge
     legs = legs.rename(columns={
         "kmh_route": "kmh_route_leg",
         "kmh_route_gps": "kmh_route_gps_leg",
     })
 
-    legs = legs.merge(
-        speed_vehicle_hour,
-        on=["dia", "id_linea", "id_ramal", "interno", "hora"],
-        how="left",
-    ).merge(speed_line_hour, on=["dia", "id_linea", "hora"], how="left")
+    svh_shared = None
+    if not legs["tiempo"].isna().all() and gps_table_exists():
+        svh_shared = compute_speed_by_day_veh_hour()
 
-    # kmh_route: leg-level (travel_times_legs) > vehicle-hour > line-hour
+    # Pipeline de velocidad para kmh_route (ping-based)
+    speed_vehicle_hour, speed_line_hour, speed_line_day = _build_speed_aggregates(
+        legs,
+        distance_col="distance_route",
+        speed_leg_col="kmh_route_leg",
+        svh_precomputed=svh_shared,
+        speed_veh_h_col="kmh_route_veh_h",
+    )
+
+    # Pipeline de velocidad para kmh_route_gps (odometer-based).
+    # Mismo svh_shared, pero consume la otra columna de velocidad.
+    speed_vehicle_hour_gps, speed_line_hour_gps, speed_line_day_gps = (
+        _build_speed_aggregates(
+            legs,
+            distance_col="distance_route_gps",
+            speed_leg_col="kmh_route_gps_leg",
+            svh_precomputed=svh_shared,
+            speed_veh_h_col="kmh_route_gps_veh_h",
+        )
+    )
+
+    legs = (
+        legs.merge(
+            speed_vehicle_hour.rename(columns={"kmh_veh_h": "kmh_route_veh_h"}),
+            on=["dia", "id_linea", "id_ramal", "interno", "hora"], how="left",
+        )
+        .merge(
+            speed_line_hour.rename(columns={"kmh_line_h": "kmh_route_line_h"}),
+            on=["dia", "id_linea", "hora"], how="left",
+        )
+        .merge(
+            speed_vehicle_hour_gps.rename(columns={"kmh_veh_h": "kmh_route_gps_veh_h"}),
+            on=["dia", "id_linea", "id_ramal", "interno", "hora"], how="left",
+        )
+        .merge(
+            speed_line_hour_gps.rename(columns={"kmh_line_h": "kmh_route_gps_line_h"}),
+            on=["dia", "id_linea", "hora"], how="left",
+        )
+    )
+
+
     legs["kmh_route"] = (
         legs.kmh_route_leg
         .combine_first(legs.kmh_route_veh_h)
         .combine_first(legs.kmh_route_line_h)
     )
+    legs["kmh_route_gps"] = (
+        legs.kmh_route_gps_leg
+        .combine_first(legs.kmh_route_gps_veh_h)
+        .combine_first(legs.kmh_route_gps_line_h)
+    )
 
-    # kmh_route_gps: leg-level only (no vehicle-hour fallback for odometer-based speed)
-    legs["kmh_route_gps"] = legs.kmh_route_gps_leg
-
-    # get vehicle space equivalent passenger
     legs["eq_pax"] = (legs.distance_route / legs.kmh_route) * legs.factor_expansion_linea
     legs["eq_pax_gps"] = (legs.distance_route_gps / legs.kmh_route_gps) * legs.factor_expansion_linea
 
-    # COMPUTE KPI BY DAY LINE VEHICLE HOUR
     kpi_by_veh = (
         legs.reindex(
             columns=[
@@ -1353,12 +1468,9 @@ def run_basic_kpi(id_linea=[]):
     )
 
     kpi_by_veh["of"] = kpi_by_veh.eq_pax / 60 * 100
-
     of_threshold = 120
     of_mask = kpi_by_veh["of"] > of_threshold
-    print(
-        f"Hay un {round(of_mask.sum()/ len(kpi_by_veh) * 100,1)} % de vehiculos con OF atipicos"
-    )
+    print(f"Hay un {round(of_mask.sum()/ len(kpi_by_veh) * 100,1)} % de vehiculos con OF atipicos")
     kpi_by_veh.loc[of_mask, "of"] = None
 
     cols = [
@@ -1370,7 +1482,6 @@ def run_basic_kpi(id_linea=[]):
     kpi_by_veh = kpi_by_veh.reindex(columns=cols)
     kpi_by_veh.to_sql("basic_kpi_by_vehicle_hr", conn_data, if_exists="append", index=False)
 
-    # COMPUTE KPI BY DAY LINE HOUR
     ocupation_factor_line_hour = (
         kpi_by_veh.reindex(columns=["dia", "id_linea", "hora", "of"])
         .groupby(["dia", "id_linea", "hora"], as_index=False)
@@ -1388,8 +1499,8 @@ def run_basic_kpi(id_linea=[]):
     demand = (
         legs.reindex(
             columns=["dia", "id_linea", "hora", "factor_expansion_linea",
-                    "distance_route", "distance_route_gps",
-                    "eq_pax", "eq_pax_gps"]
+                     "distance_route", "distance_route_gps",
+                     "eq_pax", "eq_pax_gps"]
         )
         .groupby(["dia", "id_linea", "hora"], as_index=False)
         .apply(lambda g: pd.Series({
@@ -1402,28 +1513,39 @@ def run_basic_kpi(id_linea=[]):
         .reset_index()
     )
 
-    kpi_by_line_hr = supply.merge(
-        demand, on=["dia", "id_linea", "hora"], how="left"
-    ).merge(
-        ocupation_factor_line_hour, on=["dia", "id_linea", "hora"], how="left"
-    ).merge(
-        speed_line_hour, on=["dia", "id_linea", "hora"], how="left"
+
+    kpi_by_line_hr = (
+        supply
+        .merge(demand, on=["dia", "id_linea", "hora"], how="left")
+        .merge(ocupation_factor_line_hour, on=["dia", "id_linea", "hora"], how="left")
     )
-    kpi_by_line_hr = kpi_by_line_hr.rename(columns={"kmh_route_line_h": "kmh_route"})
+
+    kpi_by_line_hr = kpi_by_line_hr.merge(
+        speed_line_hour.rename(columns={"kmh_line_h": "kmh_route"}),
+        on=["dia", "id_linea", "hora"], how="left",
+    )
+
+    kpi_by_line_hr = kpi_by_line_hr.merge(
+        speed_line_hour_gps.rename(columns={"kmh_line_h": "kmh_route_gps"}),
+        on=["dia", "id_linea", "hora"], how="left",
+    )
+
     kpi_by_line_hr["yr_mo"] = kpi_by_line_hr.dia.str[:7]
 
     cols = ["dia", "yr_mo", "id_linea", "hora", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-            "dmt_route", "dmt_route_gps", "of", "kmh_route"]
+            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
 
-    for col in ["pax", "eq_pax", "eq_pax_gps", "dmt_route", "dmt_route_gps", "of", "kmh_route"]:
-        kpi_by_line_hr[col] = kpi_by_line_hr[col].replace([np.inf, -np.inf], np.nan).round(2)
+    for col in ["pax", "eq_pax", "eq_pax_gps", "dmt_route", "dmt_route_gps",
+                "of", "kmh_route", "kmh_route_gps"]:
+        kpi_by_line_hr[col] = (
+            kpi_by_line_hr[col].replace([np.inf, -np.inf], np.nan).round(2)
+        )
 
     conn_data.execute("DELETE FROM basic_kpi_by_line_hr WHERE dia IN ('weekday','weekend')")
     conn_data.commit()
     kpi_by_line_hr.to_sql("basic_kpi_by_line_hr", conn_data, if_exists="append", index=False)
 
-    # COMPUTE KPI BY DAY AND LINE
     ocupation_factor_line = (
         kpi_by_veh.reindex(columns=["dia", "id_linea", "of"])
         .groupby(["dia", "id_linea"], as_index=False)
@@ -1444,33 +1566,37 @@ def run_basic_kpi(id_linea=[]):
     daily_demand = (
         legs.reindex(
             columns=["dia", "id_linea", "factor_expansion_linea",
-                    "distance_route", "distance_route_gps",
-                    "eq_pax", "eq_pax_gps"]
+                     "distance_route", "distance_route_gps",
+                     "eq_pax", "eq_pax_gps"]
         )
         .groupby(["dia", "id_linea"], as_index=False)
         .apply(lambda g: pd.Series({
-                    "pax": g.factor_expansion_linea.sum(),
-                    "eq_pax": g.eq_pax.sum(),
-                    "eq_pax_gps": g.eq_pax_gps.sum(),
-                    "dmt_route": _weighted_avg(g.distance_route, g.factor_expansion_linea),
-                    "dmt_route_gps": _weighted_avg(g.distance_route_gps, g.factor_expansion_linea),
-                }))
+            "pax": g.factor_expansion_linea.sum(),
+            "eq_pax": g.eq_pax.sum(),
+            "eq_pax_gps": g.eq_pax_gps.sum(),
+            "dmt_route": _weighted_avg(g.distance_route, g.factor_expansion_linea),
+            "dmt_route_gps": _weighted_avg(g.distance_route_gps, g.factor_expansion_linea),
+        }))
         .reset_index()
     )
 
-    kpi_by_line_day = daily_supply.merge(
-        daily_demand, on=["dia", "id_linea"], how="left"
-    ).merge(
-        ocupation_factor_line, on=["dia", "id_linea"], how="left"
-    ).merge(
-        speed_line_day, on=["dia", "id_linea"], how="left"
+    kpi_by_line_day = (
+        daily_supply
+        .merge(daily_demand, on=["dia", "id_linea"], how="left")
+        .merge(ocupation_factor_line, on=["dia", "id_linea"], how="left")
+        .merge(
+            speed_line_day.rename(columns={"kmh_line_day": "kmh_route"}),
+            on=["dia", "id_linea"], how="left",
+        )
+        .merge(
+            speed_line_day_gps.rename(columns={"kmh_line_day": "kmh_route_gps"}),
+            on=["dia", "id_linea"], how="left",
+        )
     )
-    kpi_by_line_day = kpi_by_line_day.rename(columns={"kmh_route_line_day": "kmh_route"})
     kpi_by_line_day["yr_mo"] = kpi_by_line_day.dia.str[:7]
 
     cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-        "dmt_route", "dmt_route_gps", "of", "kmh_route"]
-
+            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
     conn_data.execute("DELETE FROM basic_kpi_by_line_day WHERE dia IN ('weekday','weekend')")
     conn_data.commit()
@@ -1513,7 +1639,7 @@ def compute_basic_kpi_line_typeday():
 
     # average totals — of is recomputed from these
     totals_cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-                   "dmt_route", "dmt_route_gps", "kmh_route"]
+                   "dmt_route", "dmt_route_gps", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_day[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea"], as_index=False
     ).mean()
@@ -1522,7 +1648,7 @@ def compute_basic_kpi_line_typeday():
     kpi_by_line_typeday["of"] = kpi_by_line_typeday.eq_pax / 60 * 100
 
     cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-            "dmt_route", "dmt_route_gps", "of", "kmh_route"]
+            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
     kpi_by_line_typeday.to_sql("basic_kpi_by_line_day", conn_data, if_exists="append", index=False)
 
@@ -1563,7 +1689,7 @@ def compute_basic_kpi_line_hr_typeday():
     # average totals — of is recomputed from these
     totals_cols = ["dia", "yr_mo", "id_linea", "hora",
                    "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-                   "dmt_route", "dmt_route_gps", "kmh_route"]
+                   "dmt_route", "dmt_route_gps", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_hr[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea", "hora"], as_index=False
     ).mean()
@@ -1573,7 +1699,7 @@ def compute_basic_kpi_line_hr_typeday():
 
     cols = ["dia", "yr_mo", "id_linea", "hora",
             "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-            "dmt_route", "dmt_route_gps", "of", "kmh_route"]
+            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
     kpi_by_line_typeday.to_sql("basic_kpi_by_line_hr", conn_data, if_exists="append", index=False)
 
@@ -1657,16 +1783,14 @@ def get_processed_days(table_name):
 
     """
     conn_data = iniciar_conexion_db(tipo="data")
-
-    # get processed days in basic data
-    processed_days_q = f"""
-    select distinct dia
-    from {table_name}
-    """
-    processed_days = pd.read_sql(processed_days_q, conn_data)
+    try:
+        processed_days = pd.read_sql(
+            f"select distinct dia from {table_name}", conn_data
+        )
+    finally:
+        conn_data.close()
     processed_days = processed_days.dia
     processed_days = ", ".join([f"'{val}'" for val in processed_days])
-
     return processed_days
 
 

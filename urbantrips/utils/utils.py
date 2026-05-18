@@ -521,7 +521,8 @@ def create_dash_tables(alias_db):
             dmt_route float,
             dmt_route_gps float,
             of float,
-            kmh_route float
+            kmh_route float,
+            kmh_route_gps float
             )
         ;
             """
@@ -1486,7 +1487,8 @@ def create_kpi_tables(alias_db):
             dmt_route float,
             dmt_route_gps float,
             of float,
-            kmh_route float
+            kmh_route float,
+            kmh_route_gps float
             )
         ;
             """
@@ -1506,7 +1508,8 @@ def create_kpi_tables(alias_db):
             dmt_route float,
             dmt_route_gps float,
             of float,
-            kmh_route float
+            kmh_route float,
+            kmh_route_gps float
             )
         ;
         """
