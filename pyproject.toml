@@ -38,7 +38,7 @@ dependencies = [
     "seaborn==0.13.2",
     "shapely==2.0.6",
     "statsmodels==0.14.4",
-    "streamlit==1.40.1",
+    "streamlit==1.54.0",
     "streamlit_folium==0.23.2",
     "weightedstats==0.4.1",
     "osmnet==0.1.7",
