@@ -505,9 +505,9 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
         )
 
         legs_by_sections_full["prop"] = (
-            legs_by_sections_full["legs"] / legs_by_sections_full.cant_etapas_sentido
+            legs_by_sections_full["legs"]
+            / legs_by_sections_full.cant_etapas_sentido.replace(0, np.nan)
         )
-
         legs_by_sections_full["prop"] = legs_by_sections_full["prop"].fillna(0)
 
         legs_by_sections_full["id_linea"] = line_id
@@ -1443,8 +1443,12 @@ def run_basic_kpi(id_linea=[]):
         .combine_first(legs.kmh_route_gps_line_h)
     )
 
-    legs["eq_pax"] = (legs.distance_route / legs.kmh_route) * legs.factor_expansion_linea
-    legs["eq_pax_gps"] = (legs.distance_route_gps / legs.kmh_route_gps) * legs.factor_expansion_linea
+    legs["eq_pax"] = (
+        legs.distance_route / legs.kmh_route.replace(0, np.nan)
+    ) * legs.factor_expansion_linea
+    legs["eq_pax_gps"] = (
+        legs.distance_route_gps / legs.kmh_route_gps.replace(0, np.nan)
+    ) * legs.factor_expansion_linea
 
     kpi_by_veh = (
         legs.reindex(
