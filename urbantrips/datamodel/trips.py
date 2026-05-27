@@ -1,17 +1,31 @@
-import numpy as np
+import logging
 import multiprocessing
-import pandas as pd
+import time
 from datetime import datetime
-from urbantrips.utils.utils import (
-    duracion,
-    iniciar_conexion_db,
-    levanto_tabla_sql,
-    guardar_tabla_sql,
-)
+
+import numpy as np
+import pandas as pd
+
+from urbantrips.utils.utils import duracion
+from urbantrips.storage.context import StorageContext
+from urbantrips.storage.ports import BatchSpec
 from urbantrips.carto.compute_distances import compute_od_distances
 
+logger = logging.getLogger(__name__)
+
+def _derive_trip_dia(legs: pd.DataFrame) -> pd.DataFrame:
+    """Add trip_dia column = dia of the first leg of each (id_tarjeta, id_viaje)."""
+    trip_dia = (
+        legs.sort_values(["id_tarjeta", "id_viaje", "dia"])
+        .groupby(["id_tarjeta", "id_viaje"], as_index=False)["dia"]
+        .first()
+        .rename(columns={"dia": "trip_dia"})
+    )
+    return legs.merge(trip_dia, on=["id_tarjeta", "id_viaje"], how="left")
+
+
 @duracion
-def create_trips_from_legs_and_fex():
+def create_trips_from_legs_and_fex(ctx: StorageContext):
     """
     Loads the legs table from db, updates expansion factors and produces
     trips and users tables.
@@ -26,326 +40,287 @@ def create_trips_from_legs_and_fex():
        then calibrates against reported transactions per line.
     """
 
-    conn = iniciar_conexion_db(tipo="data")
+    dias_ultima_corrida = ctx.data.get_run_days()
+    if dias_ultima_corrida.empty:
+        return
+    dias_str = ", ".join(f"'{d}'" for d in dias_ultima_corrida["dia"].tolist())
 
-    # ------------------------------------------------------------------
-    # 1. Lectura de insumos
-    # ------------------------------------------------------------------
-    # print("Leyendo datos de etapas para producir viajes")
+    def run_step(label: str, sql: str) -> None:
+        logger.debug("  - %s...", label)
+        start = time.perf_counter()
+        ctx.data.execute(sql)
+        logger.debug("    listo en %.2fs", time.perf_counter() - start)
 
-    dias_ultima_corrida = pd.read_sql_query(
-        "SELECT * FROM dias_ultima_corrida", conn
-    )
-
-    etapas = pd.read_sql_query(
-        """
-        SELECT e.*
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
+    logger.info("Calculando factores de expansión por etapa, línea y tarjeta")
+    run_step(
+        "Calculando factores en tabla temporal",
+        f"""
+        CREATE OR REPLACE TABLE _ut_etapas_fex AS
+        WITH base AS (
+            SELECT
+                e.*,
+                CASE
+                    WHEN e.latitud = 0 AND e.longitud = 0 THEN 0
+                    ELSE e.od_validado
+                END AS od_base
+            FROM etapas e
+            WHERE e.dia IN ({dias_str})
+        ),
+        factor_etapa AS (
+            SELECT
+                dia,
+                id_linea,
+                SUM(factor_expansion_original)
+                / NULLIF(
+                    SUM(CASE WHEN od_base = 1 THEN factor_expansion_original ELSE 0 END),
+                    0
+                ) AS ratio_etapa
+            FROM base
+            GROUP BY dia, id_linea
+        ),
+        tarjetas AS (
+            SELECT
+                dia,
+                id_tarjeta,
+                AVG(factor_expansion_original) AS factor_expansion_original,
+                MIN(od_base) AS od_validado
+            FROM base
+            GROUP BY dia, id_tarjeta
+        ),
+        ajuste_tarjeta AS (
+            SELECT
+                dia,
+                SUM(factor_expansion_original) AS peso_total,
+                SUM(CASE WHEN od_validado = 1 THEN factor_expansion_original ELSE 0 END)
+                    AS peso_valido
+            FROM tarjetas
+            GROUP BY dia
+        ),
+        factor_tarjeta AS (
+            SELECT
+                t.dia,
+                t.id_tarjeta,
+                COALESCE(
+                    t.factor_expansion_original
+                    * (a.peso_total / NULLIF(a.peso_valido, 0))
+                    * t.od_validado,
+                    0
+                ) AS factor_expansion_tarjeta
+            FROM tarjetas t
+            JOIN ajuste_tarjeta a USING (dia)
+        ),
+        base_tarjeta AS (
+            SELECT
+                b.*,
+                ft.factor_expansion_tarjeta AS factor_expansion_tarjeta_new,
+                CASE
+                    WHEN ft.factor_expansion_tarjeta = 0 THEN 0
+                    ELSE b.od_base
+                END AS od_final
+            FROM base b
+            JOIN factor_tarjeta ft USING (dia, id_tarjeta)
+        ),
+        factor_linea AS (
+            SELECT
+                pt.dia,
+                pt.id_linea,
+                (pt.peso_total / NULLIF(pv.peso_validas, 0))
+                * COALESCE(tl.transacciones / NULLIF(pt.peso_total, 0), 1) AS ratio_final
+            FROM (
+                SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_total
+                FROM base
+                GROUP BY dia, id_linea
+            ) pt
+            LEFT JOIN (
+                SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_validas
+                FROM base_tarjeta
+                WHERE od_final = 1
+                GROUP BY dia, id_linea
+            ) pv USING (dia, id_linea)
+            LEFT JOIN transacciones_linea tl USING (dia, id_linea)
+        )
+        SELECT
+            bt.id,
+            bt.batch_id,
+            bt.id_tarjeta,
+            bt.dia,
+            bt.id_viaje,
+            bt.id_etapa,
+            bt.tiempo,
+            bt.hora,
+            bt.modo,
+            bt.id_linea,
+            bt.id_ramal,
+            bt.interno,
+            bt.genero,
+            bt.tarifa,
+            bt.latitud,
+            bt.longitud,
+            bt.h3_o,
+            bt.h3_d,
+            bt.od_final AS od_validado,
+            bt.od_base AS etapa_validada,
+            bt.factor_expansion_original,
+            COALESCE(bt.factor_expansion_original * fl.ratio_final * bt.od_final, 0)
+                AS factor_expansion_linea,
+            bt.factor_expansion_tarjeta_new AS factor_expansion_tarjeta,
+            COALESCE(bt.factor_expansion_original * fe.ratio_etapa * bt.od_base, 0)
+                AS factor_expansion_etapa,
+            bt.distancia,
+            bt.travel_time_min
+        FROM base_tarjeta bt
+        LEFT JOIN factor_etapa fe USING (dia, id_linea)
+        LEFT JOIN factor_linea fl USING (dia, id_linea)
         """,
-        conn,
     )
-
-    transacciones_linea = pd.read_sql_query(
-        """
-        SELECT t.*
-        FROM transacciones_linea t
-        JOIN dias_ultima_corrida d ON t.dia = d.dia
+    run_step(
+        "Reemplazando etapas con factores calculados",
+        f"""
+        BEGIN TRANSACTION;
+        DELETE FROM etapas WHERE dia IN ({dias_str});
+        INSERT INTO etapas (
+            id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
+            hora, modo, id_linea, id_ramal, interno, genero, tarifa,
+            latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
+            factor_expansion_original, factor_expansion_linea,
+            factor_expansion_tarjeta, factor_expansion_etapa, distancia,
+            travel_time_min
+        )
+        SELECT
+            id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
+            hora, modo, id_linea, id_ramal, interno, genero, tarifa,
+            latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
+            factor_expansion_original, factor_expansion_linea,
+            factor_expansion_tarjeta, factor_expansion_etapa, distancia,
+            travel_time_min
+        FROM _ut_etapas_fex;
+        COMMIT;
         """,
-        conn,
     )
 
-    # Limpiar columnas de factores previos si existen
-    cols_drop = [
-        "factor_expansion_tarjeta",
-        "factor_expansion_linea",
-        "factor_expansion_etapa",
-        "etapa_validada",
-    ]
-    etapas = etapas.drop(
-        columns=[c for c in cols_drop if c in etapas.columns], errors="ignore"
+    n_etapas = ctx.data.query(
+        f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
+    )["n"].iloc[0]
+    logger.info("Creando tabla de viajes de %d etapas", n_etapas)
+
+    run_step("Borrando viajes previos", f"DELETE FROM viajes WHERE dia IN ({dias_str})")
+    run_step(
+        "Insertando viajes",
+        f"""
+        INSERT INTO viajes (
+            id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo,
+            autobus, tren, metro, tranvia, brt, cable, lancha, otros,
+            h3_o, h3_d, genero, tarifa, od_validado,
+            factor_expansion_linea, factor_expansion_tarjeta
+        )
+        WITH trips AS (
+            SELECT
+                id_tarjeta,
+                id_viaje,
+                ARG_MIN(dia, id) AS dia,
+                ARG_MIN(tiempo, id) AS tiempo,
+                ARG_MIN(hora, id) AS hora,
+                COUNT(*) AS cant_etapas,
+                SUM(CASE WHEN modo = 'autobus' THEN 1 ELSE 0 END) AS autobus,
+                SUM(CASE WHEN modo = 'tren' THEN 1 ELSE 0 END) AS tren,
+                SUM(CASE WHEN modo = 'metro' THEN 1 ELSE 0 END) AS metro,
+                SUM(CASE WHEN modo = 'tranvia' THEN 1 ELSE 0 END) AS tranvia,
+                SUM(CASE WHEN modo = 'brt' THEN 1 ELSE 0 END) AS brt,
+                SUM(CASE WHEN modo = 'cable' THEN 1 ELSE 0 END) AS cable,
+                SUM(CASE WHEN modo = 'lancha' THEN 1 ELSE 0 END) AS lancha,
+                SUM(CASE WHEN modo = 'otros' THEN 1 ELSE 0 END) AS otros,
+                ARG_MIN(h3_o, id) AS h3_o,
+                ARG_MAX(h3_d, id) AS h3_d,
+                ARG_MIN(genero, id) AS genero,
+                ARG_MIN(tarifa, id) AS tarifa,
+                MIN(od_validado) AS od_validado,
+                AVG(factor_expansion_linea) AS factor_expansion_linea,
+                AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
+            FROM etapas
+            WHERE dia IN ({dias_str})
+            GROUP BY id_tarjeta, id_viaje
+        ),
+        classified AS (
+            SELECT
+                *,
+                ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
+                 + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
+                 + (lancha > 0)::INT + (otros > 0)::INT) AS cant_modos,
+                CASE
+                    WHEN ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
+                          + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
+                          + (lancha > 0)::INT + (otros > 0)::INT) > 1 THEN 'Multimodal'
+                    WHEN cant_etapas > 1 THEN 'Multietapa'
+                    WHEN autobus > 0 THEN 'autobus'
+                    WHEN tren > 0 THEN 'tren'
+                    WHEN metro > 0 THEN 'metro'
+                    WHEN tranvia > 0 THEN 'tranvia'
+                    WHEN brt > 0 THEN 'brt'
+                    WHEN cable > 0 THEN 'cable'
+                    WHEN lancha > 0 THEN 'lancha'
+                    WHEN otros > 0 THEN 'otros'
+                    ELSE ''
+                END AS modo_viaje
+            FROM trips
+        )
+        SELECT
+            id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo_viaje,
+            autobus, tren, metro, tranvia, brt, cable, lancha, otros,
+            h3_o, h3_d, genero, tarifa, od_validado,
+            factor_expansion_linea, factor_expansion_tarjeta
+        FROM classified
+        """,
     )
 
-    # ------------------------------------------------------------------
-    # 2. Validaciones previas
-    # ------------------------------------------------------------------
-
-    # Forzar od_validado = 0 si lat y lon son ambos 0
-    etapas.loc[
-        (etapas["latitud"] == 0) & (etapas["longitud"] == 0),
-        "od_validado",
-    ] = 0
-
-    # Guardar validación individual de la etapa antes de aplicar
-    # la lógica de cadena que puede sobreescribir od_validado
-    etapas["etapa_validada"] = etapas["od_validado"]
-
-    # ------------------------------------------------------------------
-    # 3. Factor de expansión por etapa validada
-    #    Expande etapas con etapa_validada==1 para que por línea sumen
-    #    el total de factor_expansion_original de TODAS las etapas de
-    #    esa línea (validadas y no validadas).
-    # ------------------------------------------------------------------
-    print('Calculando factores de expansión por etapa, línea y tarjeta')
-    # print("Calculando factor_expansion_etapa")
-
-    peso_total_linea = (
-        etapas.groupby(["dia", "id_linea"], as_index=False)
-        .agg(peso_total=("factor_expansion_original", "sum"))
+    run_step("Borrando usuarios previos", f"DELETE FROM usuarios WHERE dia IN ({dias_str})")
+    run_step(
+        "Insertando usuarios",
+        f"""
+        INSERT INTO usuarios (
+            id_tarjeta, dia, od_validado, cant_viajes,
+            factor_expansion_linea, factor_expansion_tarjeta
+        )
+        SELECT
+            id_tarjeta,
+            dia,
+            MIN(od_validado) AS od_validado,
+            COUNT(id_viaje) AS cant_viajes,
+            AVG(factor_expansion_linea) AS factor_expansion_linea,
+            AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
+        FROM viajes
+        WHERE dia IN ({dias_str})
+        GROUP BY dia, id_tarjeta
+        """,
     )
 
-    etapas_validas_linea = (
-        etapas[etapas["etapa_validada"] == 1]
-        .groupby(["dia", "id_linea"], as_index=False)
-        .agg(peso_validas=("factor_expansion_original", "sum"))
+    totals = ctx.data.query(f"""
+        SELECT
+            SUM(factor_expansion_original) AS factor_expansion_original,
+            SUM(factor_expansion_etapa) AS factor_expansion_etapa,
+            SUM(factor_expansion_linea) AS factor_expansion_linea
+        FROM etapas
+        WHERE dia IN ({dias_str})
+    """)
+    trx_total = ctx.data.query(f"""
+        SELECT
+            COUNT(*) AS registros,
+            COALESCE(SUM(transacciones), 0) AS transacciones
+        FROM transacciones_linea
+        WHERE dia IN ({dias_str})
+    """)
+
+    logger.info(
+        "Verificación de factores de expansión | original=%.0f etapa=%.0f linea=%.0f trx=%.0f",
+        totals.factor_expansion_original.iloc[0],
+        totals.factor_expansion_etapa.iloc[0],
+        totals.factor_expansion_linea.iloc[0],
+        trx_total.transacciones.iloc[0],
     )
+    if trx_total.registros.iloc[0] == 0:
+        logger.warning("transacciones_linea no tiene registros para esta corrida")
 
-    factor_etapa = peso_total_linea.merge(
-        etapas_validas_linea, on=["dia", "id_linea"]
-    )
-    factor_etapa["ratio_etapa"] = (
-        factor_etapa["peso_total"] / factor_etapa["peso_validas"]
-    )
-
-    etapas = etapas.merge(
-        factor_etapa[["dia", "id_linea", "ratio_etapa"]],
-        on=["dia", "id_linea"],
-        how="left",
-    )
-
-    etapas["factor_expansion_etapa"] = (
-        etapas["factor_expansion_original"]
-        * etapas["ratio_etapa"].fillna(0)
-        * etapas["etapa_validada"]
-    )
-    etapas = etapas.drop(columns=["ratio_etapa"])
-
-    # ------------------------------------------------------------------
-    # 4. Factor de expansión por tarjeta
-    #    Redistribuye el peso expandido de tarjetas con cadena inválida
-    #    hacia las tarjetas con cadena válida. Si cualquier etapa de la
-    #    tarjeta tiene od_validado==0, toda la tarjeta se invalida.
-    # ------------------------------------------------------------------
-    # print("Calculando factor_expansion_tarjeta")
-
-    tarjetas = etapas.groupby(["dia", "id_tarjeta"], as_index=False).agg(
-        factor_expansion_original=("factor_expansion_original", "mean"),
-        od_validado=("od_validado", "min"),
-    )
-
-    peso_total = tarjetas.groupby("dia", as_index=False).agg(
-        peso_total=("factor_expansion_original", "sum")
-    )
-
-    peso_valido = (
-        tarjetas[tarjetas["od_validado"] == 1]
-        .groupby("dia", as_index=False)
-        .agg(peso_valido=("factor_expansion_original", "sum"))
-    )
-
-    ajuste_tarjeta = peso_total.merge(peso_valido, on="dia")
-    ajuste_tarjeta["ratio_tarjeta"] = (
-        ajuste_tarjeta["peso_total"] / ajuste_tarjeta["peso_valido"]
-    )
-
-    tarjetas = tarjetas.merge(ajuste_tarjeta[["dia", "ratio_tarjeta"]], on="dia")
-
-    tarjetas["factor_expansion_tarjeta"] = (
-        tarjetas["factor_expansion_original"]
-        * tarjetas["ratio_tarjeta"]
-        * tarjetas["od_validado"]
-    )
-
-    etapas = etapas.merge(
-        tarjetas[["dia", "id_tarjeta", "factor_expansion_tarjeta"]],
-        on=["dia", "id_tarjeta"],
-        how="left",
-    )
-    etapas["factor_expansion_tarjeta"] = etapas["factor_expansion_tarjeta"].fillna(0)
-
-    # Sobreescribir od_validado a nivel etapa: si la cadena es inválida,
-    # od_validado pasa a 0 (etapa_validada conserva el valor individual)
-    etapas.loc[etapas["factor_expansion_tarjeta"] == 0, "od_validado"] = 0
-
-    # ------------------------------------------------------------------
-    # 5. Factor de expansión por línea (cadena validada)
-    #    Paso A: expande etapas con od_validado==1 para que por línea
-    #    sumen el total de factor_expansion_original de todas las etapas.
-    #    Paso B: calibra contra transacciones_linea.
-    # ------------------------------------------------------------------
-    # print("Calculando factor_expansion_linea")
-
-    # Paso A: redistribuir peso de etapas con cadena inválida
-    peso_total_linea_od = (
-        etapas.groupby(["dia", "id_linea"], as_index=False)
-        .agg(peso_total=("factor_expansion_original", "sum"))
-    )
-
-    peso_od_validas = (
-        etapas[etapas["od_validado"] == 1]
-        .groupby(["dia", "id_linea"], as_index=False)
-        .agg(peso_validas=("factor_expansion_original", "sum"))
-    )
-
-    factor_linea = peso_total_linea_od.merge(
-        peso_od_validas, on=["dia", "id_linea"]
-    )
-    factor_linea["ratio_od"] = (
-        factor_linea["peso_total"] / factor_linea["peso_validas"]
-    )
-
-    # Paso B: calibrar contra transacciones por línea
-    factor_linea = factor_linea.merge(
-        transacciones_linea[["dia", "id_linea", "transacciones"]],
-        on=["dia", "id_linea"],
-        how="left",
-    )
-    factor_linea["ratio_linea"] = (
-        factor_linea["transacciones"] / factor_linea["peso_total"]
-    )
-
-    # Ratio combinado
-    factor_linea["ratio_final"] = (
-        factor_linea["ratio_od"] * factor_linea["ratio_linea"].fillna(1)
-    )
-
-    etapas = etapas.merge(
-        factor_linea[["dia", "id_linea", "ratio_final"]],
-        on=["dia", "id_linea"],
-        how="left",
-    )
-
-    etapas["factor_expansion_linea"] = (
-        etapas["factor_expansion_original"]
-        * etapas["ratio_final"].fillna(0)
-        * etapas["od_validado"]
-    )
-    etapas = etapas.drop(columns=["ratio_final"])
-
-    # ------------------------------------------------------------------
-    # 6. Upload de etapas
-    # ------------------------------------------------------------------
-    etapas = etapas.sort_values("id").reset_index(drop=True)
-
-    # print("Actualizando tabla de etapas en la db...")
-    # _delete_dias(conn, "etapas", dias_ultima_corrida)
-    # _upload_chunked(etapas, "etapas", conn)
-    
-    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
-    guardar_tabla_sql(
-                etapas,
-                "etapas",
-                tabla_tipo="data",
-                modo="append",
-                filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-            )
-
-    # ------------------------------------------------------------------
-    # 7. Crear tabla de viajes
-    # ------------------------------------------------------------------
-    print(f"Creando tabla de viajes de {len(etapas)} etapas")
-
-    modos = etapas["modo"].unique().tolist()
-    modo_dummies = pd.get_dummies(etapas["modo"])
-
-    etapas_con_modos = pd.concat([etapas, modo_dummies], axis=1)
-    etapas_con_modos = etapas_con_modos.sort_values(
-        ["dia", "id_tarjeta", "id_viaje", "id_etapa"]
-    )
-
-    agg_viajes = {
-        "tiempo": "first",
-        "hora": "first",
-        "h3_o": "first",
-        "h3_d": "last",
-        "genero": "first",
-        "tarifa": "first",
-        "od_validado": "min",
-        "factor_expansion_linea": "mean",
-        "factor_expansion_tarjeta": "mean",
-    }
-
-    grp = ["dia", "id_tarjeta", "id_viaje"]
-    viajes = etapas_con_modos.groupby(grp, as_index=False).agg(agg_viajes)
-
-    # Clasificación modal
-    # print("Clasificando modalidad...")
-    modo_max = etapas_con_modos.groupby(grp, as_index=False)[modos].max()
-    modo_sum = etapas_con_modos.groupby(grp, as_index=False)[modos].sum()
-
-    viajes = viajes.merge(modo_max, on=grp)
-
-    viajes["tmp_cant_modos"] = viajes[modos].sum(axis=1)
-    viajes["modo"] = ""
-    for m in modos:
-        viajes.loc[viajes[m] == 1, "modo"] = m
-    viajes.loc[viajes["tmp_cant_modos"] > 1, "modo"] = "Multimodal"
-
-    viajes = viajes.drop(columns=modos + ["tmp_cant_modos"])
-    viajes = viajes.merge(modo_sum, on=grp)
-
-    viajes["cant_etapas"] = viajes[modos].sum(axis=1)
-    viajes.loc[
-        (viajes["cant_etapas"] > 1) & (viajes["modo"] != "Multimodal"), "modo"
-    ] = "Multietapa"
-
-    # Columnas finales dinámicas
-    viajes_cols = (
-        ["id_tarjeta", "id_viaje", "dia", "tiempo", "hora", "cant_etapas", "modo"]
-        + modos
-        + [
-            "h3_o", "h3_d", "genero", "tarifa", "od_validado",
-            "factor_expansion_linea", "factor_expansion_tarjeta",
-        ]
-    )
-    viajes = viajes.reindex(columns=[c for c in viajes_cols if c in viajes.columns])
-
-    # print("Subiendo tabla de viajes a la db...")
-    # _delete_dias(conn, "viajes", dias_ultima_corrida)
-    # _upload_chunked(viajes, "viajes", conn)
-    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
-    guardar_tabla_sql(
-                viajes,
-                "viajes",
-                tabla_tipo="data",
-                modo="append",
-                filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-            )
-
-    # ------------------------------------------------------------------
-    # 8. Crear tabla de usuarios
-    # ------------------------------------------------------------------
-    # print("Creando tabla de usuarios...")
-    usuarios = (
-        viajes.groupby(["dia", "id_tarjeta"], as_index=False)
-        .agg({
-            "od_validado": "min",
-            "id_viaje": "count",
-            "factor_expansion_linea": "mean",
-            "factor_expansion_tarjeta": "mean",
-        })
-        .rename(columns={"id_viaje": "cant_viajes"})
-    )
-
-    # _delete_dias(conn, "usuarios", dias_ultima_corrida)
-    # _upload_chunked(usuarios, "usuarios", conn)
-    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
-    guardar_tabla_sql(
-                usuarios,
-                "usuarios",
-                tabla_tipo="data",
-                modo="append",
-                filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-            )
-
-    # print("Fin de creacion de tablas viajes y usuarios")
-    conn.close()
-    print("========== Verificación de factores de expansión==========")
-    print(f"factor_expansion_original total: {etapas.factor_expansion_original.sum():.0f}")
-    print(f"factor_expansion_etapa total:    {etapas.factor_expansion_etapa.sum():.0f}")
-    print(f"transacciones_linea total:       {transacciones_linea.transacciones.sum():.0f}")
-    print(f"factor_expansion_linea total:    {etapas.factor_expansion_linea.sum():.0f}")
-    print("========== Verificación de factores de expansión==========")
+    for table in ["_ut_etapas_fex"]:
+        ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 # ------------------------------------------------------------------
@@ -393,7 +368,7 @@ def create_trips_from_legs_and_fex():
 
 
 @duracion
-def rearrange_trip_id_same_od():
+def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = None):
     """
     Takes a legs dataframe with legs and trips id and splits
     trips with same id into 2 trips with different ids and uploads
@@ -411,25 +386,22 @@ def rearrange_trip_id_same_od():
         legs with new trips ids
 
     """
-    conn_data = iniciar_conexion_db(tipo="data")
+    dias_ultima_corrida = ctx.data.get_run_days()
 
-    dias_ultima_corrida = pd.read_sql_query(
-        """
-                                SELECT *
-                                FROM dias_ultima_corrida
-                                """,
-        conn_data,
-    )
+    batch_filter = ""
+    if batch is not None:
+        batch_filter = f"WHERE e.batch_id = {batch.batch_id}"
 
-    df = pd.read_sql_query(
+    df = ctx.data.query(
+        f"""
+        SELECT e.*
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        {batch_filter}
         """
-                                SELECT e.*
-                                FROM etapas e
-                                JOIN dias_ultima_corrida d
-                                ON e.dia = d.dia
-                                """,
-        conn_data,
     )
+    if df.empty:
+        return
 
     cols_df = df.columns.tolist()
 
@@ -440,7 +412,7 @@ def rearrange_trip_id_same_od():
     ).reset_index(drop=True)
 
     # 2) Calcular la línea anterior dentro de cada grupo
-    df["id_linea_anterior"] = df.groupby(["dia", "id_tarjeta", "id_viaje"])[
+    df["id_linea_anterior"] = df.groupby(["id_tarjeta", "id_viaje"])[
         "id_linea"
     ].shift()
 
@@ -451,7 +423,7 @@ def rearrange_trip_id_same_od():
     df["sum_id_viaje"] = df.groupby(["dia", "id_tarjeta"])["es_igual"].cumsum()
 
     df["id_viaje"] = df.id_viaje + df.sum_id_viaje
-    df["id_etapa"] = df.groupby(["dia", "id_tarjeta", "id_viaje"]).cumcount() + 1
+    df["id_etapa"] = df.groupby(["id_tarjeta", "id_viaje"]).cumcount() + 1
 
     # Borrar columnas auxiliares
     df.drop(columns=["es_igual", "id_linea_anterior", "sum_id_viaje"], inplace=True)
@@ -459,7 +431,7 @@ def rearrange_trip_id_same_od():
     # Corrige viajes con origen y destino iguales
 
     # Crear tabla temporal para detectar viajes con el mismo OD
-    df_viajes = df.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False).agg(
+    df_viajes = df.groupby(["id_tarjeta", "id_viaje"], as_index=False).agg(
         h3_o=("h3_o", "first"),  # Primer origen
         h3_d=("h3_d", "last"),  # Último destino
         od_validado=("od_validado", "min"),  # Validación mínima del viaje
@@ -474,16 +446,16 @@ def rearrange_trip_id_same_od():
         & (df_viajes.cant_etapas > 1)
     )
 
-    # Seleccionar solo las tarjetas y días con problemas
+    # Seleccionar solo las tarjetas con problemas
     df_viajes_problemas = df_viajes.loc[
-        mask, ["dia", "id_tarjeta", "id_viaje", "id_etapa"]
+        mask, ["id_tarjeta", "id_viaje", "id_etapa"]
     ]
     df_viajes_problemas["mismo_od"] = 1
 
     # Filtrar las etapas originales con problemas
     df = df.merge(
-        df_viajes_problemas[["dia", "id_tarjeta", "id_viaje", "mismo_od"]],
-        on=["dia", "id_tarjeta", "id_viaje"],
+        df_viajes_problemas[["id_tarjeta", "id_viaje", "mismo_od"]],
+        on=["id_tarjeta", "id_viaje"],
         how="left",
     )
     df["mismo_od"] = df["mismo_od"].fillna(0)
@@ -509,7 +481,7 @@ def rearrange_trip_id_same_od():
         df_viajes_problemas.id_viaje + df_viajes_problemas.sum_id_viaje
     )
     df_viajes_problemas["id_etapa"] = (
-        df_viajes_problemas.groupby(["dia", "id_tarjeta", "id_viaje"]).cumcount() + 1
+        df_viajes_problemas.groupby(["id_tarjeta", "id_viaje"]).cumcount() + 1
     )
 
     df = pd.concat([df_ok, df_viajes_problemas], ignore_index=True)
@@ -520,131 +492,100 @@ def rearrange_trip_id_same_od():
     # Borrar columnas auxiliares
     df = df[cols_df]
 
-    guardar_tabla_sql(df, "etapas", "data", {"dia": df.dia.unique().tolist()})
+    if batch is None:
+        dias_str = ", ".join(f"'{d}'" for d in dias_ultima_corrida["dia"].tolist())
+        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+    ctx.data.save_legs(df, batch=batch)
 
 
 @duracion
-def compute_trips_travel_time():
+def compute_trips_travel_time(ctx: StorageContext):
     """
     This function reads from legs travel time in gps and stations
     and computes travel times for trips
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    ctx.data.execute(
+        """
+        INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
+        SELECT e.dia, e.id, e.id_tarjeta, e.id_etapa, e.id_viaje,
+        (COALESCE(tg.travel_time_min, 0) + COALESCE(ts.travel_time_min, 0)) AS tt
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        LEFT JOIN travel_times_gps tg ON e.id = tg.id
+        LEFT JOIN travel_times_stations ts ON e.id = ts.id
+        WHERE e.od_validado = 1
+        AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
+        """
+    )
 
-    # print("Insertando tiempos de viaje a etapas en base a gps y estaciones")
-
-    q = """
-    INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
-    SELECT e.dia, e.id,e.id_tarjeta,  e.id_etapa,e.id_viaje,
-    (ifnull(tg.travel_time_min,0) + ifnull(ts.travel_time_min,0)) tt
-    FROM etapas e
-    JOIN dias_ultima_corrida d
-    ON e.dia = d.dia
-    LEFT JOIN travel_times_gps tg
-    ON e.id = tg.id
-    LEFT JOIN travel_times_stations ts
-    ON e.id = ts.id
-    WHERE e.od_validado = 1
-    AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
-    """
-    conn_data.execute(q)
-    conn_data.commit()
-    
-    q = """
-    INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
-    SELECT tt.dia, tt.id_tarjeta,tt.id_viaje, sum(tt.travel_time_min) AS travel_time_min 
-    FROM travel_times_legs tt
-    JOIN dias_ultima_corrida d
-    ON tt.dia = d.dia
-    GROUP BY tt.dia, tt.id_tarjeta,tt.id_viaje ;
-    """
-    conn_data.execute(q)
-    conn_data.commit()
+    ctx.data.execute(
+        """
+        INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
+        SELECT tt.dia, tt.id_tarjeta, tt.id_viaje, SUM(tt.travel_time_min) AS travel_time_min
+        FROM travel_times_legs tt
+        JOIN dias_ultima_corrida d ON tt.dia = d.dia
+        GROUP BY tt.dia, tt.id_tarjeta, tt.id_viaje
+        """
+    )
 
 @duracion
-def add_distance_and_travel_time():
+def add_distance_and_travel_time(ctx: StorageContext):
     """
     This function reads trips data and adds distances and travel times
     from the distances table. It also computes the travel speed.
     """
 
-    # print("Agregando distancias y tiempos de viaje a los viajes")
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # read unprocessed data from legs
-
-    q = """
-        select v.id_tarjeta, v.id_viaje, v.dia, v.h3_d, v.h3_o
-        from viajes v
-        JOIN dias_ultima_corrida d
-        ON v.dia = d.dia
-        where od_validado = 1
-        ;
-    """
-
-    trips = pd.read_sql(q, conn_data)
-    # trips = add_distances_to_legs(legs=trips)
-    trips = compute_od_distances(
-        od_df             = trips,
-        origin_col        = "h3_o",
-        dest_col          = "h3_d",
-        distance_col      = 'distance',
-        unit              = 'km',
-        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir = "data/matriz_distancia",
-        symmetric         = False,
-        precompute_dist   = 50_000,   
-        max_tile_deg      = 99,      
-        verbose           = False
+    trips = ctx.data.query(
+        """
+        SELECT v.id_tarjeta, v.id_viaje, v.dia, v.h3_d, v.h3_o
+        FROM viajes v
+        JOIN dias_ultima_corrida d ON v.dia = d.dia
+        WHERE od_validado = 1
+        """
     )
 
-    trips.to_sql(
-        "temp_distancias",
-        conn_data,
-        if_exists="replace",
-        index=False,
-        method="multi",
-        chunksize=10_000,
-    )    
+    trips = compute_od_distances(
+        od_df=trips,
+        origin_col="h3_o",
+        dest_col="h3_d",
+        distance_col="distance",
+        unit="km",
+        db_path="data/matriz_distancia/matriz_distancia.duckdb",
+        network_cache_dir="data/matriz_distancia",
+        symmetric=False,
+        precompute_dist=50_000,
+        max_tile_deg=99,
+        verbose=False,
+    )
 
-    q_update = """
-    UPDATE viajes
-    SET distancia = temp_distancias.distance
-    FROM temp_distancias
-    WHERE viajes.id_tarjeta = temp_distancias.id_tarjeta
-    AND viajes.id_viaje = temp_distancias.id_viaje
-    AND viajes.dia = temp_distancias.dia;
-    """
-    cur = conn_data.cursor()
-    cur.execute(q_update)
-    conn_data.commit()
+    ctx.data.save_raw(trips, "temp_distancias")
 
-    # print("Actualizando tiempos de viaje a viajes")
+    ctx.data.execute(
+        """
+        UPDATE viajes
+        SET distancia = temp_distancias.distance
+        FROM temp_distancias
+        WHERE viajes.id_tarjeta = temp_distancias.id_tarjeta
+        AND viajes.id_viaje = temp_distancias.id_viaje
+        AND viajes.dia = temp_distancias.dia
+        """
+    )
 
-    q_update = """
-    UPDATE viajes
-    SET travel_time_min = t.travel_time_min
-    FROM (
-        SELECT
-            dia,
-            id_tarjeta,
-            id_viaje,
-            SUM(COALESCE(travel_time_min, 0)) AS travel_time_min
-        FROM travel_times_legs
-        GROUP BY dia, id_tarjeta, id_viaje
-    ) t
-    WHERE viajes.dia = t.dia
-    AND viajes.id_tarjeta = t.id_tarjeta
-    AND viajes.id_viaje = t.id_viaje;
-    """
-    cur = conn_data.cursor()
-    cur.execute(q_update)
-    conn_data.commit()
+    ctx.data.execute(
+        """
+        UPDATE viajes
+        SET travel_time_min = t.travel_time_min
+        FROM (
+            SELECT dia, id_tarjeta, id_viaje,
+                   SUM(COALESCE(travel_time_min, 0)) AS travel_time_min
+            FROM travel_times_legs
+            GROUP BY dia, id_tarjeta, id_viaje
+        ) t
+        WHERE viajes.dia = t.dia
+        AND viajes.id_tarjeta = t.id_tarjeta
+        AND viajes.id_viaje = t.id_viaje
+        """
+    )
 
-    q = """
-    drop table temp_distancias;
-    """
-    cur.execute(q)
-    conn_data.commit()
-    conn_data.close()
+    ctx.data.execute("DROP TABLE IF EXISTS temp_distancias")

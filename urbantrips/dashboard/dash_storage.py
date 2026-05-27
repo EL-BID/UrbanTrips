@@ -1,0 +1,103 @@
+"""
+Non-Streamlit storage and query helpers for the UrbanTrips dashboard.
+
+This module has no dependency on ``streamlit`` and can be imported in contexts
+where Streamlit is not running (scripts, tests, etc.).  Functions that require
+``st.session_state`` (e.g. ``leer_alias``, ``iniciar_conexion_db``) remain in
+``dash_utils`` because they are Streamlit-aware by design.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+import yaml
+import duckdb
+import pandas as pd
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def _load_yaml_simple(path: Path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except UnicodeDecodeError:
+        with open(path, "r", encoding="latin-1") as f:
+            data = yaml.safe_load(f)
+    return data if data else {}
+
+
+def _find_first_valid_yaml(autogen_dir: Path):
+    base_path = Path("configs") / "configuraciones_generales.yaml"
+    if not base_path.exists():
+        raise FileNotFoundError(f"No existe {base_path}")
+
+    base = _load_yaml_simple(base_path)
+
+    try:
+        tmp = base["corridas"][0]
+    except Exception as e:
+        raise KeyError("No se pudo obtener base['corridas'][0]") from e
+
+    origen = autogen_dir / f"configuraciones_generales_autogenerado_{tmp}.yaml"
+
+    if not origen.exists():
+        raise FileNotFoundError(f"No existe el autogenerado esperado: {origen}")
+
+    if origen.stat().st_size == 0:
+        raise ValueError(f"El autogenerado esperado está vacío: {origen}")
+
+    return origen
+
+
+def leer_configs_generales(autogenerado=True):
+    path = Path("configs") / (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
+    autogen_dir = Path("configs") / "autogenerados"
+
+    logger.debug("Loading config from %s", path)
+
+    if autogenerado and ((not path.exists()) or path.stat().st_size == 0):
+        origen = _find_first_valid_yaml(autogen_dir)
+        shutil.copy(origen, path)
+
+    try:
+        return _load_yaml_simple(path)
+    except yaml.YAMLError as e:
+        logger.error("Error YAML: %s", e)
+
+        if autogenerado:
+            origen = _find_first_valid_yaml(autogen_dir)
+            shutil.copy(origen, path)
+            return _load_yaml_simple(path)
+
+        return {}
+
+
+def normalize_vars(tabla):
+    if "dia" in tabla.columns:
+        tabla.loc[tabla.dia == "weekday", "dia"] = "Hábil"
+        tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
+    if "day_type" in tabla.columns:
+        tabla.loc[tabla.day_type == "weekday", "day_type"] = "Hábil"
+        tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"
+    if "tipo_dia" in tabla.columns:
+        tabla.loc[tabla.tipo_dia == "Dia habil", "tipo_dia"] = "Hábil"
+    if "nombre_linea" in tabla.columns:
+        tabla["nombre_linea"] = tabla["nombre_linea"].str.replace(" -", "")
+    if "Modo" in tabla.columns:
+        tabla["Modo"] = tabla["Modo"].str.capitalize()
+    if "modo" in tabla.columns:
+        tabla["modo"] = tabla["modo"].str.capitalize()
+    return tabla
+
+
+def _fetch_sql_dataframe(conn, query, params=None):
+    if isinstance(conn, duckdb.DuckDBPyConnection):
+        return conn.execute(query, params).fetchdf()
+    return pd.read_sql_query(query, conn, params=params)

@@ -8,6 +8,7 @@ import plotly.express as px
 from folium import Figure
 from shapely import wkt
 import numpy as np
+from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
     levanto_tabla_sql_local,
@@ -15,8 +16,6 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db,
-    normalize_vars,
     traigo_lista_zonas,
     configurar_selector_dia,
     calcular_bins,

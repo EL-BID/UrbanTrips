@@ -1,5 +1,7 @@
 # Data files
 data/db/*.sqlite
+data/db-alpha/
+data/db/
 # Config file 
 configs/*
 
@@ -17,6 +19,10 @@ __pycache__/
 
 #VScode
 .vscode
+
+# OS metadata
+.DS_Store
+**/.DS_Store
 
 # Distribution / packaging
 .Python
@@ -101,7 +107,7 @@ ipython_config.py
 #   However, in case of collaboration, if having platform-specific dependencies or dependencies
 #   having no cross-platform support, pipenv may install dependencies that don't work, or not
 #   install all needed dependencies.
-#Pipfile.lock
+Pipfile.lock
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow
 __pypackages__/
@@ -166,3 +172,10 @@ dead_code_analysis.md
 *.parquet
 etapas_tmp_1
 etapas_tmp_2
+.worktrees/
+
+# Local benchmark notes and generated dumps
+benchmark*.txt
+benchmark - *
+*-about-this-repo-*.txt
+tmp_trx.csv

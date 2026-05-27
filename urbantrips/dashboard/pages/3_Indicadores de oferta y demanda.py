@@ -22,9 +22,6 @@ from dash_utils import (
     levanto_tabla_sql_local,
     configurar_selector_dia,
 )
-
-# try:
-from urbantrips.utils.utils import iniciar_conexion_db
 from urbantrips.utils import utils
 # except ImportError as e:
 #     st.error(
@@ -734,16 +731,14 @@ def traigo_nombre_lineas(df):
 # --- Función para levantar tablas SQL y almacenar en session_state ---
 def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
     if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        conn = iniciar_conexion_db(tipo=tipo_conexion)
-        try:
-            query = query or f"SELECT * FROM {tabla_sql}"
-            tabla = pd.read_sql_query(query, conn)
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-        except Exception:
+        tabla = utils.levanto_tabla_sql(
+            tabla_sql,
+            tabla_tipo=tipo_conexion,
+            query=query,
+        )
+        if tabla.empty:
             st.error(f"{tabla_sql} no existe")
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = pd.DataFrame()
-        finally:
-            conn.close()
+        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
     return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
 
@@ -800,7 +795,6 @@ try:
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 except ValueError as e:
     st.error(
         f"Falta una base de datos requerida: {e}. \nSe requiere full acceso a Urbantrips para correr esta página"

@@ -29,6 +29,7 @@ nombres_variables_trx:
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
 ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
+n_batches: 30              # traveler partitions; controls memory per processing batch
 
 # Elimina transacciones inválidas de la tabla de transacciones
 tipo_trx_invalidas: 
