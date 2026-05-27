@@ -1,27 +1,22 @@
+import logging
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
-from urbantrips.utils.utils import (guardar_tabla_sql, levanto_tabla_sql, duracion)
+from urbantrips.utils.utils import duracion
+from urbantrips.storage.context import StorageContext
 
+logger = logging.getLogger(__name__)
 
-
-import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message="invalid value encountered in scalar divide",
-    category=RuntimeWarning,
-    module=r".*urbantrips.*services",  # tu módulo
-)
 
 @duracion
-def process_services(line_ids=None):
+def process_services(ctx: StorageContext, line_ids=None):
     """
     Download unprocessed gps data and classify them into services
     for all days and all lines or a set of specified set of line ids
 
     Parameters
     ----------
+    ctx : StorageContext
     line_ids : int, list
         line id or ids to process services for
 
@@ -35,7 +30,7 @@ def process_services(line_ids=None):
     nombre_archivo_gps = configs["nombre_archivo_gps"]
 
     if nombre_archivo_gps is not None:
-        print("Procesando servicios en base a tabla gps")
+        logger.info("Procesando servicios en base a tabla gps")
         # check line id type and turn it into list if is a single line id
         if line_ids is not None:
             if isinstance(line_ids, int):
@@ -45,85 +40,78 @@ def process_services(line_ids=None):
         else:
             line_ids_str = None
 
-        delete_old_services_data(line_ids_str)
+        delete_old_services_data(ctx, line_ids_str)
 
         if line_ids is not None:
-            print(f"Descargando paradas y puntos gps para id lineas {line_ids_str}")
+            logger.info("Descargando paradas y puntos gps para id lineas %s", line_ids_str)
         else:
-            print("Descargando paradas y puntos gps para todas las lineas")
+            logger.info("Descargando paradas y puntos gps para todas las lineas")
 
-        gps_points, stops = get_stops_and_gps_data(line_ids_str)
+        gps_points, stops = get_stops_and_gps_data(ctx, line_ids_str)
 
         if gps_points is None:
-            print("Todos los puntos gps ya fueron procesados en servicios ")
+            logger.info("Todos los puntos gps ya fueron procesados en servicios")
         else:
-            print("Clasificando puntos gps en servicios")
-            gps_points.groupby("id_linea").apply(process_line_services, stops=stops)
+            logger.info("Clasificando puntos gps en servicios")
+            gps_points.groupby("id_linea").apply(process_line_services, stops=stops, ctx=ctx)
 
 
-def delete_old_services_data(line_ids_str):
+def delete_old_services_data(ctx: StorageContext, line_ids_str):
     """
     Deletes data from services tables for all lines or
     a specified set of line ids
     """
-    conn_data = utils.iniciar_conexion_db(tipo="data")
     tables = ["services_gps_points", "services", "services_stats"]
     for table in tables:
-        q = f"""
-        DELETE FROM {table}
-        """
         if line_ids_str is not None:
-            q = q + f"where id_linea in ({line_ids_str});"
+            q = f"DELETE FROM {table} WHERE id_linea IN ({line_ids_str})"
         else:
-            q = q + ";"
-        conn_data.execute(q)
-        conn_data.commit()
-
-    conn_data.close()
+            q = f"DELETE FROM {table}"
+        ctx.data.execute(q)
 
 
-def get_stops_and_gps_data(line_ids_str):
+def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
     """
     Download unprocessed gps data and stops for all lines
-    or ofr a specified set of line ids and all days
+    or for a specified set of line ids and all days
     """
     configs = utils.leer_configs_generales()
 
-    conn_insumos = utils.iniciar_conexion_db(tipo="insumos")
-    conn_data = utils.iniciar_conexion_db(tipo="data")
-
-    # check if data is present in the db
-    if not utils.check_table_in_db(table_name="gps", tipo_db="data"):
-        print("No existe la tabla gps. Asegurese de tener datos gps y ")
-        print("correr datamodel.transactions.process_and_upload_gps_table()")
-    else:
-        cur = conn_data.cursor()
-        q = "select count(*) from gps;"
-        records = cur.execute(q).fetchall()[0][0]
-        if records == 0:
-            print("La tabla gps no tiene registros.Asegurese de tetener datos")
-            print("gps y correr")
-            print("datamodel.transactions.process_and_upload_gps_table()")
-
-    # check if data is present in the db
-    if not utils.check_table_in_db(table_name="gps", tipo_db="data"):
-        print("No hay tabla services_stats. Asegurese de tener datos gps ")
-        print("y correr datamodel.transactions.process_and_upload_gps_table()")
+    gps_exists = ctx.data.query("SELECT 1 AS gps_exists FROM gps LIMIT 1")
+    if gps_exists.empty:
+        logger.warning(
+            "La tabla gps no tiene registros. Asegurese de tener datos gps y "
+            "correr datamodel.transactions.process_and_upload_gps_table()"
+        )
+        return None, None
 
     gps_query = """
-        select g.*
-        from gps g
-        left join services_stats ss
-        on g.id_linea = ss.id_linea
-        and g.dia = ss.dia
-        where ss.id_linea is null
+        SELECT g.*
+        FROM gps g
+        LEFT JOIN services_stats ss
+        ON g.id_linea = ss.id_linea AND g.dia = ss.dia
+        WHERE ss.id_linea IS NULL
     """
     if line_ids_str is not None:
-        gps_query = gps_query + f"and g.id_linea in ({line_ids_str});"
-    else:
-        gps_query = gps_query + ";"
+        gps_query = gps_query + f" AND g.id_linea IN ({line_ids_str})"
 
-    gps_points = pd.read_sql(gps_query, conn_data)
+    gps_query = (
+        gps_query
+        + " ORDER BY g.id_linea, g.dia, g.id_ramal, g.interno, g.fecha, g.id"
+    )
+    gps_points = ctx.data.query(gps_query)
+
+    if gps_points.empty:
+        return None, None
+
+    gps_lines = gps_points.id_linea.drop_duplicates()
+    gps_lines_str = ",".join(gps_lines.map(str))
+
+    if len(gps_lines_str) == 0:
+        return None, None
+
+    if configs["utilizar_servicios_gps"]:
+        return gps_points, None
 
     gps_points = gpd.GeoDataFrame(
         gps_points,
@@ -134,164 +122,90 @@ def get_stops_and_gps_data(line_ids_str):
     )
     gps_points = gps_points.to_crs(epsg=configs["epsg_m"])
 
-    gps_lines = gps_points.id_linea.drop_duplicates()
-    gps_lines_str = ",".join(gps_lines.map(str))
-
-    if len(gps_lines_str) == 0:
-        return None, None
-
-    elif configs["utilizar_servicios_gps"]:
-        return gps_points, None
-
-    else:
-        # check if data is present in the db
-        if not utils.check_table_in_db(table_name="stops", tipo_db="insumos"):
-            print("No existe la tabla stops. Asegurese de tener datos de ")
-            print("stops y correr carto.stops.create_stops_table()")
-        else:
-            cur = conn_data.cursor()
-            q = "select count(*) from gps;"
-            records = cur.execute(q).fetchall()[0][0]
-            if records == 0:
-                print("La tabla stops no tiene registros. Asegurese de tener")
-                print("datos de stops y correr")
-                print("carto.stops.create_stops_table()")
-
-        stops_query = f"""
-            select *
-            from stops
-            where id_linea in ({gps_lines_str})
-        """
-
-        stops = pd.read_sql(stops_query, conn_insumos)
-        # check all gps points have stops for that line
-        line_no_stops_mask = ~gps_lines.isin(stops.id_linea.drop_duplicates())
-        if line_no_stops_mask.any():
-            line_no_stops = gps_lines[line_no_stops_mask]
-            line_no_stops_str = ",".join(line_no_stops.map(str))
-
-            print(
-                f"""Hay lineas con GPS que no tienen paradas:
-                  {line_no_stops_str}
-                  No se procesaran"""
-            )
-
-            gps_points = gps_points.loc[~gps_points.id_linea.isin(line_no_stops)]
-
-        # use only nodes as stops
-        stops = stops.drop_duplicates(subset=["id_linea", "id_ramal", "node_id"])
-
-        stops = gpd.GeoDataFrame(
-            stops,
-            geometry=gpd.GeoSeries.from_xy(
-                x=stops.node_x, y=stops.node_y, crs="EPSG:4326"
-            ),
-            crs="EPSG:4326",
+    all_stops = ctx.insumos.get_stops()
+    if all_stops.empty:
+        logger.warning(
+            "No existe la tabla stops. Asegurese de tener datos de "
+            "stops y correr carto.stops.create_stops_table()"
         )
 
-        stops = stops.to_crs(epsg=configs["epsg_m"])
+    stops = all_stops[all_stops["id_linea"].isin(gps_lines)]
 
-        return gps_points, stops
+    # check all gps points have stops for that line
+    line_no_stops_mask = ~gps_lines.isin(stops.id_linea.drop_duplicates())
+    if line_no_stops_mask.any():
+        line_no_stops = gps_lines[line_no_stops_mask]
+        line_no_stops_str = ",".join(line_no_stops.map(str))
+
+        logger.warning("Hay lineas con GPS que no tienen paradas: %s — No se procesaran", line_no_stops_str)
+
+        gps_points = gps_points.loc[~gps_points.id_linea.isin(line_no_stops)]
+
+    # use only nodes as stops
+    stops = stops.drop_duplicates(subset=["id_linea", "id_ramal", "node_id"])
+
+    stops = gpd.GeoDataFrame(
+        stops,
+        geometry=gpd.GeoSeries.from_xy(
+            x=stops.node_x, y=stops.node_y, crs="EPSG:4326"
+        ),
+        crs="EPSG:4326",
+    )
+
+    stops = stops.to_crs(epsg=configs["epsg_m"])
+
+    return gps_points, stops
 
 
-def process_line_services(gps_points, stops):
+def process_line_services(gps_points, stops, ctx: StorageContext):
     """
     Takes gps points and stops for a given line,
-    classifies each point into a services
-    and produces services tables and daily stats
-    for that line
-
-    Parameters
-    ----------
-    gps_points : geopandas.GeoDataFrame
-        GeoDataFrame with gps points for a given line
-
-    stops : geopandas.GeoDataFrame
-        GeoDataFrame with stops for a given line
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame containing statistics for services by line and day
+    classifies each point into services and produces services tables
+    and daily stats for that line.
     """
     line_id = gps_points.id_linea.unique()[0]
 
-    conn_data = utils.iniciar_conexion_db(tipo="data")
-    #   print(f"Procesando servicios en base a gps para id_linea {line_id}")
-
-    # if there are stops select only stops for that line
     if stops is not None:
         line_stops_gdf = stops.loc[stops.id_linea == line_id, :]
     else:
         line_stops_gdf = None
 
-    # print("Asignando servicios")
-    gps_points_with_new_service_id = (
-        gps_points.groupby(["dia", "id_ramal", "interno"], as_index=False)
-        .apply(classify_line_gps_points_into_services, line_stops_gdf=line_stops_gdf)
-        .droplevel(0)
-    )
+    trust_service_type_gps = utils.leer_configs_generales()["utilizar_servicios_gps"]
 
-    # print("Subiendo servicios a la db")
-    # save result to services table
+    if trust_service_type_gps:
+        gps_points_with_new_service_id = classify_line_gps_points_into_services(
+            gps_points,
+            line_stops_gdf=line_stops_gdf,
+            trust_service_type_gps=trust_service_type_gps,
+        )
+    else:
+        gps_points_with_new_service_id = (
+            gps_points.groupby(["dia", "id_ramal", "interno"], as_index=False)
+            .apply(
+                classify_line_gps_points_into_services,
+                line_stops_gdf=line_stops_gdf,
+                trust_service_type_gps=trust_service_type_gps,
+            )
+            .droplevel(0)
+        )
+
     services_gps_points = gps_points_with_new_service_id.reindex(
         columns=[
-            "id",
-            "id_linea",
-            "id_ramal",
-            "interno",
-            "dia",
-            "original_service_id",
-            "new_service_id",
-            "service_id",
-            "id_ramal_gps_point",
-            "node_id",
+            "id", "id_linea", "id_ramal", "interno", "dia",
+            "original_service_id", "new_service_id", "service_id",
+            "id_ramal_gps_point", "node_id",
         ]
     )
-    services_gps_points.to_sql(
-        "services_gps_points",
-        conn_data,
-        if_exists="append",
-        index=False,
-        method="multi",
-        chunksize=40,
-    )
-    
-    # dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")    
-    # guardar_tabla_sql(
-    #     services_gps_points,
-    #     "services_gps_points",
-    #     tabla_tipo="data",
-    #     modo="append",
-    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-    # )
+    ctx.data.append_raw(services_gps_points, "services_gps_points")
 
-    # print("Creando tabla de servicios")
-    # process services gps points into services table
     line_services = create_line_services_table(gps_points_with_new_service_id)
-    line_services.to_sql("services", conn_data, if_exists="append", index=False)
+    ctx.data.save_services(line_services)
 
-    # print("Creando estadisticos de servicios")
-    # create stats for each line and day
     stats = line_services.groupby(
         ["id_linea", "id_ramal", "dia"], as_index=False
     ).apply(compute_new_services_stats)
 
-    stats.to_sql(
-        "services_stats",
-        conn_data,
-        if_exists="append",
-        index=False,
-        method="multi",
-        chunksize=40,
-    )
-    # dias_ultima_corrida = utils.levanto_tabla_sql("dias_ultima_corrida", "data")
-    # guardar_tabla_sql(
-    #     stats,
-    #     "services_stats",
-    #     tabla_tipo="data",
-    #     modo="append",
-    #     filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-    # )
+    ctx.data.append_raw(stats, "services_stats")
     return stats
 
 
@@ -534,7 +448,12 @@ def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):
 
 
 def classify_line_gps_points_into_services(
-    line_gps_points, line_stops_gdf, debug=False, *args, **kwargs
+    line_gps_points,
+    line_stops_gdf,
+    debug=False,
+    trust_service_type_gps=None,
+    *args,
+    **kwargs,
 ):
     """
     Takes gps points and stops for a given line and classifies each point into
@@ -554,27 +473,38 @@ def classify_line_gps_points_into_services(
     geopandas.GeoDataFrame
         GeoDataFrame points classified into services
     """
-    # create original service id
-    original_service_id = (
-        line_gps_points.reindex(columns=["dia", "id_ramal", "interno", "service_type"])
-        .groupby(["dia", "id_ramal", "interno"])
-        .apply(create_original_service_id)
-    )
-    original_service_id = original_service_id.service_type
-    original_service_id = original_service_id.droplevel([0, 1, 2])
-    line_gps_points.loc[:, ["original_service_id"]] = original_service_id
-
     # check configs if trust in service type gps
-    configs = utils.leer_configs_generales()
+    if trust_service_type_gps is None:
+        configs = utils.leer_configs_generales()
+        trust_service_type_gps = configs["utilizar_servicios_gps"]
 
-    trust_service_type_gps = configs["utilizar_servicios_gps"]
+    group_cols = ["dia", "id_ramal", "interno"]
+    sort_cols = [
+        c for c in group_cols + ["fecha", "id"] if c in line_gps_points.columns
+    ]
+    line_gps_points = line_gps_points.sort_values(sort_cols).copy()
 
     if trust_service_type_gps:
-        # classify services based on gps dataset attribute
-        line_gps_points.loc[:, ["new_service_id"]] = line_gps_points[
-            "original_service_id"
-        ].copy()
+        starts = line_gps_points["service_type"].eq("start_service")
+        line_gps_points["original_service_id"] = (
+            starts.groupby([line_gps_points[c] for c in group_cols])
+            .cumsum()
+            .astype(int)
+        )
+        line_gps_points["new_service_id"] = line_gps_points["original_service_id"]
     else:
+        # create original service id
+        original_service_id = (
+            line_gps_points.reindex(
+                columns=["dia", "id_ramal", "interno", "service_type"]
+            )
+            .groupby(["dia", "id_ramal", "interno"])
+            .apply(create_original_service_id)
+        )
+        original_service_id = original_service_id.service_type
+        original_service_id = original_service_id.droplevel([0, 1, 2])
+        line_gps_points.loc[:, ["original_service_id"]] = original_service_id
+
         # classify services based on stops
         line_gps_points = infer_service_id_stops(
             line_gps_points, line_stops_gdf, debug=debug
@@ -584,14 +514,21 @@ def classify_line_gps_points_into_services(
     line_gps_points.loc[:, ["idling"]] = line_gps_points.distance_km < 0.1
 
     # create a unique id from both old and new
-    new_ids = line_gps_points.reindex(
-        columns=["original_service_id", "new_service_id"]
-    ).drop_duplicates()
-    new_ids["service_id"] = range(len(new_ids))
+    if trust_service_type_gps:
+        line_gps_points["service_id"] = (
+            line_gps_points.groupby(group_cols, sort=False)["new_service_id"]
+            .transform(lambda s: pd.factorize(s, sort=False)[0])
+            .astype(int)
+        )
+    else:
+        new_ids = line_gps_points.reindex(
+            columns=["original_service_id", "new_service_id"]
+        ).drop_duplicates()
+        new_ids["service_id"] = range(len(new_ids))
 
-    line_gps_points = line_gps_points.merge(
-        new_ids, how="left", on=["original_service_id", "new_service_id"]
-    )
+        line_gps_points = line_gps_points.merge(
+            new_ids, how="left", on=["original_service_id", "new_service_id"]
+        )
 
     return line_gps_points
 
@@ -633,17 +570,21 @@ def compute_new_services_stats(line_day_services):
     else:
         prop_short_idling = None
 
-    original_services_distance = round(line_day_services.distance_km.sum())
-    new_services_distance = round(
-        line_day_services.loc[line_day_services["valid"], "distance_km"].sum()
-        / original_services_distance,
-        2,
-    )
+    original_services_distance_raw = line_day_services.distance_km.sum()
+    original_services_distance = round(original_services_distance_raw)
+    if pd.notna(original_services_distance_raw) and original_services_distance_raw > 0:
+        new_services_distance = round(
+            line_day_services.loc[line_day_services["valid"], "distance_km"].sum()
+            / original_services_distance_raw,
+            2,
+        )
+    else:
+        new_services_distance = None
 
     sub_services = (
         line_day_services.loc[line_day_services["valid"], :]
         .groupby(["interno", "original_service_id"])
-        .apply(lambda df: len(df.service_id.unique()))
+        .service_id.nunique()
     )
 
     if len(sub_services):
@@ -697,22 +638,16 @@ def create_original_service_id(service_type_series):
     return (service_type_series == "start_service").cumsum()
 
 
-def delete_services_data(id_linea):
-    "this function deletes data for a given line in servicies tables"
+def delete_services_data(ctx: StorageContext, id_linea):
+    "this function deletes data for a given line in services tables"
 
-    conn_data = utils.iniciar_conexion_db(tipo="data")
-    print(f"Borrando datos en tablas de servicios para id linea {id_linea};")
-    conn_data.execute(f"DELETE FROM services where id_linea = {id_linea};")
-    conn_data.execute(f"DELETE FROM services_stats where id_linea = {id_linea};")
-    query = f"""
-    DELETE FROM services_gps_points
-    where id in (
-        select id
-        from gps
-        where id_linea = {id_linea}
-    );
-    """
-    conn_data.execute(query)
-    conn_data.commit()
-
-    print("Servicios borrados")
+    logger.debug("Borrando datos en tablas de servicios para id linea %s", id_linea)
+    ctx.data.execute(f"DELETE FROM services WHERE id_linea = {id_linea}")
+    ctx.data.execute(f"DELETE FROM services_stats WHERE id_linea = {id_linea}")
+    ctx.data.execute(
+        f"""
+        DELETE FROM services_gps_points
+        WHERE id IN (SELECT id FROM gps WHERE id_linea = {id_linea})
+        """
+    )
+    logger.debug("Servicios borrados")

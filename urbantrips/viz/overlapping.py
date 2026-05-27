@@ -4,31 +4,29 @@ import folium
 import pandas as pd
 from urbantrips.geo import geo
 from urbantrips.kpi import overlapping as ovl
-from urbantrips.utils.utils import leer_configs_generales, iniciar_conexion_db
+from urbantrips.utils.utils import leer_configs_generales
+from urbantrips.storage.context import StorageContext
 from shapely import wkt
 import h3
 
 
-def get_route_metadata(route_id):
+def get_route_metadata(ctx: StorageContext, route_id):
     configs = leer_configs_generales()
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
     use_branches = configs["lineas_contienen_ramales"]
     if use_branches:
-        metadata = pd.read_sql(
-            f"select nombre_ramal from metadata_ramales where id_ramal  == {route_id}",
-            conn_insumos,
-        )
-        metadata = metadata.nombre_ramal.iloc[0]
+        metadata_ramales = ctx.insumos.get_metadata_ramales()
+        metadata = metadata_ramales.loc[
+            metadata_ramales.id_ramal == route_id, "nombre_ramal"
+        ].iloc[0]
     else:
-        metadata = pd.read_sql(
-            f"select nombre_linea from metadata_lineas where id_linea  == {route_id}",
-            conn_insumos,
-        )
-        metadata = metadata.nombre_linea.iloc[0]
+        metadata_lineas = ctx.insumos.get_metadata_lineas()
+        metadata = metadata_lineas.loc[
+            metadata_lineas.id_linea == route_id, "nombre_linea"
+        ].iloc[0]
     return metadata
 
 
-def plot_interactive_supply_overlapping(overlapping_dict):
+def plot_interactive_supply_overlapping(ctx: StorageContext, overlapping_dict):
 
     base_h3 = overlapping_dict["base"]["h3"]
     comp_h3 = overlapping_dict["comp"]["h3"]
@@ -37,8 +35,8 @@ def plot_interactive_supply_overlapping(overlapping_dict):
 
     base_route_id = base_h3.route_id.unique()[0]
     comp_route_id = comp_h3.route_id.unique()[0]
-    base_route_metadata = get_route_metadata(base_route_id)
-    comp_route_metadata = get_route_metadata(comp_route_id)
+    base_route_metadata = get_route_metadata(ctx, base_route_id)
+    comp_route_metadata = get_route_metadata(ctx, comp_route_id)
 
     # extract data from overlapping dict
     base_gdf = overlapping_dict["base"]["h3"]
@@ -85,7 +83,7 @@ def plot_interactive_supply_overlapping(overlapping_dict):
     return fig
 
 
-def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_dict):
+def plot_interactive_demand_overlapping(ctx: StorageContext, base_demand, comp_demand, overlapping_dict):
     base_gdf = overlapping_dict["base"]["h3"]
     base_route_gdf = overlapping_dict["base"]["line"]
     comp_gdf = overlapping_dict["comp"]["h3"]
@@ -94,8 +92,8 @@ def plot_interactive_demand_overlapping(base_demand, comp_demand, overlapping_di
     base_route_id = base_gdf.route_id.unique()[0]
     comp_route_id = comp_gdf.route_id.unique()[0]
 
-    base_route_metadata = get_route_metadata(base_route_id)
-    comp_route_metadata = get_route_metadata(comp_route_id)
+    base_route_metadata = get_route_metadata(ctx, base_route_id)
+    comp_route_metadata = get_route_metadata(ctx, comp_route_id)
 
     # Points for O and D
     base_origins = (

@@ -1,10 +1,31 @@
+import logging
 import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from urbantrips.utils import utils
-from urbantrips.utils.utils import levanto_tabla_sql, guardar_tabla_sql, duracion
+from urbantrips.utils.utils import duracion
+from urbantrips.storage.context import StorageContext
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+def _sql_in_values(values):
+    escaped = [str(value).replace("'", "''") for value in values]
+    return ", ".join(f"'{value}'" for value in escaped)
+
+
+def _delete_kpis_lineas_if_exists(ctx: StorageContext, dias):
+    if len(dias) == 0:
+        return
+
+    dias_str = _sql_in_values(dias)
+    try:
+        ctx.general.execute(f"DELETE FROM kpis_lineas WHERE dia IN ({dias_str})")
+    except Exception as exc:
+        if "does not exist" not in str(exc):
+            raise
 
 
 def cal_velocidad_comercial(servicios):
@@ -100,27 +121,22 @@ def cal_velocidad_comercial(servicios):
     return vel_comercial_linea
 
 
-def levanto_data(alias_data, alias_insumos, etapas=[], viajes=[]):
+def levanto_data(ctx: StorageContext, etapas=[], viajes=[]):
 
-    gps = levanto_tabla_sql("gps", "data", alias_db=alias_data)
+    gps = ctx.data.get_gps()
 
-    trx = levanto_tabla_sql("transacciones", "data", alias_db=alias_data)
+    trx = ctx.data.get_transactions()
 
-    lineas = levanto_tabla_sql(
-        "metadata_lineas",
-        "insumos",
-        alias_db=alias_insumos,
-        query="SELECT DISTINCT id_linea, nombre_linea, empresa FROM metadata_lineas ORDER BY id_linea",
-    )
+    lineas = ctx.insumos.get_metadata_lineas()[
+        ["id_linea", "nombre_linea", "empresa"]
+    ].drop_duplicates()
 
-    kpis = levanto_tabla_sql("kpi_by_day_line", tabla_tipo="data", alias_db=alias_data)
+    kpis = ctx.data.get_raw("kpi_by_day_line")
 
-    servicios = levanto_tabla_sql(
-        "services",
-        tabla_tipo="data",
-        alias_db=alias_data,
-        query="SELECT * FROM services WHERE valid = 1",
-    )
+    try:
+        servicios = ctx.data.query("SELECT * FROM services WHERE valid = 1")
+    except Exception:
+        servicios = pd.DataFrame()
 
     # Procesamiento de GPS y cálculo de flota
     gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
@@ -190,7 +206,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         try:
             tot[col] = pd.to_numeric(tot[col], errors="coerce").round().astype("Int64")
         except Exception as e:
-            print(f"Error en columna {col}: {e}")
+            logger.warning("Error en columna %s: %s", col, e)
 
     etapas_agg = tot.merge(etapas_agg, how="left", on=cols + ["modo"])
 
@@ -235,16 +251,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         .merge(serv_agg, how="left")
     )
 
-    # # Cálculo de porcentajes
-    # all['tarifa_social_porc'] = (all['tarifa_social'] / all['transacciones'] * 100).round(1)
-    # all['tarifa_educacion_jubilacion_porc'] = (all['educacion_jubilacion'] / all['transacciones'] * 100).round(1)
-
     # Cálculo de mes
     all["mes"] = all["dia"].str[:7]
-
-    # Reordenamiento y selección de columnas finales
-
-    # cols_genero_tarifa = etapas.genero_agregado.unique().tolist()+etapas.tarifa_agregada.unique().tolist()
 
     # Redondeo de valores
     all["transacciones"] = all["transacciones"].round(0)
@@ -333,23 +341,21 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
 
 
 @duracion
-def calculo_kpi_lineas(alias_data="", alias_insumos="", etapas=[], viajes=[]):
+def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
 
     trx, etapas, gps, servicios, kpis_varios, lineas = levanto_data(
-        alias_data, alias_insumos, etapas=etapas, viajes=viajes
+        ctx, etapas=etapas, viajes=viajes
     )
     kpis = agrego_lineas(
         ["dia", "id_linea"], trx, etapas, gps, servicios, kpis_varios, lineas
     )
-    guardar_tabla_sql(
-        kpis,
-        table_name="kpis_lineas",
-        tabla_tipo="general",
-        filtros={"dia": kpis.dia.unique().tolist()},
-        modo="append",
-    )
 
-    df = levanto_tabla_sql("kpis_lineas", "general")
+    # delete existing rows for these days and append new ones
+    dias = kpis.dia.unique().tolist()
+    _delete_kpis_lineas_if_exists(ctx, dias)
+    ctx.general.append_raw(kpis, "kpis_lineas")
+
+    df = ctx.general.get_raw("kpis_lineas")
     tot = (
         df.drop(["dia", "mes"], axis=1)
         .groupby(["id_linea", "nombre_linea", "empresa", "modo"], as_index=False)
@@ -358,12 +364,10 @@ def calculo_kpi_lineas(alias_data="", alias_insumos="", etapas=[], viajes=[]):
     tot["dia"] = "Promedios"
     tot["mes"] = ""
     df = pd.concat([df, tot], ignore_index=True)
-    guardar_tabla_sql(
-        df,
-        table_name="kpis_lineas",
-        tabla_tipo="general",
-        filtros={"dia": df.dia.unique().tolist()},
-        modo="append",
-    )
+
+    # replace the whole table including the new averages row
+    all_dias = df.dia.unique().tolist()
+    _delete_kpis_lineas_if_exists(ctx, all_dias)
+    ctx.general.append_raw(df, "kpis_lineas")
 
     return df

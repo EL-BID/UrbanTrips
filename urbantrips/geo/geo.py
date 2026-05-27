@@ -1,3 +1,4 @@
+import logging
 from shapely import line_interpolate_point
 import geopandas as gpd
 import numpy as np
@@ -8,15 +9,10 @@ import h3
 from math import ceil
 from shapely.geometry import Polygon, Point, LineString, shape
 import libpysal
-import statsmodels.api as sm
 
 import warnings
-warnings.filterwarnings(
-    "ignore",
-    message="invalid value encountered in divide",
-    category=RuntimeWarning,
-    module=r"statsmodels\.nonparametric\.smoothers_lowess"
-)
+
+logger = logging.getLogger(__name__)
 
 
 def referenciar_h3(df, res, nombre_h3, lat="latitud", lon="longitud"):
@@ -63,17 +59,10 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
     else:
         ring_size = ceil(buffer_meters / lado / 2)
         buff_max = (lado * 2 * ring_size) + lado
-    print(f"Se utilizarán hexágonos H3 de resolución {resolucion_h3} con un lado igual a {round(lado)} m. ")
-    print(
-        f"Para la matriz de validacion se usará un buffer de {ring_size}"
-        + " hexágonos."
+    logger.info(
+        "H3 resolución %s, lado=%.0fm, buffer=%d hexágonos, dist_max=%.0fm",
+        resolucion_h3, lado, ring_size, buff_max,
     )
-    print(
-        "Se utilizará para la matriz de validacion una distancia máxima de "
-        + f"{buff_max} m entre el origen de la etapa siguiente y las "
-        + "estaciones de la línea de la etapa a validar"
-    )
-    print("Si desea mayor precisión utilice un número más grande de resolucion h3")
 
     return ring_size
 
@@ -118,7 +107,7 @@ def h3dist(x, distancia_entre_hex=1, h3_o="", h3_d=""):
         x = round(h3.grid_distance(x[h3_o], x[h3_d]) * distancia_entre_hex, 2)
     # except (H3CellError, TypeError) as e:
     except TypeError as e:
-        print(e)
+        logger.debug("h3dist error: %s", e)
         x = np.nan
     return x
 
@@ -378,6 +367,14 @@ def lowess_linea(df):
     ).to_crs(epsg_m)
     y = gdf.geometry.y
     x = gdf.geometry.x
+    import statsmodels.api as sm
+    import warnings
+    warnings.filterwarnings(
+        "ignore",
+        message="invalid value encountered in divide",
+        category=RuntimeWarning,
+        module=r"statsmodels\.nonparametric\.smoothers_lowess",
+    )
     lowess = sm.nonparametric.lowess
     lowess_points = lowess(x, y, frac=0.4, delta=500)
     lowess_points_df = pd.DataFrame(lowess_points.tolist(), columns=["y", "x"])
@@ -393,7 +390,7 @@ def lowess_linea(df):
         return out
 
     else:
-        print("Imposible de generar una linea lowess para id_linea = ", id_linea)
+        logger.warning("Imposible de generar una linea lowess para id_linea = %s", id_linea)
 
 
 def get_epsg_m():

@@ -9,6 +9,7 @@ import mapclassify
 import plotly.express as px
 from folium import Figure
 from shapely import wkt
+from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
     levanto_tabla_sql_local,
@@ -16,8 +17,6 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db,
-    normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
     traigo_tablas_con_filtros,

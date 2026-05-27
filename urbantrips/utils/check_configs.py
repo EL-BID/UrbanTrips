@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import os
 import yaml
@@ -13,6 +14,9 @@ from urbantrips.utils.utils import (
 
 from pathlib import Path
 import shutil
+
+logger = logging.getLogger(__name__)
+
 
 def check_config_fecha(df, columns_with_date, date_format):
     """
@@ -238,6 +242,29 @@ def revise_configs(configs):
             False
         )
 
+    passthrough_rows = []
+    for variable in ["n_batches", "parallel_workers"]:
+        if variable in configs and variable not in config_default.variable.values:
+            passthrough_rows.append(
+                {
+                    "orden": "",
+                    "item": "trxs",
+                    "variable": variable,
+                    "subvar": "",
+                    "subvar_param": "",
+                    "default": configs[variable],
+                    "obligatorio": "",
+                    "descripcion_campo": "",
+                    "descripcion_general": "",
+                    "comments": "",
+                }
+            )
+    if passthrough_rows:
+        config_default = pd.concat(
+            [config_default, pd.DataFrame(passthrough_rows)],
+            ignore_index=True,
+        )
+
     return config_default
 
 
@@ -403,7 +430,7 @@ def check_lineas(config_default, alias_default):
     )
     if not os.path.isfile(path_archivo_lineas):
 
-        print("Creo archivo con información de líneas")
+        logger.info("Creo archivo con información de líneas")
         corrida = configs_usuario.get("corridas", [])[0]
         nombre_archivo_trx = f"{corrida}_trx.csv"
         nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
@@ -487,7 +514,7 @@ def check_config_errors(config_default):
         ]
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print(f"--Archivo de transacciones en proceso: {ruta}")
+        logger.info("Archivo de transacciones en proceso: %s", ruta)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
@@ -842,7 +869,7 @@ def check_configs_file():
     with open(file_path, "w") as file:
         yaml.dump({}, file)
 
-        print(f"Se creo el archivo '{file_name}' en '{directory}'")
+        logger.info("Se creo el archivo '%s' en '%s'", file_name, directory)
 
 
 def add_dash_and_data_dbs(config_default, corrida):
@@ -927,7 +954,7 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
         confidence = detectado["confidence"]
 
         if encoding_detectado is None or confidence < 0.6:
-            print(f"⚠️ Codificación no confiable detectada: {detectado}")
+            logger.warning("Codificación no confiable detectada: %s", detectado)
             return
 
         # Decodificar el texto
@@ -942,7 +969,7 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
             f.write(texto)
 
     except Exception as e:
-        print(f"❌ Error procesando {path}: {e}")
+        logger.error("Error procesando %s: %s", path, e)
 
 
 @duracion
@@ -959,7 +986,7 @@ def check_config(corrida):
     Returns:
     None
     """
-    print("Usando corrida", corrida)
+    logger.info("Usando corrida %s", corrida)
 
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales.yaml"

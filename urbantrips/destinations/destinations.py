@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import pandas as pd
 import h3
@@ -5,12 +6,12 @@ from datetime import datetime
 
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db,
     leer_configs_generales,
     agrego_indicador,
-    levanto_tabla_sql,
-    guardar_tabla_sql,
 )
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -44,20 +45,13 @@ def imputar_destino_potencial(etapas):
 # Validación contra matriz_validacion
 # ---------------------------------------------------------------------------
 
-def validar_destinos(destinos):
+def validar_destinos(destinos, ctx: StorageContext):
     """
     Valida destinos potenciales contra la matriz de validación de la DB.
     Delega en _validar_destinos_con_matriz para facilitar el testing.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    matriz_validacion = pd.read_sql_query(
-        "SELECT DISTINCT id_linea_agg, area_influencia FROM matriz_validacion",
-        conn_insumos,
-    )
-    conn_insumos.close()
-
+    mv = ctx.insumos.get_matrix_validation()
+    matriz_validacion = mv[["id_linea_agg", "area_influencia"]].drop_duplicates()
     return _validar_destinos_con_matriz(destinos, matriz_validacion)
 
 
@@ -117,19 +111,13 @@ def _h3_grid_distance_safe(h3_a, h3_b):
         return np.inf
 
 
-def imputar_destino_min_distancia(etapas):
+def imputar_destino_min_distancia(etapas, ctx: StorageContext):
     """
     Para cada etapa, busca la parada de su línea que minimiza la distancia
     h3 al destino potencial (origen de la etapa siguiente).
     Delega en _imputar_destino_min_distancia_con_matriz para facilitar el testing.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    matriz_validacion = pd.read_sql_query(
-        "SELECT * FROM matriz_validacion", conn_insumos
-    )
-    conn_insumos.close()
-
+    matriz_validacion = ctx.insumos.get_matrix_validation()
     return _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion)
 
 
@@ -251,7 +239,7 @@ def diagnostico_destinos(etapas):
 # Función principal
 # ---------------------------------------------------------------------------
 
-def calcular_indicadores_destinos_etapas(etapas):
+def calcular_indicadores_destinos_etapas(etapas, ctx: StorageContext):
     """Calcula el porcentaje de etapas con destinos imputados y lo sube a la DB."""
 
     agrego_indicador(
@@ -260,22 +248,34 @@ def calcular_indicadores_destinos_etapas(etapas):
         "etapas",
         0,
         var_fex="",
+        ctx=ctx,
     )
 
-def verif_h3(h3_index):
-    if pd.isna(h3_index) or h3_index == '':
+def verif_h3_parent(h3_index, resolution=8):
+    if pd.isna(h3_index) or h3_index == "":
         return ""
     try:
-        lat, lon = h3.cell_to_latlng(h3_index)
-        return h3.latlng_to_cell(lat, lon, 8)
+        return h3.cell_to_parent(h3_index, resolution)
     except Exception:
         return ""
 
+
+def _clear_h3_parent(etapas, column, parent_h3):
+    unique_h3 = etapas[column].dropna().unique()
+    parent_by_h3 = {
+        h3_index: verif_h3_parent(h3_index)
+        for h3_index in unique_h3
+        if h3_index != ""
+    }
+    mask = etapas[column].map(parent_by_h3).eq(parent_h3)
+    etapas.loc[mask, column] = ""
+    etapas.loc[mask, "etapa_validada"] = 0
+    etapas.loc[mask, "od_validado"] = 0
+
 @duracion
-def infer_destinations():
+def infer_destinations(ctx: StorageContext):
     """
     Lee las etapas de la DB, imputa destinos potenciales y los valida.
-    Mantiene la misma firma y estructura de entrada/salida que destinations.py.
     """
     configs = leer_configs_generales()
     destinos_min_dist = configs.get("imputar_destinos_min_distancia", False) or False
@@ -287,26 +287,20 @@ def infer_destinations():
         )
     else:
         mensaje = "Utilizando como destino el origen de la siguiente etapa"
-    print(mensaje)
+    logger.info("%s", mensaje)
 
-    conn_data = iniciar_conexion_db(tipo="data")
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+    dias_ultima_corrida = ctx.data.get_run_days()
 
-    dias_ultima_corrida = pd.read_sql_query(
-        "SELECT * FROM dias_ultima_corrida", conn_data
+    etapas = ctx.data.query(
+        """
+        SELECT e.*
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.hora, e.tiempo
+        """
     )
 
-    q = """
-    SELECT e.*
-    FROM etapas e
-    JOIN dias_ultima_corrida d ON e.dia = d.dia
-    ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.hora, e.tiempo
-    """
-    etapas = pd.read_sql_query(q, conn_data)
-
-    metadata_lineas = pd.read_sql_query("SELECT * FROM metadata_lineas", conn_insumos)
-    conn_insumos.close()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
 
     etapas = etapas.merge(
         metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
@@ -318,63 +312,47 @@ def infer_destinations():
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
 
-    if destinos_min_dist:        
-        destinos = imputar_destino_min_distancia(etapas_destinos_potencial)
-    else:        
-        destinos = validar_destinos(etapas_destinos_potencial)
+    if destinos_min_dist:
+        destinos = imputar_destino_min_distancia(etapas_destinos_potencial, ctx)
+    else:
+        destinos = validar_destinos(etapas_destinos_potencial, ctx)
 
-    # etapas_destinos_potencial ya tiene h3_d (el potencial); destinos aporta od_validado
     etapas = etapas_destinos_potencial.merge(
         destinos[["id", "od_validado"]], on="id", how="left"
     )
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
-    print("Eliminando destinos de etapas con OD mismo h3:", etapas_mismo_od.sum())
+    logger.info("Eliminando destinos de etapas con OD mismo h3: %d", etapas_mismo_od.sum())
     etapas.loc[etapas_mismo_od, "h3_d"] = np.nan
     etapas.loc[etapas_mismo_od, "od_validado"] = 0
 
     etapas["od_validado"] = etapas["od_validado"].fillna(0).astype(int)
     etapas["h3_d"] = etapas["h3_d"].fillna("")
 
-    calcular_indicadores_destinos_etapas(etapas)
+    calcular_indicadores_destinos_etapas(etapas, ctx)
 
     diagnostico_destinos(etapas)
 
-    # values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
-    # query = f"DELETE FROM etapas WHERE dia IN ({values})"
-    # conn_data.execute(query)
-    # conn_data.commit()
-
+    logger.debug("Preparando etapas imputadas para guardar")
     etapas = etapas.drop(columns=["id_linea_agg"])
-    
-    mask = etapas['h3_o'].apply(verif_h3).eq('88754e6499fffff')
-    etapas.loc[mask, 'h3_o'] = ""
-    etapas.loc[mask, 'etapa_validada'] = 0
-    etapas.loc[mask, 'od_validado'] = 0
-    mask = etapas['h3_d'].apply(verif_h3).eq('88754e6499fffff')
-    etapas.loc[mask, 'h3_d'] = ""    
-    etapas.loc[mask, 'etapa_validada'] = 0
-    etapas.loc[mask, 'od_validado'] = 0
-       
-    # print("Subiendo datos a etapas", str(datetime.now())[:19])
-    # etapas.to_sql(
-    #     "etapas",
-    #     conn_data,
-    #     if_exists="append",
-    #     index=False,
-    #     method="multi",
-    #     chunksize=40,
-    # )
-    
-    conn_data.close()
-    
-    dias_ultima_corrida = levanto_tabla_sql("dias_ultima_corrida", "data")
-    guardar_tabla_sql(
-                        etapas,
-                        "etapas",
-                        tabla_tipo="data",
-                        modo="append",
-                        filtros={"dia": dias_ultima_corrida["dia"].tolist()},
-                    )
+
+    logger.debug("Limpiando h3_o por parent h3 excluido")
+    _clear_h3_parent(etapas, "h3_o", "88754e6499fffff")
+    logger.debug("Limpiando h3_d por parent h3 excluido")
+    _clear_h3_parent(etapas, "h3_d", "88754e6499fffff")
+
+    dias = dias_ultima_corrida["dia"].tolist()
+    if hasattr(ctx.data, "replace_legs_for_days"):
+        logger.debug("Reemplazando etapas de la corrida actual")
+        ctx.data.replace_legs_for_days(etapas, dias)
+        logger.info("Etapas con destinos imputados guardadas")
+        return None
+
+    dias_str = ", ".join(f"'{d}'" for d in dias)
+    logger.debug("Eliminando etapas previas de la corrida actual")
+    ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+    logger.debug("Guardando etapas con destinos imputados")
+    ctx.data.save_legs(etapas)
+    logger.info("Etapas con destinos imputados guardadas")
 
     return None

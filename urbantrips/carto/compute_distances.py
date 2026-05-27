@@ -43,14 +43,18 @@ from __future__ import annotations
 
 import gc
 import json
+import logging
 import sqlite3
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
 import warnings
+
+if TYPE_CHECKING:
+    import pandana
 
 
 warnings.filterwarnings(
@@ -59,6 +63,8 @@ warnings.filterwarnings(
     category=UserWarning,
     module="pandana.network",
 )
+logger = logging.getLogger(__name__)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Helpers: H3
 # ══════════════════════════════════════════════════════════════════════════════
@@ -131,25 +137,25 @@ def _patch_osmnet_overpass(verbose: bool = False) -> None:
                 try:
                     t0 = _time.time()
                     if verbose:
-                        print(f"[od_distances] Overpass POST -> {url}")
+                        logger.debug(f"[od_distances] Overpass POST -> {url}")
                     resp = _req.post(
                         url, data=data, headers=_OVERPASS_HEADERS, timeout=timeout
                     )
                     size_kb = len(resp.content) / 1000.0
                     domain = _re.findall(r"(?s)//(.*?)/", url)[0]
                     if verbose:
-                        print(
+                        logger.debug(
                             f"[od_distances] {size_kb:,.1f}KB desde {domain} "
                             f"en {_time.time()-t0:.2f}s (HTTP {resp.status_code})"
                         )
                     if resp.status_code == 200:
                         rj = resp.json()
                         if "remark" in rj:
-                            print(f"[od_distances] Overpass remark: {rj['remark']}")
+                            logger.debug(f"[od_distances] Overpass remark: {rj['remark']}")
                         return rj
                     if resp.status_code in [429, 504]:
                         pause = error_pause_duration or 60
-                        print(
+                        logger.debug(
                             f"[od_distances] {url} -> {resp.status_code}, "
                             f"reintentando en {pause}s..."
                         )
@@ -161,7 +167,7 @@ def _patch_osmnet_overpass(verbose: bool = False) -> None:
                         f"Server returned no JSON data.\n{resp} {resp.reason}\n{resp.text}"
                     )
                     if verbose:
-                        print(
+                        logger.debug(
                             f"[od_distances] {url} -> HTTP {resp.status_code}, "
                             f"probando siguiente..."
                         )
@@ -169,7 +175,7 @@ def _patch_osmnet_overpass(verbose: bool = False) -> None:
                         _req.exceptions.Timeout) as exc:
                     last_exc = exc
                     if verbose:
-                        print(f"[od_distances] {url} -> {exc}, probando siguiente...")
+                        logger.debug(f"[od_distances] {url} -> {exc}, probando siguiente...")
             raise last_exc or Exception("Todos los servidores Overpass fallaron.")
 
         _ol.overpass_request = _overpass_request_with_fallback
@@ -198,7 +204,7 @@ def _build_network(
     ymin, xmin, ymax, xmax = bbox
 
     if verbose:
-        print(
+        logger.debug(
             f"[od_distances] Descargando red OSM ({network_type}) | "
             f"lat {ymin:.3f}-{ymax:.3f} lon {xmin:.3f}-{xmax:.3f}"
         )
@@ -209,7 +215,7 @@ def _build_network(
     )
 
     if verbose:
-        print(
+        logger.debug(
             f"[od_distances] Red: {len(network.nodes_df):,} nodos | "
             f"{len(network.edges_df):,} aristas"
         )
@@ -282,7 +288,7 @@ def _load_network(
     edges = pd.read_parquet(edges_path)
 
     if verbose:
-        print(
+        logger.debug(
             f"[od_distances] Red cargada desde cache: "
             f"{len(nodes):,} nodos | {len(edges):,} aristas"
         )
@@ -341,7 +347,7 @@ def _compute_pandana_chunked(
     gc.collect()
 
     if verbose:
-        print(f"[od_distances] Snapping {n_total:,} origenes y destinos a la red...")
+        logger.debug(f"[od_distances] Snapping {n_total:,} origenes y destinos a la red...")
 
     orig_nodes = network.get_node_ids(orig_lons, orig_lats)
     dest_nodes = network.get_node_ids(dest_lons, dest_lats)
@@ -357,7 +363,7 @@ def _compute_pandana_chunked(
         end = min(start + chunk_size, n_total)
 
         if verbose and n_chunks > 1:
-            print(
+            logger.debug(
                 f"[od_distances]   Chunk {i+1}/{n_chunks}: "
                 f"pares {start:,}-{end:,}"
             )
@@ -527,7 +533,7 @@ def _network_cache_valid(
 
     if not covers:
         if verbose:
-            print(
+            logger.debug(
                 f"[od_distances] Cache de red no cubre el bbox actual. "
                 f"Cached: {cached_bbox} | Actual: {bbox}. Reconstruyendo..."
             )
@@ -535,7 +541,7 @@ def _network_cache_valid(
 
     if meta.get("network_type") != network_type:
         if verbose:
-            print(
+            logger.debug(
                 f"[od_distances] Cache de red es tipo '{meta.get('network_type')}' "
                 f"pero se pidio '{network_type}'. Reconstruyendo..."
             )
@@ -597,7 +603,7 @@ def _compute_pandana_tiled(
     n_cols = ceil((xmax - xmin) / max_tile_deg)
 
     if verbose:
-        print(
+        logger.debug(
             f"[od_distances] Tiling activado: bbox {ymax - ymin:.2f}deg x "
             f"{xmax - xmin:.2f}deg -> {n_rows}x{n_cols} tiles de ~{max_tile_deg:.2f}deg"
         )
@@ -618,7 +624,7 @@ def _compute_pandana_tiled(
     results = []
     unique_tiles = np.unique(tile_ids)
     if verbose:
-        print('tiles', unique_tiles)
+        logger.debug('tiles', unique_tiles)
         
     for tid in unique_tiles:
         mask = tile_ids == tid
@@ -626,7 +632,7 @@ def _compute_pandana_tiled(
         r, c = divmod(int(tid), n_cols)
 
         if verbose:
-            print(f"[od_distances] Tile ({r},{c}): {len(tile_miss):,} pares")
+            logger.debug(f"[od_distances] Tile ({r},{c}): {len(tile_miss):,} pares")
 
         # H3s unicos en este tile (origenes y destinos)
         tile_h3s = np.union1d(
@@ -663,7 +669,7 @@ def _compute_pandana_tiled(
                 _save_network(network, paths["nodes"], paths["edges"])
                 _save_network_meta(paths, tile_net_bbox, network_type)
                 if verbose:
-                    print(
+                    logger.debug(
                         f"[od_distances] Sub-red tile ({r},{c}) guardada en "
                         f"{network_cache_dir}"
                     )
@@ -766,7 +772,7 @@ def compute_od_distances(
 
 
     if verbose:
-        print(f"[od_distances] H3 unicos: {len(h3_unicos):,}")
+        logger.debug(f"[od_distances] H3 unicos: {len(h3_unicos):,}")
 
     # ── 2. Coordenadas H3 ────────────────────────────────────────────────────
     h3_coords = _h3_to_coords(h3_unicos)
@@ -801,7 +807,7 @@ def compute_od_distances(
             ].drop_duplicates().reset_index(drop=True)
 
         if verbose:
-            print(f"[od_distances] Pares unicos: {len(unique_pairs):,}")
+            logger.debug(f"[od_distances] Pares unicos: {len(unique_pairs):,}")
 
         # ── 6. Consultar cache ────────────────────────────────────────────────
         cached  = query_fn(unique_pairs, con)
@@ -819,7 +825,7 @@ def compute_od_distances(
             pct     = n_hit / n_total if n_total else 0
             n_nan_hit = found["distance_m"].isna().sum()
             nan_str = f" ({n_nan_hit:,} sin ruta)" if n_nan_hit else ""
-            print(
+            logger.debug(
                 f"[od_distances] Cache hit: {n_hit:,} ({pct:.0%}){nan_str} | "
                 f"A calcular: {n_miss:,}"
             )
@@ -834,7 +840,7 @@ def compute_od_distances(
 
             if use_tiling:
                 if verbose:
-                    print(
+                    logger.debug(
                         f"[od_distances] Bbox {bbox_h:.2f}deg x {bbox_w:.2f}deg "
                         f"supera max_tile_deg={max_tile_deg:.2f}deg. "
                         f"Activando tiling..."
@@ -863,7 +869,7 @@ def compute_od_distances(
                         _save_network(network, paths["nodes"], paths["edges"])
                         _save_network_meta(paths, bbox, network_type)
                         if verbose:
-                            print(
+                            logger.debug(
                                 f"[od_distances] Red guardada en {network_cache_dir}"
                             )
                 else:
@@ -887,7 +893,7 @@ def compute_od_distances(
             if verbose:
                 n_ok  = computed["distance_m"].notna().sum()
                 n_nan = len(computed) - n_ok
-                print(
+                logger.debug(
                     f"[od_distances] Calculados: {n_ok:,} | "
                     f"Sin ruta valida: {n_nan:,}"
                 )

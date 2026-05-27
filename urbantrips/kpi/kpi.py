@@ -1,4 +1,5 @@
 import itertools
+import logging
 import warnings
 import geopandas as gpd
 import pandas as pd
@@ -16,18 +17,20 @@ from urbantrips.carto.routes import (
 from urbantrips.carto.carto import create_route_section_ids
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db,
-    leer_configs_generales,
     is_date_string,
     check_date_type,
     create_line_ids_sql_filter,
 )
 from urbantrips.carto.compute_distances import compute_od_distances
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
+
 # KPI WRAPPER
 
 
 @duracion
-def compute_kpi():
+def compute_kpi(ctx: StorageContext):
     """
     Esta funcion toma los datos de oferta de la tabla gps
     los datos de demanda de la tabla trx
@@ -35,53 +38,46 @@ def compute_kpi():
     dia y linea y por dia, linea, interno
     """
 
-    print("Produciendo indicadores operativos...")
-    conn_data = iniciar_conexion_db(tipo="data")
+    logger.info("Produciendo indicadores operativos...")
 
-    cur = conn_data.cursor()
-    q = """
-        SELECT tbl_name FROM sqlite_master
-        WHERE type='table'
-        AND tbl_name='gps';
-    """
-    listOfTables = cur.execute(q).fetchall()
-
-    if listOfTables == []:
-        print("No existe tabla GPS en la base")
-        print("Se calcularán KPI básicos en base a datos de demanda")
+    if not ctx.data.has_rows("gps"):
+        logger.info("No existe tabla GPS en la base; se calcularán KPI básicos en base a datos de demanda")
 
     # runing basic kpi
-    run_basic_kpi()
+    run_basic_kpi(ctx)
 
     # read data
-    legs, gps = read_data_for_daily_kpi()
+    legs, gps = read_data_for_daily_kpi(ctx)
 
     if (len(legs) > 0) & (len(gps) > 0):
         # compute KPI per line and date
-        compute_kpi_by_line_day(legs=legs, gps=gps)
+        compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx)
 
         # compute KPI per line and type of day
-        compute_kpi_by_line_typeday()
+        compute_kpi_by_line_typeday(ctx)
 
     # Run KPI at service level
-    cur = conn_data.cursor()
-    q = "select count(*) from services where valid = 1;"
-    valid_services = cur.execute(q).fetchall()[0][0]
+    try:
+        valid_services = ctx.data.query(
+            "SELECT COUNT(*) AS n FROM services WHERE valid = 1"
+        ).iloc[0, 0]
+    except Exception:
+        valid_services = 0
 
     if valid_services > 0:
-        print("Computando estadisticos por servicio")
+        logger.info("Computando estadisticos por servicio")
         # compute KPI by service and day
-        compute_kpi_by_service()
+        compute_kpi_by_service(ctx)
 
         # compute amount of hourly services by line and day
-        compute_dispatched_services_by_line_hour_day()
+        compute_dispatched_services_by_line_hour_day(ctx)
 
         # compute amount of hourly services by line and type of day
-        compute_dispatched_services_by_line_hour_typeday()
+        compute_dispatched_services_by_line_hour_typeday(ctx)
 
     else:
 
-        print("No hay servicios procesados. Puede correr la funcion services.process_services() si cuenta con una tabla de gps que indique servicios")
+        logger.info("No hay servicios procesados. Puede correr services.process_services() si cuenta con GPS")
 
 
 # SECTION LOAD KPI
@@ -89,6 +85,7 @@ def compute_kpi():
 
 @duracion
 def compute_route_section_load(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     n_sections=10,
@@ -100,6 +97,7 @@ def compute_route_section_load(
 
     Parameters
     ----------
+    ctx : StorageContext
     line_ids : int, list of ints or bool
         route id or list of route ids present in the legs dataset. Route
         section load will be computed for that subset of lines. If False, it
@@ -126,33 +124,31 @@ def compute_route_section_load(
         if n_sections > 1000:
             raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
-    conn_data = iniciar_conexion_db(tipo="data")
-
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
+    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
 
     # read routes geoms
     route_geoms = get_route_geoms_with_sections_data(
-        line_ids_where, section_meters, n_sections
+        line_ids, section_meters, n_sections, ctx
     )
 
     # check which section geoms are already crated
-    new_route_geoms = check_exists_route_section_points_table(route_geoms)
+    new_route_geoms = check_exists_route_section_points_table(route_geoms, ctx)
 
     # create the line and n sections pair missing and upload it to the db
     if len(new_route_geoms) > 0:
 
-        upload_route_section_points_table(new_route_geoms, delete_old_data=False)
+        upload_route_section_points_table(new_route_geoms, ctx, delete_old_data=False)
 
     # delete old seciton load data
     yr_mos = legs.yr_mo.unique()
 
     delete_old_route_section_load_data(
-        route_geoms, hour_range, day_type, yr_mos, db_type="data"
+        route_geoms, hour_range, day_type, yr_mos, ctx
     )
 
     # compute section load
-    print("Computing section load per route ...")
+    logger.info("Computing section load per route ...")
 
     if (len(route_geoms) > 0) and (len(legs) > 0):
 
@@ -183,34 +179,24 @@ def compute_route_section_load(
             ]
         )
 
-        print("Uploading data to db...")
-        section_load_table.to_sql(
-            "ocupacion_por_linea_tramo",
-            conn_data,
-            if_exists="append",
-            index=False,
-        )
+        logger.debug("Uploading data to db...")
+        ctx.data.append_raw(section_load_table, "ocupacion_por_linea_tramo")
 
         return section_load_table
     else:
-        print("No existen recorridos o etapas para las líneas")
-        print("Cantidad de lineas:", len(line_ids))
-        print("Cantidad de recorridos", len(route_geoms))
-        print("Cantidad de etapas", len(legs))
+        logger.warning(
+            "No existen recorridos o etapas para las líneas (líneas=%d, recorridos=%d, etapas=%d)",
+            len(line_ids), len(route_geoms), len(legs),
+        )
 
 
 def delete_old_route_section_load_data(
-    route_geoms, hour_range, day_type, yr_mos, db_type="data"
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext
 ):
     """
     Deletes old data in table ocupacion_por_linea_tramo
     """
     table_name = "ocupacion_por_linea_tramo"
-
-    if db_type == "data":
-        conn = iniciar_conexion_db(tipo="data")
-    else:
-        conn = iniciar_conexion_db(tipo="dash")
 
     # hour range filter
     if hour_range:
@@ -225,29 +211,25 @@ def delete_old_route_section_load_data(
     for yr_mo in yr_mos:
         for _, row in delete_df.iterrows():
             # Delete old data for those parameters
-            print("Borrando datos antiguos de ocupacion_por_linea_tramo")
-            print(row.id_linea)
-            print(f"{row.n_sections} secciones")
-            print(yr_mo)
-            if hour_range:
-                print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
+            logger.debug(
+                "Borrando ocupacion_por_linea_tramo: linea=%s, secciones=%s, yr_mo=%s%s",
+                row.id_linea, row.n_sections, yr_mo,
+                f", horas {hour_range[0]}-{hour_range[1]}" if hour_range else "",
+            )
 
             q_delete = f"""
-                delete from {table_name}
-                where id_linea = {row.id_linea} 
-                and hour_min {hora_min_filter}
-                and hour_max {hora_max_filter}
-                and day_type = '{day_type}'
-                and n_sections = {row.n_sections}
-                and yr_mo = '{yr_mo}';
+                DELETE FROM {table_name}
+                WHERE id_linea = {row.id_linea}
+                AND hour_min {hora_min_filter}
+                AND hour_max {hora_max_filter}
+                AND day_type = '{day_type}'
+                AND n_sections = {row.n_sections}
+                AND yr_mo = '{yr_mo}'
                 """
 
-            cur = conn.cursor()
-            cur.execute(q_delete)
-            conn.commit()
+            ctx.data.execute(q_delete)
 
-    conn.close()
-    print("Fin borrado datos previos")
+    logger.debug("Fin borrado datos previos")
 
 
 def add_od_lrs_to_legs_from_route(legs_df, route_geom):
@@ -305,7 +287,7 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
     """
 
     line_id = legs.id_linea.unique()[0]
-    print(f"Calculando carga por tramo para linea id {line_id}")
+    logger.debug("Calculando carga por tramo para linea id %s", line_id)
 
     if (route_geoms.id_linea == line_id).any():
         route = route_geoms.loc[route_geoms.id_linea == line_id, :]
@@ -434,20 +416,20 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
 
         return legs_by_sections_full
     else:
-        print("No existe recorrido para id_linea:", line_id)
+        logger.warning("No existe recorrido para id_linea: %s", line_id)
 
 
 # GENERAL PURPOSE KPIS WITH GPS
 
 
-def read_data_for_daily_kpi():
+def read_data_for_daily_kpi(ctx: StorageContext):
     """
     Read legs and gps micro data from db and
     merges distances to legs
 
     Parameters
     ----------
-    None
+    ctx : StorageContext
 
     Returns
     -------
@@ -458,47 +440,30 @@ def read_data_for_daily_kpi():
         gps vehicle tracking data
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
+    if not ctx.data.has_rows("gps"):
+        logger.info("No existe tabla GPS en la base; no se pueden computar indicadores de oferta")
+        return pd.DataFrame(), pd.DataFrame()
 
-    cur = conn_data.cursor()
     q = """
-        SELECT tbl_name FROM sqlite_master
-        WHERE type='table'
-        AND tbl_name='gps';
-    """
-    listOfTables = cur.execute(q).fetchall()
-
-    if listOfTables == []:
-        print("No existe tabla GPS en la base")
-        print("No se pudeden computar indicadores de oferta usando GPS")
-
-        legs = pd.DataFrame()
-        gps = pd.DataFrame()
-
-        return legs, gps
-
-    # print("Leyendo datos de oferta")
-    q = f"""
-    select g.* from gps g
+    SELECT g.* FROM gps g
     JOIN dias_ultima_corrida d
     ON g.dia = d.dia
-    order by g.dia, id_linea, interno, fecha
+    ORDER BY g.dia, id_linea, interno, fecha
     """
-    gps = pd.read_sql(q, conn_data)
+    gps = ctx.data.query(q)
 
-    q = f"""
-        SELECT e.dia,e.id_linea,e.interno,e.id_tarjeta,e.h3_o,
+    q = """
+        SELECT e.dia, e.id_linea, e.interno, e.id_tarjeta, e.h3_o,
         e.h3_d, e.factor_expansion_linea
-        from etapas e
+        FROM etapas e
         JOIN dias_ultima_corrida d
         ON e.dia = d.dia
-        where e.od_validado==1
+        WHERE e.od_validado = 1
     """
-    legs = pd.read_sql(q, conn_data)
-    
+    legs = ctx.data.query(q)
+
     if (len(gps) > 0) & (len(legs) > 0):
         # add distances
-        # legs = add_distances_to_legs(legs)
         legs = compute_od_distances(
             od_df             = legs,
             origin_col        = "h3_o",
@@ -508,20 +473,18 @@ def read_data_for_daily_kpi():
             db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
             network_cache_dir = "data/matriz_distancia",
             symmetric         = False,
-            precompute_dist   = 50_000,   
-            max_tile_deg      = 99,      
+            precompute_dist   = 50_000,
+            max_tile_deg      = 99,
             verbose           = False
         )
     else:
-        print("No hay datos sin KPI procesados")
-        legs = pd.DataFrame()
-        gps = pd.DataFrame()
-    # print("Fin carga de datos de oferta y demanda")
+        logger.info("No hay datos sin KPI procesados")
+        return pd.DataFrame(), pd.DataFrame()
     return legs, gps
 
 
 @duracion
-def compute_kpi_by_line_day(legs, gps):
+def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
     """
     Takes data for supply and demand and computes KPI at line level
     for each day
@@ -534,16 +497,17 @@ def compute_kpi_by_line_day(legs, gps):
     gps : pandas.DataFrame
         DataFrame with vehicle gps data
 
+    ctx : StorageContext
+
     Returns
     -------
     None
 
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-
     # get veh expansion factors for supply data
-    q = "select id_linea,dia,veh_exp from vehicle_expansion_factors"
-    vehicle_expansion_factor = pd.read_sql(q, conn_data)
+    vehicle_expansion_factor = ctx.data.query(
+        "SELECT id_linea, dia, veh_exp FROM vehicle_expansion_factors"
+    )
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
     # demand data
@@ -593,56 +557,35 @@ def compute_kpi_by_line_day(legs, gps):
     day_stats = day_stats.reindex(columns=cols)
 
     # get last processed days
-    dias_ultima_corrida = pd.read_sql_query(
-        """SELECT * FROM dias_ultima_corrida""",
-        conn_data,
-    )
-    # borro si ya existen etapas de una corrida anterior
+    dias_ultima_corrida = ctx.data.get_run_days()
     values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
-    query = f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})"
-    conn_data.execute(query)
-    conn_data.commit()
+    ctx.data.execute(f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})")
 
-    day_stats.to_sql(
-        "kpi_by_day_line",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+    ctx.data.append_raw(day_stats, "kpi_by_day_line")
 
     return day_stats
 
 
 @duracion
-def compute_kpi_by_line_typeday():
+def compute_kpi_by_line_typeday(ctx: StorageContext):
     """
     Takes data for supply and demand and computes KPI at line level
     for weekday and weekend
 
     Parameters
     ----------
-    None
+    ctx : StorageContext
 
     Returns
     -------
     None
 
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-
     # delete old data
-    delete_q = """
-    DELETE FROM kpi_by_day_line
-    where dia in ('weekday','weekend')
-    """
-    conn_data.execute(delete_q)
-    conn_data.commit()
+    ctx.data.execute("DELETE FROM kpi_by_day_line WHERE dia IN ('weekday','weekend')")
 
     # read daily data
-    q = """
-    select * from kpi_by_day_line
-    """
-    daily_data = pd.read_sql(q, conn_data)
+    daily_data = ctx.data.query("SELECT * FROM kpi_by_day_line")
 
     # get day of the week
     weekend = pd.to_datetime(daily_data["dia"].copy()).dt.dayofweek > 4
@@ -652,7 +595,7 @@ def compute_kpi_by_line_typeday():
     # compute aggregated stats
     type_of_day_stats = daily_data.groupby(["id_linea", "dia"], as_index=False).mean()
 
-    print("Subiendo indicadores por linea a la db")
+    logger.info("Subiendo indicadores por linea a la db")
 
     cols = [
         "id_linea",
@@ -671,12 +614,7 @@ def compute_kpi_by_line_typeday():
 
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
 
-    type_of_day_stats.to_sql(
-        "kpi_by_day_line",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+    ctx.data.append_raw(type_of_day_stats, "kpi_by_day_line")
 
     return type_of_day_stats
 
@@ -685,18 +623,14 @@ def compute_kpi_by_line_typeday():
 
 
 @duracion
-def compute_kpi_by_service():
+def compute_kpi_by_service(ctx: StorageContext):
     """
     Reads supply and demand data and computes KPI at service level
     for each day
 
     Parameters
     ----------
-    legs : pandas.DataFrame
-        DataFrame with legs data
-
-    gps : pandas.DataFrame
-        DataFrame with vehicle gps data
+    ctx : StorageContext
 
     Returns
     -------
@@ -704,15 +638,13 @@ def compute_kpi_by_service():
 
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    print("Leyendo demanda por servicios validos")
+    logger.debug("Leyendo demanda por servicios validos")
 
     q_valid_services = """
         WITH demand AS (
         SELECT
             e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
-            CAST(strftime('%s',(e.dia||' '||e.tiempo)) AS INTEGER) AS ts,
+            epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
             e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea
         FROM etapas e
         JOIN dias_ultima_corrida d
@@ -735,57 +667,54 @@ def compute_kpi_by_service():
         AND d.ts BETWEEN s.min_ts AND s.max_ts;
         """
 
-    valid_demand = pd.read_sql(q_valid_services, conn_data)
+    valid_demand = ctx.data.query(q_valid_services)
 
-    print("Leyendo demanda por servicios invalidos")
+    logger.debug("Leyendo demanda por servicios invalidos")
     q_invalid_services = """
-        WITH demand as (
-            select e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
-                cast(strftime('%s',(e.dia||' '||e.tiempo)) as int) as ts, e.tiempo,
-            e.h3_o,
-            e.h3_d, e.factor_expansion_linea
-        FROM etapas e
-        JOIN dias_ultima_corrida d
-            ON e.dia = d.dia
-        WHERE od_validado = 1
-        AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
-
+        WITH demand AS (
+            SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
+                epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
+                e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea
+            FROM etapas e
+            JOIN dias_ultima_corrida d
+                ON e.dia = d.dia
+            WHERE od_validado = 1
+            AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
         ),
-        valid_services as (
-            select id_linea,dia,id_ramal,interno, service_id, min_ts, max_ts
-            from services
-            where valid = 1
+        valid_services AS (
+            SELECT id_linea, dia, id_ramal, interno, service_id, min_ts, max_ts
+            FROM services
+            WHERE valid = 1
         ),
-        invalid_demand as (
-            select d.*, s.service_id
-            from demand d
-            left join valid_services s
-            on d.id_linea = s.id_linea
-            and d.dia = s.dia
-            and d.id_ramal = s.id_ramal
-            and d.interno = s.interno
-            and d.ts >= s.min_ts
-            and d.ts <= s.max_ts
-            ),
-        legs_no_service as (
-            select e.id_tarjeta, e.id, id_linea, dia,id_ramal, interno, ts,
-                tiempo, h3_o, h3_d,factor_expansion_linea
-            from invalid_demand e
-            where service_id is null
+        invalid_demand AS (
+            SELECT d.*, s.service_id
+            FROM demand d
+            LEFT JOIN valid_services s
+            ON d.id_linea = s.id_linea
+            AND d.dia = s.dia
+            AND d.id_ramal = s.id_ramal
+            AND d.interno = s.interno
+            AND d.ts >= s.min_ts
+            AND d.ts <= s.max_ts
+        ),
+        legs_no_service AS (
+            SELECT e.id_tarjeta, e.id, id_linea, dia, id_ramal, interno, ts,
+                tiempo, h3_o, h3_d, factor_expansion_linea
+            FROM invalid_demand e
+            WHERE service_id IS NULL
         )
-        select d.*, s.service_id
-        from legs_no_service d
-        left join valid_services s
-        on d.id_linea = s.id_linea
-        and d.dia = s.dia
-        and d.id_ramal = s.id_ramal
-        and d.interno = s.interno
-        and d.ts <= s.min_ts -- valid services begining after the leg start
-        order by d.id_tarjeta,d.dia,d.id_linea,d.interno, s.min_ts asc
-        ;
+        SELECT d.*, s.service_id
+        FROM legs_no_service d
+        LEFT JOIN valid_services s
+        ON d.id_linea = s.id_linea
+        AND d.dia = s.dia
+        AND d.id_ramal = s.id_ramal
+        AND d.interno = s.interno
+        AND d.ts <= s.min_ts
+        ORDER BY d.id_tarjeta, d.dia, d.id_linea, d.interno, s.min_ts ASC
         """
 
-    invalid_demand_dups = pd.read_sql(q_invalid_services, conn_data)
+    invalid_demand_dups = ctx.data.query(q_invalid_services)
 
     # remove duplicates leaving the first, i.e. next valid service in time
     invalid_demand = invalid_demand_dups.drop_duplicates(subset=["id"], keep="first")
@@ -795,7 +724,6 @@ def compute_kpi_by_service():
     service_demand = pd.concat([valid_demand, invalid_demand])
 
     # add distances to demand data
-    # service_demand = add_distances_to_legs(legs=service_demand)
     service_demand = compute_od_distances(
         od_df             = service_demand,
         origin_col        = "h3_o",
@@ -805,8 +733,8 @@ def compute_kpi_by_service():
         db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
         network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
-        precompute_dist   = 50_000,   
-        max_tile_deg      = 99,      
+        precompute_dist   = 50_000,
+        max_tile_deg      = 99,
         verbose           = False
     )
 
@@ -817,13 +745,13 @@ def compute_kpi_by_service():
 
     # read supply service data
     service_supply_q = """
-        select
-            dia,id_linea,id_ramal,interno,service_id,
-            distance_km as tot_km, min_datetime,max_datetime
-        from
-            services where valid = 1
+        SELECT
+            dia, id_linea, id_ramal, interno, service_id,
+            distance_km AS tot_km, min_datetime, max_datetime
+        FROM
+            services WHERE valid = 1
         """
-    service_supply = pd.read_sql(service_supply_q, conn_data)
+    service_supply = ctx.data.query(service_supply_q)
 
     # merge supply and demand data
     service_stats = service_supply.merge(
@@ -865,22 +793,11 @@ def compute_kpi_by_service():
     service_stats = service_stats.reindex(columns=cols)
 
     # get last processed days
-    dias_ultima_corrida = pd.read_sql_query(
-        """SELECT * FROM dias_ultima_corrida""",
-        conn_data,
-    )
-    # borro si ya existen etapas de una corrida anterior
+    dias_ultima_corrida = ctx.data.get_run_days()
     values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
-    query = f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})"
-    conn_data.execute(query)
-    conn_data.commit()
+    ctx.data.execute(f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})")
 
-    service_stats.to_sql(
-        "kpi_by_day_line_service",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+    ctx.data.append_raw(service_stats, "kpi_by_day_line_service")
 
     return service_stats
 
@@ -907,23 +824,20 @@ def supply_stats(df):
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
-def compute_speed_by_day_veh_hour():
+def compute_speed_by_day_veh_hour(ctx: StorageContext):
     """
     This function read gps data and computes
     average speed by veh for each day and line
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-    processed_days = get_processed_days(table_name="basic_kpi_by_line_day")
+    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
 
     # read data
     q = f"""
-    select dia,id_linea,id_ramal,fecha,interno,velocity,distance_km 
-    from gps
-    where dia not in ({processed_days})
-    ;
+    SELECT dia, id_linea, id_ramal, fecha, interno, velocity, distance_km
+    FROM gps
+    WHERE dia NOT IN ({processed_days})
     """
-    gps_df = pd.read_sql(q, conn_data)
-    conn_data.close()
+    gps_df = ctx.data.query(q)
 
     # create a lag in date
     gps_df = gps_df.sort_values(["dia", "id_linea", "id_ramal", "interno", "fecha"])
@@ -965,50 +879,28 @@ def compute_speed_by_day_veh_hour():
     return speed_vehicle_hour_gps
 
 
-def gps_table_exists():
-    conn_data = iniciar_conexion_db(tipo="data")
-    cur = conn_data.cursor()
-    q = """
-        SELECT tbl_name FROM sqlite_master
-        WHERE type='table'
-        AND tbl_name='gps';
-    """
-    listOfTables = cur.execute(q).fetchall()
-    conn_data.close()
-    if listOfTables == []:
-        print("No existe tabla GPS en la base")
-        print("Se calcularán KPI básicos en base a datos de demanda")
-        return False
-    else:
-        return True
-
-
 @duracion
-def run_basic_kpi(id_linea=[]):
-    conn_data = iniciar_conexion_db(tipo="data")
-
+def run_basic_kpi(ctx: StorageContext, id_linea=[]):
     # read already process days
-    processed_days = get_processed_days(table_name="basic_kpi_by_line_day")
+    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
 
     # read unprocessed data from legs
-
     q = f"""
-        select *
-        from etapas
-        where od_validado = 1
-        and dia not in ({processed_days})
+        SELECT *
+        FROM etapas
+        WHERE od_validado = 1
+        AND dia NOT IN ({processed_days})
     """
     if len(id_linea) > 0:
         id_linea_str = ", ".join(map(str, id_linea))
-        q += f" and id_linea in ({id_linea_str})"
+        q += f" AND id_linea IN ({id_linea_str})"
     q += ";"
 
-    legs = pd.read_sql(q, conn_data)
-            
+    legs = ctx.data.query(q)
+
     if len(legs) < 5:
         return None
 
-    # legs = add_distances_to_legs(legs=legs)
     legs = compute_od_distances(
         od_df             = legs,
         origin_col        = "h3_o",
@@ -1018,8 +910,8 @@ def run_basic_kpi(id_linea=[]):
         db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
         network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
-        precompute_dist   = 50_000,   
-        max_tile_deg      = 99,      
+        precompute_dist   = 50_000,
+        max_tile_deg      = 99,
         verbose           = False
     )
 
@@ -1046,9 +938,8 @@ def run_basic_kpi(id_linea=[]):
 
     # else compute commercial speed based on gps or demand
     else:
-        if gps_table_exists():
-            # print("Calculando velocidades comerciales usando tabla gps")
-            speed_vehicle_hour = compute_speed_by_day_veh_hour()
+        if ctx.data.has_rows("gps"):
+            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx)
         else:
             # compute mean veh speed using demand data
             legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
@@ -1057,7 +948,6 @@ def run_basic_kpi(id_linea=[]):
                 legs.loc[:, "datetime"], format="%Y-%m-%d %H:%M:%S"
             )
 
-            # print("Calculando velocidades comerciales")
             # compute vehicle speed per hour
             speed_vehicle_hour = legs.groupby(
                 ["dia", "id_linea", "id_ramal", "interno"]
@@ -1072,8 +962,6 @@ def run_basic_kpi(id_linea=[]):
     ] = speed_max
 
     speed_vehicle_hour = speed_vehicle_hour.dropna()
-
-    # print("Eliminando casos atipicos en velocidades comerciales")
 
     # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour.groupby(
@@ -1121,8 +1009,6 @@ def run_basic_kpi(id_linea=[]):
 
     legs["speed_kmh"] = legs.speed_kmh_veh_h.combine_first(legs.speed_kmh_line_h)
 
-    # print("Calculando pasajero equivalente otros KPI por dia" ", linea, interno y hora")
-
     # get an vehicle space equivalent passenger
     legs["eq_pax"] = (legs.distance / legs.speed_kmh) * legs.factor_expansion_linea
 
@@ -1154,17 +1040,14 @@ def run_basic_kpi(id_linea=[]):
     kpi_by_veh["of"] = kpi_by_veh.eq_pax / 60 * 100
 
     # remove outliers
-    # print("Eliminando casos atipicos en pasajeros equivalentes")
-
     of_threshold = 120
     of_mask = kpi_by_veh["of"] > of_threshold
-    print(
-        f"Hay un {round(of_mask.sum()/ len(kpi_by_veh) * 100,1)} % de vehiculos con OF atipicos"
+    logger.info(
+        "Hay un %.1f%% de vehículos con OF atípicos", of_mask.sum() / len(kpi_by_veh) * 100
     )
 
     kpi_by_veh.loc[of_mask, "of"] = None
 
-    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = [
         "dia",
@@ -1181,14 +1064,7 @@ def run_basic_kpi(id_linea=[]):
 
     kpi_by_veh = kpi_by_veh.reindex(columns=cols)
 
-    kpi_by_veh.to_sql(
-        "basic_kpi_by_vehicle_hr",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
-
-    # print("Calculando pasajero equivalente otros KPI por dia, linea y hora")
+    ctx.data.append_raw(kpi_by_veh, "basic_kpi_by_vehicle_hr")
 
     # COMPUTE KPI BY DAY LINE HOUR
 
@@ -1228,8 +1104,6 @@ def run_basic_kpi(id_linea=[]):
     )
     kpi_by_line_hr = kpi_by_line_hr.rename(columns={"speed_kmh_line_h": "speed_kmh"})
 
-    # print("Subiendo a la base de datos")
-
     # create month
     kpi_by_line_hr["yr_mo"] = kpi_by_line_hr.dia.str[:7]
 
@@ -1238,15 +1112,9 @@ def run_basic_kpi(id_linea=[]):
 
     kpi_by_line_hr = kpi_by_line_hr.reindex(columns=cols)
 
-    kpi_by_line_hr.to_sql(
-        "basic_kpi_by_line_hr",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+    ctx.data.append_raw(kpi_by_line_hr, "basic_kpi_by_line_hr")
 
     # COMPUTE KPI BY DAY AND LINE
-    # print("Calculando pasajero equivalente otros KPI por dia y linea")
 
     # compute daily stats
     ocupation_factor_line = (
@@ -1289,44 +1157,26 @@ def run_basic_kpi(id_linea=[]):
 
     kpi_by_line_day["yr_mo"] = kpi_by_line_day.dia.str[:7]
 
-    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_day = kpi_by_line_day.reindex(columns=cols)
 
-    kpi_by_line_day.to_sql(
-        "basic_kpi_by_line_day",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
+    ctx.data.append_raw(kpi_by_line_day, "basic_kpi_by_line_day")
 
     # compute aggregated stats by weekday and weekend
-    compute_basic_kpi_line_typeday()
-    compute_basic_kpi_line_hr_typeday()
-
-    conn_data.close()
+    compute_basic_kpi_line_typeday(ctx)
+    compute_basic_kpi_line_hr_typeday(ctx)
 
 
-def compute_basic_kpi_line_typeday():
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # print("Borrando datos desactualizados por tipo de dia")
-
+def compute_basic_kpi_line_typeday(ctx: StorageContext):
     # delete old type of day data data
-    delete_q = """
-    DELETE FROM basic_kpi_by_line_day
-    where dia in ('weekday','weekend')
-    """
-    conn_data.execute(delete_q)
-    conn_data.commit()
+    ctx.data.execute(
+        "DELETE FROM basic_kpi_by_line_day WHERE dia IN ('weekday','weekend')"
+    )
 
-    print("Calculando KPI basicos por tipo de dia")
-    q = """
-    select * from basic_kpi_by_line_day;
-    """
-    kpi_by_line_day = pd.read_sql(q, conn_data)
+    logger.info("Calculando KPI basicos por tipo de dia")
+    kpi_by_line_day = ctx.data.query("SELECT * FROM basic_kpi_by_line_day")
 
     # get day of the week
     weekend = pd.to_datetime(kpi_by_line_day["dia"].copy()).dt.dayofweek > 4
@@ -1343,41 +1193,22 @@ def compute_basic_kpi_line_typeday():
         as_index=False,
     ).mean()
 
-    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
-    kpi_by_line_typeday.to_sql(
-        "basic_kpi_by_line_day",
-        conn_data,
-        if_exists="append",
-        index=False,
+    ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_day")
+
+
+def compute_basic_kpi_line_hr_typeday(ctx: StorageContext):
+    # delete old type of day data data
+    ctx.data.execute(
+        "DELETE FROM basic_kpi_by_line_hr WHERE dia IN ('weekday','weekend')"
     )
 
-    conn_data.close()
-
-
-def compute_basic_kpi_line_hr_typeday():
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # print("Borrando datos desactualizados por tipo de dia")
-
-    # delete old type of day data data
-    delete_q = """
-    DELETE FROM basic_kpi_by_line_hr
-    where dia in ('weekday','weekend')
-    """
-    conn_data.execute(delete_q)
-    conn_data.commit()
-
-    print("Calculando KPI basicos por tipo de dia")
-    q = """
-    select * from basic_kpi_by_line_hr;
-    """
-
-    kpi_by_line_hr = pd.read_sql(q, conn_data)
+    logger.info("Calculando KPI basicos por tipo de dia")
+    kpi_by_line_hr = ctx.data.query("SELECT * FROM basic_kpi_by_line_hr")
 
     # get day of the week
     weekend = pd.to_datetime(kpi_by_line_hr["dia"].copy()).dt.dayofweek > 4
@@ -1389,20 +1220,12 @@ def compute_basic_kpi_line_hr_typeday():
         ["dia", "yr_mo", "id_linea", "hora"], as_index=False
     ).mean()
 
-    # print("Subiendo a la base de datos")
     # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
 
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
-    kpi_by_line_typeday.to_sql(
-        "basic_kpi_by_line_hr",
-        conn_data,
-        if_exists="append",
-        index=False,
-    )
-
-    conn_data.close()
+    ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_hr")
 
 
 def compute_speed_by_veh_hour(legs_vehicle):
@@ -1464,84 +1287,63 @@ def compute_speed_by_veh_hour(legs_vehicle):
         return None
 
 
-def get_processed_days(table_name):
+def get_processed_days(ctx: StorageContext, table_name: str) -> str:
     """
-    Takes a table name and returns all days present in
-    that table
-
-    Parameters
-    ----------
-    table_name : str
-        name of the table with processed data
-
-    Returns
-    -------
-    str
-        processed days in a coma separated str
-
-
+    Returns all days present in a table as a comma-separated SQL string.
+    Returns \"''\" if the table is empty or does not exist.
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    # get processed days in basic data
-    processed_days_q = f"""
-    select distinct dia
-    from {table_name}
-    """
-    processed_days = pd.read_sql(processed_days_q, conn_data)
-    processed_days = processed_days.dia
-    processed_days = ", ".join([f"'{val}'" for val in processed_days])
-
-    return processed_days
+    try:
+        df = ctx.data.get_raw(table_name)
+        if df.empty or "dia" not in df.columns:
+            return "''"
+        days = ", ".join(f"'{v}'" for v in df["dia"].unique())
+        return days or "''"
+    except Exception:
+        return "''"
 
 
 # SERVICES' KPIS
 
 
 @duracion
-def compute_dispatched_services_by_line_hour_day():
+def compute_dispatched_services_by_line_hour_day(ctx: StorageContext):
     """
     Reads services' data and computes how many services
     by line, day and hour
 
     Parameters
     ----------
-    None
+    ctx : StorageContext
 
     Returns
     -------
     None
 
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-    conn_dash = iniciar_conexion_db(tipo="dash")
-
-    processed_days_q = """
-    select distinct dia
-    from services_by_line_hour
-    """
-    processed_days = pd.read_sql(processed_days_q, conn_data)
-    processed_days = processed_days.dia
-    processed_days = ", ".join([f"'{val}'" for val in processed_days])
-
-    # print("Leyendo datos de servicios")
+    try:
+        processed_df = ctx.data.get_raw("services_by_line_hour")
+        if processed_df.empty or "dia" not in processed_df.columns:
+            processed_days = "''"
+        else:
+            processed_days = (
+                ", ".join(f"'{v}'" for v in processed_df["dia"].unique()) or "''"
+            )
+    except Exception:
+        processed_days = "''"
 
     daily_services_q = f"""
-    select
+    SELECT
         id_linea, dia, min_datetime
-    from
+    FROM
         services
-    where
+    WHERE
         valid = 1
-    and dia not in ({processed_days})
-    ;
+    AND dia NOT IN ({processed_days})
     """
 
-    daily_services = pd.read_sql(daily_services_q, conn_data)
+    daily_services = ctx.data.query(daily_services_q)
 
     if len(daily_services) > 0:
-
-        # print("Procesando servicios por hora")
 
         daily_services["hora"] = daily_services.min_datetime.str[10:13].map(int)
 
@@ -1552,71 +1354,48 @@ def compute_dispatched_services_by_line_hour_day():
             ["id_linea", "dia", "hora"], as_index=False
         ).agg(servicios=("hora", "count"))
 
-        # print("Fin procesamiento servicios por hora")
-
-        print("Subiendo datos a la DB")
+        logger.debug("Subiendo datos a la DB")
 
         cols = ["id_linea", "dia", "hora", "servicios"]
 
         dispatched_services_stats = dispatched_services_stats.reindex(columns=cols)
 
-        dispatched_services_stats.to_sql(
-            "services_by_line_hour",
-            conn_data,
-            if_exists="append",
-            index=False,
-        )
+        ctx.data.append_raw(dispatched_services_stats, "services_by_line_hour")
+        ctx.dash.append_raw(dispatched_services_stats, "services_by_line_hour")
 
-        dispatched_services_stats.to_sql(
-            "services_by_line_hour",
-            conn_dash,
-            if_exists="append",
-            index=False,
-        )
-        conn_data.close()
-        conn_dash.close()
-
-        # print("Datos subidos a la DB")
     else:
-        print("Todos los dias fueron procesados")
+        logger.info("Todos los dias fueron procesados")
 
 
 @duracion
-def compute_dispatched_services_by_line_hour_typeday():
+def compute_dispatched_services_by_line_hour_typeday(ctx: StorageContext):
     """
     Reads services' data and computes how many services
     by line, type of day (weekday weekend), and hour
 
     Parameters
     ----------
-    None
+    ctx : StorageContext
 
     Returns
     -------
     None
 
     """
-
-    conn_data = iniciar_conexion_db(tipo="data")
-    conn_dash = iniciar_conexion_db(tipo="dash")
-
     # delete old data
-    delete_q = """
-    DELETE FROM services_by_line_hour
-    where dia in ('weekday','weekend')
-    """
-    conn_data.execute(delete_q)
-    conn_data.commit()
+    ctx.data.execute(
+        "DELETE FROM services_by_line_hour WHERE dia IN ('weekday','weekend')"
+    )
 
     # read daily data
-    q = """
-    select * from services_by_line_hour
-    """
-    daily_data = pd.read_sql(q, conn_data)
+    try:
+        daily_data = ctx.data.get_raw("services_by_line_hour")
+    except Exception:
+        daily_data = pd.DataFrame()
 
     if len(daily_data) > 0:
 
-        print("Procesando servicios por tipo de dia")
+        logger.info("Procesando servicios por tipo de dia")
 
         # get day of the week
         weekend = pd.to_datetime(daily_data["dia"].copy()).dt.dayofweek > 4
@@ -1628,46 +1407,28 @@ def compute_dispatched_services_by_line_hour_typeday():
             ["id_linea", "dia", "hora"], as_index=False
         ).mean()
 
-        print("Subiendo datos a la DB")
+        logger.debug("Subiendo datos a la DB")
 
         cols = ["id_linea", "dia", "hora", "servicios"]
 
         type_of_day_stats = type_of_day_stats.reindex(columns=cols)
 
-        type_of_day_stats.to_sql(
-            "services_by_line_hour",
-            conn_data,
-            if_exists="append",
-            index=False,
+        ctx.data.append_raw(type_of_day_stats, "services_by_line_hour")
+
+        # delete old dash data and re-upload
+        ctx.dash.execute(
+            "DELETE FROM services_by_line_hour WHERE dia IN ('weekday','weekend')"
         )
-
-        # delete old dash data
-        delete_q = """
-        DELETE FROM services_by_line_hour
-        where dia in ('weekday','weekend')
-        """
-        conn_dash.execute(delete_q)
-        conn_dash.commit()
-
-        type_of_day_stats.to_sql(
-            "services_by_line_hour",
-            conn_dash,
-            if_exists="append",
-            index=False,
-        )
-        conn_data.close()
-        conn_dash.close()
-
-        # print("Datos subidos a la DB")
+        ctx.dash.append_raw(type_of_day_stats, "services_by_line_hour")
 
     else:
-        print("No hay datos de servicios por hora")
-        print("Correr la funcion kpi.compute_services_by_line_hour_day()")
+        logger.info("No hay datos de servicios por hora. Correr kpi.compute_services_by_line_hour_day()")
+        type_of_day_stats = pd.DataFrame()
 
     return type_of_day_stats
 
 
-def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
+def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx: StorageContext):
     """
     Reads legs data by line id, hour range and type of day
 
@@ -1682,6 +1443,7 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
+    ctx : StorageContext
 
     Returns
     -------
@@ -1691,33 +1453,29 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
     """
 
     # Read legs data by line id, hours, day type
-    #
     q_main_legs = """
-    select id_linea, dia, factor_expansion_linea,h3_o,h3_d, od_validado
-    from etapas
+    SELECT id_linea, dia, factor_expansion_linea, h3_o, h3_d, od_validado
+    FROM etapas
     """
     q_main_legs = q_main_legs + line_ids_where
 
     if hour_range:
-        hour_range_where = f" and hora >= {hour_range[0]} and hora <= {hour_range[1]}"
+        hour_range_where = f" AND hora >= {hour_range[0]} AND hora <= {hour_range[1]}"
         q_main_legs = q_main_legs + hour_range_where
 
     day_type_is_a_date = is_date_string(day_type)
 
     if day_type_is_a_date:
-        q_main_legs = q_main_legs + f" and dia = '{day_type}'"
+        q_main_legs = q_main_legs + f" AND dia = '{day_type}'"
 
     q_legs = f"""
-        select id_linea, dia, factor_expansion_linea,h3_o,h3_d
-        from ({q_main_legs}) e
-        where e.od_validado==1
+        SELECT id_linea, dia, factor_expansion_linea, h3_o, h3_d
+        FROM ({q_main_legs}) e
+        WHERE e.od_validado = 1
     """
-    print("Obteniendo datos de etapas")
+    logger.debug("Obteniendo datos de etapas")
 
-    # get data for legs and route geoms
-    conn_data = iniciar_conexion_db(tipo="data")
-    legs = pd.read_sql(q_legs, conn_data)
-    conn_data.close()
+    legs = ctx.data.query(q_legs)
 
     legs["yr_mo"] = legs.dia.str[:7]
 

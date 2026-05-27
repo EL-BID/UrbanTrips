@@ -705,6 +705,11 @@ with st.expander("Género y tarifas"):
         ].copy()
 
     else:
+        desc_tipo_dia = col1.selectbox(
+            "Tipo de día",
+            options=socio_indicadores.tipo_dia.dropna().unique(),
+            key="desc_tipo_dia",
+        )
         st.session_state.socio_indicadores_ = socio_indicadores[
             (socio_indicadores.tipo_dia == desc_tipo_dia)
         ].copy()
