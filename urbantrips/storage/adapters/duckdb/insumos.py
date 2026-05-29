@@ -110,18 +110,27 @@ class DuckDBInsumoAdapter:
         with self._conn() as conn:
             conn.execute("DELETE FROM lines_geoms")
             conn.register("_df", flat)
-            conn.execute("INSERT INTO lines_geoms SELECT id_linea, wkt FROM _df")
+            try:
+                conn.execute("INSERT INTO lines_geoms SELECT id_linea, wkt FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_stops(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM stops")
             conn.register("_df", df)
-            conn.execute("INSERT INTO stops SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO stops SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_distances(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute("INSERT INTO distancias SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO distancias SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
         # No-op until zone storage is standardised in Plan 2.
@@ -131,25 +140,37 @@ class DuckDBInsumoAdapter:
         with self._conn() as conn:
             conn.execute("DELETE FROM matriz_validacion")
             conn.register("_df", df)
-            conn.execute("INSERT INTO matriz_validacion SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO matriz_validacion SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_travel_times_stations(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM travel_times_stations")
             conn.register("_df", df)
-            conn.execute("INSERT INTO travel_times_stations SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO travel_times_stations SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_metadata_lineas(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM metadata_lineas")
             conn.register("_df", df)
-            conn.execute("INSERT INTO metadata_lineas SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO metadata_lineas SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def save_metadata_ramales(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM metadata_ramales")
             conn.register("_df", df)
-            conn.execute("INSERT INTO metadata_ramales SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO metadata_ramales SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def has_routes(self) -> bool:
         return not self.get_routes().empty
@@ -169,7 +190,10 @@ class DuckDBInsumoAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            try:
+                conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")
 
     def get_raw(self, table_name: str) -> pd.DataFrame:
         table_name = validate_table_name(table_name)
@@ -183,8 +207,11 @@ class DuckDBInsumoAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {table_name} "
-                f"AS SELECT * FROM _raw_df WHERE FALSE"
-            )
-            conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {table_name} "
+                    f"AS SELECT * FROM _raw_df WHERE FALSE"
+                )
+                conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")

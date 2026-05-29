@@ -99,7 +99,10 @@ class DuckDBDataAdapter:
         with self._conn() as conn:
             conn.execute("DELETE FROM dias_ultima_corrida")
             conn.register("_df", df)
-            conn.execute("INSERT INTO dias_ultima_corrida SELECT * FROM _df")
+            try:
+                conn.execute("INSERT INTO dias_ultima_corrida SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     # ── transactions ──────────────────────────────────────────────────────────
 
@@ -117,7 +120,10 @@ class DuckDBDataAdapter:
         cols = ", ".join(_TRANSACCIONES_COLUMNS)
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute(f"INSERT INTO transacciones ({cols}) SELECT {cols} FROM _df")
+            try:
+                conn.execute(f"INSERT INTO transacciones ({cols}) SELECT {cols} FROM _df")
+            finally:
+                conn.unregister("_df")
 
     # ── raw staging ───────────────────────────────────────────────────────────
 
@@ -125,7 +131,10 @@ class DuckDBDataAdapter:
         """Append one CSV chunk (already structurally standardized) to transacciones_raw."""
         with self._conn() as conn:
             conn.register("_chunk", df)
-            conn.execute("INSERT INTO transacciones_raw SELECT * FROM _chunk")
+            try:
+                conn.execute("INSERT INTO transacciones_raw SELECT * FROM _chunk")
+            finally:
+                conn.unregister("_chunk")
 
     def clear_raw(self) -> None:
         """Truncate the staging table after standardization is complete."""
@@ -208,23 +217,35 @@ class DuckDBDataAdapter:
             return conn.execute("SELECT * FROM etapas").fetchdf()
 
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
+        """Persist legs to DuckDB via parquet staging to avoid Arrow-registration
+        memory hazards.  Uses the same strategy as replace_legs_for_days."""
         df = self._prepare_legs_df(df, batch)
         cols = ", ".join(_ETAPAS_COLUMNS)
-        with self._conn() as conn:
-            conn.execute("BEGIN TRANSACTION")
-            try:
-                for start in range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS):
-                    chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]
-                    conn.register("_df", chunk)
-                    try:
-                        conn.execute("DELETE FROM etapas WHERE id IN (SELECT id FROM _df)")
-                        conn.execute(f"INSERT INTO etapas ({cols}) SELECT {cols} FROM _df")
-                    finally:
-                        conn.unregister("_df")
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+
+        with tempfile.TemporaryDirectory(prefix="urbantrips_legs_") as tmpdir:
+            tmp_path = Path(tmpdir)
+            for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
+                chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]
+                chunk.to_parquet(tmp_path / f"part-{idx:05d}.parquet", index=False)
+
+            parquet_glob = str(tmp_path / "*.parquet").replace("'", "''")
+
+            with self._conn() as conn:
+                conn.execute("PRAGMA threads=1")
+                conn.execute("BEGIN TRANSACTION")
+                try:
+                    conn.execute(
+                        f"DELETE FROM etapas WHERE id IN "
+                        f"(SELECT id FROM read_parquet('{parquet_glob}'))"
+                    )
+                    conn.execute(
+                        f"INSERT INTO etapas ({cols}) "
+                        f"SELECT {cols} FROM read_parquet('{parquet_glob}')"
+                    )
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
 
     def replace_legs_for_days(self, df: pd.DataFrame, days: list[str]) -> None:
         if not days:
@@ -278,7 +299,10 @@ class DuckDBDataAdapter:
         cols = ", ".join(_VIAJES_COLUMNS)
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute(f"INSERT INTO viajes ({cols}) SELECT {cols} FROM _df")
+            try:
+                conn.execute(f"INSERT INTO viajes ({cols}) SELECT {cols} FROM _df")
+            finally:
+                conn.unregister("_df")
 
     # ── users (usuarios) ──────────────────────────────────────────────────────
 
@@ -291,7 +315,10 @@ class DuckDBDataAdapter:
         cols = ", ".join(df.columns)
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute(f"INSERT INTO usuarios ({cols}) SELECT * FROM _df")
+            try:
+                conn.execute(f"INSERT INTO usuarios ({cols}) SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     # ── gps ───────────────────────────────────────────────────────────────────
 
@@ -303,7 +330,10 @@ class DuckDBDataAdapter:
         cols = ", ".join(df.columns)
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute(f"INSERT INTO gps ({cols}) SELECT * FROM _df")
+            try:
+                conn.execute(f"INSERT INTO gps ({cols}) SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -342,7 +372,10 @@ class DuckDBDataAdapter:
     def save_indicators(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.register("_ind_df", df)
-            conn.execute("CREATE OR REPLACE TABLE indicadores AS SELECT * FROM _ind_df")
+            try:
+                conn.execute("CREATE OR REPLACE TABLE indicadores AS SELECT * FROM _ind_df")
+            finally:
+                conn.unregister("_ind_df")
 
     def get_vehicle_expansion_factors(self) -> pd.DataFrame:
         with self._conn() as conn:
@@ -354,7 +387,10 @@ class DuckDBDataAdapter:
     def save_vehicle_expansion_factors(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.register("_vef_df", df)
-            conn.execute("INSERT INTO vehicle_expansion_factors SELECT * FROM _vef_df")
+            try:
+                conn.execute("INSERT INTO vehicle_expansion_factors SELECT * FROM _vef_df")
+            finally:
+                conn.unregister("_vef_df")
 
     def get_services(self) -> pd.DataFrame:
         with self._conn() as conn:
@@ -366,7 +402,10 @@ class DuckDBDataAdapter:
     def save_services(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.register("_svc_df", df)
-            conn.execute("INSERT INTO services SELECT * FROM _svc_df")
+            try:
+                conn.execute("INSERT INTO services SELECT * FROM _svc_df")
+            finally:
+                conn.unregister("_svc_df")
 
     def get_line_transactions(self) -> pd.DataFrame:
         with self._conn() as conn:
@@ -378,7 +417,10 @@ class DuckDBDataAdapter:
     def save_line_transactions(self, df: pd.DataFrame) -> None:
         with self._conn() as conn:
             conn.register("_lt_df", df)
-            conn.execute("INSERT INTO transacciones_linea SELECT * FROM _lt_df")
+            try:
+                conn.execute("INSERT INTO transacciones_linea SELECT * FROM _lt_df")
+            finally:
+                conn.unregister("_lt_df")
 
     def get_max_id(self, table: str) -> int:
         table = validate_table_name(table)
@@ -397,17 +439,23 @@ class DuckDBDataAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            try:
+                conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")
 
     def append_raw(self, df: pd.DataFrame, table_name: str) -> None:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {table_name} AS "
-                f"SELECT * FROM _raw_df WHERE FALSE"
-            )
-            conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {table_name} AS "
+                    f"SELECT * FROM _raw_df WHERE FALSE"
+                )
+                conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")
 
     def get_raw(self, table_name: str) -> pd.DataFrame:
         table_name = validate_table_name(table_name)

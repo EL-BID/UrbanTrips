@@ -34,7 +34,10 @@ class DuckDBDashAdapter:
             )
         with self._conn() as conn:
             conn.register("_df", df)
-            conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM _df")
+            try:
+                conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM _df")
+            finally:
+                conn.unregister("_df")
 
     def get_indicator(self, name: str) -> pd.DataFrame:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
@@ -62,7 +65,10 @@ class DuckDBDashAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            try:
+                conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")
 
     def execute(self, sql: str) -> None:
         with self._conn() as conn:
@@ -79,8 +85,11 @@ class DuckDBDashAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {table_name} AS "
-                f"SELECT * FROM _raw_df WHERE FALSE"
-            )
-            conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {table_name} AS "
+                    f"SELECT * FROM _raw_df WHERE FALSE"
+                )
+                conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")

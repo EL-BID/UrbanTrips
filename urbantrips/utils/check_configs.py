@@ -503,6 +503,7 @@ def check_config_errors(config_default):
         vars_required += [[i.variable, i.subvar]]
 
     orden_trx = None
+    date_format = None
 
     errores = []
     nombre_archivo_trx = config_default.loc[
@@ -708,7 +709,7 @@ def check_config_errors(config_default):
             ].default.values[0]
             == "fecha_completa"
         ):
-            if len(date_format) < 14:
+            if date_format is not None and len(date_format) < 14:
                 errores += [
                     'La variable "fecha_trx" debe tener hora/minuto para ordenamiento'
                 ]

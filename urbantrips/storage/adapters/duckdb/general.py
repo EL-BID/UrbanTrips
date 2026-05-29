@@ -54,11 +54,14 @@ class DuckDBGeneralAdapter:
         table_name = validate_table_name(table_name)
         with self._conn() as conn:
             conn.register("_raw_df", df)
-            conn.execute(
-                f"CREATE TABLE IF NOT EXISTS {table_name} AS "
-                f"SELECT * FROM _raw_df WHERE FALSE"
-            )
-            conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {table_name} AS "
+                    f"SELECT * FROM _raw_df WHERE FALSE"
+                )
+                conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            finally:
+                conn.unregister("_raw_df")
 
     def get_raw(self, table_name: str) -> pd.DataFrame:
         table_name = validate_table_name(table_name)

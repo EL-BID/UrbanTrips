@@ -470,20 +470,26 @@ def _init_duckdb(db_path: str):
 
 def _query_duckdb(pairs: pd.DataFrame, con) -> pd.DataFrame:
     con.register("_tmp_q", pairs[["o_norm", "d_norm"]])
-    return con.execute("""
-        SELECT q.o_norm, q.d_norm, c.distance_m,
-               (c.o_norm IS NOT NULL) AS in_cache
-        FROM   _tmp_q q
-        LEFT JOIN od_distances c USING (o_norm, d_norm)
-    """).df()
+    try:
+        return con.execute("""
+            SELECT q.o_norm, q.d_norm, c.distance_m,
+                   (c.o_norm IS NOT NULL) AS in_cache
+            FROM   _tmp_q q
+            LEFT JOIN od_distances c USING (o_norm, d_norm)
+        """).df()
+    finally:
+        con.unregister("_tmp_q")
 
 
 def _store_duckdb(rows: pd.DataFrame, con) -> None:
     con.register("_tmp_ins", rows[["o_norm", "d_norm", "distance_m"]])
-    con.execute("""
-        INSERT OR REPLACE INTO od_distances
-        SELECT o_norm, d_norm, distance_m FROM _tmp_ins
-    """)
+    try:
+        con.execute("""
+            INSERT OR REPLACE INTO od_distances
+            SELECT o_norm, d_norm, distance_m FROM _tmp_ins
+        """)
+    finally:
+        con.unregister("_tmp_ins")
 
 
 # ── Cache de red: metadata ────────────────────────────────────────────────────

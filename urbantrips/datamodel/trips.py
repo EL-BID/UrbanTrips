@@ -412,7 +412,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     ).reset_index(drop=True)
 
     # 2) Calcular la línea anterior dentro de cada grupo
-    df["id_linea_anterior"] = df.groupby(["id_tarjeta", "id_viaje"])[
+    df["id_linea_anterior"] = df.groupby(["dia", "id_tarjeta", "id_viaje"])[
         "id_linea"
     ].shift()
 
@@ -423,7 +423,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     df["sum_id_viaje"] = df.groupby(["dia", "id_tarjeta"])["es_igual"].cumsum()
 
     df["id_viaje"] = df.id_viaje + df.sum_id_viaje
-    df["id_etapa"] = df.groupby(["id_tarjeta", "id_viaje"]).cumcount() + 1
+    df["id_etapa"] = df.groupby(["dia", "id_tarjeta", "id_viaje"]).cumcount() + 1
 
     # Borrar columnas auxiliares
     df.drop(columns=["es_igual", "id_linea_anterior", "sum_id_viaje"], inplace=True)
@@ -431,7 +431,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     # Corrige viajes con origen y destino iguales
 
     # Crear tabla temporal para detectar viajes con el mismo OD
-    df_viajes = df.groupby(["id_tarjeta", "id_viaje"], as_index=False).agg(
+    df_viajes = df.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False).agg(
         h3_o=("h3_o", "first"),  # Primer origen
         h3_d=("h3_d", "last"),  # Último destino
         od_validado=("od_validado", "min"),  # Validación mínima del viaje
@@ -448,14 +448,14 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
 
     # Seleccionar solo las tarjetas con problemas
     df_viajes_problemas = df_viajes.loc[
-        mask, ["id_tarjeta", "id_viaje", "id_etapa"]
+        mask, ["dia", "id_tarjeta", "id_viaje", "id_etapa"]
     ]
     df_viajes_problemas["mismo_od"] = 1
 
     # Filtrar las etapas originales con problemas
     df = df.merge(
-        df_viajes_problemas[["id_tarjeta", "id_viaje", "mismo_od"]],
-        on=["id_tarjeta", "id_viaje"],
+        df_viajes_problemas[["dia", "id_tarjeta", "id_viaje", "mismo_od"]],
+        on=["dia", "id_tarjeta", "id_viaje"],
         how="left",
     )
     df["mismo_od"] = df["mismo_od"].fillna(0)
@@ -481,7 +481,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
         df_viajes_problemas.id_viaje + df_viajes_problemas.sum_id_viaje
     )
     df_viajes_problemas["id_etapa"] = (
-        df_viajes_problemas.groupby(["id_tarjeta", "id_viaje"]).cumcount() + 1
+        df_viajes_problemas.groupby(["dia", "id_tarjeta", "id_viaje"]).cumcount() + 1
     )
 
     df = pd.concat([df_ok, df_viajes_problemas], ignore_index=True)
