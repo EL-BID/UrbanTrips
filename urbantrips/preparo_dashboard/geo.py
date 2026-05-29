@@ -124,7 +124,7 @@ def select_cases_from_polygons(etapas, viajes, polygons, res=8):
 
 
 def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
-    poly_sel = h3_to_geodataframe(polygons_h3, "h3_o")
+    poly_sel = h3_to_geodataframe(polygons_h3, "h3")
     poly_sel = fix_mixed_polygons(poly_sel)
     polygon = fix_mixed_polygons(polygon)
 
@@ -134,11 +134,11 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
         if True:
             resol = int(res.replace("res_", ""))
             i = f"res_{resol}"
-            poly_sel = poly_sel[["h3_o", "geometry"]].copy()
-            poly_sel[f"zona_{i}"] = poly_sel["h3_o"].apply(h3toparent, res=resol)
+            poly_sel = poly_sel[["h3", "geometry"]].copy()
+            poly_sel[f"zona_{i}"] = poly_sel["h3"].apply(h3toparent, res=resol)
             poly_2 = h3_to_geodataframe(poly_sel, f"zona_{i}")
             poly_ovl = gpd.overlay(
-                poly_sel[["h3_o", "geometry"]],
+                poly_sel[["h3", "geometry"]],
                 poly_2,
                 how="intersection",
                 keep_geom_type=False,
@@ -158,7 +158,7 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
                 poly_ovl_agg["zona"] = i
                 poly_sel_all = pd.concat([poly_sel_all, poly_ovl_agg])
     else:
-        poly_sel = poly_sel[["h3_o", "geometry"]].copy()
+        poly_sel = poly_sel[["h3", "geometry"]].copy()
         poly_ovl = gpd.overlay(
             poly_sel,
             zonificaciones[zonificaciones.zona == res][["id", "geometry"]],

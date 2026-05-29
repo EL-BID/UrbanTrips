@@ -1166,7 +1166,7 @@ def preparo_lineas_deseo(
 
         etapas_all["polygon"] = ""
         if id_polygon != "NONE":
-            etapas_all.loc[etapas_all.h3.isin(poly_h3.h3_o.unique()), "polygon"] = (
+            etapas_all.loc[etapas_all.h3.isin(poly_h3.h3.unique()), "polygon"] = (
                 id_polygon
             )
 
@@ -1305,12 +1305,13 @@ def preparo_lineas_deseo(
                 # Selecciono el centroide del polígono en vez del centroide de cada hexágono
 
                 if tipo_poly == "poligono":
+                    poly_centroid = poly.geometry.to_crs(4326).centroid
                     etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(poly_h3.h3_o.unique()), f"lat{n}"
-                    ] = poly_h3.polygon_lat.mean()
+                        etapas_agrupadas_zon[i].isin(poly_h3.h3.unique()), f"lat{n}"
+                    ] = poly_centroid.y.iloc[0]
                     etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(poly_h3.h3_o.unique()), f"lon{n}"
-                    ] = poly_h3.polygon_lon.mean()
+                        etapas_agrupadas_zon[i].isin(poly_h3.h3.unique()), f"lon{n}"
+                    ] = poly_centroid.x.iloc[0]
 
                 if "res_" in zona:
                     resol = int(zona.replace("res_", ""))
