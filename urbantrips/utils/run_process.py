@@ -366,13 +366,56 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     trips.add_distance_and_travel_time(ctx)
 
 
-def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboard=True):
-    from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
-    from urbantrips.datamodel.misc import persist_indicators
-    from urbantrips.carto import routes
-    from urbantrips.kpi.kpi import compute_kpi
+def run_ingest(ctx: StorageContext) -> None:
+    """Phase 1: ingest all pending corridas."""
     from urbantrips.utils import utils
 
+    corridas = inicializo_ambiente(ctx)
+    logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
+    _ingest_all_days(ctx, corridas)
+
+
+def run_legs(ctx: StorageContext) -> None:
+    """Phases 2+3: create legs and enrich them."""
+    from urbantrips.utils import utils
+
+    configs = utils.leer_configs_generales()
+    trx_order_params = {
+        "criterio": configs["ordenamiento_transacciones"],
+        "ventana_viajes": configs["ventana_viajes"],
+        "ventana_duplicado": configs["ventana_duplicado"],
+    }
+    n_batches = _get_n_batches()
+    batches = ctx.data.get_user_batches(n_batches)
+    parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
+    logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
+    _create_legs_for_batches(ctx, batches, trx_order_params, parallel_workers)
+    logger.info("[Phase 3] Enriching legs")
+    _enrich_all_legs(ctx, configs, batches=batches)
+
+
+def run_outputs(ctx: StorageContext) -> None:
+    """Phase 4 + routes + KPIs + indicators."""
+    from urbantrips.carto import routes
+    from urbantrips.datamodel.misc import persist_indicators
+    from urbantrips.kpi.kpi import compute_kpi
+
+    logger.info("[Phase 4] Building trips and users")
+    _build_final_outputs(ctx)
+    routes.infer_routes_geoms(ctx)
+    routes.build_routes_from_official_inferred(ctx)
+    compute_kpi(ctx)
+    persist_indicators(ctx)
+
+
+def run_dashboard(ctx: StorageContext) -> None:
+    """Dashboard preparation."""
+    from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
+
+    preparo_indicadores_dash(ctx)
+
+
+def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboard=True):
     inicio = time.time()
     logger.info("borrar_corrida = '%s'", borrar_corrida)
     logger.info("crear_dashboard = %s", crear_dashboard)
@@ -388,41 +431,11 @@ def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboar
     if borrar_corrida:
         ctx = _build_ctx()
 
-    corridas = inicializo_ambiente(ctx)
-    configs = utils.leer_configs_generales()
-    trx_order_params = {
-        "criterio": configs["ordenamiento_transacciones"],
-        "ventana_viajes": configs["ventana_viajes"],
-        "ventana_duplicado": configs["ventana_duplicado"],
-    }
-    n_batches = _get_n_batches()
-
-    # ── Phase 1: ingest all days ──────────────────────────────────────────────
-    logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
-    _ingest_all_days(ctx, corridas)
-
-    # ── Phase 2: create legs by traveler batch ────────────────────────────────
-    batches = ctx.data.get_user_batches(n_batches)
-    parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
-    logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
-    _create_legs_for_batches(ctx, batches, trx_order_params, parallel_workers)
-
-    # ── Phase 3: enrich all legs once ─────────────────────────────────────────
-    logger.info("[Phase 3] Enriching legs")
-    _enrich_all_legs(ctx, configs, batches=batches)
-
-    # ── Phase 4: build aggregate outputs once ────────────────────────────────
-    logger.info("[Phase 4] Building trips and users")
-    _build_final_outputs(ctx)
-
-    # ── post-processing ───────────────────────────────────────────────────────
-    routes.infer_routes_geoms(ctx)
-    routes.build_routes_from_official_inferred(ctx)
-    compute_kpi(ctx)
-    persist_indicators(ctx)
-
+    run_ingest(ctx)
+    run_legs(ctx)
+    run_outputs(ctx)
     if crear_dashboard:
-        preparo_indicadores_dash(ctx)
+        run_dashboard(ctx)
 
     fin = time.time()
     logger.info("tiempo total de la corrida: %.2f min", (fin - inicio) / 60)
