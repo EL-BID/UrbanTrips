@@ -103,6 +103,31 @@ The pipeline is designed to accumulate data across runs. Running days 1–5 and 
 
 **Safety note for `--step legs`**: This step relies on `dias_ultima_corrida` being set by a prior `ingest`. Running `--step legs` without a preceding ingest will re-process the *last* ingest's days, which is safe (idempotent) but probably not what you want. `--step legs` is primarily useful for resuming after a failed leg creation, not as a standalone re-run.
 
+## Scaling Considerations
+
+### How batches work
+
+Batches are partitioned by `hash(id_tarjeta) % n_batches`. Each batch loads **all transactions for its card set across all ingested days** into RAM at once — there is no day filter inside a batch. This means memory per batch scales linearly with the number of days being processed.
+
+### Longitudinal correctness of incremental runs
+
+`asignar_id_viaje_etapa_fecha_completa` groups transactions by `id_tarjeta` only (not by day) and uses `ventana_viajes` (typically 90 min) to detect trip boundaries. In practice, the gap between a card's last transaction of day N and its first of day N+1 is always many hours, so the pipeline correctly splits trips at day boundaries regardless of whether you process a full month or week by week. **Incremental weekly runs are safe from a correctness standpoint.**
+
+### Memory guidelines by city size
+
+Assumptions: ~25% transit ridership, 2–3 transactions/card/day, ~400 bytes/row in pandas, `n_batches = 30`.
+
+| City population | Transactions/day | Full-month rows/batch | Recommendation |
+|---|---|---|---|
+| ≤ 500k | ~300–450k | ~300–450k | Full month fine |
+| 500k–2M | ~1–4M | ~1–4M | Full month fine |
+| 2–5M | ~4–9M | ~4–9M | Weekly runs recommended |
+| 5M+ | ~10M+ | ~10M+ | Weekly runs necessary |
+
+### The `n_batches` lever
+
+For large cities that must process more days at once, increasing `n_batches` reduces per-batch memory proportionally at the cost of more DB round trips. A city of 5M+ people running a full month should consider `n_batches = 120–200` to keep per-batch size manageable.
+
 ## Out of Scope
 
 - Resuming a failed step mid-execution (e.g., resuming leg creation partway through batches) — existing idempotency handles re-runs.
