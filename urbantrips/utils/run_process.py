@@ -415,6 +415,33 @@ def run_dashboard(ctx: StorageContext) -> None:
     preparo_indicadores_dash(ctx)
 
 
+_STEP_ORDER = ["ingest", "legs", "outputs", "dashboard"]
+
+
+def check_prerequisites(step: str, ctx: StorageContext) -> None:
+    """Raise RuntimeError if the data required before `step` is absent."""
+    if step == "ingest":
+        return
+    if step == "legs":
+        if not ctx.data.has_rows("etapas"):
+            raise RuntimeError(
+                "Step 'legs' requires ingest to have been run first "
+                "(etapas table is empty). Run with --through legs first."
+            )
+    elif step == "outputs":
+        if not ctx.data.has_rows("etapas", where="h3 IS NOT NULL"):
+            raise RuntimeError(
+                "Step 'outputs' requires legs to have been run first "
+                "(etapas.h3 is empty). Run with --through outputs first."
+            )
+    elif step == "dashboard":
+        if not ctx.data.has_rows("viajes"):
+            raise RuntimeError(
+                "Step 'dashboard' requires outputs to have been run first "
+                "(viajes table is empty). Run with --through outputs first."
+            )
+
+
 def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboard=True):
     inicio = time.time()
     logger.info("borrar_corrida = '%s'", borrar_corrida)

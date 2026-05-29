@@ -223,3 +223,74 @@ def test_create_legs_for_batches_uses_parallel_workers(monkeypatch):
     run_process._create_legs_for_batches(ctx, batches, {}, parallel_workers=2)
 
     assert saved == [(0, "card-0"), (1, "card-1")]
+
+
+def test_check_prerequisites_legs_raises_when_etapas_empty(monkeypatch):
+    from urbantrips.utils import run_process
+
+    class _Data:
+        def has_rows(self, table, where=None):
+            return False
+
+    class _Ctx:
+        data = _Data()
+
+    import pytest
+    with pytest.raises(RuntimeError, match="ingest"):
+        run_process.check_prerequisites("legs", _Ctx())
+
+
+def test_check_prerequisites_outputs_raises_when_h3_empty(monkeypatch):
+    from urbantrips.utils import run_process
+
+    class _Data:
+        def has_rows(self, table, where=None):
+            if where == "h3 IS NOT NULL":
+                return False
+            return True
+
+    class _Ctx:
+        data = _Data()
+
+    import pytest
+    with pytest.raises(RuntimeError, match="legs"):
+        run_process.check_prerequisites("outputs", _Ctx())
+
+
+def test_check_prerequisites_dashboard_raises_when_viajes_empty(monkeypatch):
+    from urbantrips.utils import run_process
+
+    class _Data:
+        def has_rows(self, table, where=None):
+            return False
+
+    class _Ctx:
+        data = _Data()
+
+    import pytest
+    with pytest.raises(RuntimeError, match="outputs"):
+        run_process.check_prerequisites("dashboard", _Ctx())
+
+
+def test_check_prerequisites_passes_when_data_present():
+    from urbantrips.utils import run_process
+
+    class _Data:
+        def has_rows(self, table, where=None):
+            return True
+
+    class _Ctx:
+        data = _Data()
+
+    run_process.check_prerequisites("legs", _Ctx())
+    run_process.check_prerequisites("outputs", _Ctx())
+    run_process.check_prerequisites("dashboard", _Ctx())
+
+
+def test_check_prerequisites_ingest_never_raises():
+    from urbantrips.utils import run_process
+
+    class _Ctx:
+        pass
+
+    run_process.check_prerequisites("ingest", _Ctx())
