@@ -220,6 +220,8 @@ class DuckDBDataAdapter:
         """Persist legs to DuckDB via parquet staging to avoid Arrow-registration
         memory hazards.  Uses the same strategy as replace_legs_for_days."""
         df = self._prepare_legs_df(df, batch)
+        if df.empty:
+            return
         cols = ", ".join(_ETAPAS_COLUMNS)
 
         with tempfile.TemporaryDirectory(prefix="urbantrips_legs_") as tmpdir:
