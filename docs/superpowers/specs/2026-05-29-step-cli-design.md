@@ -86,6 +86,23 @@ def check_prerequisites(step: str, ctx: StorageContext) -> None: ...
 - `main()` accepts `step` and `through` parameters.
 - Dispatch logic: resolve which steps to run, call `check_prerequisites` for the first step that requires it, then execute in order.
 
+## Incremental Run Behaviour
+
+The pipeline is designed to accumulate data across runs. Running days 1–5 and then days 6–10 is the expected usage pattern.
+
+**How each step handles accumulated data:**
+
+- **`ingest`**: Only ingests *pending* corridas (those not already recorded in `general`). `dias_ultima_corrida` is replaced with the new batch's days on every ingest.
+- **`legs`**: Filters transactions to `dias_ultima_corrida` — only new days are processed. `save_legs` does DELETE-by-id + INSERT, so re-running for the same days is safe (no duplicates).
+- **`outputs`**:
+  - Trip/user tables and per-day KPIs: incremental — DELETE + INSERT scoped to `dias_ultima_corrida`.
+  - Weekday/weekend aggregate KPIs: always fully recomputed over all accumulated days (correct behaviour — adding new days changes the averages).
+  - `persist_indicators`: queries all accumulated data and merges with existing rows, replacing by key.
+  - Routes: idempotent geometry inference, no day scoping.
+- **`dashboard`**: Always reads all accumulated data.
+
+**Safety note for `--step legs`**: This step relies on `dias_ultima_corrida` being set by a prior `ingest`. Running `--step legs` without a preceding ingest will re-process the *last* ingest's days, which is safe (idempotent) but probably not what you want. `--step legs` is primarily useful for resuming after a failed leg creation, not as a standalone re-run.
+
 ## Out of Scope
 
 - Resuming a failed step mid-execution (e.g., resuming leg creation partway through batches) — existing idempotency handles re-runs.
