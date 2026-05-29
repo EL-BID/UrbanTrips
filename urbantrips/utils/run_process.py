@@ -177,28 +177,50 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
     """Compute n_batches so each batch fits within safety_factor of available RAM."""
     import psutil
 
+    vm = psutil.virtual_memory()
+    logger.info(
+        "[n_batches] RAM — total: %.1f GB, available: %.1f GB (%.0f%% free)",
+        vm.total / 1e9, vm.available / 1e9, vm.available / vm.total * 100,
+    )
+
     total_rows = ctx.data.query(
         "SELECT COUNT(*) AS n FROM transacciones"
     ).iloc[0, 0]
+
     if total_rows == 0:
+        logger.info("[n_batches] No transactions found — using 1 batch")
         return 1
+
     sample = ctx.data.query("SELECT * FROM transacciones LIMIT 10000")
     bytes_per_row = sample.memory_usage(deep=True).sum() / max(len(sample), 1)
-    available = psutil.virtual_memory().available
-    target = available * safety_factor
-    n = math.ceil(total_rows * bytes_per_row / target)
+    total_mb = total_rows * bytes_per_row / 1e6
+    target = vm.available * safety_factor
+    n = max(math.ceil(total_rows * bytes_per_row / target), 1)
+
     logger.info(
-        "[auto n_batches] %d rows × %.0f B/row → %d batches (%.1f GB target)",
-        total_rows, bytes_per_row, n, target / 1e9,
+        "[n_batches] Auto-tuned: %d rows × %.0f B/row = %.0f MB total"
+        " | target %.1f GB/batch (%.0f%% of available) → %d batches",
+        total_rows, bytes_per_row, total_mb,
+        target / 1e9, safety_factor * 100, n,
     )
-    return max(n, 1)
+    return n
 
 
 def _resolve_n_batches(ctx: StorageContext) -> int:
     """Return configured n_batches if set, otherwise auto-tune from available RAM."""
+    import psutil
+
     configs = leer_configs_generales()
     if "n_batches" in configs:
-        return int(configs["n_batches"])
+        n = int(configs["n_batches"])
+        vm = psutil.virtual_memory()
+        logger.info(
+            "[n_batches] Using configured value: %d"
+            " (available RAM: %.1f GB — auto-tune skipped)",
+            n, vm.available / 1e9,
+        )
+        return n
+    logger.info("[n_batches] No n_batches in config — auto-tuning from available RAM")
     return _auto_n_batches(ctx)
 
 
