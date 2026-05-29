@@ -1,4 +1,4 @@
-from urbantrips.utils.run_process import _get_n_batches
+from urbantrips.utils.run_process import _get_n_batches, _resolve_n_batches
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.adapters.memory.adapters import (
     InMemoryDashAdapter,
@@ -22,6 +22,46 @@ def test_get_n_batches_defaults_to_30_when_missing(monkeypatch):
         lambda: {},
     )
     assert _get_n_batches() == 30
+
+
+def test_resolve_n_batches_uses_config_when_set(monkeypatch):
+    monkeypatch.setattr(
+        "urbantrips.utils.run_process.leer_configs_generales",
+        lambda: {"n_batches": 42},
+    )
+
+    class _Ctx:
+        pass
+
+    assert _resolve_n_batches(_Ctx()) == 42
+
+
+def test_resolve_n_batches_auto_tunes_when_not_configured(monkeypatch):
+    import pandas as pd
+    from urbantrips.utils import run_process
+
+    monkeypatch.setattr(
+        "urbantrips.utils.run_process.leer_configs_generales",
+        lambda: {},  # no n_batches key
+    )
+
+    class _Data:
+        def query(self, sql):
+            if "COUNT(*)" in sql:
+                return pd.DataFrame({"n": [100_000]})
+            # sample rows: 10 columns of int64 → ~80 bytes/row
+            return pd.DataFrame({f"c{i}": range(10_000) for i in range(10)})
+
+    class _Ctx:
+        data = _Data()
+
+    monkeypatch.setattr(
+        run_process,
+        "_auto_n_batches",
+        lambda ctx, safety_factor=0.4: 99,
+    )
+
+    assert _resolve_n_batches(_Ctx()) == 99
 
 
 def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
@@ -101,6 +141,7 @@ def test_run_all_splits_batch_and_global_phases(monkeypatch):
         "ordenamiento_transacciones": "fecha_completa",
         "ventana_viajes": 90,
         "ventana_duplicado": 5,
+        "n_batches": 2,
     }
 
     monkeypatch.setattr(run_process, "borrar_corridas", lambda *args, **kwargs: None)
@@ -110,6 +151,7 @@ def test_run_all_splits_batch_and_global_phases(monkeypatch):
         "urbantrips.utils.utils.leer_configs_generales",
         lambda *args, **kwargs: config,
     )
+    monkeypatch.setattr(run_process, "_resolve_n_batches", lambda ctx: 2)
     monkeypatch.setattr(
         run_process,
         "_ingest_all_days",

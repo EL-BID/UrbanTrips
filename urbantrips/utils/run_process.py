@@ -1,4 +1,5 @@
 import logging
+import math
 import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -170,6 +171,35 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
 def _get_n_batches() -> int:
     configs = leer_configs_generales()
     return int(configs.get("n_batches", 30))
+
+
+def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
+    """Compute n_batches so each batch fits within safety_factor of available RAM."""
+    import psutil
+
+    total_rows = ctx.data.query(
+        "SELECT COUNT(*) AS n FROM transacciones"
+    ).iloc[0, 0]
+    if total_rows == 0:
+        return 1
+    sample = ctx.data.query("SELECT * FROM transacciones LIMIT 10000")
+    bytes_per_row = sample.memory_usage(deep=True).sum() / max(len(sample), 1)
+    available = psutil.virtual_memory().available
+    target = available * safety_factor
+    n = math.ceil(total_rows * bytes_per_row / target)
+    logger.info(
+        "[auto n_batches] %d rows × %.0f B/row → %d batches (%.1f GB target)",
+        total_rows, bytes_per_row, n, target / 1e9,
+    )
+    return max(n, 1)
+
+
+def _resolve_n_batches(ctx: StorageContext) -> int:
+    """Return configured n_batches if set, otherwise auto-tune from available RAM."""
+    configs = leer_configs_generales()
+    if "n_batches" in configs:
+        return int(configs["n_batches"])
+    return _auto_n_batches(ctx)
 
 
 def _get_parallel_workers(n_batches: int) -> int:
@@ -385,7 +415,7 @@ def run_legs(ctx: StorageContext) -> None:
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
-    n_batches = _get_n_batches()
+    n_batches = _resolve_n_batches(ctx)
     batches = ctx.data.get_user_batches(n_batches)
     parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
     logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
