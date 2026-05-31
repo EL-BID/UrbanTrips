@@ -95,13 +95,20 @@ def leer_configs_generales(autogenerado=True):
     """
     Lee el archivo de configuración YAML, probando primero con UTF-8
     y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
+
+    Respeta la variable de entorno URBANTRIPS_CONFIG si está definida
+    (establecida por --config en run_all_urbantrips.py).
     """
-    archivo = (
-        "configuraciones_generales_autogenerado.yaml"
-        if autogenerado
-        else "configuraciones_generales.yaml"
-    )
-    path = os.path.join("configs", archivo)
+    env_path = os.environ.get("URBANTRIPS_CONFIG")
+    if env_path:
+        path = env_path
+    else:
+        archivo = (
+            "configuraciones_generales_autogenerado.yaml"
+            if autogenerado
+            else "configuraciones_generales.yaml"
+        )
+        path = os.path.join("configs", archivo)
 
     try:
         # Primer intento: UTF-8

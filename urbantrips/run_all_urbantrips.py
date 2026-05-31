@@ -36,6 +36,9 @@ python run_all_urbantrips.py --step outputs
 
 python run_all_urbantrips.py --borrar_corrida all
     → Borra todo y vuelve a correr desde cero, creando dashboard
+
+python run_all_urbantrips.py --config configs/otra_ciudad.yaml
+    → Usa un archivo de configuración alternativo
 ────────────────────────────────────────────────────────────────────────────
 """
 
@@ -75,6 +78,14 @@ def main(borrar_corrida="", crear_dashboard=True, step=None, through=None):
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Ejecuta corridas de UrbanTrips con opciones de borrado y dashboard."
+    )
+
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default=None,
+        help="Ruta al archivo de configuración YAML (por defecto: configs/configuraciones_generales.yaml)",
     )
 
     parser.add_argument(
@@ -124,10 +135,14 @@ if __name__ == "__main__":
         datefmt="%H:%M:%S",
     )
 
+    import os
     inicio = time.time()
     parser = build_parser()
     args = parser.parse_args()
     _validate_args(args)
+
+    if args.config:
+        os.environ["URBANTRIPS_CONFIG"] = args.config
 
     main(
         borrar_corrida=args.borrar_corrida,
