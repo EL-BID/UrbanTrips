@@ -1067,10 +1067,8 @@ def assign_time_distances(ctx: StorageContext):
     dias_str = ", ".join(f"'{d}'" for d in dias)
 
     for table, df in [("travel_times_legs", travel_times), ("travel_times_trips", travel_times_trips)]:
-        try:
-            ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
-        except Exception:
-            pass  # Table doesn't exist yet; append_raw will create it
+        # DROP + recreate ensures schema is always current (handles legacy tables with old columns)
+        ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
         ctx.data.append_raw(df, table)
         
 
