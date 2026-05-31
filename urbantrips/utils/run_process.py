@@ -22,14 +22,19 @@ def _build_ctx() -> StorageContext:
     from urbantrips.utils import utils
 
     configs = utils.leer_configs_generales(autogenerado=False)
-    alias = configs.get("alias_db", "")
-    base = Path("data") / "db"
+    # alias_db       → prefix for run-specific DBs (data, dash, general)
+    # alias_db_insumos → prefix for the shared insumos DB
+    # If alias_db is absent, fall back to alias_db_insumos so single-alias
+    # configs keep working.
+    alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
+    alias_data    = configs.get("alias_db",          alias_insumos)
+    base = Path(configs.get("db_path", "data/db"))
     base.mkdir(parents=True, exist_ok=True)
     return StorageContext(
-        data=DuckDBDataAdapter(base / f"{alias}_data.duckdb"),
-        insumos=DuckDBInsumoAdapter(base / f"{alias}_insumos.duckdb"),
-        dash=DuckDBDashAdapter(base / f"{alias}_dash.duckdb"),
-        general=DuckDBGeneralAdapter(base / f"{alias}_general.duckdb"),
+        data=DuckDBDataAdapter(base / f"{alias_data}_data.duckdb"),
+        insumos=DuckDBInsumoAdapter(base / f"{alias_insumos}_insumos.duckdb"),
+        dash=DuckDBDashAdapter(base / f"{alias_data}_dash.duckdb"),
+        general=DuckDBGeneralAdapter(base / f"{alias_data}_general.duckdb"),
     )
 
 
@@ -174,21 +179,24 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
     if not alias_db:
         return
 
-    alias = configs_usuario.get("alias_db", "")
+    alias_insumos = configs_usuario.get("alias_db_insumos", configs_usuario.get("alias_db", ""))
+    alias_data    = configs_usuario.get("alias_db", alias_insumos)
+    base = Path(configs_usuario.get("db_path", "data/db"))
 
     if alias_db == "all":
         if ctx is not None:
             ctx.general.clear_runs()
-        for suffix in ["data", "dash", "insumos", "general"]:
+        for suffix, alias in [("data", alias_data), ("dash", alias_data),
+                               ("insumos", alias_insumos), ("general", alias_data)]:
             for ext in [".sqlite", ".duckdb"]:
-                p = Path("data") / "db" / f"{alias}_{suffix}{ext}"
+                p = base / f"{alias}_{suffix}{ext}"
                 if p.exists():
                     p.unlink()
                     logger.info("Se borró %s", p)
     else:
         for suffix in ["data", "dash"]:
             for ext in [".sqlite", ".duckdb"]:
-                p = Path("data") / "db" / f"{alias_db}_{suffix}{ext}"
+                p = base / f"{alias_db}_{suffix}{ext}"
                 if p.exists():
                     p.unlink()
                     logger.info("Se borró %s", p)
