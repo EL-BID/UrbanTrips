@@ -564,7 +564,7 @@ def imprimo_matrices_od(ctx: StorageContext):
         "SELECT id_polygon, tipo_dia, zona, inicio, fin, transferencia, "
         "modo_agregado, rango_hora, genero_agregado, tarifa_agregada, "
         "distancia_agregada, orden_origen, orden_destino, Origen, Destino, "
-        "lat1, lon1, lat4, lon4, distancia, travel_time_min, travel_speed, "
+        "lat1, lon1, lat4, lon4, distance_od, travel_time_min, kmh_od, "
         "factor_expansion_linea, dia "
         "FROM agg_matrices"
     )

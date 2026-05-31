@@ -155,10 +155,10 @@ def construyo_matrices(
         aggregate_cols=aggregate_cols,
         weighted_mean_cols=[
             "lat1", "lon1", "lat4", "lon4",
-            "distancia", "travel_time_min", "travel_speed",
+            "distance_od", "travel_time_min", "kmh_od",
         ],
         weight_col="factor_expansion_linea",
-        zero_to_nan=["lat1", "lon1", "lat4", "lon4", "travel_time_min", "travel_speed"],
+        zero_to_nan=["lat1", "lon1", "lat4", "lon4", "travel_time_min", "kmh_od"],
     )
 
     zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
@@ -199,7 +199,7 @@ def agg_matriz(
             "transferencia", "modo_agregado", "rango_hora", "distancia_agregada",
         ]
     if weight_col is None:
-        weight_col = ["distancia", "travel_time_min", "travel_speed"]
+        weight_col = ["distance_od", "travel_time_min", "kmh_od"]
 
     if len(df) > 0:
         if agg_transferencias:
@@ -233,14 +233,14 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
         calculate_weighted_means(
             etapas,
             aggregate_cols=cols + ["modo"],
-            weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
-            zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+            weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
+            zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
         )
         .round(2)
         .rename(columns={"modo": "modo_new"})
-        .rename(columns={"distancia": "distancia_media"})
+        .rename(columns={"distance_od": "distancia_media"})
     )
     internos_agg = (
         trx.groupby(cols + ["interno"], as_index=False)
@@ -279,10 +279,10 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
     all = all[
         cols + [
             "nombre_linea", "empresa", "modo", "transacciones",
-            "distancia_media", "travel_time_min", "travel_speed",
+            "distancia_media", "travel_time_min", "kmh_od",
             "cant_internos_en_trx", "cant_internos_en_gps",
-            "tot_veh", "tot_km", "tot_pax", "dmt_mean", "dmt_median",
-            "pvd", "kvd", "ipk", "fo_mean", "fo_median",
+            "tot_veh", "tot_km", "tot_pax", "dmt_mean_od", "dmt_median_od",
+            "pvd", "kvd", "ipk_route", "fo_mean_od", "fo_median_od",
         ]
     ]
     all["transacciones"] = all["transacciones"].round(0)
