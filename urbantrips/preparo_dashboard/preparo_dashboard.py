@@ -2108,59 +2108,40 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     if "genero_agregado" in trx.columns:
         trx["genero_agregado"] = trx["genero_agregado"].fillna("")
 
+    metric_cols = [
+        "transacciones",
+        "distancia_media", "travel_time_min", "kmh_od",
+        "cant_internos_en_trx", "cant_internos_en_gps",
+        "tot_veh", "tot_km", "tot_pax",
+        "dmt_mean_od", "dmt_median_od",
+        "pvd", "kvd", "ipk_route", "fo_mean_od", "fo_median_od",
+    ]
+
     # Resumen por línea
-    all_linea = agrego_lineas(
-        ["dia", "id_linea"],
-        trx,
-        etapas,
-        gps,
-        servicios,
-        kpis,
-        lineas,
-    )
-
+    all_linea = agrego_lineas(["dia", "id_linea"], trx, etapas, gps, servicios, kpis, lineas)
     all_linea["mes"] = all_linea["dia"].str[:7]
-
     metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
-
     all_linea = (
         all_linea
-        .groupby(
-            ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"],
-            as_index=False,
-        )[metric_cols_linea]
+        .groupby(["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"], as_index=False)
+        [metric_cols_linea]
         .mean()
         .round(2)
     )
-
-    replace_dash_partition(ctx, all, "resumen_lineas", ["dia"])
+    replace_dash_partition(ctx, all_linea, "resumen_lineas", ["dia"])
 
     # Resumen por línea y ramal
-    all_ramal = agrego_lineas(
-        ["dia", "id_linea", "id_ramal"],
-        trx,
-        etapas,
-        gps,
-        servicios,
-        kpis,
-        lineas,
-    )
-
+    all_ramal = agrego_lineas(["dia", "id_linea", "id_ramal"], trx, etapas, gps, servicios, kpis, lineas)
     all_ramal["mes"] = all_ramal["dia"].str[:7]
-
     metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
-
     all_ramal = (
         all_ramal
-        .groupby(
-            ["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"],
-            as_index=False,
-        )[metric_cols_ramal]
+        .groupby(["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"], as_index=False)
+        [metric_cols_ramal]
         .mean()
         .round(2)
     )
-
-    replace_dash_partition(ctx, all, "resumen_lineas_ramal", ["dia"])
+    replace_dash_partition(ctx, all_ramal, "resumen_lineas_ramal", ["dia"])
 
 
 @duracion
