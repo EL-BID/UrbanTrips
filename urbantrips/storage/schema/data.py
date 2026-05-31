@@ -180,21 +180,33 @@ CREATE TABLE IF NOT EXISTS travel_times_stations (
 
 TRAVEL_TIMES_LEGS = """
 CREATE TABLE IF NOT EXISTS travel_times_legs (
-    dia             TEXT,
-    id              INT NOT NULL,
-    id_etapa        INT,
-    id_viaje        INT,
-    id_tarjeta      TEXT,
-    travel_time_min FLOAT
+    dia                 TEXT,
+    id                  INT NOT NULL,
+    id_tarjeta          TEXT,
+    id_viaje            INT,
+    id_etapa            INT,
+    travel_time_min     FLOAT,
+    distance_od         FLOAT,
+    distance_route      FLOAT,
+    distance_route_gps  FLOAT,
+    kmh_od              FLOAT,
+    kmh_route           FLOAT,
+    kmh_route_gps       FLOAT
 )
 """
 
 TRAVEL_TIMES_TRIPS = """
 CREATE TABLE IF NOT EXISTS travel_times_trips (
-    dia             TEXT,
-    id_tarjeta      TEXT,
-    id_viaje        INT,
-    travel_time_min FLOAT
+    dia                 TEXT,
+    id_tarjeta          TEXT,
+    id_viaje            INT,
+    travel_time_min     FLOAT,
+    distance_od         FLOAT,
+    distance_route      FLOAT,
+    distance_route_gps  FLOAT,
+    kmh_od              FLOAT,
+    kmh_route           FLOAT,
+    kmh_route_gps       FLOAT
 )
 """
 
