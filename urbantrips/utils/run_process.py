@@ -142,39 +142,6 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
     from urbantrips.utils import utils
 
     configs_usuario = utils.leer_configs_generales(autogenerado=False)
-    corridas = configs_usuario.get("corridas", None)
-    
-    alias_insumos = configs_usuario['alias_db_insumos']
-    if ((Path() / "data" / "db" / f'{alias_insumos}_general.sqlite').exists()):
-
-        if corridas is None or len(corridas) == 0:
-            raise ValueError("No se han definido corridas en el archivo de configuracion.")
-        
-        
-        if (len(alias_db) == 0):
-            # Verificar corridas que no terminaron de correr
-            corridas_anteriores = levanto_tabla_sql(
-                "corridas",
-                "general",
-                query="SELECT DISTINCT corrida FROM corridas WHERE process = 'transactions_completed'",
-            )
-            if len(corridas_anteriores) > 0:
-                corridas_anteriores = corridas_anteriores.corrida.unique().tolist()
-                print('Corridas anteriores:', corridas_anteriores)
-                for i in corridas:
-                    if (Path() / "data" / "db" / f'{i}_data.sqlite').exists() & (i not in corridas_anteriores):
-                        path_data = Path() / "data" / "db" / f"{i}_data.sqlite"
-                        path_dash = Path() / "data" / "db" / f"{i}_dash.sqlite"
-                        if path_data.exists():
-                            path_data.unlink()
-                            print(f"Se borró {path_data}")
-                        if path_dash.exists():
-                            path_dash.unlink()
-                            print(f"Se borró {path_dash}")
-        else:
-            path_ = configs_usuario["alias_db_insumos"]
-            path_insumos = Path() / "data" / "db" / f"{path_}_insumos.sqlite"
-            path_general = Path() / "data" / "db" / f"{path_}_general.sqlite"
 
     if not alias_db:
         return
