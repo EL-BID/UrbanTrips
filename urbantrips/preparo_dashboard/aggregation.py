@@ -259,10 +259,10 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
     serv_agg = (
         servicios[servicios.valid == 1]
         .groupby(cols, as_index=False)
-        .agg({"interno": "count", "distance_km": "sum", "min_ts": "sum"})
+        .agg({"interno": "count", "distance_route": "sum", "min_ts": "sum"})
         .rename(columns={
             "interno": "cant_servicios",
-            "distance_km": "serv_distance_km",
+            "distance_route": "serv_distance_route",
             "min_ts": "serv_min_ts",
         })
     )

@@ -916,7 +916,7 @@ def compute_kpi_by_service(ctx: StorageContext):
     service_supply_q = """
         SELECT
             dia, id_linea, id_ramal, interno, service_id,
-            distance_km AS tot_km, min_datetime, max_datetime
+            distance_route AS tot_km, min_datetime, max_datetime
         FROM
             services WHERE valid = 1
         """
