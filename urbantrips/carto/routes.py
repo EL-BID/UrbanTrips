@@ -93,9 +93,9 @@ def process_routes_geoms(ctx: StorageContext):
     else:
         lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
 
-    assert not lines_routes.id_linea.duplicated().any(), (
-        "id_linea duplicados en geojson de recorridos"
-    )
+    assert (
+        not lines_routes.id_linea.duplicated().any()
+    ), "id_linea duplicados en geojson de recorridos - Verificar si no contiene ramales (y modificar parámetro en configuraciones_generales.yaml)"
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 

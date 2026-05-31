@@ -680,7 +680,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *of*
      - float
      - Factor de ocupación calculado como la relación entre la DMT y la velocidad comercial.
-   * - *speed_kmh*
+   * - *kmh_route*
      - float
      - Velocidad comercial promedio de ese vehiculo a esa hora.
 
@@ -714,7 +714,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *of*
      - float
      - Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.
-   * - *speed_kmh*
+   * - *kmh_route*
      - float
      - Velocidad comercial promedio de esa línea a esa hora para ese día.
 
@@ -744,7 +744,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *of*
      - float
      - Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.
-   * - *speed_kmh*
+   * - *kmh_route*
      - float
      - Velocidad comercial promedio de esa línea para ese día.
 
@@ -1005,7 +1005,7 @@ El siguiente grupo de tablas almacena información que no se actualiza periódic
    * - *h3_d_norm*
      - text
      - indice h3 de destino con el sentido normalizado.
-   * - *distance_osm_drive*
+   * - *distance_od*
      - float
      - distancia calculada sobre red de callejero en km - manejando.    
    * - *distance_osm_walk*

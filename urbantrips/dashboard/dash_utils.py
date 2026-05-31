@@ -324,9 +324,9 @@ def agg_matriz(
         "genero_agregado",
         "tarifa_agregada",
     ],
-    weight_col=["distancia", "travel_time_min", "travel_speed"],
+    weight_col=["distance_od", "travel_time_min", "kmh_od"],
     weight_var="factor_expansion_linea",
-    zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+    zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
     agg_transferencias=False,
     agg_modo=False,
     agg_hora=False,
@@ -577,7 +577,7 @@ def create_data_folium(
             etapas,
             agg_cols_etapas,
             [
-                "distancia",
+                "distance_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -654,7 +654,7 @@ def create_data_folium(
         viajes = calculate_weighted_means_ods(
             etapas,
             agg_cols_viajes,
-            ["distancia", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
+            ["distance_od", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
             "factor_expansion_linea",
             agg_transferencias=agg_transferencias,
             agg_modo=agg_modo,
@@ -708,8 +708,8 @@ def create_data_folium(
             "genero_agregado",
             "tarifa_agregada",
         ],
-        weight_col=["distancia", "travel_time_min", "travel_speed"],
-        zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+        weight_col=["distance_od", "travel_time_min", "kmh_od"],
+        zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
@@ -1144,9 +1144,9 @@ def traigo_tablas_con_filtros(
             "distancia_agregada",
         ]
         weighted_mean_cols = [
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "lat1",
             "lon1",
             "lat2",
@@ -1165,9 +1165,9 @@ def traigo_tablas_con_filtros(
             "lon3",
             "lat4",
             "lon4",
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
         ]
 
         agg_etapas = calculate_weighted_means(

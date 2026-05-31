@@ -197,6 +197,17 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
         COMMIT;
         """,
     )
+    
+    etapas = pd.read_sql_query(
+        """
+        SELECT e.*, 
+            tt.distance_od
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        LEFT JOIN travel_times_legs tt ON e.id = tt.id        
+        """,
+        conn,
+    )
 
     n_etapas = ctx.data.query(
         f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
@@ -321,50 +332,6 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
 
     for table in ["_ut_etapas_fex"]:
         ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-# def _delete_dias(conn, table, dias_ultima_corrida):
-#     """Delete rows for given days using parameterized query."""
-#     dias = dias_ultima_corrida["dia"].tolist()
-#     placeholders = ", ".join("?" * len(dias))
-#     conn.execute(f"DELETE FROM {table} WHERE dia IN ({placeholders})", dias)
-#     conn.commit()
-
-
-# def _upload_chunked(df, table, conn, chunk_size=500_000):
-#     """Upload large dataframes to SQLite efficiently."""
-#     print(f"Subiendo datos a {table} ({len(df)} registros) - {str(datetime.now())[:19]}")
-
-#     # Pragmas de performance
-#     conn.execute("PRAGMA journal_mode = WAL")
-#     conn.execute("PRAGMA synchronous = OFF")
-#     conn.execute("PRAGMA cache_size = -2000000")  # 2GB cache
-
-#     cols = df.columns.tolist()
-#     placeholders = ", ".join("?" * len(cols))
-#     col_names = ", ".join(cols)
-#     sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
-
-#     cursor = conn.cursor()
-#     cursor.execute("BEGIN TRANSACTION")
-#     try:
-#         for i in range(0, len(df), chunk_size):
-#             chunk = df.iloc[i: i + chunk_size]
-#             cursor.executemany(sql, chunk.values.tolist())
-#             print(f"  {min(i + chunk_size, len(df)):,} / {len(df):,} registros...")
-#         conn.commit()
-#     except Exception:
-#         conn.rollback()
-#         raise
-#     finally:
-#         # Restaurar pragmas seguros
-#         conn.execute("PRAGMA synchronous = FULL")
-
-    
 
 
 @duracion

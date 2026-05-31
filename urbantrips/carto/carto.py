@@ -364,44 +364,6 @@ def guardo_zonificaciones(ctx: StorageContext):
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")
 
-# def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
-#     """
-#     This function will run the networkd distance using
-#     pandas apply method
-#     """
-#     df["node_from"] = nodes_from
-#     df["node_to"] = nodes_to
-
-#     df = df.reset_index().rename(columns={"index": "idmatrix"})
-#     df[f"distance_osm_{mode}"] = df.apply(
-#         lambda x: distancias_osmnx(
-#             x["idmatrix"],
-#             x["node_from"],
-#             x["node_to"],
-#             G=G,
-#             lenx=len(df),
-#         ),
-#         axis=1,
-#     )
-#     return df
-
-
-# def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
-#     """
-#     Función de apoyo de measure_distances_osm
-#     """
-
-#     if idmatrix % 2000 == 0:
-#         date_str = datetime.now().strftime("%H:%M:%S")
-#         print(f"{date_str} processing {int(idmatrix)} / ")
-
-#     try:
-#         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
-#     except NetworkXNoPath:
-#         ret = np.nan
-#     return ret
-
-
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     """
     This function runs the network distance in parallel

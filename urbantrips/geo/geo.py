@@ -506,11 +506,11 @@ def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False
         rsuffix="station",
         how="inner",
         max_distance=tolerancia_parada_destino,
-        distance_col="distancia",
+        distance_col="distance_od",
         exclusive=True,
     )
     legs_w_station = (
-        legs_w_station.sort_values("distancia")
+        legs_w_station.sort_values("distance_od")
         .drop_duplicates(subset="id_legs")
         .reindex(columns=["dia", "id_legs", "id_station"])
     )

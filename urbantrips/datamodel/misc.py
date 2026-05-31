@@ -104,7 +104,7 @@ def _weighted_median_rows(
                 "dia": dia,
                 "detalle": detalle,
                 "indicador": ws.weighted_median(
-                    group["distancia"].tolist(),
+                    group["distance_od"].tolist(),
                     weights=group["factor_expansion_linea"].tolist(),
                 ),
                 "tabla": tabla,
@@ -232,12 +232,13 @@ def persist_indicators(ctx: StorageContext):
         _indicator_query(
             ctx,
             """
-            SELECT dia, SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND distancia <= 5
-              AND factor_expansion_linea IS NOT NULL
-            GROUP BY dia
+            SELECT v.dia, SUM(v.factor_expansion_linea) AS indicador
+            FROM viajes v
+            LEFT JOIN travel_times_trips tt ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+              AND tt.distance_od <= 5
+              AND v.factor_expansion_linea IS NOT NULL
+            GROUP BY v.dia
             """,
             "Cantidad de viajes cortos (<5kms)",
             "viajes expandidos",
@@ -285,12 +286,13 @@ def persist_indicators(ctx: StorageContext):
             ctx,
             """
             SELECT
-                dia,
-                SUM(distancia * factor_expansion_linea) / SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND distancia IS NOT NULL
-            GROUP BY dia
+                v.dia,
+                SUM(tt.distance_od * v.factor_expansion_linea) / SUM(v.factor_expansion_linea) AS indicador
+            FROM viajes v
+            LEFT JOIN travel_times_trips tt ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+              AND tt.distance_od IS NOT NULL
+            GROUP BY v.dia
             """,
             "Distancia de los viajes (promedio en kms)",
             "avg",
@@ -300,10 +302,11 @@ def persist_indicators(ctx: StorageContext):
 
     viajes_median = ctx.data.query(
         """
-        SELECT dia, modo, distancia, factor_expansion_linea
-        FROM viajes
-        WHERE od_validado = 1
-          AND distancia IS NOT NULL
+        SELECT v.dia, v.modo, tt.distance_od, v.factor_expansion_linea
+        FROM viajes v
+        LEFT JOIN travel_times_trips tt ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje
+        WHERE v.od_validado = 1
+          AND tt.distance_od IS NOT NULL
         """
     )
     indicator_rows.append(
@@ -317,14 +320,15 @@ def persist_indicators(ctx: StorageContext):
     viajes_modo_mean = ctx.data.query(
         """
         SELECT
-            dia,
-            modo,
-            SUM(distancia * factor_expansion_linea) / SUM(factor_expansion_linea) AS indicador
-        FROM viajes
-        WHERE od_validado = 1
-          AND modo IS NOT NULL
-          AND distancia IS NOT NULL
-        GROUP BY dia, modo
+            v.dia,
+            v.modo,
+            SUM(tt.distance_od * v.factor_expansion_linea) / SUM(v.factor_expansion_linea) AS indicador
+        FROM viajes v
+        LEFT JOIN travel_times_trips tt ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje
+        WHERE v.od_validado = 1
+          AND v.modo IS NOT NULL
+          AND tt.distance_od IS NOT NULL
+        GROUP BY v.dia, v.modo
         """
     )
     if not viajes_modo_mean.empty:

@@ -39,7 +39,7 @@ def cal_velocidad_comercial(servicios):
     ).dt.total_seconds() / 60
 
     # Cálculo de velocidad comercial
-    servicios["velocidad_comercial"] = servicios["distance_km"] / (
+    servicios["velocidad_comercial"] = servicios["distance_route"] / (
         servicios["diff_minutes"] / 60
     )
 
@@ -60,12 +60,12 @@ def cal_velocidad_comercial(servicios):
     # Distancia media recorrida por vehículo en ramal
     km_recorridos_ramal = (
         servicios.groupby(["dia", "id_linea", "id_ramal", "interno"], as_index=False)[
-            "distance_km"
+            "distance_route"
         ]
         .sum()
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["distance_km"]
+        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["distance_route"]
         .mean()
-        .rename(columns={"distance_km": "distancia_media_veh"})
+        .rename(columns={"distance_route": "distancia_media_veh"})
         .round(1)
     )
 
@@ -108,11 +108,11 @@ def cal_velocidad_comercial(servicios):
 
     # Distancia media recorrida por vehículo (total)
     km_recorridos_linea = (
-        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)["distance_km"]
+        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)["distance_route"]
         .sum()
-        .groupby(["dia", "id_linea"], as_index=False)["distance_km"]
+        .groupby(["dia", "id_linea"], as_index=False)["distance_route"]
         .mean()
-        .rename(columns={"distance_km": "distancia_media_veh"})
+        .rename(columns={"distance_route": "distancia_media_veh"})
         .round(1)
     )
 
@@ -188,13 +188,13 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         utils.calculate_weighted_means(
             etapas,
             aggregate_cols=cols + ["modo"],
-            weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
-            zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+            weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
+            zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
         )
         .round(2)
-        .rename(columns={"distancia": "distancia_media_pax"})
+        .rename(columns={"distance_od": "distancia_media_pax"})
     )
 
     tot = tot.merge(resumen_genero, how="left", on=cols + ["modo"]).merge(
@@ -232,11 +232,11 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
     serv_agg = (
         servicios[servicios.valid == 1]
         .groupby(cols, as_index=False)
-        .agg({"interno": "count", "distance_km": "sum", "min_ts": "sum"})
+        .agg({"interno": "count", "distance_route": "sum", "min_ts": "sum"})
         .rename(
             columns={
                 "interno": "cant_servicios",
-                "distance_km": "serv_distance_km",
+                "distance_route": "serv_distance_route",
                 "min_ts": "serv_min_ts",
             }
         )
@@ -272,12 +272,27 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
         if i not in all.columns:
             all[i] = 0
 
-    all["vehiculos_operativos"] = (
-        all["cant_internos_en_gps"]
-        .where(all["cant_internos_en_gps"] > 0, all["cant_internos_en_trx"])
-        .fillna(all["flota"])
-        .astype("Int64")
+    # vehiculos_operativos: conteo directo de internos con al menos un servicio valid=1
+    veh_validos = (
+        servicios[servicios.valid == 1]
+        .groupby(cols, as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "vehiculos_operativos"})
     )
+    all = all.drop(columns=["vehiculos_operativos"], errors="ignore").merge(
+        veh_validos, on=cols, how="left"
+    )
+
+    # tot_km: solo km de servicios con valid=1
+    all["tot_km"] = all["serv_distance_route"]
+
+    # tot_veh sincronizado con vehiculos_operativos corregido
+    all["tot_veh"] = all["vehiculos_operativos"]
+
+    # Recalcular ratios que dependen de tot_veh y tot_km
+    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["kvd"] = (all["tot_km"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["ipk_route"] = (all["tot_pax"] / all["tot_km"].replace(0, pd.NA)).round(1)
 
     all = all[
         [
@@ -295,7 +310,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
             "sin_descuento",
             "tarifa_social",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_internos_en_gps",
             "cant_internos_en_trx",
             "flota",
@@ -306,13 +321,22 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
             "distancia_media_veh",
             "tot_km",
             "distancia_media_pax",
-            "dmt_mean",
-            "dmt_median",
+            "dmt_mean_od",
+            "dmt_mean_route",
+            "dmt_mean_route_gps",
+            "dmt_median_od",
+            "dmt_median_route",
+            "dmt_median_route_gps",
             "pvd",
             "kvd",
-            "ipk",
-            "fo_mean",
-            "fo_median",
+            "ipk_route",
+            "ipk_route_gps",
+            "fo_mean_od",
+            "fo_mean_route",
+            "fo_mean_route_gps",
+            "fo_median_od",
+            "fo_median_route",
+            "fo_median_route_gps",
         ]
     ]
 

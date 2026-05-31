@@ -70,14 +70,32 @@ def load_and_process_data(ctx: StorageContext):
 
     # ── 1. leer etapas y viajes (filtrados) ─────────────────────────
     etapas = ctx.data.query(
-        "SELECT id, dia, id_tarjeta, id_viaje, id_etapa, tiempo, hora, modo, "
-        "id_linea, id_ramal, interno, genero, tarifa, latitud, longitud, "
-        "h3_o, h3_d, od_validado, factor_expansion_original, "
-        "factor_expansion_linea, factor_expansion_tarjeta, distancia, travel_time_min "
-        "FROM etapas WHERE od_validado = 1"
+        """
+        SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.tiempo, e.hora,
+               e.modo, e.id_linea, e.id_ramal, e.interno, e.genero, e.tarifa,
+               e.latitud, e.longitud, e.h3_o, e.h3_d, e.od_validado,
+               e.factor_expansion_original, e.factor_expansion_linea,
+               e.factor_expansion_tarjeta,
+               tt.travel_time_min, tt.distance_od, tt.distance_route,
+               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+        FROM etapas e
+        LEFT JOIN travel_times_legs tt ON e.id = tt.id
+        WHERE e.od_validado = 1
+        """
     )
 
-    viajes = ctx.data.query("SELECT * FROM viajes WHERE od_validado = 1")
+    viajes = ctx.data.query(
+        """
+        SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
+               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+        FROM viajes v
+        LEFT JOIN travel_times_trips tt
+        ON v.dia = tt.dia
+        AND v.id_tarjeta = tt.id_tarjeta
+        AND v.id_viaje = tt.id_viaje
+        WHERE v.od_validado = 1
+        """
+    )
 
     etapas["tarifa_agregada"] = clasificar_tarifa_agregada_social(etapas["tarifa"])
     etapas["genero_agregado"] = clasificar_genero_agregado(etapas["genero"])
@@ -86,25 +104,25 @@ def load_and_process_data(ctx: StorageContext):
 
     # ── 2. incorporar travel_time_min y velocidades ─────────────────
 
-    etapas[["travel_speed"]] = np.nan
-    viajes[["travel_speed"]] = np.nan
+    etapas[["kmh_od"]] = np.nan
+    viajes[["kmh_od"]] = np.nan
 
     etapas["travel_time_min"] = (
         pd.to_numeric(etapas["travel_time_min"], errors="coerce").fillna(0).astype(int)
     )
 
-    etapas["travel_speed"] = np.where(
+    etapas["kmh_od"] = np.where(
         etapas["travel_time_min"] > 0,
-        (etapas["distancia"] / (etapas["travel_time_min"] / 60)).round(1),
+        (etapas["distance_od"] / (etapas["travel_time_min"] / 60)).round(1),
         np.nan,
     )
 
-    viajes["travel_speed"] = np.where(
+    viajes["kmh_od"] = np.where(
         viajes["travel_time_min"] > 0,
-        (viajes["distancia"] / (viajes["travel_time_min"] / 60)).round(1),
+        (viajes["distance_od"] / (viajes["travel_time_min"] / 60)).round(1),
         np.nan,
     )
-    viajes.loc[viajes["travel_speed"] >= 80, "travel_speed"] = np.nan
+    viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
 
     # ── 3. flags y rangos horarios (vectorizado) ────────────────────
     viajes["transferencia"] = (viajes["cant_etapas"] > 1).astype(int)
@@ -113,10 +131,10 @@ def load_and_process_data(ctx: StorageContext):
     viajes["rango_hora"] = np.select(cond_rh, ["13-16", "17-24"], default="0-12")
 
     viajes["distancia_agregada"] = np.where(
-        viajes["distancia"] > 5, "Viajes largos (>5kms)", "Viajes cortos (<=5kms)"
+        viajes["distance_od"] > 5, "Viajes largos (>5kms)", "Viajes cortos (<=5kms)"
     )
     etapas["distancia_agregada"] = np.where(
-        etapas["distancia"] > 5, "Etapa larga (>5kms)", "Etapa corta (<=5kms)"
+        etapas["distance_od"] > 5, "Etapa larga (>5kms)", "Etapa corta (<=5kms)"
     )
 
     viajes["tipo_dia"] = np.where(
@@ -170,13 +188,13 @@ def load_and_process_data(ctx: StorageContext):
     )
 
     # ── 5. eliminar registros sin distancias ────────────────────────
-    etapas = etapas[etapas["distancia"].notna()]
-    viajes = viajes[viajes["distancia"].notna()]
+    etapas = etapas[etapas["distance_od"].notna()]
+    viajes = viajes[viajes["distance_od"].notna()]
 
     # ── 6. rellenar nulos finales ───────────────────────────────────
     for df in (etapas, viajes):
         df["travel_time_min"] = df["travel_time_min"].fillna(0).astype("float32")
-        df["travel_speed"] = df["travel_speed"].fillna(0).astype("float32")
+        df["kmh_od"] = df["kmh_od"].fillna(0).astype("float32")
 
     # ── 7. columnas finales ─────────────────────────────────────────
     etapas = etapas[
@@ -202,9 +220,9 @@ def load_and_process_data(ctx: StorageContext):
             "factor_expansion_original",
             "factor_expansion_linea",
             "factor_expansion_tarjeta",
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "modo_agregado",
             "rango_hora",
             "distancia_agregada",
@@ -239,9 +257,9 @@ def load_and_process_data(ctx: StorageContext):
             "od_validado",
             "factor_expansion_linea",
             "factor_expansion_tarjeta",
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "diff_time",
             "modo_agregado",
             "rango_hora",
@@ -386,10 +404,10 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
         calculate_weighted_means(
             viajes,
             aggregate_cols=["id_polygon", "dia", "mes", "tipo_dia"],
-            weighted_mean_cols=["distancia"],
+            weighted_mean_cols=["distance_od"],
             weight_col="factor_expansion_linea",
         )
-        .rename(columns={"distancia": "Valor"})
+        .rename(columns={"distance_od": "Valor"})
         .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
         .Valor.mean()
         .round(2)
@@ -402,10 +420,10 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
         calculate_weighted_means(
             viajes,
             aggregate_cols=["id_polygon", "dia", "mes", "tipo_dia", "modo"],
-            weighted_mean_cols=["distancia"],
+            weighted_mean_cols=["distance_od"],
             weight_col="factor_expansion_linea",
         )
-        .rename(columns={"distancia": "Valor"})
+        .rename(columns={"distance_od": "Valor"})
         .groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False)
         .Valor.mean()
         .round(2)
@@ -424,10 +442,10 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
                 "tipo_dia",
                 "distancia_agregada",
             ],
-            weighted_mean_cols=["distancia"],
+            weighted_mean_cols=["distance_od"],
             weight_col="factor_expansion_linea",
         )
-        .rename(columns={"distancia": "Valor"})
+        .rename(columns={"distance_od": "Valor"})
         .groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "distancia_agregada"],
             as_index=False,
@@ -557,7 +575,7 @@ def imprimo_matrices_od(ctx: StorageContext):
     agg_distancia = True
 
     matrices_all.loc[matrices_all.travel_time_min == 0, "travel_time_min"] = np.nan
-    matrices_all.loc[matrices_all.travel_speed == 0, "travel_speed"] = np.nan
+    matrices_all.loc[matrices_all.kmh_od == 0, "kmh_od"] = np.nan
     matrices = (
         matrices_all.groupby(
             [
@@ -584,9 +602,9 @@ def imprimo_matrices_od(ctx: StorageContext):
                 "lon1",
                 "lat4",
                 "lon4",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "factor_expansion_linea",
             ]
         ]
@@ -606,7 +624,7 @@ def imprimo_matrices_od(ctx: StorageContext):
             "rango_hora",
             "distancia_agregada",
         ],
-        weight_col=["distancia", "travel_time_min", "travel_speed"],
+        weight_col=["distance_od", "travel_time_min", "kmh_od"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
@@ -664,17 +682,17 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
 
     socio_indicadores = pd.DataFrame([])
     viajes.loc[viajes.travel_time_min == 0, "travel_time_min"] = np.nan
-    viajes.loc[viajes.travel_speed == 0, "travel_speed"] = np.nan
+    viajes.loc[viajes.kmh_od == 0, "kmh_od"] = np.nan
     etapas.loc[etapas.travel_time_min == 0, "travel_time_min"] = np.nan
-    etapas.loc[etapas.travel_speed == 0, "travel_speed"] = np.nan
+    etapas.loc[etapas.kmh_od == 0, "kmh_od"] = np.nan
 
     viajesx = calculate_weighted_means(
         viajes,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
         weighted_mean_cols=[
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -686,9 +704,9 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
         viajesx,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
         weighted_mean_cols=[
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -706,7 +724,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
             "tarifa_agregada",
             "modo",
         ],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     )
@@ -721,7 +739,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
             "tarifa_agregada",
             "modo",
         ],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=False,
     ).round(3)
@@ -730,7 +748,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     etapasxx = calculate_weighted_means(
         etapasx,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "modo"],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     ).round(3)
@@ -741,7 +759,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     etapasxx = calculate_weighted_means(
         etapasx,
         aggregate_cols=["dia", "mes", "tipo_dia", "tarifa_agregada", "modo"],
-        weighted_mean_cols=["distancia", "travel_time_min", "travel_speed"],
+        weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
     ).round(3)
@@ -753,9 +771,9 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
         viajesx,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
         weighted_mean_cols=[
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "diff_time",
         ],
@@ -829,9 +847,9 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
             "genero_agregado",
             "tarifa_agregada",
             "modo",
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "cant_etapas",
             "cant_viajes",
             "diff_time",
@@ -846,7 +864,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
         "genero_agregado",
         "tarifa_agregada",
         "Modo",
-        "Distancia",
+        "distance_od",
         "Tiempo de viaje",
         "Velocidad",
         "Etapas promedio",
@@ -887,7 +905,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
 
     hora = pd.concat([hora, horaT], ignore_index=True)
 
-    etapas["dist"] = etapas.distancia.round(0).astype(int)
+    etapas["dist"] = etapas.distance_od.round(0).astype(int)
     dist = (
         etapas.groupby(["dia", "modo", "dist"], as_index=False)
         .factor_expansion_linea.sum()
@@ -1074,9 +1092,9 @@ def preparo_lineas_deseo(
                 "tarifa_agregada",
                 "transferencia",
                 "distancia_agregada",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ],
@@ -1119,9 +1137,9 @@ def preparo_lineas_deseo(
                 "tarifa_agregada",
                 "transferencia",
                 "distancia_agregada",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ]
@@ -1143,9 +1161,9 @@ def preparo_lineas_deseo(
                 "tarifa_agregada",
                 "transferencia",
                 "distancia_agregada",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
                 "ultimo_viaje",
@@ -1197,9 +1215,9 @@ def preparo_lineas_deseo(
                 "tarifa_agregada",
                 "transferencia",
                 "distancia_agregada",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
                 "polygon",
@@ -1245,9 +1263,9 @@ def preparo_lineas_deseo(
                 "tarifa_agregada",
                 "transferencia",
                 "distancia_agregada",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "coincidencias",
                 "factor_expansion_linea",
             ]
@@ -1548,9 +1566,9 @@ def preparo_lineas_deseo(
                     "tarifa_agregada",
                     "coincidencias",
                     "distancia_agregada",
-                    "distancia",
+                    "distance_od",
                     "travel_time_min",
-                    "travel_speed",
+                    "kmh_od",
                     "factor_expansion_linea",
                 ]
             ]
@@ -1608,9 +1626,9 @@ def preparo_lineas_deseo(
             ]
 
             weighted_mean_cols = [
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -1633,7 +1651,7 @@ def preparo_lineas_deseo(
                 "lat4_norm",
                 "lon4_norm",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
             ]
 
             etapas_agrupadas_zon = agrupar_viajes(
@@ -1744,9 +1762,9 @@ def preparo_lineas_deseo(
                 "distancia_agregada",
             ]
             weighted_mean_cols = [
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -1831,16 +1849,16 @@ def preparo_lineas_deseo(
                 "lon1",
                 "lat4",
                 "lon4",
-                "distancia",
+                "distance_od",
                 "travel_time_min",
-                "travel_speed",
+                "kmh_od",
             ]
             zero_to_nan = [
                 "lat1",
                 "lon1",
                 "lat4",
                 "lon4",
-                "travel_speed",
+                "kmh_od",
                 "travel_time_min",
             ]
 
@@ -2090,66 +2108,57 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     if "genero_agregado" in trx.columns:
         trx["genero_agregado"] = trx["genero_agregado"].fillna("")
 
-    # Agrego líneas
-    all = agrego_lineas(["dia", "id_linea"], trx, etapas, gps, servicios, kpis, lineas)
+    # Resumen por línea
+    all_linea = agrego_lineas(
+        ["dia", "id_linea"],
+        trx,
+        etapas,
+        gps,
+        servicios,
+        kpis,
+        lineas,
+    )
 
-    all["mes"] = all["dia"].str[:7]
+    all_linea["mes"] = all_linea["dia"].str[:7]
 
-    all = all.groupby(
-        ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"], as_index=False
-    )[
-        [
-            "transacciones",
-            "distancia_media",
-            "travel_time_min",
-            "travel_speed",
-            "cant_internos_en_trx",
-            "cant_internos_en_gps",
-            "tot_veh",
-            "tot_km",
-            "tot_pax",
-            "dmt_mean",
-            "dmt_median",
-            "pvd",
-            "kvd",
-            "ipk",
-            "fo_mean",
-            "fo_median",
-        ]
-    ].mean()
+    metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
+
+    all_linea = (
+        all_linea
+        .groupby(
+            ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"],
+            as_index=False,
+        )[metric_cols_linea]
+        .mean()
+        .round(2)
+    )
 
     replace_dash_partition(ctx, all, "resumen_lineas", ["dia"])
 
-    # Agrego líneas y Ramal
-    all = agrego_lineas(
-        ["dia", "id_linea", "id_ramal"], trx, etapas, gps, servicios, kpis, lineas
+    # Resumen por línea y ramal
+    all_ramal = agrego_lineas(
+        ["dia", "id_linea", "id_ramal"],
+        trx,
+        etapas,
+        gps,
+        servicios,
+        kpis,
+        lineas,
     )
 
-    all["mes"] = all["dia"].str[:7]
+    all_ramal["mes"] = all_ramal["dia"].str[:7]
 
-    all = all.groupby(
-        ["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"],
-        as_index=False,
-    )[
-        [
-            "transacciones",
-            "distancia_media",
-            "travel_time_min",
-            "travel_speed",
-            "cant_internos_en_trx",
-            "cant_internos_en_gps",
-            "tot_veh",
-            "tot_km",
-            "tot_pax",
-            "dmt_mean",
-            "dmt_median",
-            "pvd",
-            "kvd",
-            "ipk",
-            "fo_mean",
-            "fo_median",
-        ]
-    ].mean()
+    metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
+
+    all_ramal = (
+        all_ramal
+        .groupby(
+            ["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"],
+            as_index=False,
+        )[metric_cols_ramal]
+        .mean()
+        .round(2)
+    )
 
     replace_dash_partition(ctx, all, "resumen_lineas_ramal", ["dia"])
 
