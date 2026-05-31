@@ -1502,18 +1502,12 @@ def compute_basic_kpi_line_typeday(ctx: StorageContext):
     kpi_by_line_day.loc[:, ["dia"]] = "weekday"
     kpi_by_line_day.loc[weekend, ["dia"]] = "weekend"
 
-    # average totals — of is recomputed from these
-    totals_cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-                   "dmt_route", "dmt_route_gps", "kmh_route", "kmh_route_gps"]
+    totals_cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
     kpi_by_line_typeday = kpi_by_line_day[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea"], as_index=False
     ).mean()
 
-    # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
-
-    cols = ["dia", "yr_mo", "id_linea", "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_day")
@@ -1533,20 +1527,12 @@ def compute_basic_kpi_line_hr_typeday(ctx: StorageContext):
     kpi_by_line_hr.loc[:, ["dia"]] = "weekday"
     kpi_by_line_hr.loc[weekend, ["dia"]] = "weekend"
 
-    # average totals — of is recomputed from these
-    totals_cols = ["dia", "yr_mo", "id_linea", "hora",
-                   "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-                   "dmt_route", "dmt_route_gps", "kmh_route", "kmh_route_gps"]
+    totals_cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
     kpi_by_line_typeday = kpi_by_line_hr[totals_cols].groupby(
         ["dia", "yr_mo", "id_linea", "hora"], as_index=False
     ).mean()
 
-    # set schema and upload to db
     cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
-
-    cols = ["dia", "yr_mo", "id_linea", "hora",
-            "tot_veh", "pax", "eq_pax", "eq_pax_gps",
-            "dmt_route", "dmt_route_gps", "of", "kmh_route", "kmh_route_gps"]
     kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_hr")
