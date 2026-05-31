@@ -392,12 +392,16 @@ def _create_legs_for_batches(
 
 def _clear_current_run_travel_times(ctx: StorageContext) -> None:
     """Clear derived travel-time tables for the current run days before rebuilding."""
+    import duckdb as _duckdb
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return
     dias_str = ", ".join(f"'{d}'" for d in run_days["dia"].tolist())
     for table in ["travel_times_legs", "travel_times_trips"]:
-        ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
+        try:
+            ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
+        except (_duckdb.CatalogException, Exception):
+            pass  # Table doesn't exist yet; will be created by assign_time_distances
 
 
 def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
@@ -418,15 +422,9 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     if nombre_archivo_gps is not None:
         services.process_services(ctx, line_ids=None)
         legs.assign_gps_origin(ctx)
-        legs.assign_gps_destination(ctx)
 
     tiempos_viaje_estaciones = configs.get("tiempos_viaje_estaciones")
-    if tiempos_viaje_estaciones is not None:
-        legs.assign_stations_od(ctx)
 
-    _clear_current_run_travel_times(ctx)
-    trips.compute_trips_travel_time(ctx)
-    legs.add_distance_and_travel_time(ctx)
     if batches is None:
         trips.rearrange_trip_id_same_od(ctx)
     else:
@@ -434,6 +432,12 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
         for batch in batches:
             logger.debug("  batch %d/%d", batch.batch_id + 1, batch.total_batches)
             trips.rearrange_trip_id_same_od(ctx, batch=batch)
+
+    # Compute distances and travel times for all legs; writes travel_times_legs/trips
+    legs.assign_time_distances(ctx)
+
+    if tiempos_viaje_estaciones is not None:
+        legs.assign_stations_od(ctx)
 
 
 def _build_final_outputs(ctx: StorageContext) -> None:

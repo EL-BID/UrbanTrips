@@ -1066,11 +1066,12 @@ def assign_time_distances(ctx: StorageContext):
     dias = dias_ultima_corrida["dia"].tolist()
     dias_str = ", ".join(f"'{d}'" for d in dias)
 
-    ctx.data.execute(f"DELETE FROM travel_times_legs WHERE dia IN ({dias_str})")
-    ctx.data.append_raw(travel_times, "travel_times_legs")
-
-    ctx.data.execute(f"DELETE FROM travel_times_trips WHERE dia IN ({dias_str})")
-    ctx.data.append_raw(travel_times_trips, "travel_times_trips")
+    for table, df in [("travel_times_legs", travel_times), ("travel_times_trips", travel_times_trips)]:
+        try:
+            ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
+        except Exception:
+            pass  # Table doesn't exist yet; append_raw will create it
+        ctx.data.append_raw(df, table)
         
 
 def distancia_h3_gps_leg(row):
