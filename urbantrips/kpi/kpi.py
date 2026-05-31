@@ -1246,7 +1246,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
             {
                 "id_linea": id_lines,
                 "hora": hours,
-                "speed_kmh_veh_h": [15] * 24 * len(unique_line_ids),
+                "kmh_route_veh_h": [15] * 24 * len(unique_line_ids),
             }
         )
         speed_vehicle_hour = (
@@ -1277,7 +1277,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
     # set a max speed te remove outliers
     speed_max = 60
     speed_vehicle_hour.loc[
-        speed_vehicle_hour.speed_kmh_veh_h > speed_max, "speed_kmh_veh_h"
+        speed_vehicle_hour.kmh_route_veh_h > speed_max, "kmh_route_veh_h"
     ] = speed_max
 
     speed_vehicle_hour = speed_vehicle_hour.dropna()
@@ -1285,7 +1285,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
     # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour.groupby(
         ["dia", "id_linea", "id_ramal"], as_index=False
-    ).agg(mean=("speed_kmh_veh_h", "mean"), std=("speed_kmh_veh_h", "std"))
+    ).agg(mean=("kmh_route_veh_h", "mean"), std=("kmh_route_veh_h", "std"))
     speed_dev["speed_min"] = speed_dev["mean"] - (2 * speed_dev["std"]).map(
         lambda x: max(1, x)
     )
@@ -1295,13 +1295,13 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
         speed_dev, on=["dia", "id_linea", "id_ramal"], how="left"
     )
 
-    speed_mask = (speed_vehicle_hour.speed_kmh_veh_h < speed_max) & (
-        speed_vehicle_hour.speed_kmh_veh_h > speed_vehicle_hour.speed_min
+    speed_mask = (speed_vehicle_hour.kmh_route_veh_h < speed_max) & (
+        speed_vehicle_hour.kmh_route_veh_h > speed_vehicle_hour.speed_min
     )
 
     speed_vehicle_hour = speed_vehicle_hour.loc[
         speed_mask,
-        ["dia", "id_linea", "id_ramal", "interno", "hora", "speed_kmh_veh_h"],
+        ["dia", "id_linea", "id_ramal", "interno", "hora", "kmh_route_veh_h"],
     ]
 
     # compute by hour to fill nans in vehicle speed
@@ -1309,14 +1309,14 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
         speed_vehicle_hour.drop(["id_ramal", "interno"], axis=1)
         .groupby(["dia", "id_linea", "hora"], as_index=False)
         .mean()
-        .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_h"})
+        .rename(columns={"kmh_route_veh_h": "speed_kmh_line_h"})
     )
 
     speed_line_day = (
         speed_vehicle_hour.drop(["id_ramal", "interno", "hora"], axis=1)
         .groupby(["dia", "id_linea"], as_index=False)
         .mean()
-        .rename(columns={"speed_kmh_veh_h": "speed_kmh_line_day"})
+        .rename(columns={"kmh_route_veh_h": "speed_kmh_line_day"})
     )
 
     # add commercial speed to demand data
@@ -1326,7 +1326,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
         how="left",
     ).merge(speed_line_hour, on=["dia", "id_linea", "hora"], how="left")
 
-    legs["speed_kmh"] = legs.speed_kmh_veh_h.combine_first(legs.speed_kmh_line_h)
+    legs["speed_kmh"] = legs.kmh_route_veh_h.combine_first(legs.speed_kmh_line_h)
 
     # get an vehicle space equivalent passenger
     legs["eq_pax"] = (legs.distance / legs.speed_kmh) * legs.factor_expansion_linea
