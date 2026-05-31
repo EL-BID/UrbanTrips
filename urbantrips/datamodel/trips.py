@@ -198,17 +198,6 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
         """,
     )
     
-    etapas = pd.read_sql_query(
-        """
-        SELECT e.*, 
-            tt.distance_od
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        LEFT JOIN travel_times_legs tt ON e.id = tt.id        
-        """,
-        conn,
-    )
-
     n_etapas = ctx.data.query(
         f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
     )["n"].iloc[0]
