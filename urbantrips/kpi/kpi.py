@@ -1142,7 +1142,8 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext):
     processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
 
     q = f"""
-    SELECT dia, id_linea, id_ramal, fecha, interno, velocity, distance_km
+    SELECT dia, id_linea, id_ramal, fecha, interno, velocity,
+           distance_km, distance_servicio_mts
     FROM gps
     WHERE dia NOT IN ({processed_days})
     """
@@ -1162,7 +1163,8 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext):
     gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
 
     # Dos velocidades en paralelo, una por cada distancia
-    gps_df["distance_km_gps"] = gps_df.distance_servicio_mts / 1000
+    # distance_servicio_mts may be NULL when the operator doesn't report odometer
+    gps_df["distance_km_gps"] = pd.to_numeric(gps_df["distance_servicio_mts"], errors="coerce") / 1000
     gps_df["kmh_route_veh_h"] = gps_df.distance_km / gps_df.delta_hr
     gps_df["kmh_route_gps_veh_h"] = gps_df.distance_km_gps / gps_df.delta_hr
     gps_df["hora"] = pd.to_datetime(gps_df["fecha"], unit="s").dt.hour
