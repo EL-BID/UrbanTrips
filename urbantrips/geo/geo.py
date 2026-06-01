@@ -397,7 +397,7 @@ def get_epsg_m():
     """
     Gets the epsg id for a coordinate reference system in meters from config
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     epsg_m = configs["epsg_m"]
 
     return epsg_m
@@ -473,7 +473,7 @@ def classify_leg_into_station(legs, stations, leg_h3_field, join_branch_id=False
         df with leg id and nearest station id
 
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
     epsg_m = get_epsg_m()
 

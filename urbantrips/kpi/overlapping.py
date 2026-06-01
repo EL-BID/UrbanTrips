@@ -108,7 +108,7 @@ def aggregate_demand_data(
     line_id = legs_within_branch.id_linea.iloc[0]
     day = legs_within_branch.dia.iloc[0]
 
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     use_branches = configs["lineas_contienen_ramales"]
 
     metadata_lineas = ctx.insumos.get_metadata_lineas()
@@ -340,7 +340,7 @@ def compute_supply_overlapping(
     base_v_comp = round(overlapping_indexes / len(base_h3) * 100, 1)
     comp_v_base = round(overlapping_indexes / len(comp_h3) * 100, 1)
 
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     use_branches = configs["lineas_contienen_ramales"]
 
     metadata_lineas = ctx.insumos.get_metadata_lineas()
@@ -432,7 +432,7 @@ def compute_demand_overlapping(
     comp_gdf,
     ctx: StorageContext,
 ):
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     comp_h3_resolution = h3.get_resolution(comp_gdf.h3.iloc[0])
     configs_resolution = configs["resolucion_h3"]
 
@@ -488,7 +488,7 @@ def get_route_combinations(base_line_id, comp_line_id, ctx: StorageContext):
     Retrieve route ID combinations and metadata based on the given line IDs.
     """
 
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     use_branches = configs["lineas_contienen_ramales"]
 
     metadata_ramales = ctx.insumos.get_metadata_ramales()
@@ -536,7 +536,7 @@ def get_route_combinations(base_line_id, comp_line_id, ctx: StorageContext):
 def get_route_ids_from_combination(
     base_line_id, comp_line_id, route_id_combination, ctx: StorageContext
 ):
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     use_branches = configs["lineas_contienen_ramales"]
 
     metadata_ramales = ctx.insumos.get_metadata_ramales()

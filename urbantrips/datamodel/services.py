@@ -26,7 +26,7 @@ def process_services(ctx: StorageContext, line_ids=None):
         and services_stats tables in db
 
     """
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
     nombre_archivo_gps = configs["nombre_archivo_gps"]
 
     if nombre_archivo_gps is not None:
@@ -75,7 +75,7 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
     Download unprocessed gps data and stops for all lines
     or for a specified set of line ids and all days
     """
-    configs = utils.leer_configs_generales()
+    configs = utils.leer_configs_generales(autogenerado=False)
 
     gps_exists = ctx.data.query("SELECT 1 AS gps_exists FROM gps LIMIT 1")
     if gps_exists.empty:
@@ -170,7 +170,7 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
     else:
         line_stops_gdf = None
 
-    trust_service_type_gps = utils.leer_configs_generales()["utilizar_servicios_gps"]
+    trust_service_type_gps = utils.leer_configs_generales(autogenerado=False)["utilizar_servicios_gps"]
 
     if trust_service_type_gps:
         gps_points_with_new_service_id = classify_line_gps_points_into_services(
@@ -477,7 +477,7 @@ def classify_line_gps_points_into_services(
     """
     # check configs if trust in service type gps
     if trust_service_type_gps is None:
-        configs = utils.leer_configs_generales()
+        configs = utils.leer_configs_generales(autogenerado=False)
         trust_service_type_gps = configs["utilizar_servicios_gps"]
 
     group_cols = ["dia", "id_ramal", "interno"]

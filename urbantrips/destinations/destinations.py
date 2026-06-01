@@ -277,7 +277,7 @@ def infer_destinations(ctx: StorageContext):
     """
     Lee las etapas de la DB, imputa destinos potenciales y los valida.
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     destinos_min_dist = configs.get("imputar_destinos_min_distancia", False) or False
 
     if destinos_min_dist:

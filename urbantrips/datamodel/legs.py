@@ -74,7 +74,7 @@ def build_legs_dataframe(
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
 
     # asignar id h3
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     res = configs["resolucion_h3"]
     legs = referenciar_h3(df=legs, res=res, nombre_h3="h3_o")
 
@@ -544,8 +544,9 @@ def assign_gps_origin(ctx: StorageContext):
     This function read legs data and if there is gps table
     assigns a gps to the leg origin
     """
-    configs = leer_configs_generales()
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    configs = leer_configs_generales(autogenerado=False)
+    usa_gps = configs.get("usa_archivo_gps", False)
+    nombre_archivo_gps = configs.get("nombre_archivo_gps") if usa_gps else None
 
     if nombre_archivo_gps is not None:
         legs = ctx.data.query(
@@ -603,9 +604,10 @@ def assign_time_distances(ctx: StorageContext):
     assigns a gps to the leg destination
     """
 
-    configs = leer_configs_generales()
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
-    
+    configs = leer_configs_generales(autogenerado=False)
+    usa_gps = configs.get("usa_archivo_gps", False)
+    nombre_archivo_gps = configs.get("nombre_archivo_gps") if usa_gps else None
+
     query = """
     SELECT e.*
     FROM etapas e
@@ -1083,8 +1085,8 @@ def assign_stations_od(ctx: StorageContext):
     for each leg
     """
 
-    configs = leer_configs_generales()
-    tiempos_viaje_estaciones = configs["tiempos_viaje_estaciones"]
+    configs = leer_configs_generales(autogenerado=False)
+    tiempos_viaje_estaciones = configs.get("tiempos_viaje_estaciones")
 
     if tiempos_viaje_estaciones is not None:
 

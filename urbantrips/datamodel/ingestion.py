@@ -64,7 +64,7 @@ def _standardize_chunk(
         try:
             from urbantrips.utils.utils import leer_configs_generales
 
-            modos = leer_configs_generales().get("modos", {})
+            modos = leer_configs_generales(autogenerado=False).get("modos", {})
         except Exception:
             modos = {}
         modos_homologados = {

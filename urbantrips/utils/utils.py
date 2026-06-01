@@ -29,7 +29,7 @@ def leer_alias(tipo="data"):
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el alias seteado en el archivo de congifuracion
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     # Setear el tipo de key en base al tipo de datos
     if tipo == "data":
         key = "alias_db_data"

@@ -2159,7 +2159,7 @@ def proceso_poligonos(
         poligonos = poligonos[poligonos.id == poligon_id]
     if len(poligonos) > 0:
 
-        configs = leer_configs_generales()
+        configs = leer_configs_generales(autogenerado=False)
         res = configs["resolucion_h3"]
 
         # Select cases based fron polygon

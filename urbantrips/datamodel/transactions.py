@@ -45,7 +45,7 @@ def create_transactions(
     que necesita el proceso
     """
 
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
 
     try:
         modos_homologados = configs["modos"]
@@ -251,7 +251,7 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
         service_id_col_name = nombres_variables.pop("servicios_gps")
 
         # get the values for services start and finish
-        gps_config = leer_configs_generales()
+        gps_config = leer_configs_generales(autogenerado=False)
         start_service_value = gps_config["valor_inicio_servicio"]
         finish_service_value = gps_config["valor_fin_servicio"]
 
@@ -329,7 +329,7 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
 
 def agrego_factor_expansion(trx, ctx: StorageContext):
     # Traigo var_fex si existe
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     try:
         var_fex = configs["nombres_variables_trx"]["factor_expansion"]
     except KeyError:
@@ -399,7 +399,7 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
     if len(zonificaciones) > 0:
         minx, miny, maxx, maxy = zonificaciones.total_bounds
     else:
-        configs = leer_configs_generales()
+        configs = leer_configs_generales(autogenerado=False)
         try:
             bbox = configs["filtro_latlong_bbox"]
             minx, miny, maxx, maxy = (
@@ -533,7 +533,7 @@ def geolocalizar_trx(
     más cercano, sube dos tablas trx_eco y gps y actualiza la tabla
     transacciones con las trx_eco geolocalizadas
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     # Leer archivos de trx_eco
     id_tarjeta_trx = nombres_variables_trx["id_tarjeta_trx"]
 
@@ -717,7 +717,7 @@ def process_and_upload_gps_table(
     Esta función lee el archivo csv de información de gps
     lo procesa y sube a la base de datos
     """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
 
     ruta_gps = os.path.join("data", "data_ciudad", nombre_archivo_gps)
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
@@ -844,7 +844,7 @@ def process_and_upload_gps_table(
 
     logger.info("Subiendo tabla gps")
 
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
     res = configs["resolucion_h3"]
 
     gps["h3"] = gps.apply(geo.h3_from_row, axis=1, args=(res, "latitud", "longitud"))
@@ -911,7 +911,7 @@ def compute_distance_km_gps(gps):
     # Assign h3 to gps
     logger.info("Computing distances for GPS points...")
     res = 11  # resolution 11 has an average hexagon area of 0.74 km², which is a good balance for urban mobility analysis
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
 
     if configs["lineas_contienen_ramales"]:
         order_cols = ["dia", "id_linea", "id_ramal", "interno", "fecha"]
