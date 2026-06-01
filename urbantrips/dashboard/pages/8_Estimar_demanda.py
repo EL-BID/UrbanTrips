@@ -6,21 +6,19 @@ import h3
 from streamlit_folium import st_folium
 import folium
 from shapely.geometry import Polygon, shape, LineString
-from shapely import wkt
 from shapely.ops import unary_union
 import contextily as cx
 import seaborn as sns
 from PIL import UnidentifiedImageError
 import matplotlib.pyplot as plt
 from requests.exceptions import ConnectionError as r_ConnectionError
+from dash_storage import leer_configs_generales
 from dash_utils import (
     levanto_tabla_sql,
     get_epsg_m,
-    iniciar_conexion_db,
     get_logo,
     bring_latlon,
     configurar_selector_dia,
-    leer_configs_generales,
     create_squared_polygon,
     h3_to_polygon,
     extract_hex_colors_from_cmap,
@@ -96,30 +94,11 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
-
-    try:
-        if len(query) == 0:
-            query = f"""
-            SELECT *
-            FROM {tabla_sql}
-            """
-
-        tabla = pd.read_sql_query(query, conn)
-    except Exception as e:
-        print(f"{tabla_sql} no existe: {e}")
-        tabla = pd.DataFrame([])
-
-    conn.close()
-
-    if len(tabla) > 0:
-        if "wkt" in tabla.columns:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
-
-    return tabla
+    return utils.levanto_tabla_sql(
+        tabla_sql,
+        tabla_tipo=tabla_tipo,
+        query=query,
+    )
 
 
 @st.cache_data
@@ -156,9 +135,11 @@ def get_legs_from_draw_line(route_h3, hour_range, day_type):
     print("Obteniendo datos de etapas")
 
     # get data for legs and route geoms
-    conn_data = iniciar_conexion_db(tipo="data")
-    legs = pd.read_sql(q_main_legs, conn_data)
-    conn_data.close()
+    legs = utils.levanto_tabla_sql(
+        "etapas",
+        tabla_tipo="data",
+        query=q_main_legs,
+    )
 
     legs["yr_mo"] = legs.dia.str[:7]
 
@@ -438,7 +419,6 @@ try:
     st.write("Resolución h3 para etapas:", h3_legs_res)
 
     alias = configs["alias_db_data"]
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
 except ValueError as e:
     st.error(
@@ -732,13 +712,14 @@ with st.expander("Demanda total y por linea"):
     legs = get_legs_from_draw_line(route_h3_buffer, hour_range, day_type)
     # st.text(f"Etapas totales en la zona: {int(legs.factor_expansion_linea.sum())}")
     lineas = legs.id_linea.unique().tolist()
-    metadata = pd.read_sql(
-        f"""
+    metadata = utils.levanto_tabla_sql(
+        "metadata_lineas",
+        tabla_tipo="insumos",
+        query=f"""
         SELECT id_linea, nombre_linea
         FROM metadata_lineas
         where id_linea in ({','.join(map(str, lineas))})
         """,
-        conn_insumos,
     )
 
     # Get the default DPI or set a specific one

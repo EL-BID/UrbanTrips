@@ -9,6 +9,7 @@ import mapclassify
 import plotly.express as px
 from folium import Figure
 from shapely import wkt
+from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
     levanto_tabla_sql_local,
@@ -16,8 +17,6 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db,
-    normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
     traigo_tablas_con_filtros,
@@ -192,9 +191,9 @@ def traigo_viajes_linea(
     etapas_agregadas["genero_agregado"] = 99
     etapas_agregadas["tarifa_agregada"] = 99
     etapas_agregadas["distancia_agregada"] = 99
-    etapas_agregadas["distancia"] = 0
+    etapas_agregadas["distance_od"] = 0
     etapas_agregadas["travel_time_min"] = 0
-    etapas_agregadas["travel_speed"] = 0
+    etapas_agregadas["kmh_od"] = 0
     etapas_agregadas["id_polygon"] = "NONE"
 
     return etapas_agregadas
@@ -507,7 +506,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         rango_hora_seleccionado = col1.selectbox(
             "Rango hora", options=[text for text in lista_rango_hora]
         )
-        distancia_seleccionada = col1.selectbox("Distancia", options=lista_distancia)
+        distancia_seleccionada = col1.selectbox("distance_od", options=lista_distancia)
         genero_agregado_seleccionado = col1.selectbox(
             "Género", options=[text for text in lista_genero_agregado]
         )
@@ -829,7 +828,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         ["tabla", "Genero", "Tarifa", "Modo"], as_index=False
                     )[
                         [
-                            "Distancia",
+                            "distance_od",
                             "Tiempo de viaje",
                             "Velocidad",
                             "Etapas promedio",
@@ -1055,11 +1054,11 @@ with st.expander("Matrices"):
             col1.write(f"Línea: {nombre_linea_seleccionado}")
 
         if tipo_matriz == "Distancia promedio (kms)":
-            var_matriz = "distancia"
+            var_matriz = "distance_od"
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":
-            var_matriz = "travel_speed"
+            var_matriz = "kmh_od"
 
         if not st.session_state.resumen:
             od_heatmap = pd.crosstab(

@@ -13,6 +13,24 @@ Para mayor información de la librería, instalación, configuración y uso pued
 Para una discusión metodológica de cómo se imputan destinos y se construye la matriz de origen y destino se puede consultar este [documento metodológico](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/Metodologia_UrbanTrips.pdf "Documento metodológico").
 
 
+## Desarrollo
+
+Para contribuir al proyecto, primero instalá las dependencias de desarrollo:
+
+```bash
+pip install -e ".[dev]"
+```
+
+El repositorio incluye un `Makefile` con los mismos chequeos que corren en GitHub Actions:
+
+| Comando | Descripción |
+|---|---|
+| `make lint` | Verificación de estilo con Ruff |
+| `make unit` | Tests unitarios con cobertura |
+| `make integration` | Tests de integración con cobertura |
+| `make build` | Construcción del paquete |
+| `make ci` | Todos los pasos anteriores en secuencia |
+
 ## Agradecimientos
 
 Queremos agradecer la colaboración de los gobiernos de Ciudad de Buenos Aires, Córdoba, Mendoza y Bariloche que proveyeron datos y participaron de valiosas conversaciones para mejorar esta librería.

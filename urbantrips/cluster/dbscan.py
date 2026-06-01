@@ -1,3 +1,4 @@
+import logging
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
@@ -8,16 +9,18 @@ import geopandas as gpd
 from sklearn.metrics import silhouette_score
 from shapely.geometry import LineString, Point
 from shapely import wkt
-import re
 import contextily as cx
 from matplotlib.colors import rgb2hex
 import matplotlib.pyplot as plt
+from urbantrips.utils.sql import is_date_string
 import seaborn as sns
 import os
-from urbantrips.utils.utils import iniciar_conexion_db
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
-def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
+def get_legs_and_route_geoms(ctx: StorageContext, id_linea, rango_hrs, day_type):
     """
     Computes the load per route section.
 
@@ -49,8 +52,6 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
     # Basic query for legs and route geoms
     q_rec = f"select * from lines_geoms"
     q_main_etapas = f"select * from etapas"
-    conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
     # If line, hour and/or day type, get that subset
     if id_linea:
         if type(id_linea) == int:
@@ -78,11 +79,18 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
 		WHERE od_validado = 1;
     """
 
-    print("Obteniendo datos de etapas y rutas")
+    logger.info("Obteniendo datos de etapas y rutas")
 
     # get data for legs and route geoms
-    legs = pd.read_sql(q_etapas, conn_data)
-    route_geom = pd.read_sql(q_rec, conn_insumos)
+    legs = ctx.data.query(q_etapas)
+    route_geom_all = ctx.insumos.get_raw("lines_geoms")
+    if id_linea:
+        if type(id_linea) == int:
+            route_geom = route_geom_all[route_geom_all.id_linea.isin([id_linea])]
+        else:
+            route_geom = route_geom_all[route_geom_all.id_linea.isin(id_linea)]
+    else:
+        route_geom = route_geom_all
 
     route_geom["geometry"] = route_geom.wkt.apply(wkt.loads)
     route_geom = route_geom.loc[route_geom.id_linea == id_linea, "geometry"].item()
@@ -173,9 +181,9 @@ def cluster_legs_4d(legs, route_geom, epsg_m=9265):
     X_d1 = legs.loc[legs.sentido == "vuelta", ["o_x_m", "o_y_m", "d_x_m", "d_y_m"]]
     w_d1 = legs.loc[legs.sentido == "vuelta", "factor_expansion"]
 
-    print("Direction 0")
+    logger.debug("Direction 0")
     clustered_legs_d0 = cluster_legs(X_d0, w_d0, type_k="4d")
-    print("Direction 1")
+    logger.debug("Direction 1")
     clustered_legs_d1 = cluster_legs(X_d1, w_d1, type_k="4d")
 
     return clustered_legs_d0, clustered_legs_d1
@@ -272,20 +280,12 @@ def cluster_legs(X, w, type_k="lrs"):
                 best_num_noise = num_noise
                 min_noise_params = params
 
-    # Print results
-    print(
-        f"Max number of clusters ({best_num_clusters}) "
-        f"found with eps={max_groups_params[0]} and "
-        f"min_samples={max_groups_params[1]}"
-    )
-    print(
-        f"Min number of noise points ({best_num_noise}) found with"
-        f" eps={min_noise_params[0]} and min_samples={min_noise_params[1]}"
-    )
-    print(
-        f"Max silhouette score ({best_silhouette_score}) found with "
-        f"eps={max_silhouette_params[0]} and "
-        f"min_samples={max_silhouette_params[1]}"
+    logger.debug(
+        "Max clusters=%d eps=%s min_samples=%s | Min noise=%d eps=%s min_samples=%s | "
+        "Max silhouette=%.3f eps=%s min_samples=%s",
+        best_num_clusters, max_groups_params[0], max_groups_params[1],
+        best_num_noise, min_noise_params[0], min_noise_params[1],
+        best_silhouette_score, max_silhouette_params[0], max_silhouette_params[1],
     )
 
     params = {
@@ -374,13 +374,6 @@ def classify_legs_into_directions(legs, route_geom):
     return legs
 
 
-def is_date_string(input_str):
-    """Checks a tring inputs for a date format"""
-    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    if pattern.match(input_str):
-        return True
-    else:
-        return False
 
 
 def plot_cluster_legs_lrs(
@@ -684,18 +677,10 @@ def create_gdf_cluster_technique(clustered_legs, technique, factor, epsg_m):
     return gdf_technique
 
 
-def get_route_name(route_id):
+def get_route_name(ctx: StorageContext, route_id):
     """
     Gets the route name based on the route id
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    cur = conn_insumos.cursor()
-    q = f"""
-    SELECT nombre_linea FROM metadata_lineas
-    where id_linea = {route_id}
-    """
-    cur.execute(q)
-
-    route_name = cur.fetchall()[0][0]
-
+    metadata = ctx.insumos.get_metadata_lineas()
+    route_name = metadata.loc[metadata.id_linea == route_id, "nombre_linea"].iloc[0]
     return route_name
