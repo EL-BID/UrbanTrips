@@ -282,10 +282,7 @@ def pago_doble_tarjeta(trx, trx_order_params):
         .drop_duplicates()
     )
 
-    trx = trx.drop("id_tarjeta", axis=1).rename(
-        columns={"id_tarjeta_nuevo": "id_tarjeta"}
-    )
-
+    trx["id_tarjeta"] = trx["id_tarjeta_nuevo"]
     trx = trx.reindex(columns=cols)
 
     return trx, tarjetas_duplicadas
