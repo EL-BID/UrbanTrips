@@ -623,10 +623,9 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
     day_stats = day_demand_stats.copy()
         
     # supply: read from services filtered to valid=1 (no expansion factor)
-    services_data = pd.read_sql(
+    services_data = ctx.data.query(
         "SELECT dia, id_linea, interno, distance_route, distance_route_gps"
-        " FROM services WHERE valid = 1",
-        conn_data,
+        " FROM services WHERE valid = 1"
     )
     services_tot_veh = (
         services_data
