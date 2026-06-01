@@ -102,19 +102,22 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 GPS = """
 CREATE TABLE IF NOT EXISTS gps (
-    id           INT PRIMARY KEY NOT NULL,
-    id_original  TEXT,
-    dia          TEXT,
-    id_linea     BIGINT,
-    id_ramal     BIGINT,
-    interno      INT,
-    fecha        INT,
-    latitud      FLOAT,
-    longitud     FLOAT,
-    velocity     FLOAT,
-    service_type TEXT,
-    distance_km  FLOAT,
-    h3           TEXT
+    id                        INT PRIMARY KEY NOT NULL,
+    id_original               TEXT,
+    dia                       TEXT,
+    id_linea                  BIGINT,
+    id_ramal                  BIGINT,
+    interno                   INT,
+    fecha                     INT,
+    latitud                   FLOAT,
+    longitud                  FLOAT,
+    velocity                  FLOAT,
+    id_servicio               TEXT,
+    service_type              TEXT,
+    distance_km               FLOAT,
+    distance_servicio_mts     FLOAT,
+    distance_servicio_mts_agg FLOAT,
+    h3                        TEXT
 )
 """
 
