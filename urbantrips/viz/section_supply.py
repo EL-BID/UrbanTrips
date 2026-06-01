@@ -13,7 +13,7 @@ from urbantrips.viz.helpers import standarize_size, create_squared_polygon
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     leer_configs_generales,
-    traigo_db_path,
+    get_db_path,
     leer_alias,
     duracion,
     create_line_ids_sql_filter,

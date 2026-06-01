@@ -29,7 +29,7 @@ from urbantrips.geo import geo
 from urbantrips.geo.geo import normalizo_lat_lon, crear_linestring
 from urbantrips.utils.utils import (
     leer_configs_generales,
-    traigo_db_path,
+    get_db_path,
     leer_alias,
     duracion,
     create_line_ids_sql_filter,
@@ -1226,7 +1226,7 @@ def imprime_graficos_hora(
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
-    db_path = traigo_db_path
+    db_path = get_db_path
     alias = leer_alias()
 
     df_aux = pd.DataFrame(
@@ -1479,7 +1479,7 @@ def imprime_burbujas(
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
-    db_path = traigo_db_path
+    db_path = get_db_path
     alias = leer_alias()
 
     zonas = ctx.insumos.get_zones()

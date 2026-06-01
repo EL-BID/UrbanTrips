@@ -25,31 +25,22 @@ logger = logging.getLogger(__name__)
 
 
 def leer_alias(tipo="data"):
-    """
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve el alias seteado en el archivo de congifuracion
-    """
     configs = leer_configs_generales(autogenerado=False)
-    # Setear el tipo de key en base al tipo de datos
-    if tipo == "data":
-        key = "alias_db_data"
-    elif tipo == "insumos":
-        key = "alias_db_insumos"
-    elif tipo == "general":
-        key = "alias_db_insumos"
-    elif tipo == "dash":
-        key = "alias_db_dashboard"
-    else:
+    alias_insumos = configs.get("alias_db_insumos") or configs.get("alias_db") or ""
+    alias_data    = configs.get("alias_db") or alias_insumos
+    aliases = {
+        "data":    configs.get("alias_db_data")      or alias_data,
+        "insumos": alias_insumos,
+        "dash":    configs.get("alias_db_dashboard") or alias_data,
+        "general": alias_data,
+    }
+    if tipo not in aliases:
         raise ValueError("tipo invalido: %s" % tipo)
-    # Leer el alias
-    try:
-        alias = configs[key] + "_"
-    except KeyError:
-        alias = ""
-    return alias
+    alias = aliases[tipo]
+    return alias + "_" if alias else ""
 
 
-def traigo_db_path(tipo="data", alias_db=""):
+def get_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -85,7 +76,7 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    db_path = traigo_db_path(tipo, alias_db)
+    db_path = get_db_path(tipo, alias_db)
     if str(db_path).endswith(".duckdb"):
         return _duckdb.connect(str(db_path), read_only=False)
     return sqlite3.connect(db_path, timeout=10)

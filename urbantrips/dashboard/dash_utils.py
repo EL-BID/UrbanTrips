@@ -27,8 +27,10 @@ from urbantrips.dashboard.dash_storage import (
     _load_yaml_simple,
     _find_first_valid_yaml,
     leer_configs_generales,
+    resolve_db_aliases,
     normalize_vars,
     _fetch_sql_dataframe,
+    get_project_root,
 )
 
 # def leer_configs_generales(autogenerado=True):
@@ -64,48 +66,23 @@ from urbantrips.dashboard.dash_storage import (
 
 
 def leer_alias(tipo="dash"):
-    """
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve el alias seteado en el archivo de congifuracion
-    """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
+    corridas = configs.get("corridas", [])
 
-    configs_orig = leer_configs_generales(autogenerado=False)
-    corridas = configs_orig["corridas"]
-    if (len(corridas) > 1) & ("dia_seleccionado" in st.session_state):
+    # Multi-corrida day-selector: data and dash use the selected corrida name.
+    # Only applies when each corrida has its own DB (no shared alias_db key).
+    if tipo in ("data", "dash") and len(corridas) > 1 and "dia_seleccionado" in st.session_state and "alias_db" not in configs:
         posicion = corridas.index(st.session_state.dia_seleccionado)
+        return corridas[posicion] + "_"
 
-        # Setear el tipo de key en base al tipo de datos
-        if tipo == "data":
-            alias = corridas[posicion] + "_"
-        elif tipo == "dash":
-            alias = corridas[posicion] + "_"
-        else:
-            alias = configs["alias_db_insumos"] + "_"
-
-    else:
-
-        # Setear el tipo de key en base al tipo de datos
-        if tipo == "data":
-            key = "alias_db_data"
-        elif tipo == "insumos":
-            key = "alias_db_insumos"
-        elif tipo == "general":
-            key = "alias_db_insumos"
-        elif tipo == "dash":
-            key = "alias_db_dashboard"
-        else:
-            raise ValueError("tipo invalido: %s" % tipo)
-        # Leer el alias
-        try:
-            alias = configs[key] + "_"
-        except KeyError:
-            alias = ""
-
-    return alias
+    aliases = resolve_db_aliases(configs)
+    if tipo not in aliases:
+        raise ValueError("tipo invalido: %s" % tipo)
+    alias = aliases[tipo]
+    return alias + "_" if alias else ""
 
 
-def traigo_db_path(tipo="data", alias_db=""):
+def get_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -117,7 +94,10 @@ def traigo_db_path(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
 
+    project_root = get_project_root()
     candidates = [
+        project_root / "data" / "db" / f"{alias_db}{tipo}.duckdb",
+        project_root / "data" / "db" / f"{alias_db}{tipo}.sqlite",
         Path("data") / "db" / f"{alias_db}{tipo}.duckdb",
         Path("/data/db") / f"{alias_db}{tipo}.duckdb",
         Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
@@ -141,7 +121,7 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    db_path = traigo_db_path(tipo, alias_db)
+    db_path = get_db_path(tipo, alias_db)
 
     if str(db_path).endswith(".duckdb"):
         return duckdb.connect(str(db_path), read_only=False)
@@ -1319,9 +1299,16 @@ def traigo_tablas_con_filtros(
 
 @st.cache_data
 def traer_dias_disponibles():
-    return levanto_tabla_sql(
-        "corridas", "general", query="select corrida from corridas"
-    ).corrida.values.tolist()
+    try:
+        corridas = levanto_tabla_sql(
+            "corridas", "general", query="select corrida from corridas"
+        ).corrida.values.tolist()
+        if corridas:
+            return corridas
+    except Exception:
+        pass
+    configs = leer_configs_generales(autogenerado=False)
+    return configs.get("corridas", [])
 
 
 def configurar_selector_dia():
