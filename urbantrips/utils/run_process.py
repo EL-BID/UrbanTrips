@@ -491,10 +491,10 @@ def check_prerequisites(step: str, ctx: StorageContext) -> None:
                 "(etapas table is empty). Run with --through legs first."
             )
     elif step == "outputs":
-        if not ctx.data.has_rows("etapas", where="h3 IS NOT NULL"):
+        if not ctx.data.has_rows("etapas", where="h3_o IS NOT NULL"):
             raise RuntimeError(
                 "Step 'outputs' requires legs to have been run first "
-                "(etapas.h3 is empty). Run with --through outputs first."
+                "(etapas.h3_o is empty). Run with --through outputs first."
             )
     elif step == "dashboard":
         if not ctx.data.has_rows("viajes"):
