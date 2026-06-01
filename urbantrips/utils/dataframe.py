@@ -38,7 +38,7 @@ def calculate_weighted_means(
         )
         grouped = (
             df.loc[df[col].notna()]
-            .groupby(aggregate_cols, as_index=False)[[f"{col}_weighted", weight_col]]
+            .groupby(aggregate_cols, as_index=False, observed=True)[[f"{col}_weighted", weight_col]]
             .sum()
         )
         grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
@@ -49,8 +49,8 @@ def calculate_weighted_means(
             result = result.merge(grouped, how="left", on=aggregate_cols)
 
     if var_fex_summed:
-        fex = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
+        fex = df.groupby(aggregate_cols, as_index=False, observed=True)[weight_col].sum()
     else:
-        fex = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
+        fex = df.groupby(aggregate_cols, as_index=False, observed=True)[weight_col].mean()
     result = result.merge(fex, how="left", on=aggregate_cols)
     return result

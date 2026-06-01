@@ -144,7 +144,7 @@ def load_and_process_data(ctx: StorageContext):
     viajes["mes"] = pd.to_datetime(viajes["dia"]).dt.to_period("M").astype(str)
 
     viajes["Fecha"] = pd.to_datetime(viajes["dia"] + " " + viajes["tiempo"])
-    viajes["Fecha_next"] = viajes.groupby(["dia", "id_tarjeta"])["Fecha"].shift(-1)
+    viajes["Fecha_next"] = viajes.groupby(["dia", "id_tarjeta"], observed=True)["Fecha"].shift(-1)
     viajes["diff_time"] = (
         (viajes["Fecha_next"] - viajes["Fecha"]).dt.seconds / 60
     ).round()
@@ -165,7 +165,7 @@ def load_and_process_data(ctx: StorageContext):
     # ── 4. partición modal (vectorizada) ────────────────────────────
 
     keys_mod = ["dia", "id_tarjeta", "id_viaje"]
-    tmp = etapas.groupby(keys_mod, sort=False).agg(
+    tmp = etapas.groupby(keys_mod, sort=False, observed=True).agg(
         n_unique=("modo", "nunique"),
         etapas_tot=("modo", "size"),
         modo_ref=("modo", "first"),
@@ -181,7 +181,7 @@ def load_and_process_data(ctx: StorageContext):
     )
     etapas = etapas.merge(tmp["modo_agregado"].reset_index(), on=keys_mod)
     viajes = viajes.merge(
-        etapas.groupby(keys_mod + ["modo_agregado"], as_index=False)
+        etapas.groupby(keys_mod + ["modo_agregado"], as_index=False, observed=True)
         .size()
         .drop(columns="size"),
         how="left",
@@ -286,11 +286,11 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
         viajes["id_polygon"] = "NONE"
 
     ind1 = (
-        viajes.groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        viajes.groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round(0)
         .rename(columns={"factor_expansion_linea": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .Valor.mean()
         .round()
     )
@@ -301,11 +301,11 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
 
     ind2 = (
         viajes[viajes.transferencia == 1]
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round(0)
         .rename(columns={"factor_expansion_linea": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .Valor.mean()
         .round()
     )
@@ -323,36 +323,36 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind3 = (
         viajes.groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "rango_hora"], as_index=False
-        )
+        , observed=True)
         .factor_expansion_linea.sum()
         .round(0)
         .rename(columns={"factor_expansion_linea": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "rango_hora"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "rango_hora"], as_index=False, observed=True)
         .Valor.mean()
         .round()
     )
     ind3["Indicador"] = "Cantidad de Según Rango Horas"
     ind3["Tot"] = ind3.groupby(
         ["id_polygon", "dia", "mes", "tipo_dia"]
-    ).Valor.transform("sum")
+    , observed=True).Valor.transform("sum")
     ind3["Valor"] = (ind3["Valor"] / ind3["Tot"] * 100).round(2)
     ind3["Indicador"] = "Cantidad de Viajes de " + ind3["rango_hora"] + "hs"
     ind3["Tipo"] = "General"
     ind3["type_val"] = "percentage"
 
     ind4 = (
-        viajes.groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False)
+        viajes.groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round(0)
         .rename(columns={"factor_expansion_linea": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False, observed=True)
         .Valor.mean()
         .round()
     )
     ind4["Indicador"] = "Partición Modal"
     ind4["Tot"] = ind4.groupby(
         ["id_polygon", "dia", "mes", "tipo_dia"]
-    ).Valor.transform("sum")
+    , observed=True).Valor.transform("sum")
     ind4["Valor"] = (ind4["Valor"] / ind4["Tot"] * 100).round(2)
     ind4 = ind4.sort_values(["id_polygon", "Valor"], ascending=False)
     ind4["Indicador"] = ind4["modo"]
@@ -362,22 +362,20 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind9 = (
         viajes.groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "distancia_agregada"],
-            as_index=False,
-        )
+            as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round(0)
         .rename(columns={"factor_expansion_linea": "Valor"})
         .groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "distancia_agregada"],
-            as_index=False,
-        )
+            as_index=False, observed=True)
         .Valor.mean()
         .round()
     )
     ind9["Indicador"] = "Partición Modal"
     ind9["Tot"] = ind9.groupby(
         ["id_polygon", "dia", "mes", "tipo_dia"]
-    ).Valor.transform("sum")
+    , observed=True).Valor.transform("sum")
     ind9["Valor"] = (ind9["Valor"] / ind9["Tot"] * 100).round(2)
     ind9 = ind9.sort_values(["id_polygon", "Valor"], ascending=False)
     ind9["Indicador"] = "Cantidad de " + ind9["distancia_agregada"]
@@ -387,11 +385,11 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind5 = (
         viajes.groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "id_tarjeta"], as_index=False
-        )
+        , observed=True)
         .factor_expansion_linea.first()
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .factor_expansion_linea.mean()
         .round()
         .rename(columns={"factor_expansion_linea": "Valor"})
@@ -408,7 +406,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
             weight_col="factor_expansion_linea",
         )
         .rename(columns={"distance_od": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia"], as_index=False, observed=True)
         .Valor.mean()
         .round(2)
     )
@@ -424,7 +422,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
             weight_col="factor_expansion_linea",
         )
         .rename(columns={"distance_od": "Valor"})
-        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False)
+        .groupby(["id_polygon", "dia", "mes", "tipo_dia", "modo"], as_index=False, observed=True)
         .Valor.mean()
         .round(2)
     )
@@ -448,8 +446,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
         .rename(columns={"distance_od": "Valor"})
         .groupby(
             ["id_polygon", "dia", "mes", "tipo_dia", "distancia_agregada"],
-            as_index=False,
-        )
+            as_index=False, observed=True)
         .Valor.mean()
         .round(2)
     )
@@ -504,7 +501,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     indicadores_todos = (
         indicadores.groupby(
             ["id_polygon", "Tipo", "Indicador", "type_val"], as_index=False
-        )
+        , observed=True)
         .Valor.mean()
         .round(2)
     )
@@ -595,8 +592,7 @@ def imprimo_matrices_od(ctx: StorageContext):
                 "Origen",
                 "Destino",
             ],
-            as_index=False,
-        )[
+            as_index=False, observed=True)[
             [
                 "lat1",
                 "lon1",
@@ -788,7 +784,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     userx = viajes.copy()
     userx["tarifa_agregada"] = userx["tarifa_agregada"].str.replace("-", "")
     userx = (
-        userx.groupby(["dia", "id_tarjeta"])["tarifa_agregada"]
+        userx.groupby(["dia", "id_tarjeta"], observed=True)["tarifa_agregada"]
         .apply(lambda x: "-".join(x.unique()))
         .reset_index()
     )
@@ -811,8 +807,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
                 "genero_agregado",
                 "tarifa_agregada_agg",
             ],
-            as_index=False,
-        )
+            as_index=False, observed=True)
         .agg({"factor_expansion_tarjeta": "count", "factor_expansion_linea": "mean"})
         .rename(columns={"factor_expansion_tarjeta": "cant_viajes"})
         .rename(columns={"tarifa_agregada_agg": "tarifa_agregada"})
@@ -892,7 +887,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     replace_dash_partition(ctx, socio_indicadores, "socio_indicadores", ["dia"])
 
     hora = (
-        etapas.groupby(["dia", "modo", "hora"], as_index=False)
+        etapas.groupby(["dia", "modo", "hora"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round()
         .fillna(0)
@@ -900,14 +895,14 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     )
     hora["viajes"] = hora["viajes"].astype(int)
 
-    horaT = hora.groupby(["dia", "hora"], as_index=False).viajes.sum()
+    horaT = hora.groupby(["dia", "hora"], as_index=False, observed=True).viajes.sum()
     horaT["modo"] = "Todos"
 
     hora = pd.concat([hora, horaT], ignore_index=True)
 
     etapas["dist"] = etapas.distance_od.round(0).astype(int)
     dist = (
-        etapas.groupby(["dia", "modo", "dist"], as_index=False)
+        etapas.groupby(["dia", "modo", "dist"], as_index=False, observed=True)
         .factor_expansion_linea.sum()
         .round()
         .fillna(0)
@@ -915,7 +910,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     )
     dist["viajes"] = dist["viajes"].astype(int)
 
-    distT = dist.groupby(["dia", "dist"], as_index=False).viajes.sum()
+    distT = dist.groupby(["dia", "dist"], as_index=False, observed=True).viajes.sum()
     distT["modo"] = "Todos"
 
     dist = pd.concat([dist, distT], ignore_index=True)
@@ -931,7 +926,7 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
 
     e_agg = etapas.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "id_linea"], as_index=False
-    ).factor_expansion_linea.sum()
+    , observed=True).factor_expansion_linea.sum()
 
     e_agg = e_agg[e_agg.h3_o != e_agg.h3_d]
     lineas = ctx.insumos.get_metadata_lineas()
@@ -939,12 +934,12 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
 
     v_agg = viajes.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo"], as_index=False
-    ).factor_expansion_linea.sum()
-    # v_agg = v_agg.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo'], as_index=False).factor_expansion_linea.mean()
+    , observed=True).factor_expansion_linea.sum()
+    # v_agg = v_agg.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo'], as_index=False, observed=True).factor_expansion_linea.mean()
     v_agg = v_agg[v_agg.h3_o != v_agg.h3_d]
 
     etapas = etapas.assign(
-        etapas_max=etapas.groupby(["dia", "id_tarjeta", "id_viaje"]).id_etapa.transform("max")
+        etapas_max=etapas.groupby(["dia", "id_tarjeta", "id_viaje"], observed=True).id_etapa.transform("max")
     )
 
     transfers = etapas.loc[
@@ -982,8 +977,8 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
     transfers = viajes.merge(transfers[["dia", "id_tarjeta", "id_viaje", "seq_lineas"]])
     transfers = transfers.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "seq_lineas"], as_index=False
-    ).factor_expansion_linea.sum()
-    # transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False).factor_expansion_linea.mean()
+    , observed=True).factor_expansion_linea.sum()
+    # transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False, observed=True).factor_expansion_linea.mean()
 
     if len(equivalencias_zonas) > 0:
         zonas_cols = equivalencias_zonas.columns.tolist()
@@ -1101,7 +1096,7 @@ def preparo_lineas_deseo(
         ].copy()
         etapas_all["etapa_max"] = etapas_all.groupby(
             ["dia", "id_tarjeta", "id_viaje"]
-        ).id_etapa.transform("max")
+        , observed=True).id_etapa.transform("max")
 
         # Borro los casos que tienen 3 transferencias o más
         _excess = etapas_all[etapas_all.etapa_max > 3]
@@ -1192,7 +1187,7 @@ def preparo_lineas_deseo(
 
         # Guardo las coordenadas de los H3
         h3_coords = (
-            etapas_all.groupby("h3", as_index=False)
+            etapas_all.groupby("h3", as_index=False, observed=True)
             .id_viaje.count()
             .drop(["id_viaje"], axis=1)
         )
@@ -1339,7 +1334,7 @@ def preparo_lineas_deseo(
 
                 else:
                     # zonas_data_ = zonas_data.groupby(
-                    #     ['h3', 'latitud', 'longitud'], as_index=False)[zona].first()
+                    #     ['h3', 'latitud', 'longitud'], as_index=False, observed=True)[zona].first()
 
                     etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
                         zonas_data[["h3", zona]].rename(
@@ -1390,8 +1385,7 @@ def preparo_lineas_deseo(
                     h3_equivalencias_agg = (
                         h3_equivalencias.groupby(
                             [f"zona_{zona}", f"lat_{zona}", f"lon_{zona}"],
-                            as_index=False,
-                        )
+                            as_index=False, observed=True)
                         ['h3_o'].count()
                         .drop(["h3_o"], axis=1)
                     )
@@ -1732,9 +1726,9 @@ def preparo_lineas_deseo(
             sum_viajes = (
                 etapas_agrupadas_zon.groupby(
                     ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                )
+                , observed=True)
                 .factor_expansion_linea.sum()
-                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False)
+                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False, observed=True)
                 .factor_expansion_linea.mean()
                 .round()
             )
@@ -1788,7 +1782,7 @@ def preparo_lineas_deseo(
                 sum_viajes["factor_expansion_linea"]
                 / etapas_agrupadas_zon.groupby(
                     ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                )
+                , observed=True)
                 .factor_expansion_linea.sum()
                 .factor_expansion_linea
             )
@@ -1816,9 +1810,9 @@ def preparo_lineas_deseo(
             sum_viajes = (
                 viajes_matrices.groupby(
                     ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                )
+                , observed=True)
                 .factor_expansion_linea.sum()
-                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False)
+                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False, observed=True)
                 .factor_expansion_linea.mean()
             )
 
@@ -1875,7 +1869,7 @@ def preparo_lineas_deseo(
                 sum_viajes["factor_expansion_linea"]
                 / viajes_matrices.groupby(
                     ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                )
+                , observed=True)
                 .factor_expansion_linea.sum()
                 .factor_expansion_linea
             )
@@ -2066,11 +2060,10 @@ def guarda_particion_modal(ctx: StorageContext, etapas):
     etapas_modos = (
         etapas.groupby(
             ["dia", "mes", "tipo_dia", "genero_agregado", "id_tarjeta", "id_viaje"],
-            as_index=False,
-        )
+            as_index=False, observed=True)
         .factor_expansion_linea.mean()
         .merge(
-            etapas.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)[
+            etapas.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False, observed=True)[
                 cols_dummies
             ].sum(),
             how="left",
@@ -2084,7 +2077,7 @@ def guarda_particion_modal(ctx: StorageContext, etapas):
         "genero_agregado",
     ] + cols_dummies
     etapas_modos = (
-        etapas_modos.groupby(cols, as_index=False).factor_expansion_linea.sum().copy()
+        etapas_modos.groupby(cols, as_index=False, observed=True).factor_expansion_linea.sum().copy()
     )
     for i in cols_dummies:
         etapas_modos = etapas_modos.rename(columns={i: i.capitalize()})
@@ -2123,7 +2116,7 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
     all_linea = (
         all_linea
-        .groupby(["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"], as_index=False)
+        .groupby(["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"], as_index=False, observed=True)
         [metric_cols_linea]
         .mean()
         .round(2)
@@ -2136,7 +2129,7 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
     all_ramal = (
         all_ramal
-        .groupby(["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"], as_index=False)
+        .groupby(["dia", "mes", "id_linea", "id_ramal", "nombre_linea", "empresa", "modo"], as_index=False, observed=True)
         [metric_cols_ramal]
         .mean()
         .round(2)

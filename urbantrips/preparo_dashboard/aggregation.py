@@ -211,7 +211,7 @@ def agg_matriz(
         if agg_distancia:
             df["distancia_agregada"] = 99
 
-        df1 = df.groupby(aggregate_cols, as_index=False)[weight_var].sum()
+        df1 = df.groupby(aggregate_cols, as_index=False, observed=True)[weight_var].sum()
         df2 = calculate_weighted_means(
             df,
             aggregate_cols=aggregate_cols,
@@ -224,7 +224,7 @@ def agg_matriz(
 
 def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
     trx_agg = (
-        trx.groupby(cols + ["modo"], as_index=False)
+        trx.groupby(cols + ["modo"], as_index=False, observed=True)
         .factor_expansion.sum()
         .rename(columns={"factor_expansion": "transacciones"})
     )
@@ -243,22 +243,22 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
         .rename(columns={"distance_od": "distancia_media"})
     )
     internos_agg = (
-        trx.groupby(cols + ["interno"], as_index=False)
+        trx.groupby(cols + ["interno"], as_index=False, observed=True)
         .size()
-        .groupby(cols, as_index=False)
+        .groupby(cols, as_index=False, observed=True)
         .size()
         .rename(columns={"size": "cant_internos_en_trx"})
     )
     gps_agg = (
-        gps.groupby(cols + ["interno"], as_index=False)
+        gps.groupby(cols + ["interno"], as_index=False, observed=True)
         .size()
-        .groupby(cols, as_index=False)
+        .groupby(cols, as_index=False, observed=True)
         .size()
         .rename(columns={"size": "cant_internos_en_gps"})
     )
     serv_agg = (
         servicios[servicios.valid == 1]
-        .groupby(cols, as_index=False)
+        .groupby(cols, as_index=False, observed=True)
         .agg({"interno": "count", "distance_route": "sum", "min_ts": "sum"})
         .rename(columns={
             "interno": "cant_servicios",
