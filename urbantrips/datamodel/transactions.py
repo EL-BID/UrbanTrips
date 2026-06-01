@@ -784,12 +784,6 @@ def process_and_upload_gps_table(
     # if "distance" not in gps.columns:
     #     gps["distance"] = None
 
-    # if gps["distance"].isna().all():
-    #     gps = compute_distance_km_gps(gps, use_pandana=True)
-    # else:
-    #     gps = gps.rename(columns={"distance": "distance_km"})
-    gps = compute_distance_km_gps(gps, use_pandana=True)
-
     if gps["distance"].isna().all():
         gps = compute_distance_km_gps(gps)
     else:
