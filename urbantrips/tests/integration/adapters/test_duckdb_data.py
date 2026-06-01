@@ -205,11 +205,11 @@ def test_service_kpi_schema_allows_big_branch_ids(tmp_path):
             "hora_fin": [9.0],
             "tot_km": [12.0],
             "tot_pax": [40.0],
-            "dmt_mean": [1.5],
-            "dmt_median": [1.3],
-            "ipk": [3.3],
-            "fo_mean": [0.1],
-            "fo_median": [0.09],
+            "dmt_mean_od": [1.5],
+            "dmt_median_od": [1.3],
+            "ipk_route": [3.3],
+            "fo_mean_od": [0.1],
+            "fo_median_od": [0.09],
         }
     )
 

@@ -187,12 +187,13 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
+    if len(query) == 0:
+        tabla_sql = validate_table_name(tabla_sql)
+        query = f"SELECT * FROM {tabla_sql}"
+
     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
     try:
-        if len(query) == 0:
-            tabla_sql = validate_table_name(tabla_sql)
-            query = f"SELECT * FROM {tabla_sql}"
         tabla = _fetch_sql_dataframe(conn, query, params=params)
     except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
         error_message = str(e).lower()

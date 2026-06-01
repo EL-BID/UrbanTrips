@@ -16,7 +16,7 @@ def test_classify_services_from_gps_markers_vectorized_per_vehicle():
             "interno": [1, 1, 1, 2, 2],
             "fecha": [30, 10, 20, 10, 20],
             "service_type": [None, "start_service", None, None, "start_service"],
-            "distance_km": [0.2, 0.3, 0.0, 0.4, 0.5],
+            "distance_route": [0.2, 0.3, 0.0, 0.4, 0.5],
         }
     )
 
@@ -46,7 +46,7 @@ def test_compute_new_services_stats_handles_zero_original_distance():
             "valid": [True],
             "total_points": [6],
             "prop_idling": [0.0],
-            "distance_km": [0.0],
+            "distance_route": [0.0],
         }
     )
 
@@ -68,7 +68,7 @@ def test_compute_new_services_stats_uses_unrounded_distance_for_recovered_ratio(
             "valid": [True, False],
             "total_points": [6, 6],
             "prop_idling": [0.0, 0.0],
-            "distance_km": [0.2, 0.2],
+            "distance_route": [0.2, 0.2],
         }
     )
 

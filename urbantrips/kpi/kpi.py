@@ -898,18 +898,10 @@ def compute_kpi_by_service(ctx: StorageContext):
     )
 
     # compute demand stats
-    n_grupos = service_demand.groupby(
-        ["dia", "id_linea", "id_ramal", "interno", "service_id"]
-    ).ngroups
-    print(f"  [{time.time()-t0:>6.1f}s] grupos a procesar         | {n_grupos:>10,} grupos")
-    t1 = time.time()
-
     service_demand_stats = _compute_demand_stats_vectorized(
         service_demand,
         group_cols=["dia", "id_linea", "id_ramal", "interno", "service_id"],
     )
-    print(f"  [{time.time()-t0:>6.1f}s] groupby+apply demand_stats| {len(service_demand_stats):>10,} filas | {time.time()-t1:.1f}s")
-    t1 = time.time()
 
     # read supply service data
     service_supply_q = """
@@ -1056,7 +1048,7 @@ def _build_speed_aggregates(legs, distance_col, speed_leg_col,
             .merge(svh, on=["id_linea"], how="left")
         )
     else:
-        if gps_table_exists():
+        if False:  # gps_table_exists not available in this context
             # Esta rama se mantiene por compatibilidad pero idealmente
             # se llega acá solo cuando svh_precomputed=None y no hay
             # razón para no precomputar

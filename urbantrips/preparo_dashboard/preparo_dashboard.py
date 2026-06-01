@@ -561,7 +561,7 @@ def imprimo_matrices_od(ctx: StorageContext):
         "SELECT id_polygon, tipo_dia, zona, inicio, fin, transferencia, "
         "modo_agregado, rango_hora, genero_agregado, tarifa_agregada, "
         "distancia_agregada, orden_origen, orden_destino, Origen, Destino, "
-        "lat1, lon1, lat4, lon4, distance_od, travel_time_min, kmh_od, "
+        "lat1, lon1, lat4, lon4, distancia, travel_time_min, travel_speed, "
         "factor_expansion_linea, dia "
         "FROM agg_matrices"
     )
@@ -572,7 +572,7 @@ def imprimo_matrices_od(ctx: StorageContext):
     agg_distancia = True
 
     matrices_all.loc[matrices_all.travel_time_min == 0, "travel_time_min"] = np.nan
-    matrices_all.loc[matrices_all.kmh_od == 0, "kmh_od"] = np.nan
+    matrices_all.loc[matrices_all.travel_speed == 0, "travel_speed"] = np.nan
     matrices = (
         matrices_all.groupby(
             [
@@ -598,9 +598,9 @@ def imprimo_matrices_od(ctx: StorageContext):
                 "lon1",
                 "lat4",
                 "lon4",
-                "distance_od",
+                "distancia",
                 "travel_time_min",
-                "kmh_od",
+                "travel_speed",
                 "factor_expansion_linea",
             ]
         ]
@@ -620,7 +620,7 @@ def imprimo_matrices_od(ctx: StorageContext):
             "rango_hora",
             "distancia_agregada",
         ],
-        weight_col=["distance_od", "travel_time_min", "kmh_od"],
+        weight_col=["distancia", "travel_time_min", "travel_speed"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,

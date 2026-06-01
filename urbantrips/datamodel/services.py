@@ -538,6 +538,69 @@ def classify_line_gps_points_into_services(
 import numpy as np
 
 
+def compute_new_services_stats(line_day_services):
+    """Compute per-(id_linea, id_ramal, dia) stats; called via groupby.apply."""
+    df = line_day_services
+
+    id_linea = df["id_linea"].iloc[0]
+    id_ramal = df["id_ramal"].iloc[0]
+    dia = df["dia"].iloc[0]
+
+    original_distance_raw = df["distance_route"].sum()
+    original_distance = round(original_distance_raw)
+
+    if pd.notna(original_distance_raw) and original_distance_raw > 0:
+        valid_distance = df.loc[df["valid"], "distance_route"].sum()
+        prop_distance_recovered = round(valid_distance / original_distance_raw, 2)
+    else:
+        prop_distance_recovered = None
+
+    df = df.assign(
+        servicio_original_key=lambda x: (
+            x["interno"].astype(str) + "_" + x["original_service_id"].astype(str)
+        ),
+        servicio_corto=lambda x: x["total_points"] <= 5,
+        servicio_corto_idling=lambda x: (
+            (x["prop_idling"] >= 0.5) & (x["total_points"] <= 5)
+        ),
+    )
+
+    n_original = df["servicio_original_key"].nunique()
+    n_new = len(df)
+    n_new_valid = int(df["valid"].sum())
+    n_short = int(df["servicio_corto"].sum())
+    prop_short_idling = (
+        round(df.loc[df["servicio_corto"], "servicio_corto_idling"].mean(), 2)
+        if n_short > 0
+        else np.nan
+    )
+
+    valid_df = df.loc[df["valid"]]
+    if not valid_df.empty:
+        sub_counts = (
+            valid_df.groupby(["interno", "original_service_id"])["service_id"]
+            .nunique()
+            .value_counts(normalize=True)
+        )
+        original_no_change = round(sub_counts.get(1, 0), 2)
+    else:
+        original_no_change = None
+
+    return pd.DataFrame({
+        "id_linea": [id_linea],
+        "id_ramal": [id_ramal],
+        "dia": [dia],
+        "cant_servicios_originales": [n_original],
+        "cant_servicios_nuevos": [n_new],
+        "cant_servicios_nuevos_validos": [n_new_valid],
+        "n_servicios_nuevos_cortos": [n_short],
+        "prop_servicos_cortos_nuevos_idling": [prop_short_idling],
+        "distancia_recorrida_original": [original_distance],
+        "prop_distancia_recuperada": [prop_distance_recovered],
+        "servicios_originales_sin_dividir": [original_no_change],
+    })
+
+
 def compute_services_stats(line_services):
     group_cols = ["id_linea", "id_ramal", "dia"]
 
@@ -624,50 +687,7 @@ def compute_services_stats(line_services):
     else:
         base_stats["servicios_originales_sin_dividir"] = np.nan
 
-    original_services_distance_raw = line_day_services.distance_km.sum()
-    original_services_distance = round(original_services_distance_raw)
-    if pd.notna(original_services_distance_raw) and original_services_distance_raw > 0:
-        new_services_distance = round(
-            line_day_services.loc[line_day_services["valid"], "distance_km"].sum()
-            / original_services_distance_raw,
-            2,
-        )
-    else:
-        new_services_distance = None
-
-    sub_services = (
-        line_day_services.loc[line_day_services["valid"], :]
-        .groupby(["interno", "original_service_id"])
-        .service_id.nunique()
-    )
-
-    if len(sub_services):
-        sub_services = sub_services.value_counts(normalize=True)
-
-        if 1 in sub_services.index:
-            original_service_no_change = round(sub_services[1], 2)
-        else:
-            original_service_no_change = 0
-    else:
-        original_service_no_change = None
-
-    day_line_stats = pd.DataFrame(
-        {
-            "id_linea": id_linea,
-            "id_ramal": id_ramal,
-            "dia": dia,
-            "cant_servicios_originales": n_original_services,
-            "cant_servicios_nuevos": n_new_services,
-            "cant_servicios_nuevos_validos": n_new_valid_services,
-            "n_servicios_nuevos_cortos": n_services_short,
-            "prop_servicos_cortos_nuevos_idling": prop_short_idling,
-            "distancia_recorrida_original": original_services_distance,
-            "prop_distancia_recuperada": new_services_distance,
-            "servicios_originales_sin_dividir": original_service_no_change,
-        },
-        index=[0],
-    )
-    return day_line_stats
+    return base_stats
 
 
 def find_change_in_direction(df):

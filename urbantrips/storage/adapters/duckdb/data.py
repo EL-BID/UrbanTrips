@@ -455,7 +455,10 @@ class DuckDBDataAdapter:
                     f"CREATE TABLE IF NOT EXISTS {table_name} AS "
                     f"SELECT * FROM _raw_df WHERE FALSE"
                 )
-                conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+                cols = ", ".join(f'"{c}"' for c in df.columns)
+                conn.execute(
+                    f"INSERT INTO {table_name} ({cols}) SELECT * FROM _raw_df"
+                )
             finally:
                 conn.unregister("_raw_df")
 

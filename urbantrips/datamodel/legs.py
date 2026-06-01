@@ -684,7 +684,9 @@ def assign_time_distances(ctx: StorageContext):
 
         logger.info("Imputando GPS de destino")
 
+        etapas_asignadas_total = 0
         for dia in legs_days:
+            n_asignadas_dia = 0
             for hora in legs_hours:
                 # t_iter_start = time.time()
 

@@ -141,6 +141,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "factor_expansion_tarjeta": [1.0] * n,
         "distancia": [2.5] * n,
         "travel_time_min": [15.0] * n,
+        "distance_od": [2.5] * n,
     })
     viajes_df = pd.DataFrame({
         "id_tarjeta": [f"T{i}" for i in range(n)],
@@ -167,6 +168,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "factor_expansion_tarjeta": [1.0] * n,
         "distancia": [2.5] * n,
         "travel_time_min": [15.0] * n,
+        "distance_od": [2.5] * n,
     })
 
     ctx = MagicMock()
