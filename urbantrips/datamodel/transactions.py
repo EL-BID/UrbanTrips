@@ -51,7 +51,9 @@ def create_transactions(
         modos_homologados = configs["modos"]
         zipped = zip(modos_homologados.values(), modos_homologados.keys())
         modos_homologados = {k: v for k, v in zipped}
-        logger.debug("Utilizando los siguientes modos homologados: %s", modos_homologados)
+        logger.debug(
+            "Utilizando los siguientes modos homologados: %s", modos_homologados
+        )
     except KeyError:
         pass
 
@@ -132,7 +134,9 @@ def create_transactions(
 
     # Chequea si modo está null en todos le pone autobus por default
     if trx.modo.isna().all():
-        logger.warning("No existe información sobre el modo en transacciones; se asume autobus")
+        logger.warning(
+            "No existe información sobre el modo en transacciones; se asume autobus"
+        )
         trx["modo"] = "autobus"
     else:
         # Estandariza los modos
@@ -424,7 +428,10 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
 
     logger.info(
         "Eliminando transacciones fuera del bbox: xmin=%.5f, ymin=%.5f, xmax=%.5f, ymax=%.5f",
-        minx, miny, maxx, maxy,
+        minx,
+        miny,
+        maxx,
+        maxy,
     )
 
     trx["geo_valido"] = (
@@ -434,7 +441,9 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
     n_invalidos = (trx["geo_valido"] == 0).sum()
     logger.info(
         "Transacciones fuera del bbox: %d de %d (%.2f%%)",
-        n_invalidos, len(trx), (n_invalidos / len(trx)) * 100,
+        n_invalidos,
+        len(trx),
+        (n_invalidos / len(trx)) * 100,
     )
     if "id_tarjeta" in trx.columns:
         tarjetas_validas = round(
@@ -451,7 +460,9 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
             * 100,
             1,
         )
-        logger.info("Tarjetas con latitud / longitud igual a cero: %s%%", tarjetas_invalidas)
+        logger.info(
+            "Tarjetas con latitud / longitud igual a cero: %s%%", tarjetas_invalidas
+        )
 
         tarjetas_invalidas = round(
             len(trx[trx.geo_valido == 0].id_tarjeta.unique())
@@ -459,7 +470,9 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
             * 100,
             1,
         )
-        logger.info("Tarjetas con al menos una transacción inválida: %s%%", tarjetas_invalidas)
+        logger.info(
+            "Tarjetas con al menos una transacción inválida: %s%%", tarjetas_invalidas
+        )
         logger.debug(
             "Se borran las transacciones fuera del bounding box; se mantienen lat/lon == 0"
         )
@@ -784,10 +797,12 @@ def process_and_upload_gps_table(
     # if "distance" not in gps.columns:
     #     gps["distance"] = None
 
-    if gps["distance"].isna().all():
-        gps = compute_distance_km_gps(gps)
-    else:
-        gps = gps.rename(columns={"distance": "distance_km"})
+    # if gps["distance"].isna().all():
+    #    gps = compute_distance_km_gps(gps)
+    # else:
+    #    gps = gps.rename(columns={"distance": "distance_km"})
+
+    gps = compute_distance_km_gps(gps)
 
     # if branches are not present, add branch id as the same as line
     if not configs["lineas_contienen_ramales"]:
@@ -797,14 +812,16 @@ def process_and_upload_gps_table(
 
     gps = gps.sort_values(cols).copy()
 
-    if "distance_servicio_mts_agg" in gps.columns and gps["distance_servicio_mts_agg"].notna().any():
-        gps["distance_servicio_mts"] = (
-            gps.groupby(["id_linea", "id_ramal", "interno"])["distance_servicio_mts_agg"]
-            .diff()
-        )
+    if (
+        "distance_servicio_mts_agg" in gps.columns
+        and gps["distance_servicio_mts_agg"].notna().any()
+    ):
+        gps["distance_servicio_mts"] = gps.groupby(["id_linea", "id_ramal", "interno"])[
+            "distance_servicio_mts_agg"
+        ].diff()
 
         # corregir
-        gps["distance_servicio_mts"] = gps["distance_servicio_mts"].fillna(0)        
+        gps["distance_servicio_mts"] = gps["distance_servicio_mts"].fillna(0)
         gps.loc[gps["distance_servicio_mts"] < 0, "distance_servicio_mts"] = 0
 
     if (
@@ -812,14 +829,12 @@ def process_and_upload_gps_table(
         and gps["distance_servicio_mts"].notna().any()
         and "distance_servicio_mts_agg" not in gps.columns
     ):
-        gps["distance_servicio_mts_agg"] = (
-            gps.groupby(["id_linea", "id_ramal", "interno"])["distance_servicio_mts"]
-            .cumsum()
-        )
+        gps["distance_servicio_mts_agg"] = gps.groupby(
+            ["id_linea", "id_ramal", "interno"]
+        )["distance_servicio_mts"].cumsum()
         # corregir
-        gps["distance_servicio_mts_agg"] = gps["distance_servicio_mts_agg"].fillna(0)        
+        gps["distance_servicio_mts_agg"] = gps["distance_servicio_mts_agg"].fillna(0)
         gps.loc[gps["distance_servicio_mts_agg"] < 0, "distance_servicio_mts_agg"] = 0
-
 
     cols = [
         "id",
