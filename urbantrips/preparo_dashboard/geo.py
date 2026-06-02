@@ -4,11 +4,12 @@ No DB access — all functions take DataFrames / GeoDataFrames and return them.
 """
 import logging
 
+import h3
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from shapely import wkt
-from shapely.geometry import MultiPolygon, Point
+from shapely.geometry import MultiPolygon, Point, mapping
 
 from urbantrips.geo.geo import (
     h3_to_geodataframe,
@@ -53,35 +54,37 @@ def ensure_geodataframe(df, crs=4326):
 
 
 def select_h3_from_polygon(poly, res=8, spacing=0.0001, viz=False):
-    """Fill a polygon with points and return the H3 hexagons that cover it."""
+    """Fill polygons with H3 cells at the given resolution.
+
+    Parameters
+    ----------
+    poly : GeoDataFrame
+        Polygons to fill. Must have an 'id' column.
+    res : int
+        H3 resolution.
+    spacing : float
+        Deprecated — ignored. Kept for backward compatibility with callers
+        that pass it as a keyword argument.
+    viz : bool
+        If True, plot the result.
+    """
     if "id" not in poly.columns:
         poly = poly.reset_index().rename(columns={"index": "id"})
 
-    points_result = pd.DataFrame([])
     poly = poly.reset_index(drop=True).to_crs(4326)
-    for i, row in poly.iterrows():
-        polygon = poly.geometry[i]
-        minx, miny, maxx, maxy = polygon.buffer(0.008).bounds
-        x_coords = list(np.arange(minx, maxx, spacing))
-        y_coords = list(np.arange(miny, maxy, spacing))
-        points = [Point(x, y) for x in x_coords for y in y_coords]
-        pts = gpd.GeoDataFrame(geometry=points, crs=4326)
-        pts["polygon_number"] = row.id
-        points_result = pd.concat([points_result, pts])
+    records = []
+    for _, row in poly.iterrows():
+        cells = h3.geo_to_cells(mapping(row.geometry), res)
+        records.extend({"id": row.id, "h3": cell} for cell in cells)
 
-    points_result = gpd.sjoin(points_result, poly)
-    points_result["h3"] = points_result.apply(point_to_h3, axis=1, resolution=res)
-    points_result = (
-        points_result.groupby(["polygon_number", "h3"], as_index=False)
-        .size()
-        .drop(["size"], axis=1)
-        .rename(columns={"h3_index": "h3"})
-    )
+    if not records:
+        return gpd.GeoDataFrame(columns=["id", "h3", "geometry"], crs=4326)
 
-    gdf_hexs = h3_to_geodataframe(points_result.h3).rename(columns={"h3_index": "h3"})
+    points_result = pd.DataFrame(records)
+    gdf_hexs = h3_to_geodataframe(points_result["h3"].tolist()).rename(columns={"h3_index": "h3"})
     gdf_hexs = (
-        gdf_hexs.merge(points_result, on="h3")[["polygon_number", "h3", "geometry"]]
-        .sort_values(["polygon_number", "h3"])
+        gdf_hexs.merge(points_result, on="h3")[["id", "h3", "geometry"]]
+        .sort_values(["id", "h3"])
         .reset_index(drop=True)
     )
 
@@ -89,7 +92,7 @@ def select_h3_from_polygon(poly, res=8, spacing=0.0001, viz=False):
         ax = poly.boundary.plot(linewidth=1.5, figsize=(15, 15))
         gdf_hexs.plot(ax=ax, alpha=0.6)
 
-    return gdf_hexs.rename(columns={"polygon_number": "id"})
+    return gdf_hexs
 
 
 def select_cases_from_polygons(etapas, viajes, polygons, res=8):

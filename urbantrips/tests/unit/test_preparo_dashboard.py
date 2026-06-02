@@ -240,3 +240,57 @@ def test_agg_matriz_observed_false_would_produce_extra_rows():
 
     assert len(without_observed) == 3, "Without observed=True all 3 category levels appear"
     assert len(with_observed)    == 1, "With observed=True only the observed level appears"
+
+
+# ---------------------------------------------------------------------------
+# B4 — select_h3_from_polygon uses h3.geo_to_cells
+# ---------------------------------------------------------------------------
+import h3
+from shapely.geometry import box
+import geopandas as gpd
+
+
+def _make_buenos_aires_polygons():
+    """Two polygons in Buenos Aires large enough to contain H3 res-8 cells (~0.5km hex edge)."""
+    # Plaza de Mayo area: ~1km × 1km
+    poly1 = box(-58.380, -34.615, -58.365, -34.600)
+    # Palermo area: ~1km × 1km
+    poly2 = box(-58.440, -34.585, -58.420, -34.570)
+    return gpd.GeoDataFrame(
+        {"id": [1, 2]},
+        geometry=[poly1, poly2],
+        crs=4326,
+    )
+
+
+def test_select_h3_from_polygon_returns_valid_cells():
+    from urbantrips.preparo_dashboard.geo import select_h3_from_polygon
+    gdf = _make_buenos_aires_polygons()
+    result = select_h3_from_polygon(gdf, res=8)
+    assert len(result) > 0
+    for cell in result["h3"]:
+        assert h3.is_valid_cell(cell), f"{cell} is not a valid H3 cell"
+
+
+def test_select_h3_from_polygon_cells_at_correct_resolution():
+    from urbantrips.preparo_dashboard.geo import select_h3_from_polygon
+    gdf = _make_buenos_aires_polygons()
+    result = select_h3_from_polygon(gdf, res=8)
+    for cell in result["h3"]:
+        assert h3.get_resolution(cell) == 8
+
+
+def test_select_h3_from_polygon_id_column_maps_to_source():
+    from urbantrips.preparo_dashboard.geo import select_h3_from_polygon
+    gdf = _make_buenos_aires_polygons()
+    result = select_h3_from_polygon(gdf, res=8)
+    assert set(result["id"].unique()) == {1, 2}
+
+
+def test_select_h3_from_polygon_returns_geodataframe():
+    from urbantrips.preparo_dashboard.geo import select_h3_from_polygon
+    gdf = _make_buenos_aires_polygons()
+    result = select_h3_from_polygon(gdf, res=8)
+    assert isinstance(result, gpd.GeoDataFrame)
+    assert result.crs is not None
+    assert set(result.columns) >= {"id", "h3", "geometry"}
