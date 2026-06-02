@@ -3,6 +3,7 @@ import gc
 import os
 from datetime import datetime
 
+import duckdb
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -781,22 +782,15 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     socio_indicadores = pd.concat([socio_indicadores, viajesxx], ignore_index=True)
 
     # Calculo viajes promedio por día por género y tarifa_agregada
-    userx = viajes.copy()
-    userx["tarifa_agregada"] = userx["tarifa_agregada"].str.replace("-", "")
-    userx = (
-        userx.groupby(["dia", "id_tarjeta"], observed=True)["tarifa_agregada"]
-        .apply(lambda x: "-".join(x.unique()))
-        .reset_index()
-    )
-    userx.loc[userx.tarifa_agregada.str[-1] == "-", "tarifa_agregada"] = userx.loc[
-        userx.tarifa_agregada.str[-1] == "-", :
-    ].tarifa_agregada.str[:-1]
-    userx.loc[userx.tarifa_agregada.str[:1] == "-", "tarifa_agregada"] = userx.loc[
-        userx.tarifa_agregada.str[:1] == "-", :
-    ].tarifa_agregada.str[1:]
-    userx = userx.rename(columns={"tarifa_agregada": "tarifa_agregada_agg"})
-    userx.loc[userx.tarifa_agregada_agg == "", "tarifa_agregada_agg"] = "-"
-    userx = viajes.merge(userx, how="left")
+    _userx_clean = viajes[["dia", "id_tarjeta"]].copy()
+    _userx_clean["tarifa_agregada"] = viajes["tarifa_agregada"].str.replace("-", "")
+    _tarifa_agg = duckdb.sql("""
+        SELECT dia, id_tarjeta,
+               COALESCE(STRING_AGG(DISTINCT NULLIF(tarifa_agregada, ''), '-'), '-') AS tarifa_agregada_agg
+        FROM _userx_clean
+        GROUP BY dia, id_tarjeta
+    """).df()
+    userx = viajes.merge(_tarifa_agg, how="left")
     userx = (
         userx.groupby(
             [
@@ -957,23 +951,14 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
         ],
     ]  # (etapas.etapas_max>1)
     transfers = transfers.merge(lineas[["id_linea", "nombre_linea"]], how="left")
-    transfers = (
-        transfers.pivot(
-            index=["dia", "id_tarjeta", "id_viaje"],
-            columns="id_etapa",
-            values="nombre_linea",
-        )
-        .reset_index()
-        .fillna("")
-    )
-    transfers["seq_lineas"] = ""
-    for i in range(1, etapas.etapas_max.max() + 1):
-        transfers["seq_lineas"] += transfers[i] + " -- "
-        transfers["seq_lineas"] = transfers["seq_lineas"].str.replace(" --  -- ", "")
-
-    transfers.loc[transfers.seq_lineas.str[-4:] == " -- ", "seq_lineas"] = (
-        transfers.loc[transfers.seq_lineas.str[-4:] == " -- ", "seq_lineas"].str[:-4]
-    )
+    transfers_long = transfers
+    transfers = duckdb.sql("""
+        SELECT dia, id_tarjeta, id_viaje,
+               STRING_AGG(nombre_linea, ' -- ' ORDER BY id_etapa) AS seq_lineas
+        FROM transfers_long
+        WHERE nombre_linea IS NOT NULL AND nombre_linea != ''
+        GROUP BY dia, id_tarjeta, id_viaje
+    """).df()
     transfers = viajes.merge(transfers[["dia", "id_tarjeta", "id_viaje", "seq_lineas"]])
     transfers = transfers.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "seq_lineas"], as_index=False
@@ -1049,7 +1034,7 @@ def preparo_lineas_deseo(
                     ),
                 ]
             ).drop_duplicates()
-            h3_vals["h3_res"] = h3_vals["h3"].apply(h3toparent, res=i)
+            h3_vals["h3_res"] = [h3toparent(x, res=i) for x in h3_vals["h3"]]
 
             h3_zona = (
                 create_h3_gdf(h3_vals.h3_res.tolist())
@@ -1191,10 +1176,7 @@ def preparo_lineas_deseo(
             .id_viaje.count()
             .drop(["id_viaje"], axis=1)
         )
-        # h3_coords[['lat', 'lon']] = h3_coords.h3.apply(h3_to_lat_lon)
-        h3_coords[["lat", "lon"]] = h3_coords.h3.apply(
-            lambda x: pd.Series(h3_to_lat_lon(x))
-        )
+        h3_coords[["lat", "lon"]] = np.array([h3_to_lat_lon(x) for x in h3_coords.h3])
 
         # Preparo cada etapa de viaje para poder hacer la agrupación y tener inicio, transferencias y destino en un mismo registro
         inicio = etapas_all.loc[
@@ -1328,9 +1310,9 @@ def preparo_lineas_deseo(
 
                 if "res_" in zona:
                     resol = int(zona.replace("res_", ""))
-                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].apply(
-                        h3toparent, res=resol
-                    )
+                    etapas_agrupadas_zon[i] = [
+                        h3toparent(x, res=resol) for x in etapas_agrupadas_zon[i]
+                    ]
 
                 else:
                     # zonas_data_ = zonas_data.groupby(

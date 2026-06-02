@@ -1,3 +1,4 @@
+import duckdb
 import numpy as np
 import pandas as pd
 
@@ -25,32 +26,30 @@ def calculate_weighted_means(
 ):
     if zero_to_nan is None:
         zero_to_nan = []
-    df = df_.copy()
-    for i in zero_to_nan:
-        df.loc[df[i] == 0, i] = np.nan
 
-    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
+    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df_.columns):
         raise ValueError("One or more columns specified do not exist in the DataFrame.")
-    result = pd.DataFrame([])
-    for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f"{col}_weighted"] = (
-            df.loc[df[col].notna(), col] * df.loc[df[col].notna(), weight_col]
-        )
-        grouped = (
-            df.loc[df[col].notna()]
-            .groupby(aggregate_cols, as_index=False, observed=True)[[f"{col}_weighted", weight_col]]
-            .sum()
-        )
-        grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
-        grouped = grouped.drop([f"{col}_weighted", weight_col], axis=1)
-        if len(result) == 0:
-            result = grouped.copy()
-        else:
-            result = result.merge(grouped, how="left", on=aggregate_cols)
 
-    if var_fex_summed:
-        fex = df.groupby(aggregate_cols, as_index=False, observed=True)[weight_col].sum()
-    else:
-        fex = df.groupby(aggregate_cols, as_index=False, observed=True)[weight_col].mean()
-    result = result.merge(fex, how="left", on=aggregate_cols)
-    return result
+    def q(name):
+        return f'"{name}"'
+
+    wm_sql = []
+    for col in weighted_mean_cols:
+        src = f"NULLIF({q(col)}, 0)" if col in zero_to_nan else q(col)
+        wm_sql.append(
+            f"SUM(CASE WHEN {src} IS NOT NULL THEN CAST({src} AS DOUBLE) * {q(weight_col)} END) / "
+            f"NULLIF(SUM(CASE WHEN {src} IS NOT NULL THEN {q(weight_col)} END), 0) AS {q(col)}"
+        )
+
+    fex_agg = "SUM" if var_fex_summed else "AVG"
+    keys = ", ".join(q(c) for c in aggregate_cols)
+    cols_sql = ",\n       ".join(wm_sql)
+
+    query = f"""
+        SELECT {keys},
+               {cols_sql},
+               {fex_agg}({q(weight_col)}) AS {q(weight_col)}
+        FROM df_
+        GROUP BY {keys}
+    """
+    return duckdb.sql(query).df()
