@@ -1318,7 +1318,7 @@ def preparo_lineas_deseo(
                 # Selecciono el centroide del polígono en vez del centroide de cada hexágono
 
                 if tipo_poly == "poligono":
-                    poly_centroid = poly.geometry.to_crs(4326).centroid
+                    poly_centroid = poly.geometry.to_crs(3857).centroid.to_crs(4326)
                     etapas_agrupadas_zon.loc[
                         etapas_agrupadas_zon[i].isin(poly_h3.h3.unique()), f"lat{n}"
                     ] = poly_centroid.y.iloc[0]

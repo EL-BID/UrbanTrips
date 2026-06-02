@@ -1039,7 +1039,7 @@ def assign_time_distances(ctx: StorageContext):
             ] = np.nan
 
     else:
-        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'distance_od']].copy()
+        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']].copy()
         dias_ultima_corrida = ctx.data.get_run_days()
 
         travel_times_trips = (
