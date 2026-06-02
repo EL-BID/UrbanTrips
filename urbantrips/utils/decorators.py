@@ -26,7 +26,7 @@ def duracion(f):
         ts = time.perf_counter()
         try:
             result = f(*args, **kw)
-        except Exception:
+        except BaseException:
             te = time.perf_counter()
             failed_at = datetime.datetime.now()
             elapsed = te - ts
