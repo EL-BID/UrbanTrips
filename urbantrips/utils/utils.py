@@ -122,6 +122,43 @@ def leer_configs_generales(autogenerado=True):
     return {}
 
 
+_TUNING_DEFAULTS: dict = {
+    "dbscan": {
+        "grid_steps": 5,
+        "early_stop_silhouette": 0.7,
+    },
+}
+
+
+def leer_configs_tuning() -> dict:
+    """
+    Load optional performance-tuning parameters from configs/tuning.yaml.
+    Returns hardcoded defaults for any key not present in the file.
+    The file is optional — if absent, all defaults apply.
+    """
+    import copy
+
+    def _deep_merge(base: dict, overrides: dict) -> dict:
+        result = copy.deepcopy(base)
+        for key, value in overrides.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = _deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    path = os.path.join("configs", "tuning.yaml")
+    if not os.path.exists(path):
+        return copy.deepcopy(_TUNING_DEFAULTS)
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            overrides = yaml.safe_load(f) or {}
+        return _deep_merge(_TUNING_DEFAULTS, overrides)
+    except Exception as e:
+        logger.warning("Could not load configs/tuning.yaml: %s — using defaults", e)
+        return copy.deepcopy(_TUNING_DEFAULTS)
+
 
 def agrego_indicador(
     df_indicador,

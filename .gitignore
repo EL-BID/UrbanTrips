@@ -107,6 +107,7 @@ celerybeat.pid
 # configs/ holds machine-specific settings; track only the shared template
 configs/*
 !configs/configuraciones_generales.yaml
+!configs/tuning.yaml.example
 
 # ── Project: large data files ────────────────────────────────────────────────
 data/db/
