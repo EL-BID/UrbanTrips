@@ -326,9 +326,11 @@ def _build_legs_for_batch_worker(batch: BatchSpec, trx_order_params: dict):
     from urbantrips.utils import utils
 
     configs = utils.leer_configs_generales(autogenerado=False)
-    alias = configs.get("alias_db", "")
+    alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
+    alias = configs.get("alias_db", alias_insumos)
+    base = Path(configs.get("db_path", "data/db"))
     data_adapter = DuckDBDataAdapter.__new__(DuckDBDataAdapter)
-    data_adapter._path = Path("data") / "db" / f"{alias}_data.duckdb"
+    data_adapter._path = base / f"{alias}_data.duckdb"
     data_adapter._read_only = True
     ctx = StorageContext(data=data_adapter, insumos=None, dash=None, general=None)
     legs_df, duplicate_cards = legs.build_legs_from_transactions(
