@@ -84,12 +84,30 @@ def update_stations_catchment_area(ring_size):
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
-    conn_data = iniciar_conexion_db(tipo="data")
 
     alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    conn_data = iniciar_conexion_db(tipo="data")
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     # Leer las paradas en base a las etapas
+    # dias_ultima_corrida = pd.read_sql_query(
+    # """SELECT *FROM dias_ultima_corrida""",
+    # conn_data,
+    # )
+    # solo leer las etapas del ultimo dia que no esten en lineas con recorridos
+
+    paradas_etapas = pd.read_sql_query(
+        """
+        SELECT e.id_linea,e.h3_o as parada, count(*) as cantidad
+        FROM etapas e
+        JOIN dias_ultima_corrida d
+        ON e.dia = d.dia
+        GROUP BY e.id_linea,e.h3_o
+        """,
+        conn_data,
+    )
+
+    # TODO: aca se trae a todas las etapas y no solo las del dia que procesa
     q = """
     select id_linea,h3_o as parada from etapas
     """
@@ -112,6 +130,14 @@ def update_stations_catchment_area(ring_size):
 
     paradas_etapas = paradas_etapas[(paradas_etapas["size"] > 1)].drop(["size"], axis=1)
 
+    # leer resolucion
+    configs = leer_configs_generales(autogenerado=False)
+    config_res = configs["resolucion_h3"]
+    if config_res < 10:
+        pass
+        # usar parent de h3 de resolucion del config
+        # official_branches_geoms_parent_h3
+
     # filtrar paradas solo los que estan en recorridos h3
     q = """  
     select distinct mr.id_linea as id_linea_agg, obgh.h3 as parada
@@ -123,10 +149,12 @@ def update_stations_catchment_area(ring_size):
 
     if len(h3_recorridos) > 0:
         h3_recorridos["parada_en_recorridos"] = True
+        # Detectar en las paradas de etapas solo las que tenemos los recorridos h3
         paradas_etapas["id_linea_recorridos"] = paradas_etapas["id_linea_agg"].isin(
             h3_recorridos["id_linea_agg"].unique()
         )
 
+        # Filtrar las que
         paradas_etapas = paradas_etapas.merge(
             h3_recorridos, on=["id_linea_agg", "parada"], how="left"
         )
@@ -134,7 +162,8 @@ def update_stations_catchment_area(ring_size):
         paradas_etapas["parada_en_recorridos"] = (
             paradas_etapas["parada_en_recorridos"].fillna(False).astype(bool)
         )
-
+        # Se queda las que estan en recorridos y tiene actividad en una celda que esta en el recorrido
+        # TODO: sumar un buffer a ese recorrido
         paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (
             ~paradas_etapas.parada_en_recorridos
         )

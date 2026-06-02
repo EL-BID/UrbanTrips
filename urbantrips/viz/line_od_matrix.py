@@ -157,6 +157,7 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
     line_ids_where = create_line_ids_sql_filter(line_ids)
     q_route_geoms = "select * from lines_geoms" + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms = route_geoms.loc[route_geoms.direction == 0, :]
     conn_insumos.close()
 
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)

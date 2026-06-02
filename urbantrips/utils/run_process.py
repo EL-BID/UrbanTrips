@@ -55,11 +55,11 @@ def inicializo_ambiente():
         # Procesar metadata de rutas
         process_routes_metadata()
 
-        # Procesar y subir geometrías de rutas
-        process_routes_geoms()
-
         # Crear tabla de paradas
         create_stops_table()
+
+        # Procesar y subir geometrías de rutas
+        process_routes_geoms()
 
         # Guarda zonificaciones
         guardo_zonificaciones()
@@ -245,18 +245,18 @@ def run_all(borrar_corrida="", crear_dashboard=True):
     borrar_corridas(borrar_corrida)
 
     corridas = inicializo_ambiente()
+
     print("Se procesarán estas corridas:", corridas)
     for corrida in corridas:
         print(f"Procesando corrida: {corrida}")
         procesar_transacciones(corrida)
+
         if crear_dashboard:
             preparo_indicadores_dash(corrida)
 
         print("Fin corrida", corrida)
-        print('###############################################')
-
+        print("###############################################")
 
     print("")
     fin = time.time()
-    print('tiempo total de la corrida', round((fin-inicio)/60, 2))
-
+    print("tiempo total de la corrida", round((fin - inicio) / 60, 2))

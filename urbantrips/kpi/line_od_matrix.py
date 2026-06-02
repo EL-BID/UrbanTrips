@@ -75,6 +75,8 @@ def compute_lines_od_matrix(
     q_route_geoms = "select * from lines_geoms"
     q_route_geoms = q_route_geoms + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    route_geoms = route_geoms.loc[route_geoms.direction == 0, :]
+
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
     route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
     # Set which parameter to use to slit route geoms

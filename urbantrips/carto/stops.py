@@ -1,4 +1,5 @@
 import os
+from duckdb import df
 import pandas as pd
 import geopandas as gpd
 from shapely import line_interpolate_point
@@ -47,6 +48,7 @@ def upload_stops_table(stops):
     cols = [
         "id_linea",
         "id_ramal",
+        "direction",
         "node_id",
         "branch_stop_order",
         "stop_x",
@@ -54,8 +56,17 @@ def upload_stops_table(stops):
         "node_x",
         "node_y",
     ]
+
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
+    # asignar h3 a paradas y nodos
+    stops = geo.referenciar_h3(
+        df=stops, res=10, nombre_h3="stop_h3", lat="stop_y", lon="stop_x"
+    )
+
+    stops = geo.referenciar_h3(
+        df=stops, res=10, nombre_h3="node_h3", lat="node_y", lon="node_x"
+    )
 
     print("Subiendo paradas a stops")
     stops.to_sql("stops", conn_insumos, if_exists="replace", index=False)

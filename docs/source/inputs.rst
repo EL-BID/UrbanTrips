@@ -115,6 +115,9 @@ Archivo ``geojson`` con la cartografía de los recorridos de la linea. Debe ser 
    * - *id_ramal*
      - int
      - **Obligatorio si hay ramales**. Entero que identifique al ramal.
+   * - *direction*
+     - int
+     - **Obligatorio**. Entero que identifique la dirección del recorrido. 0 o 1.
    * - *stops_distance*
      - int
      - Opcional. Distancia en metros a aplicarse al interpolar paradas sobre el recorrido.
@@ -183,20 +186,28 @@ Tabla que contenga las paradas de cada linea y ramal (si hay ramales). El campo 
      - **Obligatorio**. Entero que identifique a la linea.
    * - *id_ramal*
      - int
-     - **Obligatorio si hay ramales**. Entero que identifique a al ramal.     
+     - **Obligatorio si hay ramales**. Entero que identifique a al ramal. 
+   * - *direction*
+     - int
+     - **Obligatorio**. Entero que identifique la dirección del recorrido. 0 o 1.
    * - *order*
      - int
      - **Obligatorio**. Entero único que siga un recorrido de la linea o ramal de manera incremental. No importa el sentido
-   * - *y*
+   * - *stop_y*
      - float
      - **Obligatorio**. Latitud.     
-   * - *x*
+   * - *stop_x*
      - float
      - **Obligatorio**. Longitud.
    * - *node_id*
      - int
      - **Obligatorio**. Identifica con el mismo id estaciones donde puede haber transbordo entre ramales de una misma linea. Único para los otros casos dentro de la misma línea.     
-     
+   * - *node_y*
+     - float
+     - **Obligatorio**. Latitud del nodo .     
+   * - *node_x*
+     - float
+     - **Obligatorio**. Longitud del nodo . 
      
 Zonificaciones  
 --------------

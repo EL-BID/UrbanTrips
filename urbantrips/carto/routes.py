@@ -73,18 +73,42 @@ def process_routes_geoms():
 
         print("Calculando recorridos en h3 con resolucion ", h3_legs_res)
         routes_h3 = []
+        routes_h3_parent = []
+        config_res = configs["resolucion_h3"]
+
         for i, route in branches_routes.iterrows():
             print(f"Procesando ruta: {route.id_ramal}")
-            geom_h3 = turn_route_geom_into_h3_cells(route, route_id_column="id_ramal")
+            geom_h3 = turn_route_geom_into_h3_cells(
+                row=route, route_id_column="id_ramal", res=10
+            )
             routes_h3.append(geom_h3)
-        branches_routes_h3 = pd.concat(routes_h3, ignore_index=True)
+            route_gdf = gpd.GeoDataFrame(geometry=[route.geometry], crs=4326)
+            if config_res < 10:
+                parent_routes_h3 = turn_child_h3_into_parent_h3(
+                    route_h3=geom_h3,
+                    parent_res=config_res,
+                    route_geom=route_gdf,
+                )
+                routes_h3_parent.append(parent_routes_h3)
 
+        branches_routes_h3 = pd.concat(routes_h3, ignore_index=True)
         branches_routes_h3.to_sql(
             "official_branches_geoms_h3",
             conn_insumos,
             if_exists="replace",
             index=False,
         )
+
+        if config_res < 10:
+            official_branches_geoms_parent_h3 = pd.concat(
+                routes_h3_parent, ignore_index=True
+            )
+            official_branches_geoms_parent_h3.to_sql(
+                "official_branches_geoms_parent_h3",
+                conn_insumos,
+                if_exists="replace",
+                index=False,
+            )
 
         branches_routes["wkt"] = branches_routes.geometry.to_wkt()
         branches_routes = branches_routes.reindex(
@@ -97,7 +121,12 @@ def process_routes_geoms():
             if_exists="replace",
             index=False,
         )
+        del branches_routes
 
+        # Poblar la tabla  official_branches_geoms_parent_h3 con celdas h3 de resolucion 9
+
+        # TODO: mejorar esta line geom con los h3
+        # TODO: crear un linea h3 a partir de los h3 de ramales
         # produce a line from branches with lowess
         lines_routes = create_line_geom_from_branches(geojson_data)
 
@@ -111,14 +140,24 @@ def process_routes_geoms():
     ).any(), "id_linea duplicados en geojson de recorridos"
 
     routes_h3 = []
+    routes_h3_parent = []
+
     for i, route in lines_routes.iterrows():
         print(f"Procesando ruta: {route.id_linea}")
         geom_h3 = turn_route_geom_into_h3_cells(route, route_id_column="id_linea")
         routes_h3.append(geom_h3)
+
+        route_gdf = gpd.GeoDataFrame(geometry=[route.geometry], crs=4326)
+        if config_res < 10:
+            parent_routes_h3 = turn_child_h3_into_parent_h3(
+                route_h3=geom_h3,
+                parent_res=config_res,
+                route_geom=route_gdf,
+            )
+            routes_h3_parent.append(parent_routes_h3)
+
     lines_routes_h3 = pd.concat(routes_h3, ignore_index=True)
-
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
-
     lines_routes = lines_routes.reindex(columns=["id_linea", "direction", "wkt"])
     print("Subiendo tabla de recorridos")
 
@@ -136,6 +175,18 @@ def process_routes_geoms():
         if_exists="replace",
         index=False,
     )
+    del lines_routes
+    del lines_routes_h3
+
+    if config_res < 10:
+        official_lines_geoms_parent_h3 = pd.concat(routes_h3_parent, ignore_index=True)
+        official_lines_geoms_parent_h3.to_sql(
+            "official_lines_geoms_parent_h3",
+            conn_insumos,
+            if_exists="replace",
+            index=False,
+        )
+
     conn_insumos.close()
 
 
@@ -195,8 +246,7 @@ def build_routes_from_official_inferred():
     conn_insumos.commit()
 
     # Crear una tabla de recorridos unica
-    conn_insumos.execute(
-        """
+    conn_insumos.execute("""
         INSERT INTO lines_geoms
             select i.id_linea, i.direction, coalesce(o.wkt,i.wkt) as wkt
             from inferred_lines_geoms i
@@ -204,18 +254,15 @@ def build_routes_from_official_inferred():
             on i.id_linea = o.id_linea
             and i.direction = o.direction
         ;
-        """
-    )
+        """)
     conn_insumos.commit()
 
     # There is no inferred branches
-    conn_insumos.execute(
-        """
+    conn_insumos.execute("""
         INSERT INTO branches_geoms
         select * from official_branches_geoms
         ;
-        """
-    )
+        """)
     conn_insumos.commit()
 
     conn_insumos.close()
@@ -619,6 +666,9 @@ def get_route_geoms_with_sections_data(line_ids_where, section_meters, n_section
     q_route_geoms = "select * from lines_geoms"
     q_route_geoms = q_route_geoms + line_ids_where
     route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
+    # just use one direction
+    route_geoms = route_geoms.loc[route_geoms.direction == 0, :]
+
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
     route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
 
@@ -892,9 +942,6 @@ def turn_route_geom_into_h3_cells(
     Convierte la geometría de una ruta en una secuencia de celdas H3,
     interpolando puntos a lo largo de la ruta y asignándoles celdas H3.
     """
-    print(row)
-    print(route_id_column)
-    print(row[route_id_column])
     route_geom = row.geometry
     direction = row.direction
     route_id = row[route_id_column]
@@ -947,11 +994,10 @@ def turn_route_geom_into_h3_cells(
             distance = h3.grid_distance(current_cell, next_cell)
             gaps.append({"from_idx": i, "to_idx": i + 1, "distance": distance})
 
-    print(f"Found {len(gaps)} gaps in the route:")
+    # print(f"Found {len(gaps)} gaps in the route:")
     if len(gaps) > 0:
         print(f"Found {len(gaps)} gaps ")
-    else:
-        print("  No gaps found - route is fully connected!")
+
     only_one_cell_gaps = [g["distance"] <= 2 for g in gaps]
     if not all(only_one_cell_gaps):
         print(
@@ -974,10 +1020,7 @@ def turn_route_geom_into_h3_cells(
             non_adjacent_count += 1
             print(f"❌ Cells at positions {i} and {i+1} are still NOT adjacent")
 
-    if non_adjacent_count == 0:
-        print("✅ SUCCESS! All consecutive cells in the filled route are adjacent.")
-        print(f"   Route length: {len(geom_h3_filled)} cells")
-    else:
+    if non_adjacent_count != 0:
         print(f"\n⚠️  Warning: {non_adjacent_count} gaps remain")
 
     geom_h3_filled[route_id_column] = route_id
@@ -988,6 +1031,33 @@ def turn_route_geom_into_h3_cells(
     geom_h3_filled = geom_h3_filled.reindex(
         columns=[route_id_column, "direction", "section_id", "h3", "wkt"]
     )
+
+    # check for routes that are circular and end in cells that overlap with the start
+    # Check if any of the last few cells are in the first few cells and remove them
+    n_cells_to_check = min(
+        5, len(geom_h3_filled) // 2
+    )  # Don't check more than half the route
+    if n_cells_to_check > 0:
+        first_cells = set(geom_h3_filled.iloc[:n_cells_to_check]["h3"])
+
+        # Count consecutive cells from the end that are in the first cells
+        cells_to_remove = 0
+        for i in range(1, n_cells_to_check + 1):
+            if geom_h3_filled.iloc[-i]["h3"] in first_cells:
+                cells_to_remove += 1
+            else:
+                break  # Stop at the first non-overlapping cell from the end
+
+        if cells_to_remove > 0:
+            print(
+                f"⚠️  Warning: Detected circular route with {cells_to_remove} overlapping cell(s) at the end. Removing them."
+            )
+            # Remove overlapping cells from the end
+            geom_h3_filled = geom_h3_filled.iloc[:-cells_to_remove].copy()
+
+            # Re-sequence section_id to be sequential
+            geom_h3_filled["section_id"] = range(len(geom_h3_filled))
+
     return geom_h3_filled
 
 
@@ -1220,8 +1290,15 @@ def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
     )
     parent_routes_h3_gdf["section_id"] = range(len(parent_routes_h3_gdf))
     parent_routes_h3_gdf["wkt"] = parent_routes_h3_gdf.geometry.to_wkt()
-
+    parent_routes_h3_gdf["resolution"] = parent_res
     parent_routes_h3_gdf = parent_routes_h3_gdf.reindex(
-        columns=[route_id_column, "direction", "parent_h3", "section_id", "wkt"]
+        columns=[
+            route_id_column,
+            "direction",
+            "section_id",
+            "parent_h3",
+            "resolution",
+            "wkt",
+        ]
     )
     return parent_routes_h3_gdf

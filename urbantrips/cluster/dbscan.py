@@ -83,7 +83,7 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
     # get data for legs and route geoms
     legs = pd.read_sql(q_etapas, conn_data)
     route_geom = pd.read_sql(q_rec, conn_insumos)
-
+    route_geom = route_geom.loc[route_geom.direction == 0, :]
     route_geom["geometry"] = route_geom.wkt.apply(wkt.loads)
     route_geom = route_geom.loc[route_geom.id_linea == id_linea, "geometry"].item()
 
