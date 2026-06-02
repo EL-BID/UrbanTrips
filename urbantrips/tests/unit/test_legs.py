@@ -8,6 +8,7 @@ from urbantrips.datamodel.legs import (
     cambiar_id_tarjeta_trx_simul_fecha,
     crear_delta_trx,
     assign_gps_origin,
+    assign_time_distances,
 )
 
 
@@ -282,3 +283,108 @@ def test_same_day_trips_split_correctly_after_midnight_fix():
     result = asignar_id_viaje_etapa_fecha_completa(df, ventana_viajes=90)
     # 8:00→9:00 = 60min (within window) → trip 1; 9:00→16:00 = 420min → trip 2
     assert result["id_viaje"].tolist() == [1, 1, 2]
+
+
+# --- assign_time_distances (no-GPS branch) ---
+
+def test_assign_time_distances_no_gps_id_etapa_not_null(monkeypatch):
+    """Without GPS, travel_times_legs must preserve id_etapa from legs_all.
+
+    Before the fix, id_etapa was omitted from the column selection in the else
+    branch, so reindex() filled the whole column with NaN.
+    """
+    from urbantrips.datamodel import legs as legs_module
+
+    monkeypatch.setattr(
+        legs_module,
+        "leer_configs_generales",
+        lambda autogenerado=True: {"usa_archivo_gps": False},
+    )
+
+    def _passthrough_distances(od_df, **kwargs):
+        result = od_df.copy()
+        result["distance_od"] = 3.5
+        return result
+
+    monkeypatch.setattr(legs_module, "compute_od_distances", _passthrough_distances)
+
+    legs_df = pd.DataFrame({
+        "dia":        ["2024-01-01", "2024-01-01", "2024-01-01"],
+        "id":         [1, 2, 3],
+        "id_tarjeta": ["CARD1", "CARD1", "CARD1"],
+        "id_viaje":   [1, 1, 2],
+        "id_etapa":   [1, 2, 1],
+    })
+
+    saved = {}
+
+    class _MockData:
+        def query(self, sql):
+            return legs_df.copy()
+
+        def get_run_days(self):
+            return pd.DataFrame({"dia": ["2024-01-01"]})
+
+        def execute(self, sql):
+            pass
+
+        def append_raw(self, df, table):
+            saved[table] = df.copy()
+
+    assign_time_distances(SimpleNamespace(data=_MockData()))
+
+    assert "travel_times_legs" in saved, "travel_times_legs was never written"
+    result = saved["travel_times_legs"]
+    assert "id_etapa" in result.columns
+    assert result["id_etapa"].notna().all(), "id_etapa must not be null — fix regression"
+    assert result["id_etapa"].tolist() == [1, 2, 1]
+
+
+def test_assign_time_distances_no_gps_distance_od_stored(monkeypatch):
+    """Without GPS, distance_od computed by compute_od_distances must reach the table."""
+    from urbantrips.datamodel import legs as legs_module
+
+    monkeypatch.setattr(
+        legs_module,
+        "leer_configs_generales",
+        lambda autogenerado=True: {"usa_archivo_gps": False},
+    )
+
+    def _passthrough_distances(od_df, **kwargs):
+        result = od_df.copy()
+        result["distance_od"] = [1.0, 2.0, 5.0]
+        return result
+
+    monkeypatch.setattr(legs_module, "compute_od_distances", _passthrough_distances)
+
+    legs_df = pd.DataFrame({
+        "dia":        ["2024-01-01"] * 3,
+        "id":         [1, 2, 3],
+        "id_tarjeta": ["CARD1", "CARD1", "CARD2"],
+        "id_viaje":   [1, 1, 1],
+        "id_etapa":   [1, 2, 1],
+    })
+
+    saved = {}
+
+    class _MockData:
+        def query(self, sql):
+            return legs_df.copy()
+
+        def get_run_days(self):
+            return pd.DataFrame({"dia": ["2024-01-01"]})
+
+        def execute(self, sql):
+            pass
+
+        def append_raw(self, df, table):
+            saved[table] = df.copy()
+
+    assign_time_distances(SimpleNamespace(data=_MockData()))
+
+    legs_result = saved["travel_times_legs"]
+    assert legs_result["distance_od"].tolist() == [1.0, 2.0, 5.0]
+
+    trips_result = saved["travel_times_trips"]
+    card1_total = trips_result.loc[trips_result.id_tarjeta == "CARD1", "distance_od"].iloc[0]
+    assert card1_total == 3.0  # 1.0 + 2.0
