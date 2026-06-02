@@ -78,7 +78,15 @@ def load_and_process_data(ctx: StorageContext):
                e.factor_expansion_original, e.factor_expansion_linea,
                e.factor_expansion_tarjeta,
                tt.travel_time_min, tt.distance_od, tt.distance_route,
-               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
+               CASE WHEN DAYOFWEEK(CAST(e.dia AS DATE)) >= 6
+                    THEN 'Fin de Semana' ELSE 'Hábil' END              AS tipo_dia,
+               STRFTIME(CAST(e.dia AS DATE), '%Y-%m')                  AS mes,
+               CASE WHEN e.hora BETWEEN 13 AND 16 THEN '13-16'
+                    WHEN e.hora > 16 THEN '17-24'
+                    ELSE '0-12' END                                    AS rango_hora,
+               CASE WHEN tt.distance_od > 5 THEN 'Etapa larga (>5kms)'
+                    ELSE 'Etapa corta (<=5kms)' END                    AS distancia_agregada
         FROM etapas e
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
         WHERE e.od_validado = 1
@@ -88,7 +96,16 @@ def load_and_process_data(ctx: StorageContext):
     viajes = ctx.data.query(
         """
         SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
-               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
+               CASE WHEN DAYOFWEEK(CAST(v.dia AS DATE)) >= 6
+                    THEN 'Fin de Semana' ELSE 'Hábil' END              AS tipo_dia,
+               STRFTIME(CAST(v.dia AS DATE), '%Y-%m')                  AS mes,
+               CASE WHEN v.hora BETWEEN 13 AND 16 THEN '13-16'
+                    WHEN v.hora > 16 THEN '17-24'
+                    ELSE '0-12' END                                    AS rango_hora,
+               CASE WHEN tt.distance_od > 5 THEN 'Viajes largos (>5kms)'
+                    ELSE 'Viajes cortos (<=5kms)' END                  AS distancia_agregada,
+               CAST(v.cant_etapas > 1 AS INTEGER)                      AS transferencia
         FROM viajes v
         LEFT JOIN travel_times_trips tt
         ON v.dia = tt.dia
@@ -125,39 +142,12 @@ def load_and_process_data(ctx: StorageContext):
     )
     viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
 
-    # ── 3. flags y rangos horarios (vectorizado) ────────────────────
-    viajes["transferencia"] = (viajes["cant_etapas"] > 1).astype(int)
-
-    cond_rh = [viajes["hora"].between(13, 16), viajes["hora"].between(17, 24)]
-    viajes["rango_hora"] = np.select(cond_rh, ["13-16", "17-24"], default="0-12")
-
-    viajes["distancia_agregada"] = np.where(
-        viajes["distance_od"] > 5, "Viajes largos (>5kms)", "Viajes cortos (<=5kms)"
-    )
-    etapas["distancia_agregada"] = np.where(
-        etapas["distance_od"] > 5, "Etapa larga (>5kms)", "Etapa corta (<=5kms)"
-    )
-
-    viajes["tipo_dia"] = np.where(
-        pd.to_datetime(viajes["dia"]).dt.dayofweek >= 5, "Fin de Semana", "Hábil"
-    )
-
-    viajes["mes"] = pd.to_datetime(viajes["dia"]).dt.to_period("M").astype(str)
-
+    # ── 3. datetime window columns (stay in pandas) ────────────────
     viajes["Fecha"] = pd.to_datetime(viajes["dia"] + " " + viajes["tiempo"])
     viajes["Fecha_next"] = viajes.groupby(["dia", "id_tarjeta"], observed=True)["Fecha"].shift(-1)
     viajes["diff_time"] = (
         (viajes["Fecha_next"] - viajes["Fecha"]).dt.seconds / 60
     ).round()
-
-    # mismas transformaciones para etapas
-    etapas["tipo_dia"] = np.where(
-        pd.to_datetime(etapas["dia"]).dt.dayofweek >= 5, "Fin de Semana", "Hábil"
-    )
-    etapas["mes"] = pd.to_datetime(etapas["dia"]).dt.to_period("M").astype(str)
-
-    cond_rh_e = [etapas["hora"].between(13, 16), etapas["hora"].between(17, 24)]
-    etapas["rango_hora"] = np.select(cond_rh_e, ["13-16", "17-24"], default="0-12")
 
     etapas = etapas.merge(
         viajes[["dia", "id_tarjeta", "id_viaje", "transferencia"]], how="left"
