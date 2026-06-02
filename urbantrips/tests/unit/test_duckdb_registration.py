@@ -45,50 +45,35 @@ import pytest
 
 def _setup_tracking(adapter) -> list[str]:
     """
-    Replace *adapter._conn* with a factory that returns tracking proxies.
+    Replace *adapter._conn* (now a persistent connection) with a tracking proxy.
 
-    All proxies created by the same call share a single ``active`` list, so
-    dangling registrations accumulate across multiple ``_conn()`` calls within
-    one adapter method (there is always exactly one, but the design is safe for
-    any number).
+    The proxy intercepts ``register``/``unregister`` and keeps a running list of
+    active registrations.  After each save-method call the list must be empty.
 
     Returns the shared ``active`` list; callers assert it is ``[]`` after each
     save-method call.
     """
-    db_path = adapter._path
+    real = adapter._conn
     active: list[str] = []
 
-    def _conn():
-        real = duckdb.connect(str(db_path))
+    class _Proxy:
+        # ── tracked ───────────────────────────────────────────────────────
+        def register(self_, name: str, df) -> None:
+            active.append(name)
+            return real.register(name, df)
 
-        class _Proxy:
-            # ── context manager ────────────────────────────────────────────
-            def __enter__(self_):
-                return self_          # must return proxy, not real
+        def unregister(self_, name: str) -> None:
+            try:
+                active.remove(name)
+            except ValueError:
+                pass              # already removed (shouldn't happen)
+            return real.unregister(name)
 
-            def __exit__(self_, *args):
-                real.close()
-                return False
+        # ── forward everything else ───────────────────────────────────────
+        def __getattr__(self_, item):
+            return getattr(real, item)
 
-            # ── tracked ───────────────────────────────────────────────────
-            def register(self_, name: str, df) -> None:
-                active.append(name)
-                return real.register(name, df)
-
-            def unregister(self_, name: str) -> None:
-                try:
-                    active.remove(name)
-                except ValueError:
-                    pass              # already removed (shouldn't happen)
-                return real.unregister(name)
-
-            # ── forward everything else ───────────────────────────────────
-            def __getattr__(self_, item):
-                return getattr(real, item)
-
-        return _Proxy()
-
-    adapter._conn = _conn
+    adapter._conn = _Proxy()
     return active
 
 
@@ -207,46 +192,34 @@ def test_unregister_called_even_on_execute_failure(data_adapter):
     the first INSERT call raise via a custom proxy's execute method.
     """
     adapter, active = data_adapter
-    db_path = adapter._path
+    real = adapter._conn
+    fail_flag = [True]
 
-    def failing_conn():
-        real = duckdb.connect(str(db_path))
-        fail_flag = [True]
+    class FailingTrackingProxy:
+        def register(self_, name: str, df) -> None:
+            active.append(name)
+            return real.register(name, df)
 
-        class FailingTrackingProxy:
-            def __enter__(self_):
-                return self_
+        def unregister(self_, name: str) -> None:
+            try:
+                active.remove(name)
+            except ValueError:
+                pass
+            return real.unregister(name)
 
-            def __exit__(self_, *args):
-                real.close()
-                return False
+        def execute(self_, sql: str, *args, **kwargs):
+            # Fail on the first data-manipulation statement that
+            # references the registered view (CREATE OR REPLACE or
+            # INSERT … SELECT … FROM _raw_df).
+            if fail_flag[0] and "_raw_df" in sql:
+                fail_flag[0] = False
+                raise duckdb.Error("Simulated INSERT failure")
+            return real.execute(sql, *args, **kwargs)
 
-            def register(self_, name: str, df) -> None:
-                active.append(name)
-                return real.register(name, df)
+        def __getattr__(self_, item):
+            return getattr(real, item)
 
-            def unregister(self_, name: str) -> None:
-                try:
-                    active.remove(name)
-                except ValueError:
-                    pass
-                return real.unregister(name)
-
-            def execute(self_, sql: str, *args, **kwargs):
-                # Fail on the first data-manipulation statement that
-                # references the registered view (CREATE OR REPLACE or
-                # INSERT … SELECT … FROM _raw_df).
-                if fail_flag[0] and "_raw_df" in sql:
-                    fail_flag[0] = False
-                    raise duckdb.Error("Simulated INSERT failure")
-                return real.execute(sql, *args, **kwargs)
-
-            def __getattr__(self_, item):
-                return getattr(real, item)
-
-        return FailingTrackingProxy()
-
-    adapter._conn = failing_conn
+    adapter._conn = FailingTrackingProxy()
 
     with pytest.raises(duckdb.Error, match="Simulated INSERT failure"):
         adapter.save_raw(_empty(x=float), "will_fail")

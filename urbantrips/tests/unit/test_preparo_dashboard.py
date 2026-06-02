@@ -240,3 +240,42 @@ def test_agg_matriz_observed_false_would_produce_extra_rows():
 
     assert len(without_observed) == 3, "Without observed=True all 3 category levels appear"
     assert len(with_observed)    == 1, "With observed=True only the observed level appears"
+
+
+# ---------------------------------------------------------------------------
+# B6 — persistent DuckDB connection
+# ---------------------------------------------------------------------------
+import tempfile
+from pathlib import Path
+
+
+def _make_insumos_adapter(tmp_path):
+    from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
+    return DuckDBInsumoAdapter(tmp_path / "insumos.duckdb")
+
+
+def test_insumos_adapter_reuses_connection(tmp_path):
+    """Two sequential calls share the same connection object."""
+    adapter = _make_insumos_adapter(tmp_path)
+    conn1 = adapter._conn
+    conn2 = adapter._conn
+    assert conn1 is conn2
+    adapter.close()
+
+
+def test_insumos_adapter_read_write_cycle(tmp_path):
+    """save_raw then get_raw returns the same data."""
+    import pandas as pd
+    adapter = _make_insumos_adapter(tmp_path)
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    adapter.save_raw(df, "test_table")
+    result = adapter.get_raw("test_table")
+    pd.testing.assert_frame_equal(result.reset_index(drop=True), df.reset_index(drop=True))
+    adapter.close()
+
+
+def test_insumos_adapter_close_is_idempotent(tmp_path):
+    """Calling close() twice must not raise."""
+    adapter = _make_insumos_adapter(tmp_path)
+    adapter.close()
+    adapter.close()  # must not raise
