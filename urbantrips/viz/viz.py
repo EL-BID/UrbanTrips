@@ -1,4 +1,5 @@
 import logging
+import duckdb
 import shapely
 import pandas as pd
 import numpy as np
@@ -699,8 +700,8 @@ def imprimir_matrices_od(
     alias = leer_alias()
 
     zonas = ctx.insumos.get_zones()
-    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+    zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+    zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
     df, matriz_zonas = traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d")
 
@@ -892,8 +893,8 @@ def imprime_lineas_deseo(
     alias = leer_alias()
 
     zonas = ctx.insumos.get_zones()
-    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+    zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+    zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -1972,30 +1973,14 @@ def lineas_deseo(
     filtro1="",
 ):
 
-    hexs = (
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona, as_index=False)
-        .size()
-        .drop(["size"], axis=1)
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona)
-        .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "longitud"}),
-        how="left",
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona)
-        .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "latitud"}),
-        how="left",
-    )
+    _zonas_filt = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+    hexs = duckdb.sql(f"""
+        SELECT "{var_zona}",
+               SUM(longitud * fex) / NULLIF(SUM(fex), 0) AS longitud,
+               SUM(latitud * fex) / NULLIF(SUM(fex), 0) AS latitud
+        FROM _zonas_filt
+        GROUP BY "{var_zona}"
+    """).df()
 
     tmp_o = f"{var_zona}_o"
     tmp_d = f"{var_zona}_d"

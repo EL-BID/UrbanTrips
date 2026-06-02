@@ -9,6 +9,7 @@ from urbantrips.datamodel.legs import (
     crear_delta_trx,
     assign_gps_origin,
     assign_time_distances,
+    pago_doble_tarjeta,
 )
 
 
@@ -388,3 +389,59 @@ def test_assign_time_distances_no_gps_distance_od_stored(monkeypatch):
     trips_result = saved["travel_times_trips"]
     card1_total = trips_result.loc[trips_result.id_tarjeta == "CARD1", "distance_od"].iloc[0]
     assert card1_total == 3.0  # 1.0 + 2.0
+
+
+# --- pago_doble_tarjeta ---
+
+def _make_single_trx(id_tarjeta="CARD1", fecha="2024-01-01 08:00:00"):
+    return pd.DataFrame({
+        "dia":        ["2024-01-01"],
+        "id_tarjeta": [id_tarjeta],
+        "id_linea":   [10],
+        "fecha":      [fecha],
+        "orden_trx":  [1],
+        "hora":       [8],
+    })
+
+
+def test_pago_doble_tarjeta_id_tarjeta_nuevo_not_in_output_columns():
+    """id_tarjeta_nuevo is an internal temp column and must be dropped by reindex.
+    The direct-assignment fix (a1a69e7) must preserve this column contract."""
+    trx = _make_single_trx()
+    original_cols = set(trx.columns)  # capture before function mutates trx in-place
+    params = {"criterio": "fecha_completa", "ventana_duplicado": 5}
+    result, _ = pago_doble_tarjeta(trx, params)
+    assert "id_tarjeta_nuevo" not in result.columns
+    assert set(result.columns) == original_cols
+
+
+def test_pago_doble_tarjeta_updates_id_tarjeta_to_new_value():
+    """id_tarjeta in the result must reflect the id_tarjeta_nuevo computed inside
+    the function.  A single non-duplicated transaction gets the '_0' suffix."""
+    trx = _make_single_trx()
+    params = {"criterio": "fecha_completa", "ventana_duplicado": 5}
+    result, dupes = pago_doble_tarjeta(trx, params)
+    # nro=0 for the only transaction → id_tarjeta_nuevo = "CARD1_0"
+    assert result["id_tarjeta"].iloc[0] == "CARD1_0"
+    # No duplicates detected → tarjetas_duplicadas is empty
+    assert len(dupes) == 0
+
+
+def test_pago_doble_tarjeta_splits_concurrent_transactions():
+    """Two transactions from the same card on the same line within the window
+    are tagged as duplicates and get distinct suffixes."""
+    trx = pd.DataFrame({
+        "dia":        ["2024-01-01", "2024-01-01"],
+        "id_tarjeta": ["CARD1",      "CARD1"],
+        "id_linea":   [10,           10],
+        "fecha":      ["2024-01-01 08:00:00", "2024-01-01 08:00:30"],
+        "orden_trx":  [1,            2],
+        "hora":       [8,            8],
+    })
+    params = {"criterio": "fecha_completa", "ventana_duplicado": 1}
+    result, dupes = pago_doble_tarjeta(trx, params)
+    # Both rows are within 1-minute window → duplicates → get _0 and _1 suffixes
+    suffixes = sorted(result["id_tarjeta"].tolist())
+    assert suffixes == ["CARD1_0", "CARD1_1"]
+    assert len(dupes) == 1
+    assert dupes["id_tarjeta_original"].iloc[0] == "CARD1"

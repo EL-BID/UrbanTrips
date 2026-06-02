@@ -183,7 +183,7 @@ def plot_interactive_demand_overlapping(ctx: StorageContext, base_demand, comp_d
     base_gdf_to_db["x"] = base_gdf_to_db.geometry.centroid.x
     base_gdf_to_db["y"] = base_gdf_to_db.geometry.centroid.y
     base_gdf_to_db["type_route"] = "base"
-    base_gdf_to_db["wkt"] = base_gdf_to_db["geometry"].apply(lambda geom: geom.wkt)
+    base_gdf_to_db["wkt"] = base_gdf_to_db.geometry.to_wkt()
     base_gdf_to_db = base_gdf_to_db.reindex(
         columns=[
             "route_id",
@@ -221,7 +221,7 @@ def plot_interactive_demand_overlapping(ctx: StorageContext, base_demand, comp_d
     comp_gdf_to_db["x"] = comp_gdf_to_db.geometry.centroid.x
     comp_gdf_to_db["y"] = comp_gdf_to_db.geometry.centroid.y
     comp_gdf_to_db["type_route"] = "comp"
-    comp_gdf_to_db["wkt"] = comp_gdf_to_db["geometry"].apply(lambda geom: geom.wkt)
+    comp_gdf_to_db["wkt"] = comp_gdf_to_db.geometry.to_wkt()
     comp_gdf_to_db = comp_gdf_to_db.reindex(
         columns=[
             "route_id",

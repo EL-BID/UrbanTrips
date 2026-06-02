@@ -158,13 +158,19 @@ def normalizo_lat_lon(df, h3_o="h3_o", h3_d="h3_d", origen="", destino=""):
     if len(destino) == 0:
         destino = h3_d
 
-    df["origin"] = df[h3_o].apply(h3togeo)
-    df["lon_o_tmp"] = df["origin"].apply(bring_latlon, latlon="lon")
-    df["lat_o_tmp"] = df["origin"].apply(bring_latlon, latlon="lat")
+    def _latlng(x):
+        try:
+            return h3.cell_to_latlng(x)
+        except (TypeError, ValueError):
+            return (0.0, 0.0)
 
-    df["destination"] = df[h3_d].apply(h3togeo)
-    df["lon_d_tmp"] = df["destination"].apply(bring_latlon, latlon="lon")
-    df["lat_d_tmp"] = df["destination"].apply(bring_latlon, latlon="lat")
+    _o = [_latlng(x) for x in df[h3_o]]
+    df["lat_o_tmp"] = [ll[0] for ll in _o]
+    df["lon_o_tmp"] = [ll[1] for ll in _o]
+
+    _d = [_latlng(x) for x in df[h3_d]]
+    df["lat_d_tmp"] = [ll[0] for ll in _d]
+    df["lon_d_tmp"] = [ll[1] for ll in _d]
 
     if "h3_" not in origen:
         cols = {destino: origen, "lat_d_tmp": "lat_o_tmp", "lon_d_tmp": "lon_o_tmp"}
@@ -219,8 +225,6 @@ def normalizo_lat_lon(df, h3_o="h3_o", h3_d="h3_d", origen="", destino=""):
             "lon_o_tmp",
             "lat_d_tmp",
             "lon_d_tmp",
-            "origin",
-            "destination",
         ],
         axis=1,
     )

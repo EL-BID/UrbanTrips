@@ -4,6 +4,7 @@ Pure utility helpers for viz — no DB access, no Streamlit, no ctx.
 import logging
 import os
 
+import duckdb
 import geopandas as gpd
 import h3
 import mapclassify
@@ -60,32 +61,18 @@ def extract_hex_colors_from_cmap(cmap, n=5):
 
 
 def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7):
-    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.cell_to_parent, res=res)
+    zonas["h3_o_tmp"] = [h3.cell_to_parent(x, res) for x in zonas["h3"]]
 
-    hexs = (
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp", as_index=False)
-        .size()
-        .drop(["size"], axis=1)
-    )
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp")
-        .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "longitud"}),
-        how="left",
-    )
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp")
-        .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "latitud"}),
-        how="left",
-    )
+    _zonas_filt = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+    hexs = duckdb.sql("""
+        SELECT h3_o_tmp,
+               SUM(longitud * fex) / NULLIF(SUM(fex), 0) AS longitud,
+               SUM(latitud * fex) / NULLIF(SUM(fex), 0) AS latitud
+        FROM _zonas_filt
+        GROUP BY h3_o_tmp
+    """).df()
 
-    df["h3_o_tmp"] = df[h3_o].apply(h3.cell_to_parent, res=res)
+    df["h3_o_tmp"] = [h3.cell_to_parent(x, res) for x in df[h3_o]]
     df_agg = df.groupby(["dia", "h3_o_tmp"], as_index=False).agg({var_fex: "sum"})
     df_agg = df_agg.groupby(["h3_o_tmp"], as_index=False).agg({var_fex: "mean"})
     df_agg = df_agg.merge(hexs.rename(columns={"latitud": "lat_o", "longitud": "lon_o"}))

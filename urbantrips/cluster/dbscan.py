@@ -486,7 +486,7 @@ def create_gdf_clustered_legs_direction(legs, clustered_legs_tuple):
         columns=["o_proj", "d_proj", "k_max_groups", "k_max_silhouette", "k_min_noise"]
     )
     legs = legs.merge(clusters, on=["o_proj", "d_proj"], how="left")
-    geoms = legs.apply(lambda row: LineString([row.o, row.d]), axis=1)
+    geoms = [LineString([o, d]) for o, d in zip(legs["o"], legs["d"])]
     legs_gdf = gpd.GeoDataFrame(legs, geometry=geoms, crs="EPSG:4326")
     legs_gdf = legs_gdf.reindex(
         columns=[

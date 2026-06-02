@@ -283,11 +283,12 @@ def test_check_prerequisites_legs_raises_when_etapas_empty(monkeypatch):
 
 
 def test_check_prerequisites_outputs_raises_when_h3_empty(monkeypatch):
+    """check_prerequisites for 'outputs' must check h3_o (not h3) — etapas has h3_o/h3_d."""
     from urbantrips.utils import run_process
 
     class _Data:
         def has_rows(self, table, where=None):
-            if where == "h3 IS NOT NULL":
+            if where == "h3_o IS NOT NULL":
                 return False
             return True
 

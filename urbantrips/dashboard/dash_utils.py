@@ -23,6 +23,7 @@ import shutil
 logger = logging.getLogger(__name__)
 
 from urbantrips.storage.identifiers import validate_table_name
+from urbantrips.utils.dataframe import calculate_weighted_means  # noqa: F401 — used by callers via this module
 from urbantrips.dashboard.dash_storage import (
     _load_yaml_simple,
     _find_first_valid_yaml,
@@ -138,49 +139,6 @@ def weighted_mean(series, weights):
         result = np.nan
     return result
 
-
-def calculate_weighted_means(
-    df_,
-    aggregate_cols,
-    weighted_mean_cols,
-    weight_col,
-    zero_to_nan=[],
-    var_fex_summed=True,
-):
-    df = df_.copy()
-    for i in zero_to_nan:
-        df.loc[df[i] == 0, i] = np.nan
-
-    # calculate_weighted_means  # Validate inputs
-    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError("One or more columns specified do not exist in the DataFrame.")
-    result = pd.DataFrame([])
-    # Calculate the product of the value and its weight for weighted mean calculation
-    for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f"{col}_weighted"] = (
-            df.loc[df[col].notna(), col] * df.loc[df[col].notna(), weight_col]
-        )
-        grouped = (
-            df.loc[df[col].notna()]
-            .groupby(aggregate_cols, as_index=False)[[f"{col}_weighted", weight_col]]
-            .sum()
-        )
-        grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
-        grouped = grouped.drop([f"{col}_weighted", weight_col], axis=1)
-
-        if len(result) == 0:
-            result = grouped.copy()
-        else:
-            result = result.merge(grouped, how="left", on=aggregate_cols)
-
-    if var_fex_summed:
-        fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
-        result = result.merge(fex_summed, how="left", on=aggregate_cols)
-    else:
-        fex_mean = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
-        result = result.merge(fex_mean, how="left", on=aggregate_cols)
-
-    return result
 
 
 def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):

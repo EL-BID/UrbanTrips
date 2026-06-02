@@ -33,7 +33,7 @@ class DuckDBInsumoAdapter:
     @staticmethod
     def _geo_to_df(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
         df = gdf.copy()
-        df["wkt"] = gdf.geometry.apply(lambda g: g.wkt)
+        df["wkt"] = gdf.geometry.to_wkt()
         return df.drop(columns="geometry")
 
     @staticmethod

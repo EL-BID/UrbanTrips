@@ -135,7 +135,7 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
             resol = int(res.replace("res_", ""))
             i = f"res_{resol}"
             poly_sel = poly_sel[["h3", "geometry"]].copy()
-            poly_sel[f"zona_{i}"] = poly_sel["h3"].apply(h3toparent, res=resol)
+            poly_sel[f"zona_{i}"] = [h3toparent(x, res=resol) for x in poly_sel["h3"]]
             poly_2 = h3_to_geodataframe(poly_sel, f"zona_{i}")
             poly_ovl = gpd.overlay(
                 poly_sel[["h3", "geometry"]],

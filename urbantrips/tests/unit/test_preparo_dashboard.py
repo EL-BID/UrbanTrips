@@ -1,6 +1,10 @@
 import pandas as pd
 import pytest
 
+# ---------------------------------------------------------------------------
+# agg_matriz — observed=True regression (commit 549a76e)
+# ---------------------------------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # Minimal fake ports — have query() but deliberately NO get_raw()
@@ -181,3 +185,58 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
     assert "batch_id" not in etapas.columns
     assert "etapa_validada" not in etapas.columns
     assert "factor_expansion_etapa" not in etapas.columns
+
+
+# ---------------------------------------------------------------------------
+# agg_matriz — observed=True (commit 549a76e)
+# ---------------------------------------------------------------------------
+
+def test_agg_matriz_observed_true_no_phantom_rows_for_empty_categories():
+    """groupby(..., observed=True) must not create rows for unobserved category levels.
+
+    Before fix 549a76e, groupby without observed=True inflated results with zero-weight
+    rows for every unused category value (e.g., transfer types, modes, hour ranges).
+    """
+    from urbantrips.preparo_dashboard.aggregation import agg_matriz
+
+    # 'Origen' has 3 category levels but only "A" is present in the data
+    df = pd.DataFrame({
+        "id_polygon":            [1, 1],
+        "zona":                  ["Z1", "Z1"],
+        "Origen":                pd.Categorical(["A", "A"], categories=["A", "B", "C"]),
+        "Destino":               ["X", "X"],
+        "transferencia":         [0, 0],
+        "modo_agregado":         ["bus", "bus"],
+        "rango_hora":            ["manana", "manana"],
+        "distancia_agregada":    [5, 5],
+        "factor_expansion_linea": [1.0, 2.0],
+        "distance_od":           [3.0, 5.0],
+        "travel_time_min":       [10.0, 20.0],
+        "kmh_od":                [18.0, 15.0],
+    })
+
+    result = agg_matriz(df)
+
+    # Only "A" was observed — must not produce extra rows for "B" or "C"
+    assert len(result) == 1
+    assert result["Origen"].iloc[0] == "A"
+    # Weight sum must match the actual data (1.0 + 2.0)
+    assert result["factor_expansion_linea"].iloc[0] == 3.0
+
+
+def test_agg_matriz_observed_false_would_produce_extra_rows():
+    """Confirm the pre-fix behaviour: without observed=True, extra rows appear.
+
+    This test documents what the bug looked like so the regression is clear.
+    It is written against a local groupby — not calling agg_matriz — so it will
+    not start failing if agg_matriz is ever refactored.
+    """
+    df = pd.DataFrame({
+        "Origen": pd.Categorical(["A", "A"], categories=["A", "B", "C"]),
+        "weight": [1.0, 2.0],
+    })
+    without_observed = df.groupby("Origen", as_index=False)["weight"].sum()
+    with_observed    = df.groupby("Origen", as_index=False, observed=True)["weight"].sum()
+
+    assert len(without_observed) == 3, "Without observed=True all 3 category levels appear"
+    assert len(with_observed)    == 1, "With observed=True only the observed level appears"

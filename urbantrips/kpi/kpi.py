@@ -1564,7 +1564,7 @@ def compute_speed_by_veh_hour(legs_vehicle):
         )
 
         speed["meters"] = (
-            speed.apply(lambda row: h3.grid_distance(row["h3"], row["h3_lag"]), axis=1)
+            np.array([h3.grid_distance(a, b) for a, b in zip(speed["h3"], speed["h3_lag"])])
             * distance_between_hex
         )
 
