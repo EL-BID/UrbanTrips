@@ -1,0 +1,14 @@
+# configs/tuning.yaml — Advanced performance tuning for UrbanTrips.
+# Copy this file to configs/tuning.yaml and edit to override defaults.
+# This file is safe to leave absent; all keys fall back to the defaults below.
+
+dbscan:
+  # Number of steps per axis in the DBSCAN parameter grid search.
+  # Total DBSCAN fits = grid_steps². Default 5 → 25 fits per route direction.
+  # Increase for higher-quality clustering at the cost of longer run times.
+  grid_steps: 5
+
+  # Stop the parameter search early if silhouette score exceeds this threshold.
+  # Range: -1.0 (worst) to 1.0 (perfect). 0.7 is strong cluster separation.
+  # Set to 1.0 to disable early stopping.
+  early_stop_silhouette: 0.7

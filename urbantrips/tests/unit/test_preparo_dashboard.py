@@ -393,3 +393,67 @@ def test_select_h3_from_polygon_returns_geodataframe():
     assert isinstance(result, gpd.GeoDataFrame)
     assert result.crs is not None
     assert set(result.columns) >= {"id", "h3", "geometry"}
+
+
+# ---------------------------------------------------------------------------
+# B3 — DBSCAN tuning config
+# ---------------------------------------------------------------------------
+
+def test_leer_configs_tuning_returns_defaults_when_no_file(tmp_path, monkeypatch):
+    """Returns hardcoded defaults when configs/tuning.yaml does not exist."""
+    monkeypatch.chdir(tmp_path)
+    import importlib
+    import urbantrips.utils.utils as utils_mod
+    importlib.reload(utils_mod)
+    from urbantrips.utils.utils import leer_configs_tuning
+    cfg = leer_configs_tuning()
+    assert cfg["dbscan"]["grid_steps"] == 5
+    assert cfg["dbscan"]["early_stop_silhouette"] == 0.7
+
+
+def test_leer_configs_tuning_overrides_from_file(tmp_path, monkeypatch):
+    """Values in tuning.yaml override the defaults."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "tuning.yaml").write_text(
+        "dbscan:\n  grid_steps: 10\n  early_stop_silhouette: 0.5\n",
+        encoding="utf-8",
+    )
+    import importlib
+    import urbantrips.utils.utils as utils_mod
+    importlib.reload(utils_mod)
+    from urbantrips.utils.utils import leer_configs_tuning
+    cfg = leer_configs_tuning()
+    assert cfg["dbscan"]["grid_steps"] == 10
+    assert cfg["dbscan"]["early_stop_silhouette"] == 0.5
+
+
+def test_dbscan_grid_search_respects_grid_steps(monkeypatch):
+    """_run_grid_search uses grid_steps from tuning config and runs ≤ grid_steps² fits."""
+    import numpy as np
+    import sklearn.cluster
+
+    call_count = {"n": 0}
+    original_fit = sklearn.cluster.DBSCAN.fit
+
+    def counting_fit(self, X, y=None, sample_weight=None):
+        call_count["n"] += 1
+        return original_fit(self, X, y=y, sample_weight=sample_weight)
+
+    monkeypatch.setattr(sklearn.cluster.DBSCAN, "fit", counting_fit)
+    monkeypatch.setattr(
+        "urbantrips.cluster.dbscan.leer_configs_tuning",
+        lambda: {"dbscan": {"grid_steps": 3, "early_stop_silhouette": 0.99}},
+    )
+
+    np.random.seed(42)
+    n = 60
+    cluster_a = np.random.uniform(0.1, 0.3, (n // 2, 2))
+    cluster_b = np.random.uniform(0.6, 0.8, (n // 2, 2))
+    X = pd.DataFrame(np.vstack([cluster_a, cluster_b]), columns=["o_proj", "d_proj"])
+    w = pd.Series(np.ones(n))
+
+    from urbantrips.cluster.dbscan import _run_grid_search
+    _run_grid_search(X, w, type_k="lrs")
+
+    assert call_count["n"] <= 12, f"Expected at most 12 DBSCAN fits, got {call_count['n']}"

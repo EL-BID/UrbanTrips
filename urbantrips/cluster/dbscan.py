@@ -13,6 +13,7 @@ import contextily as cx
 from matplotlib.colors import rgb2hex
 import matplotlib.pyplot as plt
 from urbantrips.utils.sql import is_date_string
+from urbantrips.utils.utils import leer_configs_tuning
 import seaborn as sns
 import os
 from urbantrips.storage.context import StorageContext
@@ -217,47 +218,65 @@ def cluster_legs(X, w, type_k="lrs"):
 
     """
 
-    # set initial benchmarks
+    # Create a placeholder for the clustering results
+    clusters_table = pd.DataFrame([], index=X.index)
+
+    best_params = _run_grid_search(X, w, type_k=type_k)
+
+    for p in best_params:
+        eps, min_samples = best_params[p]
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
+        clusters_table[f"k_{p}"] = reassign_labels(labels=clustering.labels_, weights=w)
+    X["factor_expansion"] = w
+    X = X.join(clusters_table)
+
+    return X
+
+
+def _run_grid_search(X, w, type_k: str) -> dict:
+    """
+    Run DBSCAN grid search over eps and min_samples ranges.
+
+    Returns a dict with keys 'max_groups', 'max_silhouette', 'min_noise',
+    each mapping to the (eps, min_samples) tuple that scored best.
+    """
+    cfg = leer_configs_tuning()
+    grid_steps = cfg["dbscan"]["grid_steps"]
+    early_stop_silhouette = cfg["dbscan"]["early_stop_silhouette"]
+
     best_num_clusters = 0
     best_num_noise = float("inf")
     best_silhouette_score = -1
 
-    # placeholder for dbscan params
     max_groups_params = None
     max_silhouette_params = None
     min_noise_params = None
 
-    # Create a placeholder for the clustering results
-    clusters_table = pd.DataFrame([], index=X.index)
+    min_samples_range = [max(1, int(v)) for v in w.sum() * np.linspace(0.01, 0.5, grid_steps)]
 
-    # set ranges for min samples on from 1% to 50% total legs
-    min_samples_range = list(map(int, w.sum() * np.linspace(0.01, 0.5, 20)))
-
-    # set distance as % of route geom length
     if type_k == "lrs":
-        eps_range = np.linspace(0.01, 0.5, 20)
+        eps_range = np.linspace(0.01, 0.5, grid_steps)
     elif type_k == "4d":
-        eps_range = np.arange(100, 1000, 50)
+        eps_range = np.linspace(100, 1000, grid_steps)
     else:
-        pass
+        raise ValueError(f"Unknown type_k: {type_k!r}")
 
+    done = False
     for eps in eps_range:
+        if done:
+            break
         for min_samples in min_samples_range:
             params = (eps, min_samples)
 
             dbscan = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
-
             labels = dbscan.labels_
 
-            # Subtract 1 if there are any noise points
             num_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
-            # Get weighted noise points
-            num_noise = pd.DataFrame({"labels": labels, "w": w})
-            num_noise = num_noise.groupby("labels").sum()
-
+            num_noise_df = pd.DataFrame({"labels": labels, "w": w})
+            num_noise_df = num_noise_df.groupby("labels").sum()
             try:
-                num_noise = num_noise.loc[-1, "w"]
+                num_noise = num_noise_df.loc[-1, "w"]
             except KeyError:
                 num_noise = 0
 
@@ -271,7 +290,6 @@ def cluster_legs(X, w, type_k="lrs"):
                 best_silhouette_score = silhouette
                 max_silhouette_params = params
 
-            # Update best parameters and scores
             if num_clusters > best_num_clusters:
                 best_num_clusters = num_clusters
                 max_groups_params = params
@@ -280,29 +298,29 @@ def cluster_legs(X, w, type_k="lrs"):
                 best_num_noise = num_noise
                 min_noise_params = params
 
+            if best_silhouette_score >= early_stop_silhouette:
+                done = True
+                break
+
     logger.debug(
         "Max clusters=%d eps=%s min_samples=%s | Min noise=%d eps=%s min_samples=%s | "
         "Max silhouette=%.3f eps=%s min_samples=%s",
-        best_num_clusters, max_groups_params[0], max_groups_params[1],
-        best_num_noise, min_noise_params[0], min_noise_params[1],
-        best_silhouette_score, max_silhouette_params[0], max_silhouette_params[1],
+        best_num_clusters,
+        max_groups_params[0] if max_groups_params else None,
+        max_groups_params[1] if max_groups_params else None,
+        best_num_noise,
+        min_noise_params[0] if min_noise_params else None,
+        min_noise_params[1] if min_noise_params else None,
+        best_silhouette_score,
+        max_silhouette_params[0] if max_silhouette_params else None,
+        max_silhouette_params[1] if max_silhouette_params else None,
     )
 
-    params = {
+    return {
         "max_groups": max_groups_params,
         "max_silhouette": max_silhouette_params,
         "min_noise": min_noise_params,
     }
-    for p in params:
-        eps, min_samples = params[p]
-        # print(eps,min_samples)
-        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
-
-        clusters_table[f"k_{p}"] = reassign_labels(labels=clustering.labels_, weights=w)
-    X["factor_expansion"] = w
-    X = X.join(clusters_table)
-
-    return X
 
 
 def reassign_labels(labels, weights):
