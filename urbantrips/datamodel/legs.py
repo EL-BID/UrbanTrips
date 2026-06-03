@@ -543,9 +543,9 @@ def assign_gps_origin(ctx: StorageContext):
     """
     configs = leer_configs_generales(autogenerado=False)
     usa_gps = configs.get("usa_archivo_gps", False)
-    nombre_archivo_gps = configs.get("nombre_archivo_gps") if usa_gps else None
+    
 
-    if nombre_archivo_gps is not None:
+    if if usa_gps:
         legs = ctx.data.query(
             """
             SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id
@@ -603,8 +603,7 @@ def assign_time_distances(ctx: StorageContext):
 
     configs = leer_configs_generales(autogenerado=False)
     usa_gps = configs.get("usa_archivo_gps", False)
-    nombre_archivo_gps = configs.get("nombre_archivo_gps") if usa_gps else None
-
+    
     query = """
     SELECT e.*
     FROM etapas e
@@ -629,7 +628,7 @@ def assign_time_distances(ctx: StorageContext):
         verbose           = True
     )
 
-    if nombre_archivo_gps is not None:
+    if usa_gps:
 
         legs_h3_res = configs["resolucion_h3"]
 

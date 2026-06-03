@@ -314,12 +314,16 @@ def infer_destinations(ctx: StorageContext):
 
     if destinos_min_dist:
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial, ctx)
+        # destinos["h3_d"] es la parada más cercana (snap): reemplaza al destino potencial
+        etapas = etapas_destinos_potencial.drop(columns=["h3_d"]).merge(
+            destinos[["id", "h3_d", "od_validado"]], on="id", how="left"
+        )
     else:
         destinos = validar_destinos(etapas_destinos_potencial, ctx)
-
-    etapas = etapas_destinos_potencial.merge(
-        destinos[["id", "od_validado"]], on="id", how="left"
-    )
+        # solo valida el destino potencial: se conserva h3_d
+        etapas = etapas_destinos_potencial.merge(
+            destinos[["id", "od_validado"]], on="id", how="left"
+        )
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
     logger.info("Eliminando destinos de etapas con OD mismo h3: %d", etapas_mismo_od.sum())
