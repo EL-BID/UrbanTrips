@@ -545,7 +545,7 @@ def assign_gps_origin(ctx: StorageContext):
     usa_gps = configs.get("usa_archivo_gps", False)
     
 
-    if if usa_gps:
+    if usa_gps:
         legs = ctx.data.query(
             """
             SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id
