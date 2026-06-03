@@ -1579,8 +1579,8 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
     vars_zona = []
 
     if res_agg:
-        zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-        zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+        zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+        zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
         matriz_zonas += [["", "h3_r6", ""], ["", "h3_r7", ""]]
         vars_zona += ["h3_r6"]
