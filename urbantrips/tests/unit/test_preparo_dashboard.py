@@ -531,7 +531,7 @@ def _make_synthetic_viajes_b5():
         "brt": [0, 0, 0],
         "cable": [0, 0, 0],
         "lancha": [0, 0, 0],
-        "outros": [0, 0, 0],
+        "otros": [0, 0, 0],
         "h3_o": ["88e8ea402bfffff", "88e8ea402bfffff", "88e8ea4051fffff"],
         "h3_d": ["88e8ea4031fffff", "88e8ea4051fffff", "88e8ea405bfffff"],
         "genero": [None, None, None],
