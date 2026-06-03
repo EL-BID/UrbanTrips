@@ -318,15 +318,23 @@ def infer_destinations():
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
 
-    if destinos_min_dist:        
+    if destinos_min_dist:
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial)
-    else:        
+        # destinos["h3_d"] es la parada más cercana (snap): reemplaza al destino potencial
+        etapas = etapas_destinos_potencial.drop(columns=["h3_d"]).merge(
+            destinos[["id", "h3_d", "od_validado"]], on="id", how="left"
+        )
+    else:
         destinos = validar_destinos(etapas_destinos_potencial)
+        # solo valida el destino potencial: se conserva h3_d
+        etapas = etapas_destinos_potencial.merge(
+            destinos[["id", "od_validado"]], on="id", how="left"
+        )
 
-    # etapas_destinos_potencial ya tiene h3_d (el potencial); destinos aporta od_validado
-    etapas = etapas_destinos_potencial.merge(
-        destinos[["id", "od_validado"]], on="id", how="left"
-    )
+    # # etapas_destinos_potencial ya tiene h3_d (el potencial); destinos aporta od_validado
+    # etapas = etapas_destinos_potencial.merge(
+    #     destinos[["id", "od_validado"]], on="id", how="left"
+    # )
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
     print("Eliminando destinos de etapas con OD mismo h3:", etapas_mismo_od.sum())
