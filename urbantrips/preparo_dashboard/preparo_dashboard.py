@@ -2461,30 +2461,27 @@ def preparo_indicadores_dash(
     etapas, viajes = load_and_process_data(ctx)
 
     if lineas_deseo:
-        # print("Proceso lineas de deseo")
         proceso_lineas_deseo(
             ctx,
-            etapas=etapas.copy(),
-            viajes=viajes.copy(),
-            zonificaciones=zonificaciones.copy(),
-            equivalencias_zonas=equivalencias_zonas.copy(),
+            etapas=etapas,
+            viajes=viajes,
+            zonificaciones=zonificaciones,
+            equivalencias_zonas=equivalencias_zonas,
             resoluciones=resoluciones,
         )
     if poligonos:
-        # print("Proceso Polígonos")
         proceso_poligonos(
             ctx,
-            etapas=etapas.copy(),
-            viajes=viajes.copy(),
-            zonificaciones=zonificaciones.copy(),
+            etapas=etapas,
+            viajes=viajes,
+            zonificaciones=zonificaciones,
             resoluciones=resoluciones,
             poligon_id=poligon_id,
         )
 
     if kpis:
-        # print("Proceso kpis")
         kpis = calculo_kpi_lineas(
-            ctx, etapas=etapas.copy(), viajes=viajes.copy()
+            ctx, etapas=etapas, viajes=viajes
         )
 
     crear_indices_unificados(ctx)

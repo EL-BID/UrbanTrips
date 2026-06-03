@@ -279,3 +279,63 @@ def test_insumos_adapter_close_is_idempotent(tmp_path):
     adapter = _make_insumos_adapter(tmp_path)
     adapter.close()
     adapter.close()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# B2 — no defensive copies at orchestration level
+# ---------------------------------------------------------------------------
+
+def test_preparo_dashboard_passes_frames_by_reference(mocker):
+    """
+    The top-level orchestrator must NOT call .copy() on etapas/viajes before
+    passing to proceso_lineas_deseo, proceso_poligonos, or calculo_kpi_lineas.
+    Verified by checking that the id() of the DataFrame received inside each
+    function matches the id() of the original.
+    """
+    import pandas as pd
+    from unittest.mock import MagicMock, patch
+
+    from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash as preparo_dashboard
+
+    etapas = pd.DataFrame({"dia": ["2024-10-14"], "id": [1]})
+    viajes = pd.DataFrame({"dia": ["2024-10-14"], "id_viaje": [1]})
+    etapas_id = id(etapas)
+    viajes_id = id(viajes)
+
+    received_ids = {}
+
+    def capture_lineas_deseo(ctx, etapas, viajes, **kwargs):
+        received_ids["lineas_etapas"] = id(etapas)
+        received_ids["lineas_viajes"] = id(viajes)
+
+    def capture_poligonos(ctx, etapas, viajes, **kwargs):
+        received_ids["poly_etapas"] = id(etapas)
+        received_ids["poly_viajes"] = id(viajes)
+
+    def capture_kpi(ctx, etapas, viajes):
+        received_ids["kpi_etapas"] = id(etapas)
+        received_ids["kpi_viajes"] = id(viajes)
+
+    ctx = MagicMock()
+    ctx.insumos.get_raw.return_value = pd.DataFrame()
+
+    with (
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.guardo_zonificaciones"),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.load_and_process_data",
+              return_value=(etapas, viajes)),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.proceso_lineas_deseo",
+              side_effect=capture_lineas_deseo),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.proceso_poligonos",
+              side_effect=capture_poligonos),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.calculo_kpi_lineas",
+              side_effect=capture_kpi),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.crear_indices_unificados"),
+    ):
+        preparo_dashboard(ctx, lineas_deseo=True, poligonos=True, kpis=True)
+
+    assert received_ids["lineas_etapas"] == etapas_id, "proceso_lineas_deseo received a copy of etapas"
+    assert received_ids["lineas_viajes"] == viajes_id, "proceso_lineas_deseo received a copy of viajes"
+    assert received_ids["poly_etapas"] == etapas_id, "proceso_poligonos received a copy of etapas"
+    assert received_ids["poly_viajes"] == viajes_id, "proceso_poligonos received a copy of viajes"
+    assert received_ids["kpi_etapas"] == etapas_id, "calculo_kpi_lineas received a copy of etapas"
+    assert received_ids["kpi_viajes"] == viajes_id, "calculo_kpi_lineas received a copy of viajes"
