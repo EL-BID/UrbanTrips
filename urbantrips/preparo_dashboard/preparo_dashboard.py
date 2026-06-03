@@ -266,7 +266,7 @@ def load_and_process_data(ctx: StorageContext):
 
 
 
-def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
+def _construyo_indicadores_pandas(ctx: StorageContext, viajes, poligonos=False):
 
     if poligonos:
         nombre_tabla = "poly_indicadores"
@@ -518,6 +518,196 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     replace_dash_partition(ctx, indicadores, tabla_destino, ["dia"])
 
 
+def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
+    """Compute dashboard indicators using DuckDB for single-pass aggregations."""
+    if poligonos:
+        nombre_tabla = "poly_indicadores"
+    else:
+        nombre_tabla = "agg_indicadores"
+
+    if "id_polygon" not in viajes.columns:
+        viajes = viajes.copy()
+        viajes["id_polygon"] = "NONE"
+
+    KEYS = ["id_polygon", "dia", "mes", "tipo_dia"]
+
+    # ── 1. Base group ─────────────────────────────────────────────────────────
+    base = duckdb.sql("""
+        SELECT
+            id_polygon, dia, mes, tipo_dia,
+            ROUND(SUM(factor_expansion_linea))                                        AS total_viajes,
+            ROUND(SUM(CASE WHEN transferencia = 1 THEN factor_expansion_linea
+                          ELSE 0 END))                                                AS con_transferencia,
+            ROUND(SUM(distance_od * factor_expansion_linea)
+                  / NULLIF(SUM(factor_expansion_linea), 0), 2)                        AS dist_prom
+        FROM viajes
+        GROUP BY id_polygon, dia, mes, tipo_dia
+    """).df()
+
+    ind1 = base[KEYS + ["total_viajes"]].rename(columns={"total_viajes": "Valor"})
+    ind1["Indicador"] = "Cantidad de Viajes"
+    ind1["Valor"] = ind1.Valor.astype(int)
+    ind1["Tipo"] = "General"
+    ind1["type_val"] = "int"
+
+    ind2 = base[KEYS + ["con_transferencia", "total_viajes"]].copy()
+    ind2["Valor"] = (
+        ind2["con_transferencia"] / ind2["total_viajes"].replace(0, float("nan")) * 100
+    ).round(2)
+    ind2 = ind2[KEYS + ["Valor"]]
+    ind2["Indicador"] = "Cantidad de Viajes con Transferencia"
+    ind2["Tipo"] = "General"
+    ind2["type_val"] = "percentage"
+
+    ind6 = base[KEYS + ["dist_prom"]].rename(columns={"dist_prom": "Valor"})
+    ind6["Tipo"] = "Distancias"
+    ind6["Indicador"] = "Distancia Promedio (kms)"
+    ind6["type_val"] = "float"
+
+    # ── 2. Usuarios ───────────────────────────────────────────────────────────
+    usuarios = duckdb.sql("""
+        SELECT id_polygon, dia, mes, tipo_dia,
+            ROUND(SUM(first_fex)) AS Valor
+        FROM (
+            SELECT id_polygon, dia, mes, tipo_dia,
+                ANY_VALUE(factor_expansion_linea) AS first_fex
+            FROM viajes
+            GROUP BY id_polygon, dia, mes, tipo_dia, id_tarjeta
+        )
+        GROUP BY id_polygon, dia, mes, tipo_dia
+    """).df()
+    ind5 = usuarios[KEYS + ["Valor"]]
+    ind5["Indicador"] = "Cantidad de Usuarios"
+    ind5["Tipo"] = "General"
+    ind5["type_val"] = "int"
+
+    # ── 3. By rango_hora ──────────────────────────────────────────────────────
+    by_hora = duckdb.sql("""
+        WITH totals AS (
+            SELECT id_polygon, dia, mes, tipo_dia,
+                SUM(factor_expansion_linea) AS total
+            FROM viajes
+            GROUP BY id_polygon, dia, mes, tipo_dia
+        )
+        SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.rango_hora,
+            ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2) AS Valor
+        FROM viajes v
+        JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
+        GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.rango_hora, t.total
+    """).df()
+
+    ind3 = by_hora.copy()
+    ind3["Indicador"] = "Cantidad de Viajes de " + ind3["rango_hora"] + "hs"
+    ind3["Tipo"] = "General"
+    ind3["type_val"] = "percentage"
+    ind3 = ind3.drop(columns=["rango_hora"])
+
+    # ── 4. By modo ────────────────────────────────────────────────────────────
+    by_modo = duckdb.sql("""
+        WITH totals AS (
+            SELECT id_polygon, dia, mes, tipo_dia,
+                SUM(factor_expansion_linea) AS total
+            FROM viajes
+            GROUP BY id_polygon, dia, mes, tipo_dia
+        )
+        SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.modo,
+            ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2)           AS pct,
+            ROUND(SUM(v.distance_od * v.factor_expansion_linea)
+                  / NULLIF(SUM(v.factor_expansion_linea), 0), 2)              AS dist_prom_modo
+        FROM viajes v
+        JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
+        GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.modo, t.total
+    """).df()
+
+    ind4 = by_modo[KEYS + ["modo", "pct"]].copy()
+    ind4 = ind4.sort_values(KEYS + ["pct"], ascending=[True] * 4 + [False])
+    ind4["Indicador"] = ind4["modo"]
+    ind4["Tipo"] = "Modal"
+    ind4["type_val"] = "percentage"
+    ind4 = ind4.rename(columns={"pct": "Valor"}).drop(columns=["modo"])
+
+    ind7 = by_modo[KEYS + ["modo", "dist_prom_modo"]].copy()
+    ind7["Indicador"] = "Distancia Promedio (" + ind7["modo"] + ") (kms)"
+    ind7["Tipo"] = "Distancias"
+    ind7["type_val"] = "float"
+    ind7 = ind7.rename(columns={"dist_prom_modo": "Valor"}).drop(columns=["modo"])
+
+    # ── 5. By distancia_agregada ──────────────────────────────────────────────
+    by_dist = duckdb.sql("""
+        WITH totals AS (
+            SELECT id_polygon, dia, mes, tipo_dia,
+                SUM(factor_expansion_linea) AS total
+            FROM viajes
+            GROUP BY id_polygon, dia, mes, tipo_dia
+        )
+        SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.distancia_agregada,
+            ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2)           AS pct,
+            ROUND(SUM(v.distance_od * v.factor_expansion_linea)
+                  / NULLIF(SUM(v.factor_expansion_linea), 0), 2)              AS dist_prom_dist
+        FROM viajes v
+        JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
+        GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.distancia_agregada, t.total
+    """).df()
+
+    ind9 = by_dist[KEYS + ["distancia_agregada", "pct"]].copy()
+    ind9 = ind9.sort_values(KEYS + ["pct"], ascending=[True] * 4 + [False])
+    ind9["Indicador"] = "Cantidad de " + ind9["distancia_agregada"]
+    ind9["Tipo"] = "General"
+    ind9["type_val"] = "percentage"
+    ind9 = ind9.rename(columns={"pct": "Valor"}).drop(columns=["distancia_agregada"])
+
+    ind8 = by_dist[KEYS + ["distancia_agregada", "dist_prom_dist"]].copy()
+    ind8["Indicador"] = "Distancia Promedio " + ind8["distancia_agregada"]
+    ind8["Tipo"] = "Distancias"
+    ind8["type_val"] = "float"
+    ind8 = ind8.rename(columns={"dist_prom_dist": "Valor"}).drop(columns=["distancia_agregada"])
+
+    # ── 6. Combine, merge history, add "Todos" aggregate ─────────────────────
+    indicadores = pd.concat(
+        [ind1, ind5, ind2, ind3, ind6, ind9, ind7, ind8, ind4], ignore_index=True
+    )
+
+    try:
+        indicadores_ant = ctx.dash.get_raw(nombre_tabla)
+        if len(indicadores_ant) > 0:
+            indicadores_ant = indicadores_ant[
+                ~indicadores_ant.dia.isin(indicadores.dia.unique().tolist() + ["Todos"])
+            ]
+    except Exception:
+        indicadores_ant = pd.DataFrame([])
+
+    indicadores = pd.concat(
+        [
+            indicadores[["id_polygon", "dia", "mes", "tipo_dia",
+                          "Tipo", "Indicador", "type_val", "Valor"]],
+            indicadores_ant,
+        ],
+        ignore_index=True,
+    )
+
+    indicadores_todos = (
+        indicadores.groupby(
+            ["id_polygon", "Tipo", "Indicador", "type_val"], as_index=False, observed=True
+        )
+        .Valor.mean()
+        .round(2)
+    )
+    indicadores_todos["dia"] = "Todos"
+    indicadores_todos["tipo_dia"] = ""
+    indicadores_todos["mes"] = ""
+    indicadores = pd.concat([indicadores, indicadores_todos])
+
+    indicadores = format_dataframe(indicadores)
+    indicadores = indicadores[
+        ["id_polygon", "dia", "mes", "tipo_dia", "Tipo", "Indicador", "Valor_str"]
+    ].rename(columns={"Valor_str": "Valor"})
+
+    indicadores = indicadores.sort_values(
+        ["id_polygon", "dia", "mes", "tipo_dia", "Tipo", "Indicador"]
+    )
+
+    tabla_destino = "poly_indicadores" if poligonos else "agg_indicadores"
+    replace_dash_partition(ctx, indicadores, tabla_destino, ["dia"])
 
 
 

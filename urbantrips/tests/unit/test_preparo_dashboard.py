@@ -605,3 +605,104 @@ def test_load_transferencia():
     _, viajes = _run_load_and_process(_make_synthetic_etapas_b5(), _make_synthetic_viajes_b5())
     assert all(viajes.loc[viajes.cant_etapas == 1, "transferencia"] == 0)
     assert all(viajes.loc[viajes.cant_etapas > 1, "transferencia"] == 1)
+
+
+# ---------------------------------------------------------------------------
+# B1 — construyo_indicadores DuckDB equivalence
+# ---------------------------------------------------------------------------
+
+def _make_viajes_for_indicadores():
+    import numpy as np
+    rng = np.random.default_rng(42)
+    n = 200
+    dias = rng.choice(["2024-10-14", "2024-10-15", "2024-10-19"], n)
+    return pd.DataFrame({
+        "id_polygon": rng.choice(["poly_1", "poly_2"], n).tolist(),
+        "dia": dias.tolist(),
+        "mes": ["2024-10"] * n,
+        "tipo_dia": ["Hábil" if d < "2024-10-19" else "Fin de Semana" for d in dias],
+        "id_tarjeta": [f"T{i % 50:03d}" for i in range(n)],
+        "id_viaje": rng.integers(1, 5, n).tolist(),
+        "rango_hora": rng.choice(["0-12", "13-16", "17-24"], n).tolist(),
+        "distancia_agregada": rng.choice(
+            ["Viajes cortos (<=5kms)", "Viajes largos (>5kms)"], n
+        ).tolist(),
+        "modo": rng.choice(["COLECTIVO", "SUBTE", "TREN"], n).tolist(),
+        "transferencia": rng.integers(0, 2, n).tolist(),
+        "factor_expansion_linea": rng.uniform(1.0, 3.5, n).tolist(),
+        "distance_od": rng.uniform(1.0, 15.0, n).tolist(),
+        "distance_route": rng.uniform(1.2, 16.0, n).tolist(),
+        "distance_route_gps": rng.uniform(1.3, 17.0, n).tolist(),
+        "travel_time_min": rng.integers(5, 60, n).astype(float).tolist(),
+        "kmh_od": rng.uniform(5.0, 60.0, n).tolist(),
+        "cant_etapas": rng.integers(1, 4, n).tolist(),
+        "hora": rng.integers(0, 24, n).tolist(),
+        "od_validado": [1] * n,
+        "factor_expansion_tarjeta": rng.uniform(1.0, 3.5, n).tolist(),
+        "modo_agregado": rng.choice(["COLECTIVO", "multietapa (COLECTIVO)", "multimodal"], n).tolist(),
+        "genero_agregado": rng.choice(["M", "F", ""], n).tolist(),
+        "tarifa_agregada": rng.choice(["normal", "social"], n).tolist(),
+    })
+
+
+def test_construyo_indicadores_duckdb_matches_pandas():
+    """
+    DuckDB implementation must produce the same set of indicators as the pandas baseline.
+    Exact Valor strings may differ slightly due to float rounding; we check structure
+    and that numeric values are within 5% of each other.
+    """
+    from unittest.mock import MagicMock
+    from urbantrips.preparo_dashboard.preparo_dashboard import (
+        construyo_indicadores,
+        _construyo_indicadores_pandas,
+    )
+    import numpy as np
+
+    viajes = _make_viajes_for_indicadores()
+
+    def _make_ctx():
+        ctx = MagicMock()
+        ctx.dash.get_raw.return_value = pd.DataFrame()
+        ctx.dash.append_raw.return_value = None
+        ctx.dash.execute.return_value = None
+        return ctx
+
+    ctx_pandas = _make_ctx()
+    _construyo_indicadores_pandas(ctx_pandas, viajes.copy(), poligonos=False)
+    expected_df = ctx_pandas.dash.append_raw.call_args[0][0]
+
+    ctx_duckdb = _make_ctx()
+    construyo_indicadores(ctx_duckdb, viajes.copy(), poligonos=False)
+    actual_df = ctx_duckdb.dash.append_raw.call_args[0][0]
+
+    sort_cols = ["id_polygon", "dia", "Tipo", "Indicador"]
+
+    expected_keys = set(map(tuple, expected_df[sort_cols].drop_duplicates().values))
+    actual_keys = set(map(tuple, actual_df[sort_cols].drop_duplicates().values))
+    assert actual_keys == expected_keys, (
+        f"Missing indicators: {expected_keys - actual_keys}\n"
+        f"Extra indicators: {actual_keys - expected_keys}"
+    )
+
+    assert set(actual_df.columns) == set(expected_df.columns)
+
+    def parse_valor(s):
+        try:
+            return float(str(s).replace(".", "").replace(",", ".").replace("%", "").strip())
+        except Exception:
+            return np.nan
+
+    merged = expected_df[sort_cols + ["Valor"]].merge(
+        actual_df[sort_cols + ["Valor"]].rename(columns={"Valor": "Valor_actual"}),
+        on=sort_cols,
+        how="inner",
+    )
+    merged["v_exp"] = merged["Valor"].apply(parse_valor)
+    merged["v_act"] = merged["Valor_actual"].apply(parse_valor)
+    mask = merged["v_exp"].notna() & merged["v_act"].notna() & (merged["v_exp"].abs() > 0.001)
+    rel_diff = ((merged.loc[mask, "v_act"] - merged.loc[mask, "v_exp"]).abs()
+                / merged.loc[mask, "v_exp"].abs())
+    assert (rel_diff <= 0.05).all(), (
+        f"Some indicator values differ by more than 5%:\n"
+        f"{merged[mask][rel_diff > 0.05][sort_cols + ['Valor', 'Valor_actual']].head(10)}"
+    )
