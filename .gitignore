@@ -133,3 +133,6 @@ benchmark*.txt
 benchmark - *
 *-about-this-repo-*.txt
 tmp_trx.csv
+comparar_bases.ipynb
+comparar_bases2.ipynb
+comparar_bases3.ipynb
