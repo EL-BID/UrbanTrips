@@ -203,7 +203,9 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
     # Each chunk loads `cpu_workers` batches at once; size that chunk to fit in RAM.
     target_chunk = vm.available * safety_factor
     target_per_batch = target_chunk / cpu_workers
-    ram_batches = max(math.ceil(total_rows * bytes_per_row / target_per_batch), cpu_workers)
+    raw = max(math.ceil(total_rows * bytes_per_row / target_per_batch), cpu_workers)
+    # Round up to the nearest multiple of cpu_workers so every chunk is full
+    ram_batches = math.ceil(raw / cpu_workers) * cpu_workers
 
     logger.info(
         "[n_batches] Auto-tuned: %d rows × %.0f B/row = %.0f MB total"
