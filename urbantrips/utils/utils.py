@@ -127,6 +127,12 @@ _TUNING_DEFAULTS: dict = {
         "grid_steps": 5,
         "early_stop_silhouette": 0.7,
     },
+    "duckdb": {
+        # Buffer pool cap for the DuckDB data connection.
+        # None → auto-computed as 25% of total system RAM (floor 1 GB).
+        # Accepts DuckDB size strings: "4GB", "512MB", etc.
+        "memory_limit": None,
+    },
 }
 
 

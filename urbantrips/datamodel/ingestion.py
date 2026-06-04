@@ -34,9 +34,9 @@ def _standardize_chunk(
 
     # parse date → unix timestamp (integer seconds)
     df["fecha_parsed"] = pd.to_datetime(df["fecha"], format=formato_fecha, errors="coerce")
-    df["fecha_ts"] = df["fecha_parsed"].apply(
-        lambda ts: pd.NA if pd.isna(ts) else int(ts.timestamp())
-    ).astype("Int64")
+    df["fecha_ts"] = (
+        df["fecha_parsed"].astype("int64") // 10**9
+    ).where(df["fecha_parsed"].notna()).astype("Int64")
     df["dia"] = df["fecha_parsed"].dt.strftime("%Y-%m-%d")
     df["hora"] = df["fecha_parsed"].dt.hour
     df["tiempo"] = df["fecha_parsed"].dt.strftime("%H:%M:%S")

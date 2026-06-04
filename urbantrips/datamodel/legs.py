@@ -63,6 +63,7 @@ def build_legs_dataframe(
     trx: pd.DataFrame,
     dias_ultima_corrida: pd.DataFrame,
     trx_order_params,
+    h3_res: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build the legs dataframe from transactions and return duplicate-card metadata.
@@ -74,9 +75,9 @@ def build_legs_dataframe(
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
 
     # asignar id h3
-    configs = leer_configs_generales(autogenerado=False)
-    res = configs["resolucion_h3"]
-    legs = referenciar_h3(df=legs, res=res, nombre_h3="h3_o")
+    if h3_res is None:
+        h3_res = leer_configs_generales(autogenerado=False)["resolucion_h3"]
+    legs = referenciar_h3(df=legs, res=h3_res, nombre_h3="h3_o")
 
     # crear columna delta
     if trx_order_params["criterio"] == "orden_trx":

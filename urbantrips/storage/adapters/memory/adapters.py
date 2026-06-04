@@ -60,6 +60,14 @@ class InMemoryDataAdapter:
     def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
         return self._filter_batch(self._get("transacciones"), batch)
 
+    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int) -> pd.DataFrame:
+        df = self._get("transacciones")
+        if df.empty:
+            return df.assign(_batch_id=pd.Series(dtype="int64"))
+        df = df.copy()
+        df["_batch_id"] = df["id_tarjeta"].apply(hash) % total_batches
+        return df[df["_batch_id"].isin(batch_ids)].reset_index(drop=True)
+
     def save_transactions(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         self._append("transacciones", df)
 

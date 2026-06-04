@@ -1,6 +1,7 @@
 import logging
 import math
 import multiprocessing
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -90,7 +91,9 @@ def procesar_transacciones(ctx: StorageContext, corrida: str):
     col_hora = configs["columna_hora"]
     tipo_trx_invalidas = configs["tipo_trx_invalidas"]
     nombre_archivo_trx = configs["nombre_archivo_trx"]
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombre_archivo_gps = configs.get("nombre_archivo_gps")
+    if nombre_archivo_gps is None and configs.get("usa_archivo_gps", False):
+        nombre_archivo_gps = f"{corrida}_gps.csv"
     nombres_variables_gps = configs["nombres_variables_gps"]
     tiempos_viaje_estaciones = configs["tiempos_viaje_estaciones"]
     tolerancia_parada_destino = configs["tolerancia_parada_destino"]
@@ -175,7 +178,7 @@ def _get_n_batches() -> int:
 
 
 def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
-    """Compute n_batches so each batch fits within safety_factor of available RAM."""
+    """Compute n_batches from RAM and CPU so workers stay saturated."""
     import psutil
 
     vm = psutil.virtual_memory()
@@ -195,16 +198,22 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
     sample = ctx.data.query("SELECT * FROM transacciones LIMIT 10000")
     bytes_per_row = sample.memory_usage(deep=True).sum() / max(len(sample), 1)
     total_mb = total_rows * bytes_per_row / 1e6
-    target = vm.available * safety_factor
-    n = max(math.ceil(total_rows * bytes_per_row / target), 1)
+    cpu_workers = max(multiprocessing.cpu_count() - 1, 1)
+
+    # Each chunk loads `cpu_workers` batches at once; size that chunk to fit in RAM.
+    target_chunk = vm.available * safety_factor
+    target_per_batch = target_chunk / cpu_workers
+    ram_batches = max(math.ceil(total_rows * bytes_per_row / target_per_batch), cpu_workers)
 
     logger.info(
         "[n_batches] Auto-tuned: %d rows × %.0f B/row = %.0f MB total"
-        " | target %.1f GB/batch (%.0f%% of available) → %d batches",
+        " | target %.1f GB/chunk (%d workers × %.1f GB/batch, %.0f%% of available)"
+        " → %d batches",
         total_rows, bytes_per_row, total_mb,
-        target / 1e9, safety_factor * 100, n,
+        target_chunk / 1e9, cpu_workers, target_per_batch / 1e9,
+        safety_factor * 100, ram_batches,
     )
-    return n
+    return ram_batches
 
 
 def _resolve_n_batches(ctx: StorageContext) -> int:
@@ -314,30 +323,33 @@ def _save_duplicate_cards(ctx: StorageContext, duplicate_cards: pd.DataFrame) ->
         ctx.data.append_raw(duplicate_cards, "tarjetas_duplicadas")
 
 
+def _save_batch_results(
+    ctx: StorageContext,
+    legs_df: "pd.DataFrame",
+    batch: BatchSpec,
+    duplicate_cards: "pd.DataFrame",
+) -> None:
+    ctx.data.save_legs(legs_df, batch)
+    if len(duplicate_cards):
+        ctx.data.append_raw(duplicate_cards, "tarjetas_duplicadas")
+
+
 def _can_parallelize_batches(ctx: StorageContext) -> bool:
     from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
 
     return isinstance(ctx.data, DuckDBDataAdapter)
 
 
-def _build_legs_for_batch_worker(batch: BatchSpec, trx_order_params: dict):
-    from urbantrips.datamodel import legs
-    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
-    from urbantrips.utils import utils
+def _build_legs_for_batch_worker(
+    batch: BatchSpec,
+    trx: "pd.DataFrame",
+    dias_ultima_corrida: "pd.DataFrame",
+    trx_order_params: dict,
+    h3_res: int,
+):
+    from urbantrips.datamodel.legs import build_legs_dataframe
 
-    configs = utils.leer_configs_generales(autogenerado=False)
-    alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
-    alias = configs.get("alias_db", alias_insumos)
-    base = Path(configs.get("db_path", "data/db"))
-    data_adapter = DuckDBDataAdapter.__new__(DuckDBDataAdapter)
-    data_adapter._path = base / f"{alias}_data.duckdb"
-    data_adapter._read_only = True
-    ctx = StorageContext(data=data_adapter, insumos=None, dash=None, general=None)
-    legs_df, duplicate_cards = legs.build_legs_from_transactions(
-        ctx,
-        trx_order_params,
-        batch=batch,
-    )
+    legs_df, duplicate_cards = build_legs_dataframe(trx, dias_ultima_corrida, trx_order_params, h3_res=h3_res)
     return batch, legs_df, duplicate_cards
 
 
@@ -353,23 +365,68 @@ def _create_legs_for_batches(
             _create_legs_for_batch(ctx, batch, trx_order_params)
         return
 
-    logger.info("  using %d worker processes", parallel_workers)
-    results = []
-    with ProcessPoolExecutor(max_workers=parallel_workers) as executor:
-        futures = {
-            executor.submit(_build_legs_for_batch_worker, batch, trx_order_params): batch
-            for batch in batches
-        }
-        for future in as_completed(futures):
-            results.append(future.result())
+    # Process in chunks of parallel_workers: one DuckDB scan per chunk keeps
+    # peak RAM at chunk_size × batch_size instead of the full dataset.
+    # Saves run in a background thread so the main thread can immediately read
+    # the next worker result (unblocking the IPC pipe). The save thread is
+    # flushed before each chunk's DuckDB read to prevent concurrent connection
+    # access between the save thread and the main thread.
+    from concurrent.futures import ThreadPoolExecutor
 
-    for batch, legs_df, duplicate_cards in sorted(
-        results,
-        key=lambda result: result[0].batch_id,
-    ):
-        logger.debug("  saving batch %d/%d", batch.batch_id + 1, batch.total_batches)
-        ctx.data.save_legs(legs_df, batch)
-        _save_duplicate_cards(ctx, duplicate_cards)
+    dias_ultima_corrida = ctx.data.get_run_days()
+    h3_res = leer_configs_generales(autogenerado=False)["resolucion_h3"]
+    n = len(batches)
+    t_start = time.monotonic()
+    done = 0
+
+    logger.info("  using %d worker processes", parallel_workers)
+    with ProcessPoolExecutor(max_workers=parallel_workers) as executor, \
+         ThreadPoolExecutor(max_workers=1) as save_pool:
+        save_futures: list = []
+        for chunk_start in range(0, n, parallel_workers):
+            # Flush previous chunk's saves before touching DuckDB again
+            for sf in save_futures:
+                sf.result()
+            save_futures.clear()
+
+            chunk = batches[chunk_start: chunk_start + parallel_workers]
+
+            # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting
+            chunk_trx = ctx.data.get_transactions_for_chunk(
+                [b.batch_id for b in chunk], n
+            )
+            splits = {
+                b.batch_id: chunk_trx[chunk_trx["_batch_id"] == b.batch_id]
+                    .drop(columns=["_batch_id"]).reset_index(drop=True)
+                for b in chunk
+            }
+            del chunk_trx
+
+            futures = {
+                executor.submit(
+                    _build_legs_for_batch_worker,
+                    b, splits[b.batch_id], dias_ultima_corrida, trx_order_params, h3_res,
+                ): b
+                for b in chunk
+            }
+            del splits
+
+            for future in as_completed(futures):
+                batch_res, legs_df, duplicate_cards = future.result()
+                save_futures.append(
+                    save_pool.submit(_save_batch_results, ctx, legs_df, batch_res, duplicate_cards)
+                )
+
+                done += 1
+                elapsed = time.monotonic() - t_start
+                eta = (elapsed / done * (n - done)) if done < n else 0.0
+                logger.info(
+                    "  [Phase 2] %d/%d batches done (%.0f%%) — %.0fs elapsed, ~%.0fs remaining",
+                    done, n, done / n * 100, elapsed, eta,
+                )
+
+        for sf in save_futures:
+            sf.result()
 
 
 def _clear_current_run_travel_times(ctx: StorageContext) -> None:
@@ -400,8 +457,8 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     carto.update_stations_catchment_area(ring_size, ctx)
     dest.infer_destinations(ctx)
 
-    nombre_archivo_gps = configs.get("nombre_archivo_gps")
-    if nombre_archivo_gps is not None:
+    usa_archivo_gps = configs.get("usa_archivo_gps", False) or configs.get("nombre_archivo_gps") is not None
+    if usa_archivo_gps:
         services.process_services(ctx, line_ids=None)
         legs.assign_gps_origin(ctx)
 

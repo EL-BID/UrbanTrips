@@ -1,6 +1,7 @@
 # urbantrips/storage/adapters/duckdb/data.py
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -10,6 +11,39 @@ import pandas as pd
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.storage.schema import data as schema
+
+logger = logging.getLogger(__name__)
+
+
+def _resolve_memory_limit(configured: str | None) -> str:
+    """Return a DuckDB memory_limit string.
+
+    Priority:
+    1. Value passed explicitly (e.g. from tests).
+    2. ``duckdb.memory_limit`` in configs/tuning.yaml.
+    3. Auto-computed as 25% of total system RAM (floor 1 GB).
+    """
+    if configured:
+        return configured
+
+    try:
+        from urbantrips.utils.utils import leer_configs_tuning
+        tuning_val = leer_configs_tuning().get("duckdb", {}).get("memory_limit")
+        if tuning_val:
+            logger.info("[DuckDB] memory_limit=%s (from tuning.yaml)", tuning_val)
+            return tuning_val
+    except Exception:
+        pass
+
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / 1e9
+        limit_gb = max(round(total_gb * 0.25), 1)
+        limit = f"{limit_gb}GB"
+    except Exception:
+        limit = "4GB"
+    logger.info("[DuckDB] memory_limit=%s (auto: 25%% of RAM; override in configs/tuning.yaml)", limit)
+    return limit
 
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
@@ -51,15 +85,23 @@ _DUCKDB_INSERT_CHUNK_ROWS = 250_000
 class DuckDBDataAdapter:
     """Implements DataPort using DuckDB."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        read_only: bool = False,
+        memory_limit: str | None = None,
+    ) -> None:
         self._path = Path(db_path)
-        self._read_only = False
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._read_only = read_only
+        if not read_only:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
-        self._apply_schema()
+        self._conn.execute(f"SET memory_limit='{_resolve_memory_limit(memory_limit)}'")
+        if not read_only:
+            self._apply_schema()
 
     def close(self) -> None:
-        if self._conn is not None:
+        if getattr(self, "_conn", None) is not None:
             self._conn.close()
             self._conn = None
 
@@ -112,6 +154,14 @@ class DuckDBDataAdapter:
     def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
         where = self._batch_where(batch, "id_tarjeta")
         return self._conn.execute(f"SELECT * FROM transacciones {where}").fetchdf()
+
+    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int) -> pd.DataFrame:
+        """Load rows for the given batch IDs in one scan, with _batch_id column for splitting."""
+        ids = ", ".join(str(b) for b in batch_ids)
+        return self._conn.execute(
+            f"SELECT *, hash(id_tarjeta) % {total_batches} AS _batch_id"
+            f" FROM transacciones WHERE hash(id_tarjeta) % {total_batches} IN ({ids})"
+        ).fetchdf()
 
     def save_transactions(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         df = df.copy()
@@ -190,8 +240,7 @@ class DuckDBDataAdapter:
     def get_transactions_for_batch(self, batch: "BatchSpec") -> pd.DataFrame:
         """Read all transactions for one traveler batch across all ingested days."""
         return self._conn.execute(
-            "SELECT * FROM transacciones WHERE batch_id = ?",
-            [batch.batch_id],
+            f"SELECT * FROM transacciones WHERE hash(id_tarjeta) % {batch.total_batches} = {batch.batch_id}",
         ).fetchdf()
 
     def get_legs_for_batch(self, batch: "BatchSpec") -> pd.DataFrame:

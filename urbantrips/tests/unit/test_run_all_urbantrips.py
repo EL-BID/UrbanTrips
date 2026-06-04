@@ -238,6 +238,9 @@ def test_create_legs_for_batches_uses_parallel_workers(monkeypatch):
         def result(self):
             return self._result
 
+        def add_done_callback(self, fn):
+            fn(self)
+
     class FakeExecutor:
         def __init__(self, max_workers):
             self.max_workers = max_workers
@@ -248,14 +251,30 @@ def test_create_legs_for_batches_uses_parallel_workers(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def submit(self, fn, batch, params):
+        def submit(self, fn, *args, **kwargs):
+            batch = args[0]
             legs_df = pd.DataFrame({"id_tarjeta": [f"card-{batch.batch_id}"]})
             dupes_df = pd.DataFrame()
             return ImmediateFuture((batch, legs_df, dupes_df))
 
+    # _batch_id=0 → batch 0, _batch_id=1 → batch 1
+    chunk_trx = pd.DataFrame({
+        "id_tarjeta": ["cardA", "cardA", "cardB", "cardB"],
+        "_batch_id":  [0,       0,       1,       1      ],
+    })
+
     monkeypatch.setattr(run_process, "ProcessPoolExecutor", FakeExecutor)
     monkeypatch.setattr(run_process, "as_completed", lambda futures: list(futures))
     monkeypatch.setattr(run_process, "_can_parallelize_batches", lambda ctx: True)
+    monkeypatch.setattr(
+        run_process,
+        "leer_configs_generales",
+        lambda *args, **kwargs: {"resolucion_h3": 8},
+    )
+    monkeypatch.setattr(
+        ctx.data, "get_transactions_for_chunk",
+        lambda batch_ids, total_batches: chunk_trx[chunk_trx["_batch_id"].isin(batch_ids)].copy(),
+    )
     monkeypatch.setattr(
         ctx.data,
         "save_legs",

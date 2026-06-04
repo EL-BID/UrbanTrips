@@ -27,9 +27,10 @@ def process_services(ctx: StorageContext, line_ids=None):
 
     """
     configs = utils.leer_configs_generales(autogenerado=False)
-    nombre_archivo_gps = configs["nombre_archivo_gps"]
+    nombre_archivo_gps = configs.get("nombre_archivo_gps")
+    usa_archivo_gps = configs.get("usa_archivo_gps", False)
 
-    if nombre_archivo_gps is not None:
+    if nombre_archivo_gps is not None or usa_archivo_gps:
         logger.info("Procesando servicios en base a tabla gps")
         # check line id type and turn it into list if is a single line id
         if line_ids is not None:
@@ -103,6 +104,11 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
 
     if gps_points.empty:
         return None, None
+
+    gps_points = gps_points.rename(columns={
+        "distance_km": "distance_route",
+        "distance_servicio_mts": "distance_route_gps",
+    })
 
     gps_lines = gps_points.id_linea.drop_duplicates()
     gps_lines_str = ",".join(gps_lines.map(str))
