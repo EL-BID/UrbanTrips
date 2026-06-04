@@ -448,10 +448,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     # Borrar columnas auxiliares
     df = df[cols_df]
 
-    if batch is None:
-        dias_str = ", ".join(f"'{d}'" for d in dias_ultima_corrida["dia"].tolist())
-        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
-    ctx.data.save_legs(df, batch=batch)
+    ctx.data.update_leg_trip_ids(df)
 
 
 @duracion

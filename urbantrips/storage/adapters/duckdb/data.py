@@ -260,6 +260,27 @@ class DuckDBDataAdapter:
             ).fetchdf()
         return self._conn.execute("SELECT * FROM etapas").fetchdf()
 
+    def update_leg_trip_ids(self, df: pd.DataFrame) -> None:
+        """Update only id_viaje and id_etapa for existing legs, matched by id.
+
+        Much faster than save_legs for rearrange operations that only modify
+        trip/stage numbering: avoids full DELETE + parquet staging + INSERT.
+        """
+        if df.empty:
+            return
+        updates = df[["id", "id_viaje", "id_etapa"]].copy()
+        self._conn.register("_trip_id_updates", updates)
+        try:
+            self._conn.execute("""
+                UPDATE etapas
+                SET id_viaje = u.id_viaje,
+                    id_etapa = u.id_etapa
+                FROM _trip_id_updates u
+                WHERE etapas.id = u.id
+            """)
+        finally:
+            self._conn.unregister("_trip_id_updates")
+
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         """Persist legs to DuckDB via parquet staging to avoid Arrow-registration
         memory hazards.  Uses the same strategy as replace_legs_for_days."""
@@ -276,13 +297,19 @@ class DuckDBDataAdapter:
 
             parquet_glob = str(tmp_path / "*.parquet").replace("'", "''")
 
-            self._conn.execute("PRAGMA threads=1")
             self._conn.execute("BEGIN TRANSACTION")
             try:
-                self._conn.execute(
-                    f"DELETE FROM etapas WHERE id IN "
-                    f"(SELECT id FROM read_parquet('{parquet_glob}'))"
-                )
+                # Delete by batch_id (indexed) instead of joining on id —
+                # avoids an O(n²) scan as the etapas table grows across batches.
+                if batch is not None:
+                    self._conn.execute(
+                        "DELETE FROM etapas WHERE batch_id = ?", [batch.batch_id]
+                    )
+                else:
+                    self._conn.execute(
+                        f"DELETE FROM etapas WHERE id IN "
+                        f"(SELECT id FROM read_parquet('{parquet_glob}'))"
+                    )
                 self._conn.execute(
                     f"INSERT INTO etapas ({cols}) "
                     f"SELECT {cols} FROM read_parquet('{parquet_glob}')"

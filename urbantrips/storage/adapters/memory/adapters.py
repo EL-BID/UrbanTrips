@@ -77,6 +77,15 @@ class InMemoryDataAdapter:
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         self._append("etapas", df)
 
+    def update_leg_trip_ids(self, df: pd.DataFrame) -> None:
+        existing = self._store.get("etapas", pd.DataFrame())
+        if existing.empty or df.empty:
+            return
+        updates = df.set_index("id")[["id_viaje", "id_etapa"]]
+        existing = existing.set_index("id")
+        existing.update(updates)
+        self._store["etapas"] = existing.reset_index()
+
     def replace_legs_for_days(self, df: pd.DataFrame, days: list[str]) -> None:
         existing = self._store.get("etapas", pd.DataFrame())
         if existing.empty or "dia" not in existing.columns:
