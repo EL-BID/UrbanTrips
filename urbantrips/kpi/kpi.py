@@ -804,7 +804,8 @@ def compute_kpi_by_service(ctx: StorageContext):
         SELECT
             e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
             epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
-            e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea
+            e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
+            tt.distance_route, tt.distance_route_gps
         FROM etapas e
         JOIN dias_ultima_corrida d ON e.dia = d.dia
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
@@ -833,10 +834,12 @@ def compute_kpi_by_service(ctx: StorageContext):
         WITH demand AS (
             SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
                 epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
-                e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea
+                e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
+                tt.distance_route, tt.distance_route_gps
             FROM etapas e
             JOIN dias_ultima_corrida d
                 ON e.dia = d.dia
+            LEFT JOIN travel_times_legs tt ON e.id = tt.id
             WHERE od_validado = 1
             AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
         ),
@@ -858,7 +861,8 @@ def compute_kpi_by_service(ctx: StorageContext):
         ),
         legs_no_service AS (
             SELECT e.id_tarjeta, e.id, id_linea, dia, id_ramal, interno, ts,
-                tiempo, h3_o, h3_d, factor_expansion_linea
+                tiempo, h3_o, h3_d, factor_expansion_linea,
+                distance_route, distance_route_gps
             FROM invalid_demand e
             WHERE service_id IS NULL
         )
@@ -887,7 +891,7 @@ def compute_kpi_by_service(ctx: StorageContext):
         od_df             = service_demand,
         origin_col        = "h3_o",
         dest_col          = "h3_d",
-        distance_col      = 'distance',
+        distance_col      = 'distance_od',
         unit              = 'km',
         db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
         network_cache_dir = "data/matriz_distancia",

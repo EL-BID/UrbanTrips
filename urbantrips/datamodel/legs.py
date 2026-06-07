@@ -755,14 +755,6 @@ def assign_time_distances(ctx: StorageContext):
                 n_asignadas_iter = 0
                 if len(etapas_tx) > 0:
 
-                    # Calcular la distancia entre h3 del destino de la etapa y h3 del gps
-                    gps_dict = etapas_tx.reindex(
-                        columns=["h3_d_gps_res", "h3"]
-                    ).to_dict("records")
-                    etapas_tx.loc[:, ["distancia_h3"]] = list(
-                        map(distancia_h3_gps_leg, gps_dict)
-                    )
-
                     # Calcular el tiempo mÃ­nimo de destino por id
                     etapas_tx["min_fecha_d"] = etapas_tx.groupby(
                         ["id_legs"]
@@ -775,8 +767,18 @@ def assign_time_distances(ctx: StorageContext):
                         1,
                     )
 
-                    # Filtrar por tiempo mÃ­nimo de destino menor a 20 minutos y ordenar por distancia_h3
+                    # Filtrar antes de computar distancia para reducir filas
                     etapas_tx = etapas_tx.loc[etapas_tx.min_fecha_d < 20, :]
+
+                    # Calcular la distancia entre h3 del destino de la etapa y h3 del gps
+                    # Deduplicar pares unicos para evitar llamadas repetidas a h3.grid_distance
+                    h3_pairs = etapas_tx[["h3_d_gps_res", "h3"]].drop_duplicates()
+                    h3_pairs["distancia_h3"] = [
+                        h3.grid_distance(r["h3_d_gps_res"], r["h3"])
+                        for r in h3_pairs.to_dict("records")
+                    ]
+                    etapas_tx = etapas_tx.merge(h3_pairs, on=["h3_d_gps_res", "h3"], how="left")
+
                     etapas_tx = etapas_tx.sort_values(
                         ["id_legs", "ring", "distancia_h3", "min_fecha_d"]
                     )
