@@ -1,9 +1,11 @@
 import logging
+import multiprocessing
 import pandas as pd
 import geopandas as gpd
 import numpy as np
 import h3
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import math
 from urbantrips.geo.geo import (
@@ -681,141 +683,17 @@ def assign_time_distances(ctx: StorageContext):
 
         logger.info("Imputando GPS de destino")
 
-        etapas_asignadas_total = 0
-        for dia in legs_days:
-            n_asignadas_dia = 0
-            for hora in legs_hours:
-                # t_iter_start = time.time()
-
-                # Filtrar las etapas por la hora especÃ­fica y eliminar valores nulos en 'h3_d'
-                etapas_tx = legs.loc[
-                    (legs["hora"] == hora) & (legs["dia"] == dia),
-                    [
-                        "dia",
-                        "id",
-                        "id_linea",
-                        "id_ramal",
-                        "interno",
-                        "h3_o",
-                        "h3_d",
-                        "h3_d_gps_res",
-                        "distance_od",
-                        "fecha",
-                    ],
-                ].copy()
-
-                n_etapas_raw = len(etapas_tx)
-                n_etapas_unicas = etapas_tx["id"].nunique()
-
-                # Agregar anillos a las etapas
-                etapas_tx = etapas_tx.merge(
-                    matriz, how="left", left_on="h3_d", right_on="parada"
-                )
-                n_post_matriz = len(etapas_tx)
-                factor_matriz = n_post_matriz / n_etapas_raw if n_etapas_raw > 0 else 0
-
-                # Determinar horas consecutivas para el filtrado de datos GPS
-                hora_filtro = [hora + i for i in range(0, 4)]
-                gps_tx = gps.loc[gps["hora"].isin(hora_filtro), :].copy()
-
-                # Renombrar y seleccionar columnas relevantes en los datos GPS
-                gps_tx = gps_tx.reindex(
-                    columns=[
-                        "id",
-                        "id_linea",
-                        "id_ramal",
-                        "interno",
-                        "h3_legs_res",
-                        "h3",
-                        "fecha_gps",
-                    ]
-                ).rename(columns={"h3_legs_res": "area_influencia"})
-
-                n_gps = len(gps_tx)
-
-                # Join gps to legs destination rings dataframe by the same resolution (legs resolution)
-                etapas_tx = etapas_tx.merge(
-                    gps_tx,
-                    how="inner",
-                    on=["id_linea", "id_ramal", "interno", "area_influencia"],
-                    suffixes=("_legs", "_gps"),
-                )
-                n_expanded = len(etapas_tx)
-
-                # Calcular la diferencia de tiempo entre cada punto de gps y cada etapa
-                etapas_tx["fecha_dif"] = (
-                    etapas_tx["fecha_gps"] - etapas_tx["fecha"]
-                ).dt.total_seconds() / 60
-
-                # Filtrar por diferencia de fecha positiva y ordenar por id, anillo y fecha_dif
-                n_pre_fecha = len(etapas_tx)
-                etapas_tx = etapas_tx.loc[etapas_tx.fecha_dif > 0, :]
-                n_post_fecha = len(etapas_tx)
-
-                n_asignadas_iter = 0
-                if len(etapas_tx) > 0:
-
-                    # Calcular el tiempo mÃ­nimo de destino por id
-                    etapas_tx["min_fecha_d"] = etapas_tx.groupby(
-                        ["id_legs"]
-                    ).fecha_gps.transform("min")
-                    etapas_tx["min_fecha_d"] = round(
-                        (
-                            etapas_tx.fecha_gps - etapas_tx["min_fecha_d"]
-                        ).dt.total_seconds()
-                        / 60,
-                        1,
-                    )
-
-                    # Filtrar antes de computar distancia para reducir filas
-                    etapas_tx = etapas_tx.loc[etapas_tx.min_fecha_d < 20, :]
-
-                    # Calcular la distancia entre h3 del destino de la etapa y h3 del gps
-                    # Deduplicar pares unicos para evitar llamadas repetidas a h3.grid_distance
-                    h3_pairs = etapas_tx[["h3_d_gps_res", "h3"]].drop_duplicates()
-                    h3_pairs["distancia_h3"] = [
-                        h3.grid_distance(r["h3_d_gps_res"], r["h3"])
-                        for r in h3_pairs.to_dict("records")
-                    ]
-                    etapas_tx = etapas_tx.merge(h3_pairs, on=["h3_d_gps_res", "h3"], how="left")
-
-                    etapas_tx = etapas_tx.sort_values(
-                        ["id_legs", "ring", "distancia_h3", "min_fecha_d"]
-                    )
-
-                    # Obtener la primera ocurrencia por id - elijo el gps que se encuentra mÃ¡s cerca del destino
-                    etapas_tx = etapas_tx.groupby("id_legs", as_index=False).first()
-                    n_asignadas_iter = len(etapas_tx)
-                    n_asignadas_dia += n_asignadas_iter
-
-                    # Agregar resultado a la lista
-                    etapas_result_list.append(etapas_tx)
-
-                # t_iter = time.time() - t_iter_start
-                # iter_times.append(t_iter)
-                # if n_etapas_unicas > 0:
-                #     print(
-                #         f"  dia={dia} hora={hora:02d} | "
-                #         f"etapas={n_etapas_unicas:>7,} "
-                #         f"post_matriz={n_post_matriz:>9,} (x{factor_matriz:.1f}) "
-                #         f"gps={n_gps:>8,} "
-                #         f"expanded={n_expanded:>9,} "
-                #         f"post_fecha={n_post_fecha:>9,} "
-                #         f"asignadas={n_asignadas_iter:>7,} ({round(n_asignadas_iter/n_etapas_unicas*100) if n_etapas_unicas else 0}%) "
-                #         f"| {t_iter:.1f}s"
-                #     )
-
-            etapas_asignadas_total += n_asignadas_dia
-            # t_dia = time.time() - t_dia_start
-            legs_dia = legs[legs["dia"] == dia]["id"].nunique()
-            # print(f"  â†’ DÃ­a {dia}: {n_asignadas_dia:,} asignadas de {legs_dia:,} etapas ({round(n_asignadas_dia/legs_dia*100) if legs_dia else 0}%) | {t_dia:.1f}s")
-
-        # t_total = time.time() - t_total_start
-        # legs_total_unicas = legs["id"].nunique()
-        # print(f"\nLoop destino completado en {t_total:.1f}s ({t_total/60:.1f} min)")
-        # print(f"  Total asignadas: {etapas_asignadas_total:,} de {legs_total_unicas:,} etapas ({round(etapas_asignadas_total/legs_total_unicas*100) if legs_total_unicas else 0}%)")
-        # if iter_times:
-        #     print(f"  Tiempo promedio por iteraciÃ³n: {sum(iter_times)/len(iter_times):.2f}s | MÃ¡s lenta: {max(iter_times):.2f}s")
+        n_workers = max(multiprocessing.cpu_count() - 1, 1)
+        tasks = [(dia, hora) for dia in legs_days for hora in legs_hours]
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            futures = [
+                executor.submit(_process_dia_hora, dia, hora, legs, gps, matriz)
+                for dia, hora in tasks
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    etapas_result_list.append(result)
 
         # Concatenar todos los resultados acumulados
         if len(etapas_result_list) == 0:
@@ -1073,6 +951,74 @@ def assign_time_distances(ctx: StorageContext):
         ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
         ctx.data.append_raw(df, table)
         
+
+def _process_dia_hora(dia, hora, legs, gps, matriz):
+    """Process one (dia, hora) slice for GPS destination imputation."""
+    etapas_tx = legs.loc[
+        (legs["hora"] == hora) & (legs["dia"] == dia),
+        ["dia", "id", "id_linea", "id_ramal", "interno", "h3_o", "h3_d",
+         "h3_d_gps_res", "distance_od", "fecha"],
+    ].copy()
+
+    if len(etapas_tx) == 0:
+        return None
+
+    etapas_tx = etapas_tx.merge(matriz, how="left", left_on="h3_d", right_on="parada")
+
+    hora_filtro = [hora + i for i in range(0, 4)]
+    gps_tx = gps.loc[gps["hora"].isin(hora_filtro)].reindex(
+        columns=["id", "id_linea", "id_ramal", "interno", "h3_legs_res", "h3", "fecha_gps"]
+    ).rename(columns={"h3_legs_res": "area_influencia"})
+
+    # Pre-filter GPS to only timestamps after the earliest boarding per vehicle
+    min_fecha_vehicle = (
+        etapas_tx.groupby(["id_linea", "id_ramal", "interno"])["fecha"]
+        .min()
+        .reset_index()
+        .rename(columns={"fecha": "min_fecha_leg"})
+    )
+    gps_tx = gps_tx.merge(min_fecha_vehicle, on=["id_linea", "id_ramal", "interno"], how="inner")
+    gps_tx = gps_tx.loc[gps_tx["fecha_gps"] > gps_tx["min_fecha_leg"]].drop(columns=["min_fecha_leg"])
+
+    if len(gps_tx) == 0:
+        return None
+
+    etapas_tx = etapas_tx.merge(
+        gps_tx,
+        how="inner",
+        on=["id_linea", "id_ramal", "interno", "area_influencia"],
+        suffixes=("_legs", "_gps"),
+    )
+
+    if len(etapas_tx) == 0:
+        return None
+
+    etapas_tx["fecha_dif"] = (etapas_tx["fecha_gps"] - etapas_tx["fecha"]).dt.total_seconds() / 60
+    etapas_tx = etapas_tx.loc[etapas_tx.fecha_dif > 0]
+
+    if len(etapas_tx) == 0:
+        return None
+
+    etapas_tx["min_fecha_d"] = etapas_tx.groupby(["id_legs"]).fecha_gps.transform("min")
+    etapas_tx["min_fecha_d"] = round(
+        (etapas_tx.fecha_gps - etapas_tx["min_fecha_d"]).dt.total_seconds() / 60,
+        1,
+    )
+    etapas_tx = etapas_tx.loc[etapas_tx.min_fecha_d < 20]
+
+    if len(etapas_tx) == 0:
+        return None
+
+    h3_pairs = etapas_tx[["h3_d_gps_res", "h3"]].drop_duplicates().copy()
+    h3_pairs["distancia_h3"] = [
+        h3.grid_distance(r["h3_d_gps_res"], r["h3"])
+        for r in h3_pairs.to_dict("records")
+    ]
+    etapas_tx = etapas_tx.merge(h3_pairs, on=["h3_d_gps_res", "h3"], how="left")
+
+    etapas_tx = etapas_tx.sort_values(["id_legs", "ring", "distancia_h3", "min_fecha_d"])
+    return etapas_tx.groupby("id_legs", as_index=False).first()
+
 
 def distancia_h3_gps_leg(row):
     return h3.grid_distance(row["h3_d_gps_res"], row["h3"])
