@@ -654,9 +654,9 @@ with st.expander("Partición modal", True):
 
     desc_genero = col1.selectbox("Genero", options=list_genero, key="desc_genero")
 
-    query = f'select * from datos_particion_modal where dia="{desc_dia}"'
+    query = f"select * from datos_particion_modal where dia='{desc_dia}'"
     if desc_genero != "Todos":
-        query += f'and genero_agregado = "{desc_genero}"'
+        query += f"and genero_agregado = '{desc_genero}'"
 
     etapas_modos = levanto_tabla_sql("datos_particion_modal", query=query)
 

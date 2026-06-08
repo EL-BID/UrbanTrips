@@ -26,8 +26,12 @@ from urbantrips.utils.check_configs import check_config
 #         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
 #     )
 #     st.stop()
+from urbantrips.dashboard import get_dashboard_ctx
 
-
+@st.cache_resource
+def obtener_ctx():
+    """StorageContext de solo lectura, cacheado para toda la sesión."""
+    return get_dashboard_ctx()
 # --- Función para levantar tablas SQL y almacenar en session_state ---
 def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
     if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
@@ -82,8 +86,8 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 alias_seleccionado = configurar_selector_dia()
-check_config(corrida=alias_seleccionado)
-st.text(f"Alias seleccionado: {alias_seleccionado}")
+# check_config(corrida=alias_seleccionado)
+# st.text(f"Alias seleccionado: {alias_seleccionado}")
 
 try:
 
@@ -188,11 +192,12 @@ if st.button("Comenzar a procesar"):
         day_type = st.session_state["day_type_7"]
 
         st.write("Calculando indicadores basicos...")
-        run_basic_kpi(id_linea=[line_ids])
+        run_basic_kpi(obtener_ctx(), id_linea=[line_ids])
 
         st.write("Calculando la matriz OD de la linea...")
         # Se computa la matriz OD de las lineas
         compute_lines_od_matrix(
+            obtener_ctx(),
             line_ids=[line_ids],
             hour_range=hour_range,
             n_sections=n_sections,
@@ -203,6 +208,7 @@ if st.button("Comenzar a procesar"):
         st.write("Visualizando la matriz OD de la linea...")
         # Se visualiza la matriz OD de las lineas
         visualize_lines_od_matrix(
+            obtener_ctx(),
             line_ids=[line_ids],
             hour_range=hour_range,
             day_type=day_type,
@@ -214,6 +220,7 @@ if st.button("Comenzar a procesar"):
         st.write("Calculando los estadisticos de oferta por secciones de las lineas...")
         # Calcula los estadisticos de oferta por sección de las lineas
         route_section_supply = compute_route_section_supply(
+            obtener_ctx(),
             line_ids=[line_ids],
             hour_range=hour_range,
             n_sections=n_sections,
@@ -226,6 +233,7 @@ if st.button("Comenzar a procesar"):
         )
         # Visualiza los estadisticos de oferta por sección de las lineas
         visualize_route_section_supply_data(
+            obtener_ctx(),            
             line_ids=[line_ids],
             hour_range=hour_range,
             day_type=day_type,
@@ -238,6 +246,7 @@ if st.button("Comenzar a procesar"):
         )
         # Se calculan los estadisticos de carga de las secciones de las lineas
         compute_route_section_load(
+            obtener_ctx(),
             line_ids=[line_ids],
             hour_range=hour_range,
             n_sections=n_sections,
@@ -250,6 +259,7 @@ if st.button("Comenzar a procesar"):
         )
         # Se visualizan los estadisticos de carga de las secciones de las lineas
         visualize_route_section_load(
+            obtener_ctx(),
             line_ids=[line_ids],
             hour_range=hour_range,
             day_type=day_type,

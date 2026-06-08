@@ -403,8 +403,8 @@ st.image(logo)
 
 alias_seleccionado = configurar_selector_dia()
 
-check_config(corrida=alias_seleccionado)
-st.text(f"Alias seleccionado: {alias_seleccionado}")
+# check_config(corrida=alias_seleccionado)
+# st.text(f"Alias seleccionado: {alias_seleccionado}")
 
 latlon = bring_latlon()
 mes_lst, tipo_dia_lst = traigo_mes_dia()
@@ -777,7 +777,7 @@ with st.expander("Superposición"):
     # -----------------------------
     # 1) Top N + selección/deselección
     # -----------------------------
-    top_n = st.slider("Cantidad de líneas a superponer (Top N por etapas)", 1, 30, 10, key="sup_top_n")
+    top_n = st.slider("Cantidad de líneas a superponer (Top N por etapas)", 1, 30, 1, key="sup_top_n")
 
     # Asegurar id_linea en resultados_sup
     if "id_linea" not in resultados.columns:
@@ -1060,167 +1060,187 @@ with st.expander("Demanda por segmento de recorrido"):
     else:
         st.write("No hay sufiente demanda para computar la demanda por segmento")
 
-with st.expander("Líneas de deseo por linea"):
-    if len(legs) > 0:
-        n_sections = st.session_state["n_sections_7"]
+# with st.expander("Líneas de deseo por linea"):
+#     if len(legs) > 0:
+#         n_sections = st.session_state["n_sections_7"]
 
-        line_od_data = legs.copy()
+#         line_od_data = legs.copy()
 
-        section_ids = create_route_section_ids(n_sections)
+#         section_ids = create_route_section_ids(n_sections)
 
-        section_carto = section_load.reindex(
-            columns=["section_id", "geometry"]
-        ).drop_duplicates(subset="section_id")
-        section_carto.geometry = section_carto.geometry.centroid
+#         section_carto = section_load.reindex(
+#             columns=["section_id", "geometry"]
+#         ).drop_duplicates(subset="section_id")
+#         section_carto.geometry = section_carto.geometry.centroid
 
-        labels = list(range(1, len(section_ids)))
+#         labels = list(range(1, len(section_ids)))
 
-        line_od_data["o_proj"] = pd.cut(
-            line_od_data.o_proj, bins=section_ids, labels=labels, right=True
-        )
-        line_od_data["d_proj"] = pd.cut(
-            line_od_data.d_proj, bins=section_ids, labels=labels, right=True
-        )
+#         line_od_data["o_proj"] = pd.cut(
+#             line_od_data.o_proj, bins=section_ids, labels=labels, right=True
+#         )
+#         line_od_data["d_proj"] = pd.cut(
+#             line_od_data.d_proj, bins=section_ids, labels=labels, right=True
+#         )
 
-        totals_by_day_section_id = (
-            line_od_data.groupby(["dia", "o_proj", "d_proj"])
-            .agg(legs=("factor_expansion_linea", "sum"))
-            .reset_index()
-        )
-        totals_by_day = totals_by_day_section_id.groupby(["dia"], as_index=False).agg(
-            daily_legs=("legs", "sum")
-        )
+#         totals_by_day_section_id = (
+#             line_od_data.groupby(["dia", "o_proj", "d_proj"])
+#             .agg(legs=("factor_expansion_linea", "sum"))
+#             .reset_index()
+#         )
+#         totals_by_day = totals_by_day_section_id.groupby(["dia"], as_index=False).agg(
+#             daily_legs=("legs", "sum")
+#         )
 
-        totals_by_typeday = totals_by_day.daily_legs.mean()
+#         totals_by_typeday = totals_by_day.daily_legs.mean()
 
-        # then average for type of day
-        totals_by_typeday_section_id = (
-            totals_by_day_section_id.groupby(["o_proj", "d_proj"])
-            .agg(legs=("legs", "mean"))
-            .reset_index()
-        )
-        totals_by_typeday_section_id["legs"] = (
-            totals_by_typeday_section_id["legs"].round().map(int)
-        )
-        totals_by_typeday_section_id["prop"] = (
-            totals_by_typeday_section_id.legs / totals_by_typeday * 100
-        ).round(1)
-        totals_by_typeday_section_id["day_type"] = day_type
-        totals_by_typeday_section_id["n_sections"] = n_sections
+#         # then average for type of day
+#         totals_by_typeday_section_id = (
+#             totals_by_day_section_id.groupby(["o_proj", "d_proj"])
+#             .agg(legs=("legs", "mean"))
+#             .reset_index()
+#         )
+#         totals_by_typeday_section_id["legs"] = (
+#             totals_by_typeday_section_id["legs"].round().map(int)
+#         )
+#         totals_by_typeday_section_id["prop"] = (
+#             totals_by_typeday_section_id.legs / totals_by_typeday * 100
+#         ).round(1)
+#         totals_by_typeday_section_id["day_type"] = day_type
+#         totals_by_typeday_section_id["n_sections"] = n_sections
 
-        totals_by_typeday_section_id = totals_by_typeday_section_id.merge(
-            section_carto, left_on="o_proj", right_on="section_id", how="left"
-        ).merge(
-            section_carto,
-            left_on="d_proj",
-            right_on="section_id",
-            suffixes=("_o", "_d"),
-            how="left",
-        )
-        geometry = [
-            LineString([(row.geometry_o), (row.geometry_d)])
-            for _, row in totals_by_typeday_section_id.iterrows()
-        ]
-        line_od = gpd.GeoDataFrame(
-            totals_by_typeday_section_id.reindex(
-                columns=["o_proj", "d_proj", "legs", "prop", "day_type"]
-            ),
-            geometry=geometry,
-            crs=4326,
-        )
+#         totals_by_typeday_section_id = totals_by_typeday_section_id.merge(
+#             section_carto, left_on="o_proj", right_on="section_id", how="left"
+#         ).merge(
+#             section_carto,
+#             left_on="d_proj",
+#             right_on="section_id",
+#             suffixes=("_o", "_d"),
+#             how="left",
+#         )
+#         geometry = [
+#             LineString([(row.geometry_o), (row.geometry_d)])
+#             for _, row in totals_by_typeday_section_id.iterrows()
+#         ]
+#         line_od = gpd.GeoDataFrame(
+#             totals_by_typeday_section_id.reindex(
+#                 columns=["o_proj", "d_proj", "legs", "prop", "day_type"]
+#             ),
+#             geometry=geometry,
+#             crs=4326,
+#         )
 
-        if len(line_od) > 0:
-            if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos2"):
-                st.write(line_od)
+#         if len(line_od) > 0:
+#             if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos2"):
+#                 st.write(line_od)
 
-            k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
-            st.text(f"Hay un total de {line_od.legs.sum()} etapas")
-            try:
-                map = crear_mapa_folium(
-                    line_od, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
-                )
-                st_map = st_folium(map, width=900, height=700)
-            except ValueError as e:
-                st.write(
-                    "Error al crear el mapa. Verifique los parametros seleccionados "
-                )
-        else:
-            st.write("No hay datos para mostrar")
-    else:
-        st.write("No hay sufiente demanda para computar las lineas de deseo")
+#             k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
+#             st.text(f"Hay un total de {line_od.legs.sum()} etapas")
+#             try:
+#                 map = crear_mapa_folium(
+#                     line_od, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
+#                 )
+#                 st_map = st_folium(map, width=900, height=700)
+#             except ValueError as e:
+#                 st.write(
+#                     "Error al crear el mapa. Verifique los parametros seleccionados "
+#                 )
+#         else:
+#             st.write("No hay datos para mostrar")
+#     else:
+#         st.write("No hay sufiente demanda para computar las lineas de deseo")
 
-
-# --- ID del polígono dibujado (editable por el usuario) ---
-default_drawn_poli_id = "estimacion de demanda dibujada"
-
-if "drawn_poli_id" not in st.session_state or not st.session_state["drawn_poli_id"]:
-    st.session_state["drawn_poli_id"] = default_drawn_poli_id
-
-corrida = alias_seleccionado
-
-correr = st.selectbox(
-    "Corridas", options=[corrida, 'Todas'], index=0)
-if correr == 'Todas':
-    corridas = leer_configs_generales(autogenerado=False)['corridas']
-else:
-    corridas = [corrida]
-
-
-drawn_poli_id = st.text_input(
-    "ID del polígono (para guardar en insumos)",
-    value=st.session_state["drawn_poli_id"],
-    help="Este identificador se usará para guardar/actualizar el polígono en la tabla 'poligonos'.",
-    key="drawn_poli_id_input",
-).strip()
-
-
-
-# persistir (por si el usuario lo modifica)
-st.session_state["drawn_poli_id"] = drawn_poli_id if drawn_poli_id else default_drawn_poli_id
-drawn_poli_id = st.session_state["drawn_poli_id"]
-
-if st.button("Procesar polígono"):
+with st.expander("Polígono de análisis de cuenca"):
     st.write(
-        "Procesando polígono del recorrido para análisis de cuenca. Esto puede tomar unos minutos..."
+        "En este apartado se puede dibujar un polígono (o subir un GeoJSON) para estimar la demanda en esa zona, sin necesidad de que esté asociada a una línea de transporte público específica. Esto es útil para analizar zonas sin cobertura o con cobertura deficiente."
     )
-    # Agregar resultado al geojson de poligonos
-    poligonos = levanto_tabla_sql_local("poligonos", "insumos")
 
-    if len(poligonos) > 0:
-        poligonos["wkt"] = poligonos.geometry.map(lambda g: g.wkt)
-    
+    # --- ID del polígono dibujado (editable por el usuario) ---
+    default_drawn_poli_id = "estimacion de demanda dibujada"
+
+    if "drawn_poli_id" not in st.session_state or not st.session_state["drawn_poli_id"]:
+        st.session_state["drawn_poli_id"] = default_drawn_poli_id
+
+    # corrida = alias_seleccionado
+
+    # correr = st.selectbox(
+    #     "Corridas", options=[corrida, 'Todas'], index=0)
+    # if correr == 'Todas':
+    #     corridas = leer_configs_generales(autogenerado=False)['corridas']
+    # else:
+    #     corridas = [corrida]
+
+
+    drawn_poli_id = st.text_input(
+        "ID del polígono (para guardar en insumos)",
+        value=st.session_state["drawn_poli_id"],
+        help="Este identificador se usará para guardar/actualizar el polígono en la tabla 'poligonos'.",
+        key="drawn_poli_id_input",
+    ).strip()
+
+
+
+    # persistir (por si el usuario lo modifica)
+    st.session_state["drawn_poli_id"] = drawn_poli_id if drawn_poli_id else default_drawn_poli_id
     drawn_poli_id = st.session_state["drawn_poli_id"]
-    st.write("Polígono: "+drawn_poli_id)
-    # drawn_poli_id = "estimacion de demanda dibujada"
 
-    
-    drawn_poli = gdf.copy()
-    drawn_poli["id"] = drawn_poli_id
-    drawn_poli["tipo"] = "cuenca"
-    drawn_poli["wkt"] = drawn_poli.geometry.map(lambda g: g.wkt)
+    if st.button("Procesar polígono"):
+        st.write(
+            "Procesando polígono del recorrido para análisis de cuenca. Esto puede tomar unos minutos..."
+        )
+        # Agregar resultado al geojson de poligonos
+        poligonos = levanto_tabla_sql_local("poligonos", "insumos")
 
-    poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
+        if len(poligonos) > 0:
+            poligonos["wkt"] = poligonos.geometry.map(lambda g: g.wkt)
+        
+        drawn_poli_id = st.session_state["drawn_poli_id"]
+        st.write("Polígono: "+drawn_poli_id)
+        # drawn_poli_id = "estimacion de demanda dibujada"
 
-    drawn_poli = pd.concat([poligonos, drawn_poli], ignore_index=True)
-    drawn_poli = drawn_poli.reindex(columns=["id", "tipo", "wkt"])
+        
+        drawn_poli = gdf.copy()
+        drawn_poli["id"] = drawn_poli_id
+        drawn_poli["tipo"] = "cuenca"
+        drawn_poli["wkt"] = drawn_poli.geometry.map(lambda g: g.wkt)
 
-    st.write("Guardando poligono en base de insumos")
-    guardar_tabla_sql(drawn_poli, "poligonos", "insumos", modo="replace")
+        poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
 
-    
-    st.write("Corriendo cuencas para Polígonos ...")
+        drawn_poli = pd.concat([poligonos, drawn_poli], ignore_index=True)
+        drawn_poli = drawn_poli.reindex(columns=["id", "tipo", "wkt"])
 
-    
-    for corrida_tmp in corridas:
-        st.write('Corrida', corrida_tmp)
+        st.write("Guardando poligono en base de insumos")
+
+        guardar_tabla_sql(drawn_poli, "poligonos", "insumos", modo="replace")
+                
+        st.write("Corriendo cuencas para Polígonos ...")
+
+        
+        # for corrida_tmp in corridas:
+        #     st.write('Corrida', corrida_tmp)
+        #     preparo_indicadores_dash(
+        #         lineas_deseo=False,
+        #         poligonos=True,
+        #         kpis=False,
+        #         corrida=corrida_tmp,
+        #         resoluciones=[6],
+        #         poligon_id=drawn_poli_id,
+        #     )
+        
+        
+        from urbantrips.utils.run_process import _build_ctx
+        ctx = _build_ctx()
+
         preparo_indicadores_dash(
+            ctx,
             lineas_deseo=False,
             poligonos=True,
             kpis=False,
-            corrida=corrida_tmp,
+            corrida=None,
             resoluciones=[6],
             poligon_id=drawn_poli_id,
         )
+        
+        
 
-    st.cache_data.clear()
-    st.write("Datos procesados, puede ver los patrones en el apartado Polígonos")
+        st.cache_data.clear()
+        st.write("Datos procesados, puede ver los patrones en el apartado Polígonos")

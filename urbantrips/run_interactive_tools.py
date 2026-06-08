@@ -185,13 +185,15 @@ with st.expander("Comparación de líneas", expanded=True):
             f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
             not in st.session_state
         ):
-
+            from urbantrips.utils.run_process import _build_ctx
+            ctx = _build_ctx()
             overlapping_dict = ovl.compute_supply_overlapping(
                 "weekday",
                 base_route_id,
                 comp_route_id,
                 "branches" if use_branches else "lines",
                 h3_res_comp,
+                ctx=ctx,
             )
             st.session_state[
                 f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"

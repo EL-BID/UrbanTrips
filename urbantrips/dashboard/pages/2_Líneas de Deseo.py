@@ -2,14 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import geopandas as gpd
-import folium
-from streamlit_folium import st_folium, folium_static
-from folium import GeoJson, GeoJsonTooltip
+import pydeck as pdk
+import json
 import mapclassify
 import plotly.express as px
-from folium import Figure
 from shapely import wkt
-from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
     levanto_tabla_sql_local,
@@ -17,6 +14,8 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     extract_hex_colors_from_cmap,
+    iniciar_conexion_db,
+    normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
     traigo_tablas_con_filtros,
@@ -26,40 +25,10 @@ from dash_utils import (
 from shapely.geometry import Polygon, MultiPolygon
 from datetime import datetime
 
-# from urbantrips.carto.carto import get_h3_indices_in_geometry
 
-import folium
-import pandas as pd
-import numpy as np
-from branca.colormap import linear
-from folium import (
-    Map,
-    LayerControl,
-    CircleMarker,
-    PolyLine,
-    GeoJson,
-    Popup,
-    FeatureGroup,
-)
-import mapclassify
-
-
-# 🎨 Mapeo de colormaps válidos
-COLORMAPS = {
-    "Blues": linear.Blues_09,
-    "Greens": linear.Greens_09,
-    "YlOrRd": linear.YlOrRd_09,
-    "PuRd": linear.PuRd_09,
-    "YlGn": linear.YlGn_09,
-    "viridis": linear.viridis,
-    "viridis_r": linear.viridis.scale(1, 0),  # Invertir manualmente
-    "inferno": linear.inferno,
-    "inferno_r": linear.inferno.scale(1, 0),  # Invertir manualmente
-    "magma": linear.magma,
-    "magma_r": linear.magma.scale(1, 0),  # Invertir manualmente
-    "plasma": linear.plasma,
-    "plasma_r": linear.plasma.scale(1, 0),  # Invertir manualmente
-}
+def _hex_to_rgba(hex_color: str, alpha: int = 200) -> list:
+    h = hex_color.lstrip("#")
+    return [int(h[i : i + 2], 16) for i in (0, 2, 4)] + [alpha]
 
 
 def obtener_clases_fisherjenks(
@@ -214,13 +183,14 @@ def crear_mapa_lineas_deseo(
     savefile: str = "",
     k_jenks: int = 5,
     latlon: list = None,
-) -> folium.Map:
+    tipo_visualizacion: str = "Líneas",
+) -> pdk.Deck:
     """
-    Crea un mapa interactivo con capas diferenciadas para viajes, etapas, orígenes, destinos y transferencias.
-    Incluye optimizaciones de rendimiento y utiliza Fisher-Jenks para la clasificación.
+    Crea un mapa interactivo con pydeck (WebGL) para viajes, etapas, orígenes, destinos y transferencias.
+    Misma lógica de clasificación Fisher-Jenks que la versión folium, con mayor rendimiento de renderizado.
 
     Retorna:
-        - folium.Map: Mapa interactivo.
+        - pdk.Deck: Mapa interactivo pydeck.
     """
 
     if len(df_viajes) > 0:
@@ -228,89 +198,143 @@ def crear_mapa_lineas_deseo(
     if len(df_etapas) > 0:
         df_etapas = df_etapas[df_etapas["geometry"].notna()]
 
-    # if latlon is None:
-    #     latlon = [-34.6037, -58.3816]  # Default a Buenos Aires
-
-    # 🗺️ Crear el mapa
-    m = folium.Map(location=latlon, zoom_start=9, tiles="cartodbpositron")
-
-    # 🔄 Preprocesamiento de Datos
     print(datetime.now(), "simplificar geometrias", len(df_viajes), len(df_etapas))
     df_etapas, df_viajes, origenes, destinos, transferencias = [
         simplificar_geometrias(df)
         for df in [df_etapas, df_viajes, origenes, destinos, transferencias]
     ]
-
     print(datetime.now(), "fin simplificar geometrias", len(df_viajes), len(df_etapas))
 
-    # 🔗 Agregar capas de líneas
+    layers = []
+
     def agregar_capa_lineas(df, nombre, var_fex, cmap, weight_base=0.5):
         if len(df) == 0:
             return
 
         bins = obtener_clases_fisherjenks(df, var_fex)
-        range_bins = range(0, len(bins) - 1)
-        bins_labels = [f"{int(bins[n])} a {int(bins[n+1])}" for n in range_bins]
+        n_bins = len(bins) - 1
+        colors_hex = extract_hex_colors_from_cmap(cmap="viridis_r", n=k_jenks)
 
-        colors = extract_hex_colors_from_cmap(cmap="viridis_r", n=k_jenks)
+        df = df.copy()
+        df["_bin"] = pd.cut(
+            df[var_fex], bins=bins, labels=False, include_lowest=True
+        ).fillna(0).astype(int).clip(0, n_bins - 1)
 
-        weight_op = 0.8
+        # Colores full-alpha: la opacidad se controla a nivel de layer, no de feature.
+        # Esto evita el problema de blending de WebGL con transparencia por feature.
+        color_map = {i: _hex_to_rgba(colors_hex[i], 255) for i in range(n_bins)}
+        # Curva exponencial: bin 0 casi invisible (8%), bin n-1 completamente opaco (100%)
+        opacity_map = {
+            i: round(0.08 + (i / max(n_bins - 1, 1)) ** 2 * 0.92, 3)
+            for i in range(n_bins)
+        }
 
-        if len(df) == 1:
-            row = df.iloc[0]
-            PolyLine(
-                locations=[(point[1], point[0]) for point in row.geometry.coords],
-                color="red",  # o cualquier color base
-                weight=5,  # grosor base
-                opacity=weight_op,
-                popup=Popup(f"{nombre}: {row[var_fex]}"),
-            ).add_to(m)
+        df["color"] = df["_bin"].map(color_map)
+        df["label"] = nombre
 
+        # depthTest=False fuerza orden de pintado estricto por posición en el array de layers,
+        # sin que el depth buffer de WebGL interfiera con la transparencia.
+        DEPTH_OFF = {"depthTest": False}
+
+        if tipo_visualizacion == "Arcos":
+            df["src_lon"] = df.geometry.apply(lambda g: round(g.coords[0][0], 6))
+            df["src_lat"] = df.geometry.apply(lambda g: round(g.coords[0][1], 6))
+            df["tgt_lon"] = df.geometry.apply(lambda g: round(g.coords[-1][0], 6))
+            df["tgt_lat"] = df.geometry.apply(lambda g: round(g.coords[-1][1], 6))
+            # Origen más tenue para efecto degradado a lo largo del arco
+            src_color_map = {i: _hex_to_rgba(colors_hex[i], 60) for i in range(n_bins)}
+            df["color_src"] = df["_bin"].map(src_color_map)
+            width_map = {i: max(1, int(weight_base + i * 1.5)) for i in range(n_bins)}
+            df["width"] = df["_bin"].map(width_map)
+
+            cols = ["src_lon", "src_lat", "tgt_lon", "tgt_lat",
+                    "color_src", "color", "width", "_bin", "label", var_fex]
+            pdk_df = df[cols].copy()
+
+            for bin_idx in range(n_bins):
+                subset = pdk_df[pdk_df["_bin"] == bin_idx]
+                if len(subset) == 0:
+                    continue
+                layers.append(
+                    pdk.Layer(
+                        "ArcLayer",
+                        subset,
+                        get_source_position=["src_lon", "src_lat"],
+                        get_target_position=["tgt_lon", "tgt_lat"],
+                        get_source_color="color_src",
+                        get_target_color="color",
+                        get_width="width",
+                        opacity=opacity_map[bin_idx],
+                        parameters=DEPTH_OFF,
+                        pickable=True,
+                        auto_highlight=True,
+                    )
+                )
         else:
-            for i, label in enumerate(bins_labels):
-                capa = FeatureGroup(name=f"{nombre} - {label}")
-                # último bin: <=; resto: <
-                if i == len(bins_labels) - 1:
-                    subset = df[(df[var_fex] >= bins[i]) & (df[var_fex] <= bins[i + 1])]
-                else:
-                    subset = df[(df[var_fex] >= bins[i]) & (df[var_fex] <  bins[i + 1])]
-            
-                for _, row in subset.iterrows():
-                    PolyLine(
-                        locations=[(point[1], point[0]) for point in row.geometry.coords],
-                        color=colors[i],
-                        weight=weight_base,
-                        opacity=weight_op,
-                        popup=Popup(f"{nombre}: {row[var_fex]}"),
-                    ).add_to(capa)
-                capa.add_to(m)
-                weight_base += 3
-                weight_op += 0.1
+            width_map = {i: max(100, int((weight_base + i * 3) * 200)) for i in range(n_bins)}
+            df["width"] = df["_bin"].map(width_map)
+            df["path"] = df.geometry.apply(
+                lambda g: [[round(p[0], 6), round(p[1], 6)] for p in g.coords]
+            )
 
-    # 🟢 Agregar capas de puntos
+            cols = ["path", "color", "width", "_bin", "label", var_fex]
+            pdk_df = df[cols].copy()
+
+            for bin_idx in range(n_bins):
+                subset = pdk_df[pdk_df["_bin"] == bin_idx]
+                if len(subset) == 0:
+                    continue
+                layers.append(
+                    pdk.Layer(
+                        "PathLayer",
+                        subset,
+                        get_path="path",
+                        get_color="color",
+                        get_width="width",
+                        width_min_pixels=1,
+                        opacity=opacity_map[bin_idx],
+                        parameters=DEPTH_OFF,
+                        pickable=True,
+                        auto_highlight=True,
+                    )
+                )
+
     def agregar_capa_puntos(df, nombre, var_fex, cmap):
         if len(df) == 0:
             return
 
-        capa = FeatureGroup(name=nombre)
-        colormap = COLORMAPS.get(cmap, linear.viridis).scale(
-            df[var_fex].min(), df[var_fex].max()
-        )
-        colormap.caption = f"Escala {nombre}"
-        colormap.add_to(m)
+        colors_hex = extract_hex_colors_from_cmap(cmap=cmap, n=10)
+        df = df.copy()
+        max_val = df[var_fex].max()
+        min_val = df[var_fex].min()
 
-        for _, row in df.iterrows():
-            CircleMarker(
-                location=[row.geometry.y, row.geometry.x],
-                radius=10
-                + (row[var_fex] / df[var_fex].max())
-                * 8,  # Aumentar el tamaño de las burbujas
-                color=colormap(row[var_fex]),
-                fill=True,
-                fill_opacity=0.8,
-                popup=Popup(f"{nombre}: {row[var_fex]}"),
-            ).add_to(capa)
-        capa.add_to(m)
+        if max_val > min_val:
+            df["_cidx"] = (
+                (df[var_fex] - min_val) / (max_val - min_val) * 9
+            ).astype(int).clip(0, 9)
+        else:
+            df["_cidx"] = 0
+
+        df["color"] = df["_cidx"].apply(lambda i: _hex_to_rgba(colors_hex[i]))
+        df["lon"] = df.geometry.x
+        df["lat"] = df.geometry.y
+        # Radio en metros proporcional al valor (equivale al radius de folium en píxeles)
+        df["radius"] = 300 + (df[var_fex] / max_val) * 1500
+        df["label"] = nombre
+
+        pdk_df = df[["lon", "lat", "color", "radius", "label", var_fex]].copy()
+        layers.append(
+            pdk.Layer(
+                "ScatterplotLayer",
+                pdk_df,
+                get_position=["lon", "lat"],
+                get_fill_color="color",
+                get_radius="radius",
+                radius_min_pixels=5,
+                pickable=True,
+                auto_highlight=True,
+            )
+        )
 
     agregar_capa_lineas(df_etapas, "Etapas", var_fex, cmap_etapas, weight_base=0.5)
     agregar_capa_lineas(df_viajes, "Viajes", var_fex, cmap_viajes, weight_base=0.5)
@@ -319,26 +343,40 @@ def crear_mapa_lineas_deseo(
     agregar_capa_puntos(transferencias, "Transferencias", var_fex, cmap_puntos)
 
     if len(zonif) > 0:
-        GeoJson(
-            data=zonif.__geo_interface__,
-            name="Zonificación",
-            style_function=lambda x: {
-                "fillColor": "blue",
-                "color": "navy",
-                "weight": 2,
-                "fillOpacity": 0,
-            },
-            tooltip=GeoJsonTooltip(
-                fields=["id"], aliases=["ID:"], labels=True, sticky=True
-            ),
-        ).add_to(m)
+        zonif_json = json.loads(zonif.to_json())
+        # Inyectar "label" en cada feature para que el tooltip compartido muestre el id de zona
+        for feature in zonif_json.get("features", []):
+            props = feature.get("properties", {})
+            props["label"] = props.get("id", "")
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                data=zonif_json,
+                id="zonas",
+                stroked=True,
+                filled=True,
+                get_fill_color=[0, 0, 255, 0],
+                get_line_color=[0, 0, 128, 180],
+                line_width_min_pixels=1,
+                pickable=True,
+                auto_highlight=True,
+            )
+        )
 
-    folium.LayerControl().add_to(m)
+    if not layers:
+        return None
 
-    if savefile:
-        m.save(savefile)
+    view_state = pdk.ViewState(latitude=latlon[0], longitude=latlon[1], zoom=9)
 
-    return m
+    return pdk.Deck(
+        layers=layers,
+        initial_view_state=view_state,
+        map_style="light",
+        tooltip={
+            "html": "<b>{label}</b><br/>{" + var_fex + "}",
+            "style": {"backgroundColor": "rgba(0,0,0,0.75)", "color": "white", "padding": "6px 10px", "borderRadius": "4px"},
+        },
+    )
 
 
 # Función para detectar cambios
@@ -381,7 +419,8 @@ with st.expander("Líneas de Deseo", expanded=True):
         "distancia_agregada",
         "socio_indicadores_all",
         "alias_seleccionado",
-        
+        "zona_click",
+        "map",
     ]
 
     variables_bool = [
@@ -519,6 +558,10 @@ with st.expander("Líneas de Deseo", expanded=True):
         st.session_state.viajes_seleccionado = vi_et_seleccion == "Viajes"
         st.session_state.etapas_seleccionada = vi_et_seleccion == "Etapas"
 
+        tipo_visualizacion = col1.radio(
+            "Tipo de visualización", options=["Líneas", "Arcos"], horizontal=True
+        )
+
         col3.write("Agregar Filtros")
         index_zona = valores_zonas.index(zona_seleccionada)
 
@@ -583,6 +626,18 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         mtabla = col2.checkbox("Mostrar tabla", value=False)
 
+        # Leer zona clickeada desde el estado pydeck (disponible tras on_select="rerun")
+        _pdk_state = st.session_state.get("map_pydeck", {})
+        if isinstance(_pdk_state, dict):
+            _sel_objs = _pdk_state.get("selection", {}).get("objects", {}).get("zonas", [])
+            if _sel_objs:
+                try:
+                    _clicked_id = _sel_objs[0]["properties"]["id"]
+                    if _clicked_id:
+                        st.session_state.zona_click = _clicked_id
+                except (KeyError, IndexError, TypeError):
+                    pass
+
         # Construye el diccionario de filtros actual
         current_filters = {
             "dia": None if dia_seleccionado == "Todos" else dia_seleccionado,
@@ -641,6 +696,8 @@ with st.expander("Líneas de Deseo", expanded=True):
             "resumen": st.session_state.resumen,
             "normalize": st.session_state.normalize,
             "mmatriz": st.session_state.mmatriz,
+            "tipo_visualizacion": tipo_visualizacion,
+            "zona_click": st.session_state.get("zona_click"),
         }
 
         # Solo cargar datos si hay cambios en los filtros
@@ -919,7 +976,6 @@ with st.expander("Líneas de Deseo", expanded=True):
                     current_filters, st.session_state.last_filters
                 )
             ):
-
                 # Actualiza los filtros en `session_state` para detectar cambios futuros
                 st.session_state.last_filters = current_filters.copy()
                 st.session_state.last_options = current_options.copy()
@@ -948,7 +1004,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                     origenes_seleccionado=st.session_state.origenes_seleccionado,
                     destinos_seleccionado=st.session_state.destinos_seleccionado,
                     transferencias_seleccionado=st.session_state.transferencias_seleccionado,
-                    mostrar_lineas_principales = mostrar_lineas_principales
+                    mostrar_lineas_principales=mostrar_lineas_principales,
                 )
 
                 if (
@@ -961,9 +1017,25 @@ with st.expander("Líneas de Deseo", expanded=True):
 
                     latlon = bring_latlon()
 
+                    # Filtrar por zona clickeada (solo para visualización, no modifica session_state)
+                    zona_click = st.session_state.get("zona_click")
+                    etapas_para_mapa = st.session_state.etapas
+                    viajes_para_mapa = st.session_state.viajes
+                    if zona_click:
+                        if len(etapas_para_mapa) > 0 and "inicio_norm" in etapas_para_mapa.columns:
+                            etapas_para_mapa = etapas_para_mapa[
+                                (etapas_para_mapa["inicio_norm"] == zona_click)
+                                | (etapas_para_mapa["fin_norm"] == zona_click)
+                            ]
+                        if len(viajes_para_mapa) > 0 and "inicio_norm" in viajes_para_mapa.columns:
+                            viajes_para_mapa = viajes_para_mapa[
+                                (viajes_para_mapa["inicio_norm"] == zona_click)
+                                | (viajes_para_mapa["fin_norm"] == zona_click)
+                            ]
+
                     st.session_state.map = crear_mapa_lineas_deseo(
-                        df_viajes=st.session_state.viajes,
-                        df_etapas=st.session_state.etapas,
+                        df_viajes=viajes_para_mapa,
+                        df_etapas=etapas_para_mapa,
                         zonif=zonif,
                         origenes=st.session_state.origenes,
                         destinos=st.session_state.destinos,
@@ -975,30 +1047,39 @@ with st.expander("Líneas de Deseo", expanded=True):
                         savefile="",
                         k_jenks=5,
                         latlon=latlon,
+                        tipo_visualizacion=tipo_visualizacion,
+                    )
+                else:
+                    st.session_state.map = None
+
+            # Renderizar siempre el mapa actual (fuera del condicional de datos)
+            if st.session_state.get("map"):
+                with col2:
+                    zona_click = st.session_state.get("zona_click")
+                    if zona_click:
+                        col_info, col_btn = col2.columns([4, 1])
+                        col_info.info(f"Filtro activo: zona **{zona_click}**")
+                        if col_btn.button("✕ Limpiar", key="btn_clear_zona"):
+                            st.session_state.zona_click = None
+                            st.rerun()
+
+                    st.pydeck_chart(
+                        st.session_state.map,
+                        key="map_pydeck",
+                        on_select="rerun",
+                        use_container_width=True,
+                        height=800,
                     )
 
-                    if st.session_state.map:
-                        with col2:
-                            folium_static(st.session_state.map, width=1000, height=800)
-                            # output = st_folium(st.session_state.map, width=1000, height=800, key='m', returned_objects=["center"])
-                        if mtabla:
-                            if len(st.session_state.etapas) > 0:
-                                col2.write("Etapas")
-                                # col2.dataframe(st.session_state.etapas[['inicio_norm',
-                                #                                         'transfer1_norm',
-                                #                                         'transfer2_norm',
-                                #                                         'fin_norm',
-                                #                                         'factor_expansion_linea']].rename(columns={'factor_expansion_linea':'Etapas'}))  #
-                                col2.write(st.session_state.etapas)
-                            if len(st.session_state.viajes) > 0:
-                                col2.write("Viajes")
-                                # col2.dataframe(st.session_state.viajes[['inicio_norm', 'fin_norm', 'factor_expansion_linea']].rename(columns={'factor_expansion_linea':'Viajes'})) #
-                                col2.write(st.session_state.viajes)
-
-                    else:
-                        col2.text("No hay datos suficientes para mostrar el mapa.")
-                else:
-                    col2.text("No hay datos suficientes para mostrar el mapa.")
+                if mtabla:
+                    if len(st.session_state.etapas) > 0:
+                        col2.write("Etapas")
+                        col2.write(st.session_state.etapas)
+                    if len(st.session_state.viajes) > 0:
+                        col2.write("Viajes")
+                        col2.write(st.session_state.viajes)
+            else:
+                col2.text("No hay datos suficientes para mostrar el mapa.")
 
 
 with st.expander("Matrices"):

@@ -12,6 +12,13 @@ from dash_utils import (
 from urbantrips.utils import utils
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
+from urbantrips.dashboard import get_dashboard_ctx
+
+
+@st.cache_resource
+def obtener_ctx():
+    """StorageContext de solo lectura, cacheado para toda la sesión."""
+    return get_dashboard_ctx()
 # except ImportError as e:
 #     st.error(
 #         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -216,6 +223,7 @@ with st.expander("Comparación de líneas", expanded=True):
                 comp_route_id,
                 "branches" if use_branches else "lines",
                 h3_res_comp,
+                obtener_ctx(),
             )
             st.session_state[
                 f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
@@ -232,7 +240,7 @@ with st.expander("Comparación de líneas", expanded=True):
         ]
 
         # Renderiza el primer mapa
-        f = ovl_viz.plot_interactive_supply_overlapping(overlapping_dict)
+        f = ovl_viz.plot_interactive_supply_overlapping(obtener_ctx(), overlapping_dict)
         # Muestra la salida solo en col1
         with col1:
             if f is not None:
@@ -266,6 +274,7 @@ with st.expander("Comparación de líneas", expanded=True):
                     comp_route_id,
                     base_gdf,
                     comp_gdf,
+                    obtener_ctx(),
                 )
                 st.session_state[
                     f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"

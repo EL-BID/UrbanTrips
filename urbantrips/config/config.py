@@ -117,9 +117,22 @@ def load_config(path: Path) -> Config:
 def _apply_legacy_defaults(known: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
     data = known.copy()
     alias_db = data.get("alias_db")
+    if not alias_db:
+        # Legacy configs may omit alias_db and rely on alias_db_insumos /
+        # corridas instead (mirrors dash_storage.resolve_db_aliases priority).
+        fallback = data.get("alias_db_insumos") or (
+            data["corridas"][0] if data.get("corridas") else None
+        )
+        if fallback:
+            data["alias_db"] = alias_db = fallback
     if alias_db:
         data.setdefault("alias_db_insumos", alias_db)
         data.setdefault("alias_db_dashboard", alias_db)
+    # Optional fields left blank in the YAML come through as None and would
+    # shadow the dataclass defaults; drop them so the defaults apply.
+    for opt in ("storage_backend", "n_batches", "parallel_workers"):
+        if data.get(opt) is None:
+            data.pop(opt, None)
     data.setdefault("nombre_archivo_trx", "[CORRIDA]_trx.csv")
     if raw.get("usa_archivo_gps", False):
         data.setdefault("nombre_archivo_gps", "[CORRIDA]_gps.csv")
@@ -155,5 +168,8 @@ def _validate_config_data(data: dict[str, Any], path: Path) -> None:
         raise ValueError("Config field 'tolerancia_parada_destino' must be numeric.")
 
     n_batches = data.get("n_batches", 1)
-    if not isinstance(n_batches, int) or n_batches < 1:
-        raise ValueError("Config field 'n_batches' must be an integer greater than 0.")
+    if not isinstance(n_batches, int) or n_batches < 0:
+        raise ValueError(
+            "Config field 'n_batches' must be a non-negative integer "
+            "(0, empty, or omitted means auto-tune from data and RAM)."
+        )

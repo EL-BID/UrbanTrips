@@ -494,9 +494,14 @@ def levanto_tabla_sql(
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, crs=4326)
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)        
         tabla = tabla.drop(["wkt"], axis=1)
+    if "geometry" in tabla.columns:
+        tabla = gpd.GeoDataFrame(
+            tabla,
+            geometry="geometry",
+            crs="EPSG:4326"
+        )
 
     tabla = normalize_vars(tabla)
 

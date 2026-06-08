@@ -511,7 +511,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             "poly_etapas", "dash", "SELECT DISTINCT rango_hora FROM poly_etapas;"
         )
         distancia_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT distancia FROM poly_etapas;"
+            "poly_etapas", "dash", "SELECT DISTINCT distance_od FROM poly_etapas;"
         )
         desc_poly_all_ = levanto_tabla_sql(
             "poly_etapas", "dash", "SELECT DISTINCT id_polygon FROM poly_etapas;"

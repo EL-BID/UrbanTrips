@@ -282,7 +282,7 @@ def compute_supply_overlapping(
 ):
     # Get route geoms
     route_geoms = read_routes(
-        route_ids=[base_route_id, comp_route_id], route_type=route_type
+        route_ids=[base_route_id, comp_route_id], route_type=route_type, ctx=ctx
     )
 
     # Crate linestring for each branch
