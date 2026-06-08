@@ -109,10 +109,20 @@ class DuckDBDataAdapter:
         self.close()
 
     def _apply_schema(self) -> None:
+        self._migrate_schema()
         for ddl in schema.ALL_TABLES:
             self._conn.execute(ddl)
         for ddl in schema.ALL_INDEXES:
             self._conn.execute(ddl)
+
+    def _migrate_schema(self) -> None:
+        # hora_inicio/hora_fin were incorrectly typed FLOAT; drop so CREATE TABLE rebuilds them as TEXT
+        row = self._conn.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'kpi_by_day_line_service' AND column_name = 'hora_inicio'"
+        ).fetchone()
+        if row and row[0].upper() != "TEXT":
+            self._conn.execute("DROP TABLE IF EXISTS kpi_by_day_line_service")
 
     # ── batch helpers ─────────────────────────────────────────────────────────
 
