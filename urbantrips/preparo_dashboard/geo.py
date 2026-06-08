@@ -38,14 +38,31 @@ def fix_mixed_polygons(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 def ensure_geodataframe(df, crs=4326):
     """
-    Reconstruye GeoDataFrames desde tablas raw, donde geometry puede volver como WKT.
+    Reconstruye GeoDataFrames desde tablas raw,
+    donde geometry puede venir como objeto shapely o WKT.
     """
-    if len(df) == 0 or not hasattr(df, "columns") or "geometry" not in df.columns:
-        return df
+
+    if df is None or len(df) == 0 or not hasattr(df, "columns"):
+        return gpd.GeoDataFrame(df, geometry=[], crs=crs)
+
     gdf = df.copy()
-    gdf["geometry"] = gdf["geometry"].apply(
-        lambda geom: wkt.loads(geom) if isinstance(geom, str) and geom.strip() else geom
-    )
+
+    # Si existe WKT pero no geometry
+    if "geometry" not in gdf.columns and "wkt" in gdf.columns:
+        gdf["geometry"] = gdf["wkt"].apply(
+            lambda x: wkt.loads(x) if isinstance(x, str) and x.strip() else None
+        )
+
+    # Si geometry viene como string WKT
+    elif "geometry" in gdf.columns:
+        gdf["geometry"] = gdf["geometry"].apply(
+            lambda x: wkt.loads(x) if isinstance(x, str) and x.strip() else x
+        )
+
+    # Si todavía no hay geometry
+    if "geometry" not in gdf.columns:
+        return gpd.GeoDataFrame(gdf, geometry=[], crs=crs)
+
     return gpd.GeoDataFrame(
         gdf,
         geometry="geometry",
@@ -127,41 +144,50 @@ def select_cases_from_polygons(etapas, viajes, polygons, res=8):
 
 
 def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
-    poly_sel = h3_to_geodataframe(polygons_h3, "h3")
+    # El consumidor (preparo_lineas_deseo, rama "cuenca") espera un h3 por fila
+    # llamado "h3_o" y, por cada zona, las columnas zona_{res}, lat_{res} y
+    # lon_{res}. polygons_h3 trae la columna "h3", la renombramos a "h3_o".
+    poly_sel = h3_to_geodataframe(polygons_h3, "h3").rename(columns={"h3": "h3_o"})
     poly_sel = fix_mixed_polygons(poly_sel)
     polygon = fix_mixed_polygons(polygon)
 
     poly_sel_all = pd.DataFrame([])
 
     if "res_" in res:
-        if True:
-            resol = int(res.replace("res_", ""))
-            i = f"res_{resol}"
-            poly_sel = poly_sel[["h3", "geometry"]].copy()
-            poly_sel[f"zona_{i}"] = [h3toparent(x, res=resol) for x in poly_sel["h3"]]
-            poly_2 = h3_to_geodataframe(poly_sel, f"zona_{i}")
-            poly_ovl = gpd.overlay(
-                poly_sel[["h3", "geometry"]],
-                poly_2,
-                how="intersection",
-                keep_geom_type=False,
-            )
+        resol = int(res.replace("res_", ""))
+        i = f"res_{resol}"
+        poly_sel = poly_sel[["h3_o", "geometry"]].copy()
+        poly_sel[f"zona_{i}"] = poly_sel["h3_o"].apply(h3toparent, res=resol)
+        poly_2 = h3_to_geodataframe(poly_sel, f"zona_{i}")
+        poly_ovl = gpd.overlay(
+            poly_sel[["h3_o", "geometry"]],
+            poly_2,
+            how="intersection",
+            keep_geom_type=False,
+        )
+        poly_ovl = poly_ovl.dissolve(by=f"zona_{i}", as_index=False)
+        poly_ovl = poly_ovl[poly_ovl.geom_type.isin(["Polygon", "MultiPolygon"])]
+        poly_ovl = gpd.overlay(
+            poly_ovl,
+            polygon[["geometry"]],
+            how="intersection",
+            keep_geom_type=False,
+        )
+        if len(poly_ovl) > 0:
+            # El recorte con el polígono de cuenca puede partir un hexágono padre
+            # en varias piezas: consolido a una fila por zona antes del centroide.
+            poly_ovl = fix_mixed_polygons(poly_ovl)
             poly_ovl = poly_ovl.dissolve(by=f"zona_{i}", as_index=False)
-            poly_ovl = poly_ovl[poly_ovl.geom_type.isin(["Polygon", "MultiPolygon"])]
-            poly_ovl = gpd.overlay(
-                poly_ovl,
-                polygon[["geometry"]],
-                how="intersection",
-                keep_geom_type=False,
+            poly_ovl["geometry"] = poly_ovl.geometry.to_crs(4326).representative_point()
+            poly_ovl[f"lat_{i}"] = poly_ovl.geometry.y
+            poly_ovl[f"lon_{i}"] = poly_ovl.geometry.x
+            poly_sel_all = poly_sel.merge(
+                poly_ovl[[f"zona_{i}", f"lat_{i}", f"lon_{i}"]],
+                on=f"zona_{i}",
+                how="left",
             )
-            if len(poly_ovl) > 0:
-                poly_ovl_agg = poly_ovl.dissolve(by=f"zona_{i}", as_index=False)
-                poly_ovl_agg = fix_mixed_polygons(poly_ovl_agg)
-                poly_ovl_agg = poly_ovl_agg.rename(columns={f"zona_{i}": "id"})
-                poly_ovl_agg["zona"] = i
-                poly_sel_all = pd.concat([poly_sel_all, poly_ovl_agg])
     else:
-        poly_sel = poly_sel[["h3", "geometry"]].copy()
+        poly_sel = poly_sel[["h3_o", "geometry"]].copy()
         poly_ovl = gpd.overlay(
             poly_sel,
             zonificaciones[zonificaciones.zona == res][["id", "geometry"]],
@@ -171,8 +197,26 @@ def creo_h3_equivalencias(polygons_h3, polygon, res, zonificaciones):
         if len(poly_ovl) > 0:
             poly_ovl_agg = poly_ovl.dissolve(by="id", as_index=False)
             poly_ovl_agg = fix_mixed_polygons(poly_ovl_agg)
-            poly_ovl_agg["zona"] = res
-            poly_sel_all = pd.concat([poly_sel_all, poly_ovl_agg])
+            poly_ovl_agg = gpd.overlay(
+                poly_ovl_agg,
+                polygon[["geometry"]],
+                how="intersection",
+                keep_geom_type=False,
+            )
+            if len(poly_ovl_agg) > 0:
+                poly_ovl_agg = poly_ovl_agg.dissolve(by="id", as_index=False)
+                poly_ovl_agg["geometry"] = poly_ovl_agg.geometry.representative_point()
+                poly_ovl_agg[f"lat_{res}"] = poly_ovl_agg.geometry.y
+                poly_ovl_agg[f"lon_{res}"] = poly_ovl_agg.geometry.x
+                poly_ovl_agg[f"zona_{res}"] = poly_ovl_agg.id
+
+                poly_sel_all = poly_ovl.merge(
+                    poly_ovl_agg[
+                        ["id", f"zona_{res}", f"lat_{res}", f"lon_{res}"]
+                    ],
+                    on="id",
+                    how="left",
+                )
 
     return poly_sel_all
 

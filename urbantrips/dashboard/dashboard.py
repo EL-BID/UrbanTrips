@@ -59,6 +59,7 @@ alias_seleccionado = configurar_selector_dia()
 col1, col2, col3 = st.columns([1, 3, 3])
 
 indicadores = levanto_tabla_sql("indicadores", "data")
+
 indicadores = formatear_columnas_numericas(indicadores, ['porcentaje'], False)
 
 if len(indicadores) > 0:

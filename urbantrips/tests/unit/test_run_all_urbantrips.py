@@ -1,4 +1,6 @@
-from urbantrips.utils.run_process import _get_n_batches, _resolve_n_batches
+import pytest
+
+from urbantrips.utils.run_process import _resolve_n_batches
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.adapters.memory.adapters import (
     InMemoryDashAdapter,
@@ -8,26 +10,10 @@ from urbantrips.storage.adapters.memory.adapters import (
 )
 
 
-def test_get_n_batches_reads_from_config(monkeypatch):
-    monkeypatch.setattr(
-        "urbantrips.utils.run_process.leer_configs_generales",
-        lambda: {"n_batches": 15},
-    )
-    assert _get_n_batches() == 15
-
-
-def test_get_n_batches_defaults_to_30_when_missing(monkeypatch):
-    monkeypatch.setattr(
-        "urbantrips.utils.run_process.leer_configs_generales",
-        lambda: {},
-    )
-    assert _get_n_batches() == 30
-
-
 def test_resolve_n_batches_uses_config_when_set(monkeypatch):
     monkeypatch.setattr(
         "urbantrips.utils.run_process.leer_configs_generales",
-        lambda: {"n_batches": 42},
+        lambda *args, **kwargs: {"n_batches": 42},
     )
 
     class _Ctx:
@@ -36,21 +22,21 @@ def test_resolve_n_batches_uses_config_when_set(monkeypatch):
     assert _resolve_n_batches(_Ctx()) == 42
 
 
-def test_resolve_n_batches_auto_tunes_when_not_configured(monkeypatch):
+@pytest.mark.parametrize("raw", [None, "", 0])
+def test_resolve_n_batches_auto_when_null_empty_or_zero(monkeypatch, raw):
+    """A null/empty value or 0 all fall back to auto-resolution."""
     import pandas as pd
     from urbantrips.utils import run_process
 
     monkeypatch.setattr(
         "urbantrips.utils.run_process.leer_configs_generales",
-        lambda: {},  # no n_batches key
+        lambda *args, **kwargs: {"n_batches": raw},
     )
 
     class _Data:
         def query(self, sql):
-            if "COUNT(*)" in sql:
-                return pd.DataFrame({"n": [100_000]})
-            # sample rows: 10 columns of int64 → ~80 bytes/row
-            return pd.DataFrame({f"c{i}": range(10_000) for i in range(10)})
+            # nothing stamped yet → MAX(batch_id) is NULL → auto-tune path
+            return pd.DataFrame({"m": [None]})
 
     class _Ctx:
         data = _Data()
@@ -62,6 +48,62 @@ def test_resolve_n_batches_auto_tunes_when_not_configured(monkeypatch):
     )
 
     assert _resolve_n_batches(_Ctx()) == 99
+
+
+def test_resolve_n_batches_missing_key_auto(monkeypatch):
+    """A config with no n_batches key falls back to auto-resolution."""
+    import pandas as pd
+    from urbantrips.utils import run_process
+
+    monkeypatch.setattr(
+        "urbantrips.utils.run_process.leer_configs_generales",
+        lambda *args, **kwargs: {},  # no n_batches key
+    )
+
+    class _Data:
+        def query(self, sql):
+            return pd.DataFrame({"m": [None]})  # nothing stamped
+
+    class _Ctx:
+        data = _Data()
+
+    monkeypatch.setattr(
+        run_process,
+        "_auto_n_batches",
+        lambda ctx, safety_factor=0.4: 99,
+    )
+
+    assert _resolve_n_batches(_Ctx()) == 99
+
+
+def test_resolve_n_batches_inherits_stamped_partition(monkeypatch):
+    """When auto and transacciones is already stamped, reuse MAX(batch_id) + 1."""
+    import pandas as pd
+    from urbantrips.utils import run_process
+
+    monkeypatch.setattr(
+        "urbantrips.utils.run_process.leer_configs_generales",
+        lambda *args, **kwargs: {},  # auto mode
+    )
+
+    auto_calls = []
+
+    class _Data:
+        def query(self, sql):
+            # transacciones stamped with batch_ids 0..29 → MAX = 29
+            return pd.DataFrame({"m": [29]})
+
+    class _Ctx:
+        data = _Data()
+
+    monkeypatch.setattr(
+        run_process,
+        "_auto_n_batches",
+        lambda ctx, safety_factor=0.4: auto_calls.append(1) or 99,
+    )
+
+    assert _resolve_n_batches(_Ctx()) == 30  # 29 + 1, not the auto-tuned 99
+    assert auto_calls == []  # stamped count wins, auto-tune never runs
 
 
 def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
@@ -99,6 +141,7 @@ def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
         "tipo_trx_invalidas": None,
         "lineas_contienen_ramales": True,
         "nombre_archivo_trx": "20251015_trx.csv",
+        "usa_archivo_gps": True,
         "nombre_archivo_gps": "20251015_gps.csv",
         "nombres_variables_gps": {},
         "n_batches": 30,
@@ -108,7 +151,9 @@ def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
         "urbantrips.utils.check_configs.check_config",
         lambda corrida: calls.append(("check_config", corrida)),
     )
-    monkeypatch.setattr(run_process, "leer_configs_generales", lambda: config)
+    monkeypatch.setattr(
+        run_process, "leer_configs_generales", lambda *args, **kwargs: config
+    )
     monkeypatch.setattr(
         "urbantrips.datamodel.ingestion.ingest_day_csv",
         lambda **kwargs: calls.append(("ingest_day_csv", kwargs["csv_path"])),
@@ -146,7 +191,6 @@ def test_run_all_splits_batch_and_global_phases(monkeypatch):
 
     monkeypatch.setattr(run_process, "borrar_corridas", lambda *args, **kwargs: None)
     monkeypatch.setattr(run_process, "inicializo_ambiente", lambda ctx: ["run01"])
-    monkeypatch.setattr(run_process, "_get_n_batches", lambda: 2)
     monkeypatch.setattr(
         "urbantrips.utils.utils.leer_configs_generales",
         lambda *args, **kwargs: config,

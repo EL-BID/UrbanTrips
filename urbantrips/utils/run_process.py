@@ -172,9 +172,18 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
                     logger.info("Se borró %s", p)
 
 
-def _get_n_batches() -> int:
+def _configured_n_batches() -> int | None:
+    """Return n_batches from config when explicitly set to a positive int.
+
+    A missing key, a null/empty value, or 0 all mean "not configured" and make
+    the caller fall back to auto-resolution.
+    """
     configs = leer_configs_generales(autogenerado=False)
-    return int(configs.get("n_batches", 30))
+    raw = configs.get("n_batches")
+    if raw is None or raw == "":
+        return None
+    n = int(raw)
+    return n if n > 0 else None
 
 
 def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
@@ -188,14 +197,14 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
     )
 
     total_rows = ctx.data.query(
-        "SELECT COUNT(*) AS n FROM transacciones"
+        "SELECT COUNT(*) AS n FROM transacciones_raw"
     ).iloc[0, 0]
 
     if total_rows == 0:
-        logger.info("[n_batches] No transactions found — using 1 batch")
+        logger.info("[n_batches] No raw transactions found — using 1 batch")
         return 1
 
-    sample = ctx.data.query("SELECT * FROM transacciones LIMIT 10000")
+    sample = ctx.data.query("SELECT * FROM transacciones_raw LIMIT 10000")
     bytes_per_row = sample.memory_usage(deep=True).sum() / max(len(sample), 1)
     total_mb = total_rows * bytes_per_row / 1e6
     cpu_workers = max(multiprocessing.cpu_count() - 1, 1)
@@ -219,20 +228,38 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
 
 
 def _resolve_n_batches(ctx: StorageContext) -> int:
-    """Return configured n_batches if set, otherwise auto-tune from available RAM."""
-    import psutil
+    """Single source of truth for the batch count, shared by ingest and legs.
 
-    configs = leer_configs_generales(autogenerado=False)
-    if "n_batches" in configs:
-        n = int(configs["n_batches"])
-        vm = psutil.virtual_memory()
+    Resolution order:
+    1. Explicit positive int in config → use it verbatim.
+    2. Otherwise (key missing, null/empty, or 0) auto-resolve:
+       a. If transacciones already carries stamped batch_ids, reuse that exact
+          partition count (MAX(batch_id) + 1). This keeps the legs phase — and
+          incremental re-ingests — consistent with whatever ingest stamped, even
+          across separate process invocations, so no batch is left unread.
+       b. On a fresh database (nothing stamped yet) auto-tune from the raw rows
+          about to be standardized and the available RAM.
+    """
+    n = _configured_n_batches()
+    if n is not None:
+        logger.info("[n_batches] Using configured value: %d", n)
+        return n
+
+    stamped = ctx.data.query(
+        "SELECT MAX(batch_id) AS m FROM transacciones"
+    ).iloc[0, 0]
+    if not pd.isna(stamped):
+        n = int(stamped) + 1
         logger.info(
-            "[n_batches] Using configured value: %d"
-            " (available RAM: %.1f GB — auto-tune skipped)",
-            n, vm.available / 1e9,
+            "[n_batches] No n_batches in config — inheriting stamped partition"
+            " count from transacciones: %d batches", n,
         )
         return n
-    logger.info("[n_batches] No n_batches in config — auto-tuning from available RAM")
+
+    logger.info(
+        "[n_batches] No n_batches in config and nothing stamped yet —"
+        " auto-tuning from raw data and available RAM"
+    )
     return _auto_n_batches(ctx)
 
 
@@ -282,7 +309,7 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             if usa_gps:
                 gps_corridas.append(corrida)
 
-        n_batches = _get_n_batches()
+        n_batches = _resolve_n_batches(ctx)
         id_offset = ctx.data.get_max_id("transacciones")
         logger.info("[Phase 1] Standardizing raw → transacciones (n_batches=%d)", n_batches)
         ctx.data.standardize_raw_to_transacciones(n_batches=n_batches, id_offset=id_offset)

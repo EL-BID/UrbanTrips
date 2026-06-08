@@ -2625,7 +2625,7 @@ def proceso_lineas_deseo(
 
 @duracion
 def preparo_indicadores_dash(
-    ctx: StorageContext,
+    ctx: StorageContext | None = None,
     corrida="",
     lineas_deseo=True,
     poligonos=True,
@@ -2633,6 +2633,7 @@ def preparo_indicadores_dash(
     resoluciones=[6],
     poligon_id="",
 ):
+
     guardo_zonificaciones(ctx)
 
     zonificaciones = ctx.insumos.get_raw("zonificaciones")
@@ -2649,6 +2650,7 @@ def preparo_indicadores_dash(
             equivalencias_zonas=equivalencias_zonas,
             resoluciones=resoluciones,
         )
+
     if poligonos:
         proceso_poligonos(
             ctx,

@@ -2,6 +2,7 @@ import logging
 import folium
 import mapclassify
 import os
+import duckdb
 import pandas as pd
 import geopandas as gpd
 from requests.exceptions import ConnectionError as r_ConnectionError
@@ -102,7 +103,17 @@ def get_lines_od_matrix_data(
     q += hour_where
     q += f"and day_type = '{day_type}'"
 
-    od_lines = ctx.data.query(q)
+    try:
+        od_lines = ctx.data.query(q)
+    except duckdb.CatalogException:
+        # The table only exists once compute_lines_od_matrix has written rows;
+        # if no legs/route geoms matched, it was never created. Treat that as
+        # "no data" instead of crashing the dashboard.
+        logger.info(
+            "La tabla lines_od_matrix_by_section no existe todavía "
+            "(no se generaron datos para esas líneas/parámetros)."
+        )
+        return None
 
     if section_meters is not None:
         line_sections = get_route_n_sections_from_sections_meters(

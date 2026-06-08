@@ -42,6 +42,7 @@ dependencies = [
     "statsmodels>=0.14.4",
     "streamlit==1.40.1",
     "streamlit_folium==0.23.2",
+    "pydeck==0.9.1",
     "weightedstats==0.4.1",
     "osmnet==0.1.7",
     "anyio==4.6.2.post1",

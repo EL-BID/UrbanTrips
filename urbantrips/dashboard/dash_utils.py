@@ -141,6 +141,44 @@ def weighted_mean(series, weights):
 
 
 
+# def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
+#     if alias_db and not alias_db.endswith("_"):
+#         alias_db += "_"
+
+#     if len(query) == 0:
+#         tabla_sql = validate_table_name(tabla_sql)
+#         query = f"SELECT * FROM {tabla_sql}"
+
+#     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+
+#     try:
+#         tabla = _fetch_sql_dataframe(conn, query, params=params)
+#     except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
+#         error_message = str(e).lower()
+#         if "no such table" in error_message or "does not exist" in error_message:
+#             logger.warning("La tabla '%s' no existe.", tabla_sql)
+#             tabla = pd.DataFrame([])
+#         else:
+#             raise
+#     finally:
+#         conn.close()
+
+#     if "wkt" in tabla.columns and not tabla.empty:
+#         tabla["geometry"] = tabla.wkt.apply(wkt.loads)        
+#         tabla = tabla.drop(["wkt"], axis=1)
+#     if "geometry" in tabla.columns:
+#         tabla = gpd.GeoDataFrame(
+#             tabla,
+#             geometry="geometry",
+#             crs="EPSG:4326"
+#         )
+
+#     tabla = normalize_vars(tabla)
+
+#     return tabla
+from shapely import wkt
+from shapely.geometry.base import BaseGeometry
+
 def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
@@ -164,14 +202,33 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
         conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, crs=4326)
-        tabla = tabla.drop(["wkt"], axis=1)
+        tabla["geometry"] = tabla["wkt"].apply(wkt.loads)
+        tabla = tabla.drop(columns=["wkt"])
+
+    elif "geometry" in tabla.columns and not tabla.empty:
+        sample_geom = tabla["geometry"].dropna().iloc[0] if tabla["geometry"].notna().any() else None
+
+        if isinstance(sample_geom, str):
+            tabla["geometry"] = tabla["geometry"].apply(
+                lambda x: wkt.loads(x) if pd.notna(x) else None
+            )
+
+        elif sample_geom is not None and not isinstance(sample_geom, BaseGeometry):
+            raise TypeError(
+                f"La columna geometry existe pero no contiene geometrías válidas. "
+                f"Tipo detectado: {type(sample_geom)}"
+            )
+
+    if "geometry" in tabla.columns and not tabla.empty:
+        tabla = gpd.GeoDataFrame(
+            tabla,
+            geometry="geometry",
+            crs="EPSG:4326"
+        )
 
     tabla = normalize_vars(tabla)
 
     return tabla
-
 
 @st.cache_data
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
@@ -1272,45 +1329,45 @@ def traer_dias_disponibles():
 
 def configurar_selector_dia():
 
-    dias_disponibles = traer_dias_disponibles()
+    # dias_disponibles = traer_dias_disponibles()
 
-    if len(dias_disponibles) > 1:
+    # if len(dias_disponibles) > 1:
 
-        # Inicialización una única vez
-        if "dia_seleccionado" not in st.session_state:
-            st.session_state.dia_seleccionado = dias_disponibles[0]
-            st.session_state.dia_anterior = dias_disponibles[0]
+    #     # Inicialización una única vez
+    #     if "dia_seleccionado" not in st.session_state:
+    #         st.session_state.dia_seleccionado = dias_disponibles[0]
+    #         st.session_state.dia_anterior = dias_disponibles[0]
 
-        # Sidebar con lógica aislada, sin pisar valores
-        with st.sidebar:
-            seleccion = st.selectbox(
-                "Seleccioná un día",
-                dias_disponibles,
-                index=dias_disponibles.index(st.session_state.dia_seleccionado),
-                key="__selector_dia",  # distinto del nombre en session_state
-            )
+    #     # Sidebar con lógica aislada, sin pisar valores
+    #     with st.sidebar:
+    #         seleccion = st.selectbox(
+    #             "Seleccioná un día",
+    #             dias_disponibles,
+    #             index=dias_disponibles.index(st.session_state.dia_seleccionado),
+    #             key="__selector_dia",  # distinto del nombre en session_state
+    #         )
 
-        # Si la selección cambió, actualizar estado y reiniciar app
-        if seleccion != st.session_state.dia_anterior:
-            st.session_state.dia_seleccionado = seleccion
-            st.session_state.dia_anterior = seleccion
-            st.cache_data.clear()
-            st.rerun()
-    else:
-        seleccion = dias_disponibles[0]
+    #     # Si la selección cambió, actualizar estado y reiniciar app
+    #     if seleccion != st.session_state.dia_anterior:
+    #         st.session_state.dia_seleccionado = seleccion
+    #         st.session_state.dia_anterior = seleccion
+    #         st.cache_data.clear()
+    #         st.rerun()
+    # else:
+    #     seleccion = dias_disponibles[0]
 
-    base_path = Path() / 'configs'
-    autogen_dir = base_path / "autogenerados"
-    archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
+    # base_path = Path() / 'configs'
+    # autogen_dir = base_path / "autogenerados"
+    # archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
     
-    # Verificar que existan el directorio y el archivo
-    if autogen_dir.exists() and archivo_autogen.exists():
-        destino = base_path / "configuraciones_generales_autogenerado.yaml"
-        shutil.copy(archivo_autogen, destino)
-        logger.info("Archivo %s copiado", archivo_autogen)
-    else:
-        logger.warning("No existe el directorio 'autogenerados' o el archivo especificado.")
-        
+    # # Verificar que existan el directorio y el archivo
+    # if autogen_dir.exists() and archivo_autogen.exists():
+    #     destino = base_path / "configuraciones_generales_autogenerado.yaml"
+    #     shutil.copy(archivo_autogen, destino)
+    #     logger.info("Archivo %s copiado", archivo_autogen)
+    # else:
+    #     logger.warning("No existe el directorio 'autogenerados' o el archivo especificado.")
+    seleccion = ''
     return seleccion
 
 def tabla_existe(conn, table_name):
