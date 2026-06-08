@@ -18,7 +18,7 @@ from dash_utils import (
 
 from itertools import combinations
 import squarify
-from matplotlib_venn import venn3
+from matplotlib_venn import venn2, venn3
 import matplotlib.pyplot as plt
 
 
@@ -68,18 +68,6 @@ def calculate_subset_sizes(df, cols_dummies):
     }
 
 
-# Extract subset sizes for Venn diagram
-def get_venn_subsets(subset_sizes):
-    return (
-        subset_sizes.get((1, 0, 0), 0),  # Only 'train'
-        subset_sizes.get((0, 1, 0), 0),  # Only 'subway'
-        subset_sizes.get((1, 1, 0), 0),  # 'train' and 'subway'
-        subset_sizes.get((0, 0, 1), 0),  # Only 'bus'
-        subset_sizes.get((1, 0, 1), 0),  # 'train' and 'bus'
-        subset_sizes.get((0, 1, 1), 0),  # 'subway' and 'bus'
-        subset_sizes.get((1, 1, 1), 0),  # 'train', 'subway', and 'bus'
-    )
-
 
 # Plot Venn diagram
 def plot_venn_diagram(etapas_modos):
@@ -97,7 +85,7 @@ def plot_venn_diagram(etapas_modos):
             "factor_expansion_linea",
         ]
     ]
-
+    
     cols_tmp = []
     for i in cols_dummies:
         etapas_modos[f"{i}_tmp"] = (
@@ -129,12 +117,14 @@ def plot_venn_diagram(etapas_modos):
         weight_column="factor_expansion_linea",
         as_percentage=True,
     )
+
     absolute_values_first3 = calculate_weighted_values(
         etapas_modos,
         cols_dummies_first3,
         weight_column="factor_expansion_linea",
         as_percentage=False,
     )
+    
     percentage_values_first3 = calculate_weighted_values(
         etapas_modos,
         cols_dummies_first3,
@@ -161,17 +151,34 @@ def plot_venn_diagram(etapas_modos):
         modal_etapas["Cantidad"] / modal_etapas["Cantidad"].sum() * 100
     ).round(1)
     modal_etapas = modal_etapas.sort_values("Cantidad", ascending=False)
-
-    venn_subsets = get_venn_subsets(percentage_values_first3)
+    
+    n_modes = len(cols_dummies_first3)  
+    
+    venn_subsets = get_venn_subsets(percentage_values_first3, n_modes)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+   
 
-    # Left subplot: Venn3
-    venn3(
-        subsets=venn_subsets,
-        set_labels=[activity.capitalize() for activity in cols_dummies_first3],
-        ax=ax1,
-    )
+    if n_modes == 2:
+        venn2(
+            subsets=venn_subsets,
+            set_labels=[m.capitalize() for m in cols_dummies_first3],
+            ax=ax1,
+        )
+    elif n_modes == 3:
+        venn3(
+            subsets=venn_subsets,
+            set_labels=[m.capitalize() for m in cols_dummies_first3],
+            ax=ax1,
+        )
+    else:
+        # 1 solo modo: mostrar barra simple o texto
+        ax1.barh([cols_dummies_first3[0]], [100], color="#AED6F1")
+        ax1.set_xlim(0, 100)
+        ax1.set_xlabel("%")
+        ax1.set_title("Partición modal (%) — modo único")
+    
+    
     ax1.set_title("Partición modal (%)")
 
     # Identificar multimodal (más de un modo utilizado)
@@ -250,17 +257,51 @@ def plot_venn_diagram(etapas_modos):
         )
     else:
 
+    #     total = sum(filtered_values)
+    #     normalized_values = [(v / total) * 100 for v in filtered_values]
+
+    #     squarify.plot(
+    #         sizes=filtered_values,
+    #         label=filtered_labels,
+    #         color=fixed_palette[: len(filtered_values)],
+    #         text_kwargs={"fontsize": 10, "color": "black"},
+    #         ax=ax2,
+    #     )
+    # ax2.axis("off")
+        # Umbral: rectángulos menores a X% no llevan etiqueta interna
+        LABEL_THRESHOLD = 5  # porcentaje
+
         total = sum(filtered_values)
-        normalized_values = [(v / total) * 100 for v in filtered_values]
+        labels_display = [
+            label if (val / total * 100) >= LABEL_THRESHOLD else ""
+            for val, label in zip(filtered_values, filtered_labels)
+        ]
 
         squarify.plot(
             sizes=filtered_values,
-            label=filtered_labels,
+            label=labels_display,
             color=fixed_palette[: len(filtered_values)],
             text_kwargs={"fontsize": 10, "color": "black"},
             ax=ax2,
         )
-    ax2.axis("off")
+
+        # Leyenda para los que quedaron sin etiqueta
+        legend_patches = [
+            plt.Rectangle((0, 0), 1, 1, color=fixed_palette[i], label=filtered_labels[i])
+            for i, (val, label) in enumerate(zip(filtered_values, filtered_labels))
+            if (val / total * 100) < LABEL_THRESHOLD
+        ]
+        if legend_patches:
+            ax2.legend(
+                handles=legend_patches,
+                loc="lower center",
+                bbox_to_anchor=(0.5, -0.08),
+                ncol=len(legend_patches),
+                fontsize=10,
+                frameon=False,
+            )
+
+        ax2.axis("off")
 
     plt.tight_layout()
     plt.show()
@@ -427,7 +468,7 @@ def traigo_socio_indicadores(socio_indicadores):
 
         avg_distances = (
             pd.crosstab(
-                values=df.Distancia,
+                values=df.distance_od,
                 columns=df.genero_agregado,
                 index=df.tarifa_agregada,
                 margins=True,
@@ -570,6 +611,25 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
 
     return fig
 
+def get_venn_subsets(subset_sizes, n_modes):
+    if n_modes == 1:
+        return ()
+    elif n_modes == 2:
+        return (
+            subset_sizes.get((1, 0), 0),  # Solo modo 1
+            subset_sizes.get((0, 1), 0),  # Solo modo 2
+            subset_sizes.get((1, 1), 0),  # Ambos
+        )
+    else:  # 3 modos
+        return (
+            subset_sizes.get((1, 0, 0), 0),
+            subset_sizes.get((0, 1, 0), 0),
+            subset_sizes.get((1, 1, 0), 0),
+            subset_sizes.get((0, 0, 1), 0),
+            subset_sizes.get((1, 0, 1), 0),
+            subset_sizes.get((0, 1, 1), 0),
+            subset_sizes.get((1, 1, 1), 0),
+        )
 
 
 st.set_page_config(layout="wide")
@@ -705,6 +765,11 @@ with st.expander("Género y tarifas"):
         ].copy()
 
     else:
+        desc_tipo_dia = col1.selectbox(
+            "Tipo de día",
+            options=socio_indicadores.tipo_dia.dropna().unique(),
+            key="desc_tipo_dia",
+        )
         st.session_state.socio_indicadores_ = socio_indicadores[
             (socio_indicadores.tipo_dia == desc_tipo_dia)
         ].copy()

@@ -1,5 +1,5 @@
-import pandas as pd
 import streamlit as st
+from dash_storage import leer_configs_generales
 from dash_utils import (
     levanto_tabla_sql,
     get_logo,
@@ -9,9 +9,6 @@ from dash_utils import (
     extract_hex_colors_from_cmap,
     levanto_tabla_sql_local,
     configurar_selector_dia,
-    leer_configs_generales,
-    iniciar_conexion_db,
-    get_logo,
 )
 
 
@@ -22,7 +19,6 @@ from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
 from urbantrips.viz.line_od_matrix import visualize_lines_od_matrix
 from urbantrips.kpi.supply_kpi import compute_route_section_supply
 from urbantrips.viz.section_supply import visualize_route_section_supply_data
-from urbantrips.utils.utils import iniciar_conexion_db
 from urbantrips.utils import utils
 from urbantrips.utils.check_configs import check_config
 # except ImportError as e:
@@ -35,16 +31,14 @@ from urbantrips.utils.check_configs import check_config
 # --- Función para levantar tablas SQL y almacenar en session_state ---
 def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
     if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        conn = iniciar_conexion_db(tipo=tipo_conexion)
-        try:
-            query = query or f"SELECT * FROM {tabla_sql}"
-            tabla = pd.read_sql_query(query, conn)
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-        except Exception:
+        tabla = utils.levanto_tabla_sql(
+            tabla_sql,
+            tabla_tipo=tipo_conexion,
+            query=query,
+        )
+        if tabla.empty:
             st.error(f"{tabla_sql} no existe")
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = pd.DataFrame()
-        finally:
-            conn.close()
+        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
     return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
 
@@ -108,7 +102,6 @@ try:
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
     ]
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
 
 except ValueError as e:
     st.error(

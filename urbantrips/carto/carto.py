@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 import networkx as nx
 import multiprocessing
@@ -12,8 +13,8 @@ import os
 import geopandas as gpd
 import h3
 from shapely.geometry import Point, LineString, MultiPolygon, Polygon, shape
+from shapely.geometry.base import BaseGeometry
 from networkx import NetworkXNoPath
-from pandana.loaders import osm as osm_pandana
 from urbantrips.geo.geo import (
     get_stop_hex_ring,
     h3togeo,
@@ -26,24 +27,57 @@ from urbantrips.geo.geo import (
 )
 import warnings
 
-warnings.filterwarnings(
-    "ignore",
-    message="Unsigned integer: shortest path distance is trying to be calculated",
-    category=UserWarning,
-    module="pandana.network",
-)
+try:
+    from pandana.loaders import osm as osm_pandana  # noqa: F401
+    warnings.filterwarnings(
+        "ignore",
+        message="Unsigned integer: shortest path distance is trying to be calculated",
+        category=UserWarning,
+        module="pandana.network",
+    )
+except ImportError:
+    pass
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db,
     leer_configs_generales,
     leer_alias,
-    levanto_tabla_sql,
-    guardar_tabla_sql,
 )
+from urbantrips.storage.context import StorageContext
 
 import subprocess
 from math import floor
 from shapely import wkt
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_zone_ids(ids):
+    """Cast zone IDs to strings without float artifacts like '123.0'."""
+    numeric_ids = pd.to_numeric(ids, errors="coerce")
+    integral_numeric = numeric_ids.notna() & np.isclose(
+        numeric_ids, np.floor(numeric_ids)
+    )
+    normalized = ids.astype(str)
+    normalized.loc[integral_numeric] = (
+        numeric_ids.loc[integral_numeric].astype("Int64").astype(str)
+    )
+    return normalized
+
+
+def _with_wkt_geometry(df):
+    """Return a plain DataFrame with geometry values serialized to WKT."""
+    out = pd.DataFrame(df.copy())
+    if "geometry" not in out.columns:
+        return out
+
+    geometry_dtype = getattr(df.dtypes.get("geometry"), "name", None)
+    if geometry_dtype == "geometry":
+        out["geometry"] = df["geometry"].to_wkt()
+    else:
+        out["geometry"] = out["geometry"].map(
+            lambda geom: geom.wkt if isinstance(geom, BaseGeometry) else geom
+        )
+    return out
 
 
 def create_route_section_ids(n_sections):
@@ -78,29 +112,21 @@ def get_library_version(library_name):
 
 
 @duracion
-def update_stations_catchment_area(ring_size):
+def update_stations_catchment_area(ring_size, ctx: StorageContext):
     """
     Esta funcion toma la matriz de validacion de paradas
     y la actualiza en base a datos de fechas que no esten
     ya en la matriz
     """
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
     # Leer las paradas en base a las etapas
     q = """
-    select id_linea,h3_o as parada from etapas
+    select id_linea, h3_o as parada from etapas
     """
-    paradas_etapas = pd.read_sql(q, conn_data)
-    metadata_lineas = pd.read_sql_query(
-        """
-        SELECT *
-        FROM metadata_lineas
-        """,
-        conn_insumos,
-    )
+    paradas_etapas = ctx.data.query(q)
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    paradas_etapas = paradas_etapas[
+        paradas_etapas["parada"].map(lambda cell: isinstance(cell, str) and h3.is_valid_cell(cell))
+    ].copy()
 
     paradas_etapas = paradas_etapas.merge(
         metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
@@ -113,13 +139,21 @@ def update_stations_catchment_area(ring_size):
     paradas_etapas = paradas_etapas[(paradas_etapas["size"] > 1)].drop(["size"], axis=1)
 
     # filtrar paradas solo los que estan en recorridos h3
-    q = """  
-    select distinct mr.id_linea as id_linea_agg, obgh.h3 as parada
-    from official_branches_geoms_h3 obgh 
-    inner join metadata_ramales mr 
-    ON obgh.id_ramal = mr.id_ramal
-    """
-    h3_recorridos = pd.read_sql(q, conn_insumos)
+    obgh = ctx.insumos.get_raw("official_branches_geoms_h3")
+    mr = ctx.insumos.get_metadata_ramales()
+
+    if not obgh.empty and not mr.empty:
+        obgh = obgh.copy()
+        obgh["id_ramal"] = obgh["id_ramal"].astype("int64")
+        h3_recorridos = (
+            obgh[["id_ramal", "h3"]]
+            .merge(mr[["id_ramal", "id_linea"]], on="id_ramal")
+            [["id_linea", "h3"]]
+            .rename(columns={"id_linea": "id_linea_agg", "h3": "parada"})
+            .drop_duplicates()
+        )
+    else:
+        h3_recorridos = pd.DataFrame(columns=["id_linea_agg", "parada"])
 
     if len(h3_recorridos) > 0:
         h3_recorridos["parada_en_recorridos"] = True
@@ -140,17 +174,23 @@ def update_stations_catchment_area(ring_size):
         )
 
         paradas_pre = len(paradas_etapas)
-        print("Paradas antes de eliminar por recorridos", paradas_pre)
+        logger.debug("Paradas antes de eliminar por recorridos: %d", paradas_pre)
         paradas_etapas = paradas_etapas.loc[
             ~paradas_etapas.borrar, ["id_linea_agg", "parada"]
         ]
-        print(f"Eliminadas {paradas_pre - len(paradas_etapas)} paradas sin recorridos")
+        logger.debug("Eliminadas %d paradas sin recorridos", paradas_pre - len(paradas_etapas))
 
     # Leer las paradas ya existentes en la matriz
-    q = """
-    select distinct id_linea_agg, parada, 1 as m from matriz_validacion
-    """
-    paradas_en_matriz = pd.read_sql(q, conn_insumos)
+    paradas_en_matriz = ctx.insumos.get_matrix_validation()
+    if not paradas_en_matriz.empty:
+        paradas_en_matriz = (
+            paradas_en_matriz[["id_linea_agg", "parada"]]
+            .drop_duplicates()
+            .copy()
+        )
+        paradas_en_matriz["m"] = 1
+    else:
+        paradas_en_matriz = pd.DataFrame(columns=["id_linea_agg", "parada", "m"])
 
     # Detectar que paradas son nuevas para cada linea
     paradas_nuevas = paradas_etapas.merge(
@@ -174,97 +214,63 @@ def update_stations_catchment_area(ring_size):
             areas_influencia_nuevas, how="left", on="parada"
         )
 
-        # Subir a la db
-        # print("Subiendo matriz a db")
-        matriz_nueva.to_sql(
-            "matriz_validacion", conn_insumos, if_exists="append", index=False
-        )
-        print("Fin actualizacion matriz de validacion")
+        ctx.insumos.append_raw(matriz_nueva, "matriz_validacion")
+        logger.info("Fin actualizacion matriz de validacion")
     else:
-        print(
+        logger.info(
             "La matriz de validacion ya tiene los datos más actuales"
-            + " en base a la informacion existente en la tabla de etapas"
+            " en base a la informacion existente en la tabla de etapas"
         )
 
-    conn_data.close()
-    conn_insumos.close()
     return None
 
 
-def guardo_zonificaciones():
-    """
-    Processes and updates zoning information in the database based on configuration
-    files and geospatial data.
-    This function performs the following tasks:
-    - Reads general configuration settings to determine zoning files and variables.
-    - Loads and processes multiple zoning GeoJSON files, extracting relevant columns
-      and standardizing their format.
-    - Optionally merges ordering information into the zoning data.
-    - Cleans and standardizes zone identifiers.
-    - Dissolves certain zones to create a unified polygon, then generates H3 hexagon
-      grids at resolutions 6 and 7 within this polygon, adding them as new zoning
-      layers.
-    - Creates a zones equivalence table, associates geometries, and filters zones
-      within the unified zoning geometry.
-    - Saves the processed zoning and equivalence tables to the "dash" and "insumos"
-      databases.
-    - Optionally processes and saves additional polygon data if specified in the
-      configuration.
-    Returns:
-        None
-    """
+def _load_zonificaciones_from_config(configs):
+    """Load and normalise each zone layer declared in config, return a GeoDataFrame."""
+    zona_cfg = configs["zonificaciones"]
+    frames = []
+    for n in range(1, 6):
+        file_zona = zona_cfg.get(f"geo{n}")
+        var_zona = zona_cfg.get(f"var{n}")
+        if not file_zona or not var_zona:
+            continue
 
+        db_path = os.path.join("data", "data_ciudad", file_zona)
+        if not os.path.exists(db_path):
+            continue
+
+        zonif = gpd.read_file(db_path)[[var_zona, "geometry"]].copy()
+        zonif.columns = ["id", "geometry"]
+        zonif["zona"] = var_zona
+
+        zonif["id"] = _normalize_zone_ids(zonif["id"])
+
+        matriz_order = zona_cfg.get(f"orden{n}") or ""
+        if matriz_order:
+            order = (
+                pd.DataFrame(matriz_order, columns=["id"])
+                .reset_index()
+                .rename(columns={"index": "orden"})
+            )
+            zonif = zonif.merge(order, how="left")
+        else:
+            zonif["orden"] = 0
+
+        frames.append(zonif[["zona", "id", "orden", "geometry"]])
+
+    if not frames:
+        return gpd.GeoDataFrame()
+
+    return pd.concat(frames, ignore_index=True)
+
+
+@duracion
+def guardo_zonificaciones(ctx: StorageContext):
     configs = leer_configs_generales(autogenerado=False)
-    alias = configs.get("alias_db", "")
 
-    # Lee las 5 posibles configuraciones de zonificaciones
     if configs["zonificaciones"]:
-        print("Crear zonificaciones en db")
-        zonificaciones = pd.DataFrame([])
-        for n in range(0, 5):
-            try:
-                file_zona = configs["zonificaciones"][f"geo{n+1}"]
-                var_zona = configs["zonificaciones"][f"var{n+1}"]
-
-                try:
-                    matriz_order = configs["zonificaciones"][f"orden{n+1}"]
-                except KeyError:
-                    matriz_order = ""
-
-                if matriz_order is None:
-                    matriz_order = ""
-
-                # Si existe un archivo para esa zona, lo lee
-                if file_zona:
-                    db_path = os.path.join("data", "data_ciudad", file_zona)
-                    if os.path.exists(db_path):
-                        zonif = gpd.read_file(db_path)
-                        zonif = zonif[[var_zona, "geometry"]]
-                        zonif.columns = ["id", "geometry"]
-                        zonif["zona"] = var_zona
-                        zonif = zonif[["zona", "id", "geometry"]]
-
-                        if len(matriz_order) > 0:
-                            order = (
-                                pd.DataFrame(matriz_order, columns=["id"])
-                                .reset_index()
-                                .rename(columns={"index": "orden"})
-                            )
-                            zonif = zonif.merge(order, how="left")
-                        else:
-                            zonif["orden"] = 0
-
-                        zonif["id"] = zonif["id"].astype(str)
-                        zonif.loc[zonif["id"].str[-2:] == ".0", "id"] = zonif.loc[
-                            zonif["id"].str[-2:] == ".0", "id"
-                        ].str[:-2]
-
-                        zonificaciones = pd.concat(
-                            [zonificaciones, zonif], ignore_index=True
-                        )
-
-            except KeyError:
-                pass
+        logger.info("Crear zonificaciones en db")
+        zonificaciones = _load_zonificaciones_from_config(configs)
 
         if len(zonificaciones) > 0:
             zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
@@ -278,7 +284,7 @@ def guardo_zonificaciones():
             crs_actual = zonificaciones.crs
 
             zonificaciones_disolved = zonificaciones[
-                ~(zonificaciones.zona.isin(["res_6", "res_7", "res_8"]))
+                ~zonificaciones.zona.isin(["res_6", "res_7", "res_8"])
             ].copy()
             zonificaciones_disolved["all"] = 1
             zonificaciones_disolved = (
@@ -289,26 +295,22 @@ def guardo_zonificaciones():
                 .to_crs(crs_actual)
             )
 
-            # Agrego res_6 y res_8 en zonificaciones
-            res_6 = generate_h3_hexagons_within_polygon(
-                zonificaciones_disolved, 6, crs_val
-            )
-            res_6["zona"] = "res_6"
-            res_6["orden"] = 0
-            res_6 = res_6.rename(columns={"h3_index": "id"})
-            res_6 = res_6[["zona", "id", "orden", "geometry"]]
-            zonificaciones = pd.concat([zonificaciones, res_6], ignore_index=True)
+            h3_layers = []
+            for res in (6, 7):
+                layer = generate_h3_hexagons_within_polygon(
+                    zonificaciones_disolved, res, crs_val
+                )
+                layer["zona"] = f"res_{res}"
+                layer["orden"] = 0
+                layer = layer.rename(columns={"h3_index": "id"})[
+                    ["zona", "id", "orden", "geometry"]
+                ]
+                h3_layers.append(layer)
 
-            res_7 = generate_h3_hexagons_within_polygon(
-                zonificaciones_disolved, 7, crs_val
+            zonificaciones = pd.concat(
+                [zonificaciones, *h3_layers], ignore_index=True
             )
-            res_7["zona"] = "res_7"
-            res_7["orden"] = 0
-            res_7 = res_7.rename(columns={"h3_index": "id"})
-            res_7 = res_7[["zona", "id", "orden", "geometry"]]
-            zonificaciones = pd.concat([zonificaciones, res_7], ignore_index=True)
 
-            # Crear una tabla de equivalencias para cada h3 de urbantrips a las zonificaciones
             full_area_res_urbantrips = generate_h3_hexagons_within_polygon(
                 zonificaciones_disolved, configs.get("resolucion_h3"), crs_val
             )
@@ -338,21 +340,17 @@ def guardo_zonificaciones():
                 .rename(columns={"h3_index": "h3"})
             )
 
-            # Guardo zonificaciones
+            zonificaciones_to_save = _with_wkt_geometry(zonificaciones)
 
-            guardar_tabla_sql(
-                zonificaciones, "zonificaciones", "insumos", modo="replace"
-            )
-            guardar_tabla_sql(
-                equivalencias_zonas, "equivalencias_zonas", "insumos", modo="replace"
-            )
+            ctx.insumos.save_raw(zonificaciones_to_save, "zonificaciones")
+            ctx.insumos.save_raw(equivalencias_zonas, "equivalencias_zonas")
 
     if configs["poligonos"]:
 
         poly_file = configs["poligonos"]
 
         db_path = os.path.join("data", "data_ciudad", poly_file)
-        poligonos_db = levanto_tabla_sql("poligonos", "insumos")
+        poligonos_db = ctx.insumos.get_raw("poligonos")
 
         if os.path.exists(db_path):
             poly = gpd.read_file(db_path)
@@ -361,49 +359,10 @@ def guardo_zonificaciones():
                 poligonos_db = poligonos_db.loc[
                     poligonos_db["id"] == "estimacion de demanda dibujada",
                 ]
-                # poligonos_db["geometry"] = poligonos_db["wkt"].apply(wkt.loads)
-                # poligonos_db = poligonos_db.reindex(columns=["id", "tipo", "geometry"])
                 poly = pd.concat([poly, poligonos_db], ignore_index=True)
 
-            guardar_tabla_sql(poly, "poligonos", "insumos", modo="replace")
-
-# def run_network_distance_not_parallel(df, mode, G, nodes_from, nodes_to):
-#     """
-#     This function will run the networkd distance using
-#     pandas apply method
-#     """
-#     df["node_from"] = nodes_from
-#     df["node_to"] = nodes_to
-
-#     df = df.reset_index().rename(columns={"index": "idmatrix"})
-#     df[f"distance_osm_{mode}"] = df.apply(
-#         lambda x: distancias_osmnx(
-#             x["idmatrix"],
-#             x["node_from"],
-#             x["node_to"],
-#             G=G,
-#             lenx=len(df),
-#         ),
-#         axis=1,
-#     )
-#     return df
-
-
-# def distancias_osmnx(idmatrix, node_from, node_to, G, lenx):
-#     """
-#     Función de apoyo de measure_distances_osm
-#     """
-
-#     if idmatrix % 2000 == 0:
-#         date_str = datetime.now().strftime("%H:%M:%S")
-#         print(f"{date_str} processing {int(idmatrix)} / ")
-
-#     try:
-#         ret = nx.shortest_path_length(G, node_from, node_to, weight="length")
-#     except NetworkXNoPath:
-#         ret = np.nan
-#     return ret
-
+            poly_to_save = _with_wkt_geometry(poly)
+            ctx.insumos.save_raw(poly_to_save, "poligonos")
 
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     """
@@ -498,9 +457,7 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     """
     # Validar que la resolución objetivo sea mayor que la resolución actual
     current_resolution = h3.get_resolution(hexagon_gdf["h3_index"].iloc[0])
-    print(
-        f"Resolución actual: {current_resolution}, Resolución objetivo: {target_resolution}"
-    )
+    logger.debug("Resolución actual: %s, Resolución objetivo: %s", current_resolution, target_resolution)
     if target_resolution <= current_resolution:
         raise ValueError(
             "La resolución objetivo debe ser mayor que la resolución actual."

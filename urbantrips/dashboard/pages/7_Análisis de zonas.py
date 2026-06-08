@@ -8,16 +8,15 @@ from streamlit_folium import st_folium
 import folium
 import json
 from folium import plugins
-from shapely import wkt
+from dash_storage import leer_configs_generales
 from dash_utils import (
-    iniciar_conexion_db,
     get_logo,
     bring_latlon,
     configurar_selector_dia,
     get_h3_indices_in_geometry,
     h3_to_polygon,
-    leer_configs_generales,
 )
+from urbantrips.utils import utils
 
 # from urbantrips.carto.carto import get_h3_indices_in_geometry
 # from urbantrips.geo.geo import h3_to_polygon
@@ -27,24 +26,11 @@ pd.options.display.float_format = "{:,.0f}".format
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo)
-
-    try:
-
-        tabla = pd.read_sql_query(query, conn)
-    except:
-        tabla = pd.DataFrame([])
-
-    conn.close()
-
-    if len(tabla) > 0:
-        if "wkt" in tabla.columns:
-            tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-            tabla = gpd.GeoDataFrame(tabla, crs=4326)
-            tabla = tabla.drop(["wkt"], axis=1)
-
-    return tabla
+    return utils.levanto_tabla_sql(
+        tabla_sql,
+        tabla_tipo=tabla_tipo,
+        query=query,
+    )
 
 
 @st.cache_data

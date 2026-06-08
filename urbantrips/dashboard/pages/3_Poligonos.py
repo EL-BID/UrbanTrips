@@ -8,6 +8,7 @@ import plotly.express as px
 from folium import Figure
 from shapely import wkt
 import numpy as np
+from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
     levanto_tabla_sql_local,
@@ -15,8 +16,6 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db,
-    normalize_vars,
     traigo_lista_zonas,
     configurar_selector_dia,
     calcular_bins,
@@ -569,10 +568,10 @@ with st.expander("Líneas de Deseo", expanded=True):
         )
 
         distancia_all = ["Todas"] + distancia_all_[
-            distancia_all_.distancia != "99"
-        ].distancia.unique().tolist()
+            distancia_all_.distance_od != "99"
+        ].distance_od.unique().tolist()
 
-        distancia_agregada = col1.selectbox("Distancia", options=distancia_all)
+        distancia_agregada = col1.selectbox("distance_od", options=distancia_all)
 
         desc_et_vi = col1.selectbox(
             "Datos de", options=["Etapas", "Viajes", "Ninguno"], index=1
@@ -724,7 +723,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         as_index=False,
                     )[
                         [
-                            "Distancia",
+                            "distance_od",
                             "Tiempo de viaje",
                             "Velocidad",
                             "Etapas promedio",
@@ -912,11 +911,11 @@ with st.expander("Matrices"):
             var_matriz = "factor_expansion_linea"
             normalize = col1.checkbox("Normalizar", value=True)
         if tipo_matriz == "Distancia promedio (kms)":
-            var_matriz = "distancia"
+            var_matriz = "distance_od"
         if tipo_matriz == "Tiempo promedio (min)":
             var_matriz = "travel_time_min"
         if tipo_matriz == "Velocidad promedio (km/h)":
-            var_matriz = "travel_speed"
+            var_matriz = "kmh_od"
 
         st.session_state.resumen = col1.checkbox("Principales OD", value=False)
 

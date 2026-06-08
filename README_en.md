@@ -1,385 +1,384 @@
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=EL-BID_UrbanTrips&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=EL-BID_UrbanTrips)
+![logo](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/img/logo_readme.png)
 
-![analytics image (flat)](https://raw.githubusercontent.com/vitr/google-analytics-beacon/master/static/badge-flat.gif)
+# UrbanTrips
 
-![analytics](https://www.google-analytics.com/collect?v=1&cid=555&t=pageview&ec=repo&ea=open&dp=/urbantrips/readme&dt=&tid=UA-4677001-16)
+**UrbanTrips** is an open-source Python library that processes smart card transaction data from public transit systems. It infers trip destinations, chains stages into complete journeys, and produces origin-destination matrices, KPIs, and visualizations — all from a single geolocated CSV of tap-on events.
 
+The library is designed for cities with minimal data infrastructure: the only hard requirements are a transactions file and a configuration YAML. Results get progressively richer as optional inputs (GPS data, route shapes, zoning layers) are added.
 
-![logo](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/logo_readme.png)
+> For a detailed methodological discussion on destination imputation and OD matrix construction, see the [methodology document](https://github.com/EL-BID/UrbanTrips/blob/dev/docs/Metodologia_UrbanTrips.pdf) (Spanish).
+> Full documentation: [el-bid.github.io/UrbanTrips](https://el-bid.github.io/UrbanTrips/).
 
-# README
-`urbantrips` is an open-source library that takes information from a smart card payment system for public transportation and, through information processing that infers trip destinations and constructs travel chains for each user, produces origin-destination matrices and other indicators (KPI) for bus routes. The main objective of the library is to produce useful inputs for public transport management from minimal information and pre-processing requirements. With only a geolocalized table of economic transactions from an electronic payment system, results can be generated, which will be more accurate the more additional information is incorporated into the process through optional files. The process elaborates the matrices, indicators, and constructs a series of transport graphs and  maps.
+---
 
-For a methodological discussion of how destinations are imputed and the origin-destination matrix is constructed, refer to this ![document (in spanish)](https://github.com/EL-BID/UrbanTrips/blob/dev/Metodologia_UrbanTrips.pdf "Documento metodológico")
+## Table of contents
 
-With `urbantrips`, the transaction information corresponding to more than one day can be processed in a single run. However, the same day cannot be split into two runs. All information regarding a day must be processed in the same run. If there is too much information, it is advisable to separate it into different files where each one always has all the information for the days to be analyzed (e.g., `monday.csv`, `tuesday.csv` or `week1.csv`, `week2.csv`, but not `monday_a.csv`, `monday_b.csv`). Then, other days can be processed in other runs, and the information will be updated in the corresponding databases.
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Configuration reference](#configuration-reference)
+- [Input data schemas](#input-data-schemas)
+- [Directory structure](#directory-structure)
+- [Running the pipeline](#running-the-pipeline)
+- [Development setup](#development-setup)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
 
-The results will be saved in two `SQLite` databases, one for the data of the stages, trips, and others that are updated as new data is entered, and another database for inputs for information that is not updated as frequently (such as the matrix of distances between fixed points in a city). The following section shows how to configure the process, which files `urbantrips` will take to produce the information, and in which databases the results will be saved.
+---
 
-## Necessary and Optional Inputs
+## Prerequisites
 
-Urbantrips requires only 2 indispensable inputs:
+| Requirement | Version |
+|---|---|
+| Python | ≥ 3.12 |
+| pip or [uv](https://docs.astral.sh/uv/) | any recent version |
 
-- A CSV file with transactions from the smart card payment system
-- A configuration file: `configuraciones_generales.yaml`
+The library uses **DuckDB** for storage (no database server needed) and **H3** hexagons for spatial indexing. Heavy geospatial work is handled by GeoPandas, Shapely, and Fiona, so a working GDAL stack is required — using a virtual environment is strongly recommended.
 
-The CSV file with transactions must have the following mandatory fields (the names can be different, and this is configured in the configuraciones_generales.yaml file):
+---
 
-- `fecha_trx`: field indicating the transaction date.
-- `hora_trx`: only mandatory when the date field includes only the day, without information on the hour and minutes.
-- `id_tarjeta_trx`: a unique id for each card for each day.
-- `id_linea_trx`: a unique id for each transport line
-- `orden_trx`: a sequential integer that establishes the order of transactions for the same card on the day. Only mandatory when the date field includes only the day or the day and hour, without information at the minute level.
-- `latitud_trx`: Transaction latitude.
-- `longitud_trx`: Transaction longitude.
+## Installation
 
-When running the general `urbantrips` process, it will take the configuration file that will tell it which CSV file contains the information with the transaction data to be used in this run. In the working directory, there may be various files with data from different days or periods of time (`monday.csv`, `tuesday.csv`, or `january.csv`, `february.csv`). Each one will be processed one run at a time. Which file to use is configured in `configuraciones_generales.yaml` in the `nombre_archivo_trx:` parameter. Other parameters, as well as the databases where the results will be saved, are also configured in that same file. For more details on how to use this configuration file, see the section [Setting up the configuration file](#setting-up-the-configuration-file). 
+### With pip
 
-
-With only those files, you can run the destination imputation process, build the OD matrices, and create KPIs. Having said that, more results and greater accuracy can be obtained by adding these optional files:
-
-- Table with information about public transportation lines and/or branches (fantasy name, etc.).
-- Maps of the routes of public transportation lines.
-- Maps of zoning with the spatial units used to aggregate data for the OD matrix.
-- GPS table with the positioning of the units.
-
-The data schema for these files is specified in the section [Data schema](#data-schema).
-
-## Clarification about the concept of lines and branches in urbantrips
-
-A public transportation line may have a main route around which there are small variations. These are considered branches within the same line. In many cities, these differences do not exist, and each route has a unique name and ID. But in others, this is not the case. It may also happen that a person uses the subway, getting on at station A and getting off at station B, without that transfer being identified as a transaction on the card. Therefore, to impute the destination, we consider all subway stations as potential drop-off points. In this case, the subway will function as a single line and each route a branch within it. It may also happen that a bus line has several branches, but the data does not always identify the branch that the internal route is actually traversing. Therefore, it could be any route of any of the branches, and when imputing the destination, we should consider all potential stations of that entire bus line. This way of handling lines and branches allows `urbantrips` to accommodate these situations.
-
-If these situations do not exist in a city, simply use the line to identify each route. If any of the situations identified here occur in a city, that line and branch criterion can be used, which must be set up in the transaction table to be used. The fundamental difference is that the destination imputation process will consider all stations on the line as possible destination points, rather than just the branch.
-
-## Setting up the configuration file 
-
-The configuration file (`configuraciones_generales.yaml`) is unique. Each run will read the information in this file. Its content can be edited between runs to, for example, process two different days.
-
-The first parameter resolucion_h3 establishes the resolution level of the [H3](https://h3geo.org/) schema that will be used. Resolution 8 has hexagons with sides of 460 meters. In resolution 9 they have 174 meters and in 10 they have 65 meters.
-
-The second is the main parameter, the name of the file containing the transaction information. It must be located in /data/data_ciudad/ (more information about the [directory structure](#directory-structure)). This part of the configuration file allows specifying the name of the file to be used as well as the attribute names exactly as they appear in the CSV so that they can be saved in the data scheme of `urbantrips`.
-
-```
-resolucion_h3: 8
-nombre_archivo_trx: week1.csv
-
-nombres_variables_trx:
-	id_trx: id
-	fecha_trx: fecha
-	id_tarjeta_trx: id_tarjeta
-	modo_trx: modo
-	hora_trx: hora
-	id_linea_trx: id_linea
-	id_ramal_trx:  
-	interno_trx: interno_bus
-	orden_trx: etapa_red_sube
-	latitud_trx: lat
-	longitud_trx: lon
-	factor_expansion:  
-```
-El siguiente conjunto de parámetros de configuración definen el procesamiento de las transacciones.
-- `formato_fecha`: especifica el formato en el que se encuentra el campo `fecha_trx` (por ej. `"%d/%m/%Y"`, `"%d/%m/%Y %H:%M:%S"`)
-- `columna_hora`: Indica si la información sobre la hora está en una columna separada (`hora_trx`). Este debe ser un entero de 0 a 23.
-- `ordenamiento_transacciones`: El criterio para ordenar las transacciones en el tiempo. Si se cuenta con un timestamp completo con horas y minutos, entonces usar `fecha_completa`. Si solo se cuenta con la información del día y la hora, se puede usar `orden_trx`.   
-- `ventana_viajes`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que las etapas se agrupan en un mismo viaje.  
-- `ventana_duplicado`: Cuando se tiene un timestamp completo, indica la ventana de tiempo en minutos para considerar que dos transacciones son simultaneas, por lo se creará un `id_tarjeta` ad hoc a cada una.
-- `tipo_trx_invalidas`: Especifica primero el nombre del atributo tal cual aparece en el csv y luego los valores que deben eliminarse al no representar transacciones vinculadas a viajes (por ej. carga de salgo, errores del sistema). Se pueden especificar varios atributos y varios valores por atributo.
-- `modos`: urbantrips estandariza en categorias (`autobus`,`tren`,`metro`,`tranvia`, `brt`, `cable`, `lancha` y , `otros`) los modos. Debe pasarse el equivalente a cómo aparece categorizado en el csv cada modo.  
-- `filtro_latlong_bbox`: Establece un box para eliminar rápidamente las transacciones que esten geolocalizadas fuera de una área lógica de cobertura del sistema de transporte público.
-
-- `fecha_formato`: specifies the format in which the fecha_trx field is in (e.g. `"%d/%m/%Y"`, `"%d/%m/%Y %H:%M:%S"`)
-- `hora_columna`: indicates whether the information about the hour is in a separate column (`hora_trx`). This should be an integer from 0 to 23.
-- `transacciones_ordenamiento`: the criterion for sorting transactions in time. If you have a complete timestamp with hours and minutes, then use `fecha_completa`. If you only have information about the day and hour, you can use `orden_trx`.
-- `viajes_ventana`: when you have a complete timestamp, indicates the time window in minutes to consider that stages are grouped into the same trip.
-- `duplicado_ventana`: when you have a complete timestamp, indicates the time window in minutes to consider that two transactions are simultaneous, so an ad hoc `id_tarjeta` will be created for each one.
-- `tipo_trx_invalidas`: specifies the name of the attribute as it appears in the csv and then the values that should be eliminated as they do not represent transactions related to trips (e.g. balance recharge, system errors). You can specify several attributes and several values per attribute.
-- `modos`: urbantrips standardizes into categories (`autobus`,`tren`,`metro`,`tranvia`, `brt`, `cable`, `lancha` y , `otros`) the modes. You must pass the equivalent of how each mode is categorized in the csv.
-- `filtro_latlong_bbox`: sets a box to quickly eliminate transactions that are geolocated outside of a logical area of public transportation coverage.
-    
-```
-formato_fecha: "%d/%m/%Y"
-columna_hora: True
-ordenamiento_transacciones: orden_trx #fecha_completa u orden_trx
-ventana_viajes: 120
-ventana_duplicado: 5
-
-tipo_trx_invalidas:
-	tipo_trx_tren:
-    	- 'CHECK OUT SIN CHECKIN'
-    	- 'CHECK OUT'
-
-modos:
-	autobus: COL
-	tren: TRE
-	metro: SUB
-	tranvia:
-	brt:
-
-filtro_latlong_bbox:
-	minx: -59.3
-	miny: -35.5
-	maxx: -57.5
-	maxy: -34.0
-
-```
-
-The following group of configurations names the three databases used by `urbantrips`. `alias_db_data` will store all the information related to stages, trips, and any other information that is updated with each run. Thus, there can be a data database for each week or month as it reaches a certain volume (`amba_2023_week1`, `amba_2023_week2`, etc.). On the other hand, `alias_db_insumos` is a database that will store information constantly and will serve both for `week 1` and `week 2`. Data in `alias_db_dashboard` saves data that is used in the dashboard.
-
-```
-alias_db_data: amba_2023_semana1
-alias_db_insumos: amba_2023
-```
-This parameter is used when there is a separate GPS table containing the positioning of the vehicles. In this case, each transaction will be geolocated based on the GPS table, joining by `id_linea` and `interno` (making this field mandatory) and minimizing the time difference between the transaction and the GPS transaction of the vehicle on that line. For this, the `fecha` field must be complete with day, hour, and minutes. This makes it mandatory to have a CSV file with the GPS information. Its name and attributes are specified in a similar way to what was done for transactions. The existence of the GPS table will allow calculating additional KPIs such as the IPK.
-
-```
-geolocalizar_trx: True
-
-nombre_archivo_gps: gps_semana1.csv
-nombres_variables_gps:
-    id_gps: 
-    id_linea_gps: idlinea
-    id_ramal_gps: c_ld_Id
-    interno_gps: interno
-    fecha_gps: date_time
-    latitud_gps: latitude   
-    longitud_gps: longitude
-
-```
-
-
-This other group of parameters controls the destination imputation method. On one hand, it establishes the tolerance distance criterion between the next transaction of that card and any stop of the line used in the stage to which the destination is being imputed. If the distance is greater than this tolerance, the destination will not be imputed. The parameter `imputar_destinos_min_distancia` establishes whether the next transaction will be imputed as the destination or the stop of the line used in the stage that minimizes the distance with respect to the next transaction.
-
-```
-tolerancia_parada_destino: 2200
-imputar_destinos_min_distancia: True
-```
-
-It is also necessary to specify a coordinate projection in meters, passing an id of [EPSG](https://epsg.io/).
-```
-epsg_m: 9265
-```
-
-If the transportation system has branches within lines, 
-according to [Clarification about the concept of lines and branches in urbantrips](#clarification-about-the-concept-of-lines-and-branches-in-urbantrips), it should be specified here: 
-
-```
-lineas_contienen_ramales: True
-```
-
-Finally, additional useful tables can be specified for the process. On one hand, metadata can be added for the lines, such as their fantasy name in addition to the corresponding id, or to which company they belong. It can identify a line or a line-branch (with branches being small deviations from a main route). In the latter case, `urbantrips` will create two different tables, one for the metadata of the lines and another for the branches.
-
-It also allows the addition of cartographies such as routes, which must be a single 2D Linestring (it does not allow multiline), or different files with spatial units for which data is to be added. For each file, the name of the attribute containing the information must be indicated and, if necessary, an order in which to produce the OD matrices generated by `urbantrips`.
-
-```
-nombre_archivo_informacion_lineas: lineas_amba.csv
-recorridos_geojson: recorridos_amba.geojson
-
-zonificaciones:
-	geo1: hexs_amba.geojson
-	var1: Corona
-	orden1: ['CABA', 'Primer cordón', 'Segundo cordón', 'Tercer cordón', 'RMBA']
-	geo2: hexs_amba.geojson
-	var2: Partido
-```
-
-## Data schema
-This is the data schema that `csv` files supplied as inputs to `urbantrips` must follow.
-
-### transacciones
-| Field | Type | Description |
-| -- | -- | -- |
-| `id_trx` | int | Optional. Unique identifier for each record. |
-| `fecha_trx` | strftime | **Mandatory**. Timestamp of the transaction. It can be only the date or date, hour and minute.|
-| `id_tarjeta_trx` | int/str | **Mandatory**. An identifier that identifies each card. |
-| `modo_trx` | str | Optional. It will be standardized with what is specified in `modos` in the configuration file. If there is no information in the table, it will be entered as `autobus`. |
-| `hora_trx` | int | Optional unless `fecha_trx` has no information about the hour and minutes. Integer from 0 to 23 indicating the hour of the transaction. |
-| `id_linea_trx` | int | **Mandatory**. Integer that identifies the line.  |
-| `id_ramal_trx` | int | Optional. Integer that identifies the branch. |
-| `interno_trx` | int | **Mandatory**. Integer that identifies the internal number. |
-| `orden_trx` | int | Optional unless `fecha_trx` has no information about the hour and minutes. Integer starting at 0 that establishes the order of transactions for the same card on the same day. |
-| `latitud_trx` | float | **Mandatory**. Latitude of the transaction. |
-| `longitud_trx` | float | **Mandatory**. Longitude of the transaction. |
-| `factor_expansion` | float | Optional. Expansion factor in case of being a sample. |
-
-### gps
-| Field | Type | Description |
-| -- | -- | -- |
-| `id_gps` | int | **Mandatory**. Unique ID that identifies each record. |
-| `id_linea_gps` | int | **Mandatory**. Unique ID that identifies the line. |
-| `id_ramal_gps` | int | **Mandatory if lines have branches**. Unique ID that identifies each branch. |
-| `interno_gps` | int | **Mandatory**. Unique ID that identifies each bus. |
-| `fecha_gps` | strftime | **Mandatory**. Day, hour, and minute of the GPS position of the bus. |
-| `latitud_gps` | float | **Mandatory**. Latitude. |
-| `longitud_gps` | float | **Mandatory**. Longitude. |
-    
-    
-### Lines and branches information 
-| Field | Type | Description |
-| -- | -- | -- |
-| `id_linea` | int | **Mandatory**. Integer that identifies the line. |
-| `nombre_linea` | str | **Mandatory**. Name of the line. |
-| `modo` | str | **Mandatory**. Mode of the line. |
-| `id_ramal` | int | **Mandatory if lines have branches**. Integer that identifies the branch. |
-| `nombre_ramal` | str | **Mandatory if lines have branches**. Name of the branch. |
-| `empresa` | str | Optional. Name of the company. |
-| `descripcion` | str | Optional. Additional description of the line or branch. |
-
-
-
-### Lines geoms
-| Field | Type | Description |
-| -- | -- | -- |
-|`id_linea`|int|**Mandatory**. Integer that identifies the line.|
-|`id_ramal`|str|**Mandatory if lines have branches**. Name of the line.|
-|`stops_distance`|int|Optional. Distance in meters to be applied when interpolating stops along the route.|
-|`line_stops_buffer`|int|Optional. Distance in meters between stops so that they can be added in one.|
-| `geometry`|2DLineString|LineString representing the route. Cannot be a multiline.|
-
-
-## Directory structure
-After cloning the repo and run `urbantrips`, this will be an example of the resulting directory structure:
-```
-urbantrips
-│   README.md
-│
-└─── urbantrips
-│   ...
-└─── configs
-│   │   configuraciones_generales.yaml
-│   │   
-└─── data 
-│   └─── db
-│       │  amba_2023_week1_data
-│       │  amba_2023_week2_data
-│       │  amba_2023_inputs
-│       
-│   └─── data_ciudad
-│       │   semana1.csv
-│       │   semana2.csv
-│       │   lineas_amba.csv
-│       │   hexs_amba.geojson
-│       │   ...
-└─── resultados 
-│   └─── data
-│       │   amba_2023_week1_etapas.csv
-│       │   amba_2023_week1_viajes.csv
-│       │   amba_2023_week1_usuarios.csv
-│       │   amba_2023_week2_etapas.csv
-│       │   amba_2023_week2_viajes.csv
-│       │   amba_2023_week2_usuarios.csv
-│   └─── html
-│       │   ...
-│   └─── matrices
-│       │   ...
-│   └─── pdf
-│       │   ...
-│   └─── png
-│       │   ...
-│   └─── tablas
-```
-
-## Configuración del ambiente
-
-In order to install the library it is advisable to create an environment and then install the library with `pip`. If you want to do it with `virtualenv` you can execute the following steps:
-
-```
-virtualenv venv --python=python3.10
-source venv/bin/activate
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install urbantrips
 ```
 
-For a `conda` enviroment then:
+### With uv
 
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install urbantrips
 ```
-conda create -n env_urbantrips -c conda-forge python=3.10 rvlib
-conda activate env_urbantrips
+
+### With conda (avoids GDAL build issues on some platforms)
+
+```bash
+conda create -n urbantrips -c conda-forge python=3.12
+conda activate urbantrips
 pip install urbantrips
 ```
 
-## First steps
-After creating the environment, you can download the [Buenos Aires SUBE transactions dataset](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv), save it in `data/data_ciudad/transacciones.csv`. This dataset does not have a `fecha` field with the format `dd/mm/yyyy`, so you will need to add one with any date and use the configurations specified below. Also, an `id_linea` must be specified with the criteria already explained previously. For that, you can take the line information from [this file](https://github.com/EL-BID/Matriz-Origen-Destino-Transporte-Publico/blob/main/data/lineas_ramales.csv) (which can be used for the parameter `nombre_archivo_informacion_lineas`). In this file, each `id_ramal` has an `id_linea` assigned, with that information an `id_linea` can be added to transactions table.
+---
 
+## Quick start
 
-Once the transaction file and line information is available, it is possible to start using `urbantrips`. First of all it is necessary to initialize the directories and the database that the library needs. This step is only run once.
+1. **Place your transaction CSV** in `data/data_ciudad/`.
+2. **Edit `configs/configuraciones_generales.yaml`** to map your column names and set the run names.
+3. **Run the full pipeline:**
 
-```
-python urbantrips/initialize_environment.py
-```
-
-Then, the transaction information can be processed. This transaction file can have the information of a day, a week or a month (as long as there is not too much information). This step processes the transactions in stages and trips, imputing destinations. Then it can be run for each new dataset they want to process (`week_1.csv`, `week_2.csv`, etc) adjusting what is necessary in the `configuraciones_generales.yaml` file.
-
-```
-python urbantrips/process_transactions.py
+```bash
+python urbantrips/run_all_urbantrips.py
 ```
 
-Finally, once all the transactions that are of interest have been processed and loaded into the liberty database, it is possible to run the subsequent processing steps on that information, such as KPIs, visualizations and export of results.
+Results land in `resultados/` and the Streamlit dashboard launches automatically at the end.
+
+A ready-to-use sample dataset (Buenos Aires SUBE transactions) is available [here](https://media.githubusercontent.com/media/EL-BID/Matriz-Origen-Destino-Transporte-Publico/main/data/transacciones.csv). Download it to `data/data_ciudad/transacciones.csv` and use the [sample configuration](#sample-configuration) below.
+
+---
+
+## How it works
+
+The pipeline runs four sequential steps:
 
 ```
-python urbantrips/run_postprocessing.py
+ingest  →  legs  →  outputs  →  dashboard
+```
 
+| Step | What it does |
+|---|---|
+| **ingest** | Reads the transaction CSV, validates and cleans records, geolocates transactions (from coordinates or a GPS table), and writes normalised stages to the DuckDB data database. |
+| **legs** | Groups stages into trips per card per day, imputes missing destinations using the next transaction as a proxy, and applies spatial tolerance filters. |
+| **outputs** | Computes OD matrices at each configured zoning level, KPIs (IPK, load factor, travel time, etc.), desire lines, and exports results to CSV, PNG, PDF, and HTML. |
+| **dashboard** | Prepares aggregated tables and launches a Streamlit dashboard for interactive exploration. |
 
+Each run processes one or more days defined in the `corridas` config key. Multiple runs accumulate into the same DuckDB databases, so you can process `week1`, `week2`, etc. separately and query across all of them.
 
-### Configurations for the Buenos Aires SUBE transactions dataset 
+### Destination imputation
+
+For each stage, the library looks at the next tap-on of the same card and finds the stop on the used line that minimises the distance to that next tap-on, subject to a configurable tolerance (`tolerancia_parada_destino`, default 2200 m). If no candidate stop falls within tolerance, the destination is left unimputed.
+
+### Lines and branches
+
+A single line can contain multiple branches (route variants). When `lineas_contienen_ramales: True`, the imputation considers stops from all branches of a line, not just the specific branch recorded in the transaction. This handles metro systems (where exits are not always recorded per branch) and bus networks where the recorded branch may be unreliable.
+
+---
+
+## Configuration reference
+
+All configuration lives in `configs/configuraciones_generales.yaml`. The key sections are:
+
+### Run definition
+
 ```yaml
-geolocalizar_trx: False
-resolucion_h3: 8
-#tolerancia parada destino en metros
-tolerancia_parada_destino: 2200
+corridas: ['20251015', '20251018']   # Run names — must match transaction/GPS file prefixes
+alias_db_insumos: "city_inputs"      # Shared inputs database (routes, stops, zoning)
+```
 
-nombre_archivo_trx: transacciones.csv
+Each run name `X` expects a file `data/data_ciudad/X_trx.csv` (and optionally `X_gps.csv`).
 
-alias_db_data: amba
+### Column mapping
 
-alias_db_insumos: amba
-
-alias_df_dashboard: amba
-
-lineas_contienen_ramales: True
-nombre_archivo_informacion_lineas: lineas_amba.csv
-imputar_destinos_min_distancia: True
-
-#ingresar el nombre de las variables
+```yaml
 nombres_variables_trx:
-    id_trx: id
-    fecha_trx: fecha 
-    id_tarjeta_trx: id_tarjeta
-    modo_trx: modo
-    hora_trx: hora
-    id_linea_trx: id_linea
-    id_ramal_trx:  id_ramal
-    interno_trx: interno_bus
-    orden_trx: etapa_red_sube 
-    latitud_trx: lat 
-    longitud_trx: lon
-    factor_expansion:   
-    
-modos:
-    autobus: COL
-    tren: TRE
-    metro: SUB
-    tranvia:
-    brt:
-     
-recorridos_geojson:
+    id_trx: "ID_TRX"
+    fecha_trx: "FECHATRX"
+    id_tarjeta_trx: "NROTARJETA"
+    modo_trx: "MODO"
+    hora_trx:                        # leave blank if hour is embedded in fecha_trx
+    id_linea_trx: "IDLINEA"
+    id_ramal_trx: "RAMAL"
+    interno_trx: "INTERNO"
+    orden_trx:                       # sequential order per card per day; required if no minute-level timestamp
+    latitud_trx: "LATITUDE"
+    longitud_trx: "LONGITUDE"
+    factor_expansion:                # optional sampling weight
+```
 
+### Transaction processing
 
-# Filtro de coordenadas en formato minx, miny, maxx, maxy 
+```yaml
+formato_fecha: "%Y-%m-%d %H:%M:%S"  # strftime format of the date field
+columna_hora: False                  # True if hour is in a separate integer column
+ordenamiento_transacciones: "fecha_completa"  # or "orden_trx"
+ventana_viajes: 120                  # minutes — max gap between stages in the same trip
+ventana_duplicado: 5                 # minutes — window to detect simultaneous duplicate taps
+```
+
+### Geography
+
+```yaml
+resolucion_h3: 9       # H3 resolution: 8 ≈ 460 m sides, 9 ≈ 174 m, 10 ≈ 65 m
+epsg_m: 5347           # Projected CRS (metres) for distance calculations
 filtro_latlong_bbox:
     minx: -59.3
     miny: -35.5
     maxx: -57.5
-    maxy: -34.0 
+    maxy: -34.0
+```
 
-    
-#Especificar el formato fecha
+### Optional inputs
+
+```yaml
+recorridos_geojson: "routes.geojson"               # Line route geometries
+nombre_archivo_informacion_lineas: "lines.csv"     # Line metadata (name, mode, company)
+lineas_contienen_ramales: True
+
+zonificaciones:
+    geo1: "districts.geojson"
+    var1: "district_name"
+    orden1: ['Zone A', 'Zone B', 'Zone C']
+
+usa_archivo_gps: True
+```
+
+### Sample configuration
+
+For the Buenos Aires SUBE sample dataset:
+
+```yaml
+corridas: ['transacciones']
+alias_db_insumos: "amba"
+resolucion_h3: 8
+tolerancia_parada_destino: 2200
+imputar_destinos_min_distancia: True
+lineas_contienen_ramales: True
+nombre_archivo_informacion_lineas: "lineas_amba.csv"
 formato_fecha: "%d/%m/%Y"
+columna_hora: True
+ordenamiento_transacciones: orden_trx
+geolocalizar_trx: False
 
-columna_hora: True 
-ordenamiento_transacciones: orden_trx 
+nombres_variables_trx:
+    id_trx: id
+    fecha_trx: fecha
+    id_tarjeta_trx: id_tarjeta
+    modo_trx: modo
+    hora_trx: hora
+    id_linea_trx: id_linea
+    id_ramal_trx: id_ramal
+    interno_trx: interno_bus
+    orden_trx: etapa_red_sube
+    latitud_trx: lat
+    longitud_trx: lon
+    factor_expansion:
 
+modos:
+    autobus: COL
+    tren: TRE
+    metro: SUB
 
-tipo_trx_invalidas:
-    tipo_trx_tren:
-        - 'CHECK OUT SIN CHECKIN'
-        - 'CHECK OUT'
-```  
+filtro_latlong_bbox:
+    minx: -59.3
+    miny: -35.5
+    maxx: -57.5
+    maxy: -34.0
+```
+
+---
+
+## Input data schemas
+
+### Transactions (mandatory)
+
+| Field | Type | Notes |
+|---|---|---|
+| `fecha_trx` | strftime | **Required.** Full timestamp or date only. |
+| `id_tarjeta_trx` | int/str | **Required.** Card identifier (unique per day). |
+| `id_linea_trx` | int | **Required.** Line identifier. |
+| `latitud_trx` | float | **Required.** Tap-on latitude. |
+| `longitud_trx` | float | **Required.** Tap-on longitude. |
+| `hora_trx` | int (0–23) | Required when `fecha_trx` has no time component. |
+| `orden_trx` | int | Required when `fecha_trx` has no minute-level precision. |
+| `interno_trx` | int | Vehicle identifier. Required when GPS geolocation is used. |
+| `id_ramal_trx` | int | Branch identifier. Optional. |
+| `modo_trx` | str | Transport mode. Defaults to `autobus` if absent. |
+| `factor_expansion` | float | Sampling expansion factor. Optional. |
+
+### GPS (optional)
+
+| Field | Type | Notes |
+|---|---|---|
+| `id_linea_gps` | int | **Required.** |
+| `interno_gps` | int | **Required.** |
+| `fecha_gps` | strftime | **Required.** Must include day, hour, and minute. |
+| `latitud_gps` | float | **Required.** |
+| `longitud_gps` | float | **Required.** |
+| `id_ramal_gps` | int | Required if lines have branches. |
+
+### Line information (optional)
+
+| Field | Type | Notes |
+|---|---|---|
+| `id_linea` | int | **Required.** |
+| `nombre_linea` | str | **Required.** |
+| `modo` | str | **Required.** |
+| `id_ramal` | int | Required if lines have branches. |
+| `nombre_ramal` | str | Required if lines have branches. |
+| `empresa` | str | Optional. |
+
+### Route geometries (optional GeoJSON)
+
+| Field | Type | Notes |
+|---|---|---|
+| `id_linea` | int | **Required.** |
+| `id_ramal` | str | Required if lines have branches. |
+| `geometry` | 2D LineString | **Required.** Must be a single LineString, not MultiLineString. |
+| `stops_distance` | int | Optional. Metres between interpolated stops. |
+| `line_stops_buffer` | int | Optional. Buffer for merging nearby stops. |
+
+---
+
+## Directory structure
+
+```
+UrbanTrips/
+├── configs/
+│   └── configuraciones_generales.yaml
+├── data/
+│   ├── data_ciudad/          # Input files (CSV, GeoJSON)
+│   │   ├── 20251015_trx.csv
+│   │   ├── 20251015_gps.csv
+│   │   ├── routes.geojson
+│   │   └── districts.geojson
+│   └── db/                   # DuckDB databases (auto-created)
+│       ├── city_data.duckdb
+│       └── city_inputs.duckdb
+├── resultados/               # All outputs (auto-created)
+│   ├── data/                 # CSV exports
+│   ├── html/                 # Interactive maps
+│   ├── matrices/             # OD matrix files
+│   ├── pdf/
+│   ├── png/
+│   └── tablas/
+└── urbantrips/               # Library source
+```
+
+---
+
+## Running the pipeline
+
+### Full run
+
+```bash
+python urbantrips/run_all_urbantrips.py
+```
+
+### Partial runs
+
+```bash
+# Stop after legs (skip outputs and dashboard)
+python urbantrips/run_all_urbantrips.py --through legs
+
+# Run only one step
+python urbantrips/run_all_urbantrips.py --step outputs
+
+# Skip dashboard
+python urbantrips/run_all_urbantrips.py --no_dashboard
+```
+
+### Using an alternate config file
+
+```bash
+python urbantrips/run_all_urbantrips.py --config configs/other_city.yaml
+```
+
+### Re-running from scratch
+
+```bash
+python urbantrips/run_all_urbantrips.py --borrar_corrida all
+```
+
+### Launching the dashboard manually
+
+```bash
+streamlit run urbantrips/dashboard/dashboard.py
+```
+
+---
+
+## Development setup
+
+```bash
+git clone https://github.com/EL-BID/UrbanTrips.git
+cd UrbanTrips
+uv sync
+```
+
+Or with pip:
+
+```bash
+pip install -e ".[dev]"
+```
+
+The `Makefile` mirrors the CI checks:
+
+| Command | Description |
+|---|---|
+| `make lint` | Style check with Ruff |
+| `make unit` | Unit tests with coverage |
+| `make integration` | Integration tests with coverage |
+| `make build` | Build the package |
+| `make ci` | All of the above in sequence |
+
+---
+
+## Acknowledgements
+
+We thank the governments of Buenos Aires, Córdoba, Mendoza, and Bariloche for providing data and participating in discussions that shaped this library.
+
+---
+
+## License
+
+Copyright © 2023. Inter-American Development Bank (IDB). Authorized use. [AM-331-A3](LICENSE.md)
+
+## Authors
+
+Felipe González ([@alephcero](https://github.com/alephcero/))  
+Sebastián Anapolsky ([@sanapolsky](https://github.com/sanapolsky/))

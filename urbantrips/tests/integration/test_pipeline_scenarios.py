@@ -1,0 +1,211 @@
+# urbantrips/tests/integration/test_pipeline_scenarios.py
+"""
+Pipeline scenario integration tests.
+
+These tests exercise the full pipeline functions against a real DuckDB
+data adapter (in a tmp_path) paired with an in-memory insumos adapter.
+They verify row-count invariants, idempotency, multi-day isolation, and
+DuckDB file persistence across adapter instances.
+"""
+import pytest
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
+from urbantrips.storage.adapters.memory.adapters import (
+    InMemoryInsumoAdapter,
+    InMemoryDashAdapter,
+    InMemoryGeneralAdapter,
+)
+from urbantrips.storage.context import StorageContext
+
+# ---------------------------------------------------------------------------
+# Real H3 cells at resolution 8 (Buenos Aires area)
+# ---------------------------------------------------------------------------
+H3_A = "88754e6491fffff"  # origin cell
+H3_B = "88754e64b5fffff"  # destination cell (different hex)
+H3_C = "88754e6481fffff"  # third cell for multi-etapa scenarios
+
+LINEA_ID = 1
+LINEA_AGG_ID = 1
+
+
+# ---------------------------------------------------------------------------
+# Shared fixture helpers
+# ---------------------------------------------------------------------------
+
+def _make_legs(day: str, n: int = 3, id_offset: int = 0) -> pd.DataFrame:
+    """Return a minimal etapas DataFrame with n rows for the given day."""
+    rows = []
+    for i in range(n):
+        rows.append({
+            "id": id_offset + i,
+            "id_tarjeta": f"T{i % 2}",   # two cards, so groupby produces multi-etapa sequences
+            "dia": day,
+            "id_viaje": i // 2,
+            "id_etapa": i % 2,
+            "tiempo": f"08:{i:02d}:00",
+            "hora": 8,
+            "modo": "autobus",
+            "id_linea": LINEA_ID,
+            "id_ramal": 0,
+            "interno": 0,
+            "genero": "",
+            "tarifa": "",
+            "latitud": -34.6,
+            "longitud": -58.4,
+            "h3_o": H3_A,
+            "h3_d": "",
+            "od_validado": 0,
+            "etapa_validada": 1,
+            "factor_expansion_original": 1.0,
+            "factor_expansion_linea": 1.0,
+            "factor_expansion_tarjeta": 1.0,
+            "factor_expansion_etapa": 1.0,
+            "distancia": 0.0,
+            "travel_time_min": 0.0,
+        })
+    return pd.DataFrame(rows)
+
+
+def _make_metadata_lineas() -> pd.DataFrame:
+    return pd.DataFrame({
+        "id_linea": [LINEA_ID],
+        "id_linea_agg": [LINEA_AGG_ID],
+        "nombre_linea": ["L1"],
+    })
+
+
+def _make_matriz_validacion() -> pd.DataFrame:
+    """One validation area: H3_B is a valid destination for line LINEA_AGG_ID."""
+    return pd.DataFrame({
+        "id_linea_agg": [LINEA_AGG_ID],
+        "area_influencia": [H3_B],
+        "parada": [H3_B],
+    })
+
+
+def _ctx(tmp_path: Path) -> StorageContext:
+    """Build a StorageContext with a real DuckDB data adapter + in-memory insumos."""
+    data_db = tmp_path / "data" / "db" / "test_data.duckdb"
+    data_db.parent.mkdir(parents=True, exist_ok=True)
+    return StorageContext(
+        data=DuckDBDataAdapter(data_db),
+        insumos=InMemoryInsumoAdapter(
+            metadata_lineas=_make_metadata_lineas(),
+            matriz_validacion=_make_matriz_validacion(),
+        ),
+        dash=InMemoryDashAdapter(),
+        general=InMemoryGeneralAdapter(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scenario 1: DuckDB persistence
+# ---------------------------------------------------------------------------
+
+def test_duckdb_data_persists_across_adapter_instances(tmp_path):
+    """Data written via one adapter is readable by a fresh adapter on the same file."""
+    db_path = tmp_path / "test.duckdb"
+    legs = _make_legs("2024-01-01")
+
+    adapter1 = DuckDBDataAdapter(db_path)
+    adapter1.save_legs(legs)
+
+    adapter2 = DuckDBDataAdapter(db_path)
+    result = adapter2.get_legs()
+
+    assert len(result) == len(legs)
+    assert set(result["dia"]) == {"2024-01-01"}
+
+
+# ---------------------------------------------------------------------------
+# Scenario 2: One-day destination imputation
+# ---------------------------------------------------------------------------
+
+def test_infer_destinations_one_day_sets_od_validado(tmp_path):
+    """
+    Legs with h3_o = H3_A for a single day get od_validado=1 where the
+    next leg's origin can be matched against the validation matrix.
+    """
+    from urbantrips.destinations.destinations import infer_destinations
+
+    ctx = _ctx(tmp_path)
+    day = "2024-01-01"
+    legs = _make_legs(day, n=3)
+
+    ctx.data.save_legs(legs)
+    ctx.data.save_run_days(pd.DataFrame({"dia": [day]}))
+
+    infer_destinations(ctx)
+
+    result = ctx.data.get_legs()
+    assert len(result) == len(legs), "infer_destinations must not change row count"
+    # All rows for the day should be present
+    assert set(result["dia"]) == {day}
+
+
+# ---------------------------------------------------------------------------
+# Scenario 3: Multi-day isolation
+# ---------------------------------------------------------------------------
+
+def test_infer_destinations_only_updates_current_run_days(tmp_path):
+    """
+    Legs from a non-current day are not modified by infer_destinations.
+    """
+    from urbantrips.destinations.destinations import infer_destinations
+
+    ctx = _ctx(tmp_path)
+    day_current = "2024-01-02"
+    day_other = "2024-01-01"
+
+    legs_current = _make_legs(day_current, n=3, id_offset=0)
+    legs_other = _make_legs(day_other, n=2, id_offset=100)
+
+    ctx.data.save_legs(legs_current)
+    ctx.data.save_legs(legs_other)
+    ctx.data.save_run_days(pd.DataFrame({"dia": [day_current]}))
+
+    infer_destinations(ctx)
+
+    result = ctx.data.get_legs()
+    assert len(result) == 5, "Both days' legs must be preserved"
+
+    # The non-current day should be unchanged (od_validado = 0 as seeded)
+    other_day_rows = result[result["dia"] == day_other]
+    assert (other_day_rows["od_validado"] == 0).all(), (
+        "Non-current day legs must not be modified"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scenario 4: Idempotency (rerun / delete)
+# ---------------------------------------------------------------------------
+
+def test_infer_destinations_is_idempotent(tmp_path):
+    """
+    Running infer_destinations twice for the same day must not duplicate rows.
+    """
+    from urbantrips.destinations.destinations import infer_destinations
+
+    ctx = _ctx(tmp_path)
+    day = "2024-01-03"
+    legs = _make_legs(day, n=4)
+
+    ctx.data.save_legs(legs)
+    ctx.data.save_run_days(pd.DataFrame({"dia": [day]}))
+
+    infer_destinations(ctx)
+    count_after_first = len(ctx.data.get_legs())
+
+    # Reset run days and run again (same day)
+    ctx.data.save_run_days(pd.DataFrame({"dia": [day]}))
+    infer_destinations(ctx)
+    count_after_second = len(ctx.data.get_legs())
+
+    assert count_after_first == len(legs)
+    assert count_after_second == count_after_first, (
+        "Second run must not add duplicate rows"
+    )

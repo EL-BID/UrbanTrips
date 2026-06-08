@@ -75,21 +75,21 @@ LABELS = {
     "educacion_jubilacion": "Estudiantes/Jubilados",
     "velocidad_comercial": "Vel. comercial (km/h)",
     "distancia_media_veh": "Dist. media/veh (km)",
-    "fo_mean": "Factor Ocupación (media)",
-    "fo_median": "Factor Ocupación (mediana)",
+    "fo_mean_od": "Factor Ocupación (media)",
+    "fo_median_od": "Factor Ocupación (mediana)",
     "travel_time_min": "Tiempo promedio viaje (min)",
     "tot_km": "Km recorridos",
-    "dmt_mean": "Distancia media Pax (km)",
-    "dmt_median": "Distancia mediana Pax (km)",
-    "ipk": "IPK",
+    "dmt_mean_od": "Distancia media Pax (km)",
+    "dmt_median_od": "Distancia mediana Pax (km)",
+    "ipk_route": "IPK",
 }
 
 GENERAL_COLS = ["vehiculos_operativos", "transacciones"]
 GENDER_COLS = ["Masculino", "Femenino", "No informado"]
 TARIFA_COLS = ["sin_descuento", "tarifa_social", "educacion_jubilacion"]
 DEMO_COLS = GENDER_COLS + TARIFA_COLS
-OPERATIVE_COLS1 = ["velocidad_comercial", "distancia_media_veh", "fo_mean", "fo_median"]
-OPERATIVE_COLS2 = ["ipk", "tot_km", "dmt_mean", "dmt_median"]
+OPERATIVE_COLS1 = ["velocidad_comercial", "distancia_media_veh", "fo_mean_od", "fo_median_od"]
+OPERATIVE_COLS2 = ["ipk_route", "tot_km", "dmt_mean_od", "dmt_median_od"]
 INT_DISPLAY_COLS = set(GENERAL_COLS + DEMO_COLS + ["tot_km"])
 TOTAL_SLOTS = 6  # columnas fijas por fila
 

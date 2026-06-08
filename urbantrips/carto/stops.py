@@ -1,14 +1,18 @@
+import logging
 import os
 import pandas as pd
 import geopandas as gpd
 from shapely import line_interpolate_point
 import libpysal
 from urbantrips.geo import geo
-from urbantrips.utils.utils import duracion, iniciar_conexion_db, leer_configs_generales
+from urbantrips.utils.utils import duracion, leer_configs_generales
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
 @duracion
-def create_stops_table():
+def create_stops_table(ctx: StorageContext):
     """
     Reads stops.csv file if present and uploads it to
     stops table in the db
@@ -18,32 +22,27 @@ def create_stops_table():
 
     if nombre_archivo_paradas is not None:
         stops_path = os.path.join("data", "data_ciudad", nombre_archivo_paradas)
-        print("Leyendo stops", nombre_archivo_paradas)
+        logger.info("Leyendo stops %s", nombre_archivo_paradas)
 
         if os.path.isfile(stops_path):
             stops = pd.read_csv(stops_path)
-            upload_stops_table(stops)
+            upload_stops_table(stops, ctx)
         else:
-            print(
+            logger.warning(
                 "No existe un archivo de stops. Puede utilizar "
-                "notebooks/stops_creation_with_node_id_helper.ipynb"
+                "notebooks/stops_creation_with_node_id_helper.ipynb "
                 "para crearlo a partir de los recorridos"
             )
 
-    # upload trave times between stations
+    # upload travel times between stations
     if configs["tiempos_viaje_estaciones"] is not None:
-        upload_travel_times_stations()
+        upload_travel_times_stations(ctx)
 
 
-def upload_stops_table(stops):
+def upload_stops_table(stops, ctx: StorageContext):
     """
     Reads a stops table, checks it and uploads it to db
     """
-    # Leer alias de insumos del config de usuario
-    configs = leer_configs_generales(autogenerado=False)
-    alias_db = configs.get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
-
     cols = [
         "id_linea",
         "id_ramal",
@@ -57,9 +56,8 @@ def upload_stops_table(stops):
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
 
-    print("Subiendo paradas a stops")
-    stops.to_sql("stops", conn_insumos, if_exists="replace", index=False)
-    conn_insumos.close()
+    logger.info("Subiendo paradas a stops")
+    ctx.insumos.save_stops(stops)
 
 
 def create_temporary_stops_csv_with_node_id(geojson_path):
@@ -292,19 +290,15 @@ def create_node_id(line_stops_gdf):
     return gdf
 
 
-def upload_travel_times_stations():
+def upload_travel_times_stations(ctx: StorageContext):
     """
     This function loads a table holding travel time in minutes
     between stations for modes that don't have GPS in the vehicles
     """
-    # Leer alias de insumos del config de usuario
     configs = leer_configs_generales(autogenerado=False)
-    alias_db = configs.get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_db)
-
     tts_file_name = configs["tiempos_viaje_estaciones"]
     path = os.path.join("data", "data_ciudad", tts_file_name)
-    print("Leyendo tabla de tiempos de viaje entre estaciones", tts_file_name)
+    logger.info("Leyendo tabla de tiempos de viaje entre estaciones %s", tts_file_name)
 
     if os.path.isfile(path):
         travel_times_stations = pd.read_csv(path)
@@ -328,11 +322,8 @@ def upload_travel_times_stations():
             not travel_times_stations.isna().any().all()
         ), "Hay datos faltantes en la tabla"
 
-        print("Subiendo tabla de tiempos de viaje entre estaciones a la DB")
-        travel_times_stations.to_sql(
-            "travel_times_stations", conn_insumos, if_exists="replace", index=False
-        )
-        conn_insumos.close()
+        logger.info("Subiendo tabla de tiempos de viaje entre estaciones a la DB")
+        ctx.insumos.save_travel_times_stations(travel_times_stations)
 
     else:
-        print(f"No existe el archivo {tts_file_name}")
+        logger.warning("No existe el archivo %s", tts_file_name)

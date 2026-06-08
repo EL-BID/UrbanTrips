@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import os
 import yaml
@@ -13,6 +14,9 @@ from urbantrips.utils.utils import (
 
 from pathlib import Path
 import shutil
+
+logger = logging.getLogger(__name__)
+
 
 def check_config_fecha(df, columns_with_date, date_format):
     """
@@ -67,6 +71,10 @@ def check_config_fecha(df, columns_with_date, date_format):
     un formato de fecha, intenta parsear las fechas y arroja un error
     si mas del 80% de las fechas no pueden parsearse
     """
+    assert columns_with_date in df.columns, (
+        f"Columna requerida '{columns_with_date}' no encontrada en el archivo. "
+        f"Columnas disponibles: {list(df.columns)}"
+    )
     fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
 
     # Chequear si el formato funciona
@@ -238,14 +246,42 @@ def revise_configs(configs):
             False
         )
 
+    passthrough_rows = []
+    for variable in ["n_batches", "parallel_workers"]:
+        if variable in configs and variable not in config_default.variable.values:
+            passthrough_rows.append(
+                {
+                    "orden": "",
+                    "item": "trxs",
+                    "variable": variable,
+                    "subvar": "",
+                    "subvar_param": "",
+                    "default": configs[variable],
+                    "obligatorio": "",
+                    "descripcion_campo": "",
+                    "descripcion_general": "",
+                    "comments": "",
+                }
+            )
+    if passthrough_rows:
+        config_default = pd.concat(
+            [config_default, pd.DataFrame(passthrough_rows)],
+            ignore_index=True,
+        )
+
     return config_default
 
 
-def write_config(config_default):
-    path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
+def write_config(config_default, autogenerado=True):
+    filename = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
 
-    with open(path, "w") as file:
+    path = os.path.join("configs", filename)
 
+    with open(path, "w", encoding="utf-8") as file:
         file.write("# Archivo de configuración para urbantrips\n\n")
 
         for i in config_default.item.unique():
@@ -262,34 +298,32 @@ def write_config(config_default):
                     if len(x.subvar) > 0:
                         if _ == 0:
                             file.write(f"{x.variable}: \n")
+
                         if type(x.default) != list:
-
                             if x.default != "":
-
                                 if (type(x.default) == str) & ~(
                                     (x.default == "True") | (x.default == "False")
                                 ):
-                                    # subvars
                                     file.write(
                                         f'    {x.subvar}: "{x.default}"'.ljust(67)
                                     )
-
                                 else:
-                                    # subvars
-                                    file.write(f"    {x.subvar}: {x.default}".ljust(67))
-
+                                    file.write(
+                                        f"    {x.subvar}: {x.default}".ljust(67)
+                                    )
                             else:
-                                # subvars
                                 file.write(f"    {x.subvar}: ".ljust(67))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}")
 
                         else:
-
                             file.write(f"    {x.subvar}: ".ljust(15))
                             file.write("[".ljust(52))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}".ljust(15))
+
                             file.write("\n")
 
                             for z in x.default:
@@ -301,18 +335,15 @@ def write_config(config_default):
                         file.write("\n")
 
                     else:
-
                         if x.default != "":
                             if (type(x.default) == str) & ~(
                                 (x.default == "True") | (x.default == "False")
                             ):
-                                # subvars
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
                             else:
-                                # subvars
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
                         else:
-                            file.write(f"{x.variable}:".ljust(67))  # subvars
+                            file.write(f"{x.variable}:".ljust(67))
 
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
@@ -326,10 +357,8 @@ def write_config(config_default):
                                 (x.default == "True") | (x.default == "False")
                             ):
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
-
                             else:
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
-
                         else:
                             file.write(f"{x.variable}: ".ljust(67))
 
@@ -337,11 +366,12 @@ def write_config(config_default):
                             file.write(f"# {x.descripcion_campo}")
 
                     else:
-
                         file.write(f"    {x.variable}: ".ljust(15))
                         file.write("[".ljust(48))
+
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
+
                         file.write("\n")
 
                         for z in x.default:
@@ -403,7 +433,7 @@ def check_lineas(config_default, alias_default):
     )
     if not os.path.isfile(path_archivo_lineas):
 
-        print("Creo archivo con información de líneas")
+        logger.info("Creo archivo con información de líneas")
         corrida = configs_usuario.get("corridas", [])[0]
         nombre_archivo_trx = f"{corrida}_trx.csv"
         nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
@@ -476,6 +506,7 @@ def check_config_errors(config_default):
         vars_required += [[i.variable, i.subvar]]
 
     orden_trx = None
+    date_format = None
 
     errores = []
     nombre_archivo_trx = config_default.loc[
@@ -487,12 +518,12 @@ def check_config_errors(config_default):
         ]
     else:
         ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print(f"--Archivo de transacciones en proceso: {ruta}")
+        logger.info("Archivo de transacciones en proceso: %s", ruta)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
             trx = pd.read_csv(ruta, nrows=1000)
-
+            
             # check date
             columns_with_date = config_default.loc[
                 (config_default.variable == "nombres_variables_trx")
@@ -502,8 +533,7 @@ def check_config_errors(config_default):
 
             date_format = config_default.loc[
                 (config_default.variable == "formato_fecha"), "default"
-            ].values[0]
-
+            ].values[0]            
             check_result = check_config_fecha(
                 df=trx, columns_with_date=columns_with_date, date_format=date_format
             )
@@ -673,7 +703,7 @@ def check_config_errors(config_default):
             errores += [
                 "El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"
             ]
-
+        
         # ordenamiento de transacciones
         if (
             config_default[
@@ -681,9 +711,9 @@ def check_config_errors(config_default):
             ].default.values[0]
             == "fecha_completa"
         ):
-            if len(date_format) < 14:
+            if date_format is not None and len(date_format) < 14:
                 errores += [
-                    'La variable "fecha_trx" debe tener hora/minuto para ordenamiento'
+                    f'La variable "fecha_trx" debe tener hora/minuto para ordenamiento {date_format}'
                 ]
         elif (
             config_default[
@@ -842,7 +872,7 @@ def check_configs_file():
     with open(file_path, "w") as file:
         yaml.dump({}, file)
 
-        print(f"Se creo el archivo '{file_name}' en '{directory}'")
+        logger.info("Se creo el archivo '%s' en '%s'", file_name, directory)
 
 
 def add_dash_and_data_dbs(config_default, corrida):
@@ -927,7 +957,7 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
         confidence = detectado["confidence"]
 
         if encoding_detectado is None or confidence < 0.6:
-            print(f"⚠️ Codificación no confiable detectada: {detectado}")
+            logger.warning("Codificación no confiable detectada: %s", detectado)
             return
 
         # Decodificar el texto
@@ -942,7 +972,7 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
             f.write(texto)
 
     except Exception as e:
-        print(f"❌ Error procesando {path}: {e}")
+        logger.error("Error procesando %s: %s", path, e)
 
 
 @duracion
@@ -959,7 +989,7 @@ def check_config(corrida):
     Returns:
     None
     """
-    print("Usando corrida", corrida)
+    logger.info("Usando corrida %s", corrida)
 
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales.yaml"
@@ -971,7 +1001,9 @@ def check_config(corrida):
 
     # leo el config autogenerado
     configs_usuario = leer_configs_generales(autogenerado=False)
-    alias_default = configs_usuario.get("alias_db", "alias")
+    configs_base = revise_configs(configs_usuario)
+    write_config(configs_base, autogenerado=False)
+    alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general
     alias_insumos = {
@@ -991,7 +1023,7 @@ def check_config(corrida):
     config_default = add_dash_and_data_dbs(config_default, corrida)
 
     # Guarda el config autogenerado
-    write_config(config_default)
+    write_config(config_default, autogenerado=True)
     check_config_errors(config_default)
     corregir_codificacion_a_utf8_sin_modificar_texto(
         "configs/configuraciones_generales_autogenerado.yaml"
