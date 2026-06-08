@@ -289,11 +289,14 @@ def infer_destinations(ctx: StorageContext):
         mensaje = "Utilizando como destino el origen de la siguiente etapa"
     logger.info("%s", mensaje)
 
-    dias_ultima_corrida = ctx.data.get_run_days()
-
+    # Load only the columns needed for destination inference and diagnostics.
+    # The remaining 16+ passthrough columns (lat/lon, expansion factors, etc.)
+    # are already stored in etapas and are updated in place — no need to load
+    # them into Python just to write them back unchanged.
     etapas = ctx.data.query(
         """
-        SELECT e.*
+        SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,
+               e.hora, e.tiempo, e.id_linea, e.h3_o, e.etapa_validada
         FROM etapas e
         JOIN dias_ultima_corrida d ON e.dia = d.dia
         ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.hora, e.tiempo
@@ -301,43 +304,37 @@ def infer_destinations(ctx: StorageContext):
     )
 
     metadata_lineas = ctx.insumos.get_metadata_lineas()
-
     etapas = etapas.merge(
         metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
     )
 
-    for col in ("od_validado", "h3_d"):
-        if col in etapas.columns:
-            etapas = etapas.drop(columns=[col])
-
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
+    del etapas  # free the pre-inference copy immediately
 
     if destinos_min_dist:
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial, ctx)
-        # destinos["h3_d"] es la parada más cercana (snap): reemplaza al destino potencial
         etapas = etapas_destinos_potencial.drop(columns=["h3_d"]).merge(
             destinos[["id", "h3_d", "od_validado"]], on="id", how="left"
         )
     else:
         destinos = validar_destinos(etapas_destinos_potencial, ctx)
-        # solo valida el destino potencial: se conserva h3_d
         etapas = etapas_destinos_potencial.merge(
             destinos[["id", "od_validado"]], on="id", how="left"
         )
+    del etapas_destinos_potencial, destinos
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
     logger.info("Eliminando destinos de etapas con OD mismo h3: %d", etapas_mismo_od.sum())
     etapas.loc[etapas_mismo_od, "h3_d"] = np.nan
     etapas.loc[etapas_mismo_od, "od_validado"] = 0
+    del etapas_mismo_od
 
     etapas["od_validado"] = etapas["od_validado"].fillna(0).astype(int)
     etapas["h3_d"] = etapas["h3_d"].fillna("")
 
     calcular_indicadores_destinos_etapas(etapas, ctx)
-
     diagnostico_destinos(etapas)
 
-    logger.debug("Preparando etapas imputadas para guardar")
     etapas = etapas.drop(columns=["id_linea_agg"])
 
     logger.debug("Limpiando h3_o por parent h3 excluido")
@@ -345,18 +342,23 @@ def infer_destinations(ctx: StorageContext):
     logger.debug("Limpiando h3_d por parent h3 excluido")
     _clear_h3_parent(etapas, "h3_d", "88754e6499fffff")
 
-    dias = dias_ultima_corrida["dia"].tolist()
-    if hasattr(ctx.data, "replace_legs_for_days"):
-        logger.debug("Reemplazando etapas de la corrida actual")
-        ctx.data.replace_legs_for_days(etapas, dias)
+    # Write back only the 3 columns that changed — avoids loading+rewriting
+    # the 16 passthrough columns (lat/lon, expansion factors, etc.).
+    if hasattr(ctx.data, "update_leg_destinations"):
+        logger.debug("Actualizando destinos en etapas (UPDATE selectivo)")
+        ctx.data.update_leg_destinations(etapas[["id", "h3_d", "od_validado", "etapa_validada"]])
         logger.info("Etapas con destinos imputados guardadas")
         return None
 
-    dias_str = ", ".join(f"'{d}'" for d in dias)
-    logger.debug("Eliminando etapas previas de la corrida actual")
-    ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
-    logger.debug("Guardando etapas con destinos imputados")
-    ctx.data.save_legs(etapas)
+    # Fallback for non-DuckDB adapters: full replace
+    dias_ultima_corrida = ctx.data.get_run_days()
+    dias = dias_ultima_corrida["dia"].tolist()
+    if hasattr(ctx.data, "replace_legs_for_days"):
+        logger.debug("Reemplazando etapas de la corrida actual (fallback)")
+        ctx.data.replace_legs_for_days(etapas, dias)
+    else:
+        dias_str = ", ".join(f"'{d}'" for d in dias)
+        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+        ctx.data.save_legs(etapas)
     logger.info("Etapas con destinos imputados guardadas")
-
     return None

@@ -15,13 +15,14 @@ def reset_timer() -> None:
 
 def duracion(f):
     @wraps(f)
-    def wrap(*args, **kw):
+    def wrap(*args, _silent=False, **kw):
         global _pipeline_start
         started_at = datetime.datetime.now()
         if _pipeline_start is None:
             _pipeline_start = time.perf_counter()
 
-        logger.info("Iniciado %s (%s)", f.__name__, started_at.strftime("%Y-%m-%d %H:%M:%S"))
+        if not _silent:
+            logger.info("Iniciado %s (%s)", f.__name__, started_at.strftime("%Y-%m-%d %H:%M:%S"))
 
         ts = time.perf_counter()
         try:
@@ -41,9 +42,10 @@ def duracion(f):
             finished_at = datetime.datetime.now()
             elapsed = te - ts
             total = te - _pipeline_start
-            logger.info(
-                "Finalizado %s (%s). Tardó %.2fs (total acumulado: %.2fs)",
-                f.__name__, finished_at.strftime("%Y-%m-%d %H:%M:%S"), elapsed, total,
-            )
+            if not _silent:
+                logger.info(
+                    "Finalizado %s (%s). Tardó %.2fs (total acumulado: %.2fs)",
+                    f.__name__, finished_at.strftime("%Y-%m-%d %H:%M:%S"), elapsed, total,
+                )
             return result
     return wrap

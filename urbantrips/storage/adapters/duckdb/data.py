@@ -281,6 +281,29 @@ class DuckDBDataAdapter:
         finally:
             self._conn.unregister("_trip_id_updates")
 
+    def update_leg_destinations(self, df: pd.DataFrame) -> None:
+        """Update only h3_d, od_validado, etapa_validada for existing legs, matched by id.
+
+        Called after destination inference to avoid rewriting all 26 columns
+        for every leg — only the 3 columns that destination inference changes
+        are touched.
+        """
+        if df.empty:
+            return
+        updates = df[["id", "h3_d", "od_validado", "etapa_validada"]].copy()
+        self._conn.register("_dest_updates", updates)
+        try:
+            self._conn.execute("""
+                UPDATE etapas
+                SET h3_d          = u.h3_d,
+                    od_validado   = u.od_validado,
+                    etapa_validada = u.etapa_validada
+                FROM _dest_updates u
+                WHERE etapas.id = u.id
+            """)
+        finally:
+            self._conn.unregister("_dest_updates")
+
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         """Persist legs to DuckDB via parquet staging to avoid Arrow-registration
         memory hazards.  Uses the same strategy as replace_legs_for_days."""

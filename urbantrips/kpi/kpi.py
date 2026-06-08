@@ -615,10 +615,16 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
     # demand data
+    legs_valid = legs.dropna(subset=["distance_od", "factor_expansion_linea"])
+    if len(legs_valid) == 0:
+        logger.info("No hay etapas con distancia OD válida; no se calculan KPI de demanda")
+        return
+
     day_demand_stats = (
-        legs.dropna(subset=["distance_od", "factor_expansion_linea"])
-        .groupby(["id_linea", "dia"], as_index=False)
-        .apply(demand_stats)
+        legs_valid
+        .groupby(["id_linea", "dia"])
+        .apply(demand_stats, include_groups=False)
+        .reset_index()
     )
     day_stats = day_demand_stats.copy()
         
@@ -911,7 +917,8 @@ def compute_kpi_by_service(ctx: StorageContext):
     service_supply_q = """
         SELECT
             dia, id_linea, id_ramal, interno, service_id,
-            distance_route AS tot_km, min_datetime, max_datetime
+            distance_route AS tot_km, distance_route_gps AS tot_km_gps,
+            min_datetime, max_datetime
         FROM
             services WHERE valid = 1
         """

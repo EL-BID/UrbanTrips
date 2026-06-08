@@ -1,11 +1,12 @@
 import logging
 import multiprocessing
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 import geopandas as gpd
 import numpy as np
 import h3
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import math
 from urbantrips.geo.geo import (
@@ -683,17 +684,49 @@ def assign_time_distances(ctx: StorageContext):
 
         logger.info("Imputando GPS de destino")
 
-        n_workers = max(multiprocessing.cpu_count() - 1, 1)
-        tasks = [(dia, hora) for dia in legs_days for hora in legs_hours]
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            futures = [
-                executor.submit(_process_dia_hora, dia, hora, legs, gps, matriz)
-                for dia, hora in tasks
-            ]
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
+        dias_sorted = sorted(legs_days)
+        dia_to_next = {
+            dia: dias_sorted[i + 1]
+            for i, dia in enumerate(dias_sorted)
+            if i + 1 < len(dias_sorted)
+        }
+
+        def _gps_for_dia(dia):
+            """GPS for dia plus next day's early hours (offset to 24-27) for cross-midnight legs."""
+            gps_dia = gps[gps["dia"] == dia].copy()
+            next_dia = dia_to_next.get(dia)
+            if next_dia is not None:
+                gps_next = gps[(gps["dia"] == next_dia) & (gps["hora"] <= 3)].copy()
+                if len(gps_next) > 0:
+                    gps_next["hora"] = gps_next["hora"] + 24
+                    gps_dia = pd.concat([gps_dia, gps_next], ignore_index=True)
+            return gps_dia
+
+        if sys.platform == "darwin":
+            # macOS: ProcessPoolExecutor + active DuckDB connection causes heap
+            # corruption regardless of start method. Run serially instead.
+            for dia in legs_days:
+                for result in _process_dia(dia, legs[legs["dia"] == dia].copy(), _gps_for_dia(dia), matriz):
                     etapas_result_list.append(result)
+        else:
+            # Linux (including Docker): use spawn context so child processes
+            # don't inherit the parent's DuckDB file handles via fork.
+            n_workers = min(max(multiprocessing.cpu_count() - 1, 1), len(legs_days))
+            mp_ctx = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_ctx) as executor:
+                futures = {
+                    executor.submit(
+                        _process_dia,
+                        dia,
+                        legs[legs["dia"] == dia].copy(),
+                        _gps_for_dia(dia),
+                        matriz,
+                    ): dia
+                    for dia in legs_days
+                }
+                for future in as_completed(futures):
+                    for result in future.result():
+                        etapas_result_list.append(result)
 
         # Concatenar todos los resultados acumulados
         if len(etapas_result_list) == 0:
@@ -952,6 +985,16 @@ def assign_time_distances(ctx: StorageContext):
         ctx.data.append_raw(df, table)
         
 
+def _process_dia(dia, legs_dia, gps_dia, matriz):
+    """Process all hours for one day; called in a subprocess (own memory space)."""
+    results = []
+    for hora in sorted(legs_dia["hora"].unique()):
+        result = _process_dia_hora(dia, hora, legs_dia, gps_dia, matriz)
+        if result is not None:
+            results.append(result)
+    return results
+
+
 def _process_dia_hora(dia, hora, legs, gps, matriz):
     """Process one (dia, hora) slice for GPS destination imputation."""
     etapas_tx = legs.loc[
@@ -970,14 +1013,16 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
         columns=["id", "id_linea", "id_ramal", "interno", "h3_legs_res", "h3", "fecha_gps"]
     ).rename(columns={"h3_legs_res": "area_influencia"})
 
-    # Pre-filter GPS to only timestamps after the earliest boarding per vehicle
+    # Pre-filter GPS to only timestamps after the earliest boarding per vehicle.
+    # id_ramal is excluded because it can be None/NaN, causing dtype mismatches
+    # in the merge; ramal filtering is handled by the main join below.
     min_fecha_vehicle = (
-        etapas_tx.groupby(["id_linea", "id_ramal", "interno"])["fecha"]
+        etapas_tx.groupby(["id_linea", "interno"])["fecha"]
         .min()
         .reset_index()
         .rename(columns={"fecha": "min_fecha_leg"})
     )
-    gps_tx = gps_tx.merge(min_fecha_vehicle, on=["id_linea", "id_ramal", "interno"], how="inner")
+    gps_tx = gps_tx.merge(min_fecha_vehicle, on=["id_linea", "interno"], how="inner")
     gps_tx = gps_tx.loc[gps_tx["fecha_gps"] > gps_tx["min_fecha_leg"]].drop(columns=["min_fecha_leg"])
 
     if len(gps_tx) == 0:

@@ -431,6 +431,25 @@ def _create_legs_for_batches(
             sf.result()
 
 
+def _clear_current_run_legs(ctx: StorageContext) -> None:
+    """Clear etapas rows for the current run days before rebuilding.
+
+    Deleting by day (not by batch_id) is robust to n_batches changing between
+    reruns: the old rows were stored under whatever batch_id mapping was active
+    at the time, so a batch_id-based delete would miss them.
+    """
+    import duckdb as _duckdb
+    run_days = ctx.data.get_run_days()
+    if run_days.empty:
+        return
+    dias_str = ", ".join(f"'{d}'" for d in run_days["dia"].tolist())
+    try:
+        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+        logger.info("Cleared existing etapas for current run days before rebuilding")
+    except (_duckdb.CatalogException, Exception):
+        pass  # Table doesn't exist yet
+
+
 def _clear_current_run_travel_times(ctx: StorageContext) -> None:
     """Clear derived travel-time tables for the current run days before rebuilding."""
     import duckdb as _duckdb
@@ -469,10 +488,16 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     if batches is None:
         trips.rearrange_trip_id_same_od(ctx)
     else:
-        logger.info("[Phase 3] Rearranging trip ids for %d traveler batches", len(batches))
+        n = len(batches)
+        logger.info("Iniciando rearrange_trip_id_same_od (%d batches)", n)
+        ts_total = time.perf_counter()
         for batch in batches:
-            logger.debug("  batch %d/%d", batch.batch_id + 1, batch.total_batches)
-            trips.rearrange_trip_id_same_od(ctx, batch=batch)
+            logger.info("  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n)
+            trips.rearrange_trip_id_same_od(ctx, batch=batch, _silent=True)
+        logger.info(
+            "Finalizado rearrange_trip_id_same_od (%d batches, %.2fs)",
+            n, time.perf_counter() - ts_total,
+        )
 
     # Compute distances and travel times for all legs; writes travel_times_legs/trips
     legs.assign_time_distances(ctx)
@@ -508,6 +533,7 @@ def run_legs(ctx: StorageContext) -> None:
         "ventana_viajes": configs["ventana_viajes"],
         "ventana_duplicado": configs["ventana_duplicado"],
     }
+    _clear_current_run_legs(ctx)
     n_batches = _resolve_n_batches(ctx)
     batches = ctx.data.get_user_batches(n_batches)
     parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
@@ -546,10 +572,10 @@ def check_prerequisites(step: str, ctx: StorageContext) -> None:
     if step == "ingest":
         return
     if step == "legs":
-        if not ctx.data.has_rows("etapas"):
+        if not ctx.data.has_rows("transacciones"):
             raise RuntimeError(
                 "Step 'legs' requires ingest to have been run first "
-                "(etapas table is empty). Run with --through legs first."
+                "(transacciones table is empty). Run with --through legs first."
             )
     elif step == "outputs":
         if not ctx.data.has_rows("etapas", where="h3_o IS NOT NULL"):
