@@ -363,7 +363,10 @@ def guardo_zonificaciones(ctx: StorageContext):
                 poligonos_db = poligonos_db.loc[
                     poligonos_db["id"] == "estimacion de demanda dibujada",
                 ]
-                poly = pd.concat([poly, poligonos_db], ignore_index=True)
+                poly = pd.concat(
+                    [poly, poligonos_db.dropna(axis=1, how="all")],
+                    ignore_index=True,
+                )
 
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")

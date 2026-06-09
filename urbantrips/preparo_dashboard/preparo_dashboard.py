@@ -144,7 +144,7 @@ def load_and_process_data(ctx: StorageContext):
     viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
 
     # ── 3. datetime window columns (stay in pandas) ────────────────
-    viajes["Fecha"] = pd.to_datetime(viajes["dia"] + " " + viajes["tiempo"])
+    viajes["Fecha"] = pd.to_datetime(viajes["dia"] + " " + viajes["tiempo"], format="%Y-%m-%d %H:%M:%S")
     viajes["Fecha_next"] = viajes.groupby(["dia", "id_tarjeta"], observed=True)["Fecha"].shift(-1)
     viajes["diff_time"] = (
         (viajes["Fecha_next"] - viajes["Fecha"]).dt.seconds / 60
@@ -1397,8 +1397,15 @@ def preparo_lineas_deseo(
             inicio.merge(transfer1, how="left")
             .merge(transfer2, how="left")
             .merge(fin, how="left")
-            .fillna("")
         )
+        _str_cols = [
+            c for c in [
+                "h3_transfer1", "h3_transfer2", "h3_fin",
+                "poly_transfer1", "poly_transfer2", "poly_fin",
+            ]
+            if c in etapas_agrupadas.columns
+        ]
+        etapas_agrupadas[_str_cols] = etapas_agrupadas[_str_cols].fillna("")
 
         etapas_agrupadas = etapas_agrupadas[
             [
