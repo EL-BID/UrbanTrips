@@ -299,8 +299,10 @@ def process_routes_metadata(ctx: StorageContext):
 
     # Line metadata is mandatory
     logger.info("Leyendo tabla con informacion de lineas")
-    ruta = str(get_paths().input_dir / tabla_lineas)
-    info = pd.read_csv(ruta)
+    from urbantrips.utils.io import open_csv, resolve_zip
+    ruta = resolve_zip(str(get_paths().input_dir / tabla_lineas))
+    with open_csv(ruta) as f:
+        info = pd.read_csv(f)
 
     # Check all columns are present
     if branches_present:
@@ -314,6 +316,8 @@ def process_routes_metadata(ctx: StorageContext):
 
     # check no missing data in line id
     assert not info.id_linea.isna().any(), "id_linea no debe ser NULL"
+    # fill nombre_linea from id_linea when absent
+    info["nombre_linea"] = info["nombre_linea"].fillna(info["id_linea"].astype(str))
 
     if "id_linea_agg" not in info.columns:
         info["id_linea_agg"] = info["id_linea"]
