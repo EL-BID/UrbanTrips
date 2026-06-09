@@ -25,6 +25,7 @@ from urbantrips.utils.utils import (
     create_line_ids_sql_filter,
     leer_alias,
 )
+from urbantrips.utils.paths import get_paths
 from urbantrips.storage.context import StorageContext
 from urbantrips.geo import geo
 
@@ -446,7 +447,7 @@ def viz_line_od_matrix(ctx: StorageContext, od_line, stat="totals"):
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
         archivo = archivo + f"{line_id}_{n_sections}_{stat}_{hr_str}.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
@@ -589,5 +590,5 @@ def create_folium_desire_lines(
 
     fig.add_child(m)
 
-    db_path = os.path.join("resultados", "html", savefile)
+    db_path = str(get_paths().output_dir / "html" / savefile)
     m.save(db_path)

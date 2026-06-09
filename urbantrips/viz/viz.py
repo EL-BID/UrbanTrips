@@ -73,7 +73,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
             ax.set_title(f"Linea {id_linea}", fontsize=6)
             ax.axis("off")
 
-            db_path = os.path.join("resultados", "png", f"{alias}linea_{id_linea}.png")
+            db_path = str(get_paths().output_dir / "png" / f"{alias}linea_{id_linea}.png")
 
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -632,7 +632,7 @@ def viz_etapas_x_tramo_recorrido(
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
         archivo = archivo + f"{line_id}_{stat}_{hr_str}_{n_sections}_sections.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
@@ -684,8 +684,8 @@ def viz_etapas_x_tramo_recorrido(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
@@ -1274,10 +1274,10 @@ def imprime_graficos_hora(
         ax.tick_params(labelsize=6)
 
         logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
     # Viajes por hora y modo de transporte
@@ -1362,10 +1362,10 @@ def imprime_graficos_hora(
         ax.set_xticks(list(range(0, 24)))
         ax.tick_params(labelsize=6)
         logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
     # Distribución de viajes
@@ -1455,10 +1455,10 @@ def imprime_graficos_hora(
         fig.tight_layout()
 
         logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
     except ValueError as e:
         logger.warning("imprime_distancias error: %s", e)
@@ -1554,10 +1554,10 @@ def imprime_burbujas(
 
             if len(savefile) > 0:
                 logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile)
-                db_path = os.path.join("resultados", "png", f"{alias}{savefile}.png")
+                db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile}.png")
                 fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-                db_path = os.path.join("resultados", "pdf", f"{alias}{savefile}.pdf")
+                db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile}.pdf")
                 fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
             # if show_fig:
@@ -1873,13 +1873,13 @@ def imprime_od(
 
             logger.debug("Nuevos archivos en resultados: %s", savefile)
 
-            db_path = os.path.join("resultados", "png", f"{savefile}.png")
+            db_path = str(get_paths().output_dir / "png" / f"{savefile}.png")
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-            db_path = os.path.join("resultados", "pdf", f"{savefile}.pdf")
+            db_path = str(get_paths().output_dir / "pdf" / f"{savefile}.pdf")
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-            db_path = os.path.join("resultados", "matrices", f"{savefile}.xlsx")
+            db_path = str(get_paths().output_dir / "matrices" / f"{savefile}.xlsx")
 
             if normalize:
                 dash_tot = df.copy()
@@ -2098,10 +2098,10 @@ def lineas_deseo(
                     savefile = savefile + "_lineas_deseo"
 
                     logger.debug("Nuevos archivos en resultados: %s", savefile)
-                    db_path = os.path.join("resultados", "png", f"{savefile}.png")
+                    db_path = str(get_paths().output_dir / "png" / f"{savefile}.png")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-                    db_path = os.path.join("resultados", "pdf", f"{savefile}.pdf")
+                    db_path = str(get_paths().output_dir / "pdf" / f"{savefile}.pdf")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
                     # Guarda geojson para el dashboard
@@ -2299,7 +2299,7 @@ def plot_dispatched_services_by_line_day(ctx: StorageContext, df, save_fig=False
         if save_fig:
             for frm in ["png", "pdf"]:
                 archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-                db_path = os.path.join("resultados", frm, archivo)
+                db_path = str(get_paths().output_dir / frm / archivo)
                 f.savefig(db_path, dpi=300)
                 plt.close()
     except Exception as e:
@@ -2453,7 +2453,7 @@ def plot_basic_kpi(ctx: StorageContext, kpi_by_line_hr, standarize_supply_demand
 
         for frm in ["png", "pdf"]:
             archivo = f"{alias}_{mes}({day_str})_kpi_basicos_id_linea_{line_id}.{frm}"
-            db_path = os.path.join("resultados", frm, archivo)
+            db_path = str(get_paths().output_dir / frm / archivo)
             f.savefig(
                 db_path, dpi=300, bbox_extra_artists=(ax_note,), bbox_inches="tight"
             )

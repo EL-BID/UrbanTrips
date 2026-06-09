@@ -16,6 +16,8 @@ from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
 
+from urbantrips.utils.paths import get_paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,5 +120,5 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile, k_jenks=5):
 
     folium.LayerControl(name="xx").add_to(m)
     fig.add_child(m)
-    db_path = os.path.join("resultados", "html", savefile)
+    db_path = str(get_paths().output_dir / "html" / savefile)
     m.save(db_path)

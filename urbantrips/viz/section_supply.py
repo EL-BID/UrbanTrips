@@ -19,6 +19,7 @@ from urbantrips.utils.utils import (
     create_line_ids_sql_filter,
 )
 from urbantrips.storage.context import StorageContext
+from urbantrips.utils.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +336,7 @@ def viz_route_section_frequency(
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
         archivo = archivo + f"{line_id}_frequency_{hr_str}_{n_sections}_sections.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
@@ -346,8 +347,8 @@ def viz_route_section_frequency(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
@@ -706,7 +707,7 @@ def viz_route_section_speed(
         archivo = (
             archivo + f"{line_id}_median_speed_{hr_str}_{n_sections}_sections.{frm}"
         )
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
     # Save to dash db
@@ -770,8 +771,8 @@ def viz_route_section_speed(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
