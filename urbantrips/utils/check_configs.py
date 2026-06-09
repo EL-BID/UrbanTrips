@@ -18,6 +18,15 @@ import shutil
 logger = logging.getLogger(__name__)
 
 
+def _resolve_input_path(ruta: str) -> str:
+    """Return ruta as-is if it exists, or ruta+'.zip' if the zip exists."""
+    if not os.path.isfile(ruta) and ruta.endswith(".csv"):
+        zip_path = ruta + ".zip"
+        if os.path.isfile(zip_path):
+            return zip_path
+    return ruta
+
+
 def check_config_fecha(df, columns_with_date, date_format):
     """
     Esta funcion toma un dataframe, una columna donde se guardan fechas,
@@ -518,12 +527,13 @@ def check_config_errors(config_default):
             f'No está declarado el archivo de transacciones en {str(get_paths().input_dir)}'
         ]
     else:
-        ruta = str(get_paths().input_dir / nombre_archivo_trx)
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_trx))
         logger.info("Archivo de transacciones en proceso: %s", ruta)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
-            trx = pd.read_csv(ruta, nrows=1000)
+            compression = "zip" if ruta.endswith(".zip") else "infer"
+            trx = pd.read_csv(ruta, nrows=1000, compression=compression)
             
             # check date
             columns_with_date = config_default.loc[
@@ -751,7 +761,7 @@ def check_config_errors(config_default):
         ].default.values[0]
 
         if nombre_archivo_informacion_lineas:
-            ruta = str(get_paths().input_dir / nombre_archivo_informacion_lineas)
+            ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_informacion_lineas))
             if not os.path.isfile(ruta):
                 errores += [
                     f"No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas"
@@ -801,7 +811,7 @@ def check_config_errors(config_default):
             ]
 
     if nombre_archivo_gps:
-        ruta = str(get_paths().input_dir / nombre_archivo_gps)
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_gps))
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones gps {ruta}"]
         cols = [
