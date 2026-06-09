@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from urbantrips.storage.identifiers import validate_table_name
@@ -81,6 +82,59 @@ _VIAJES_COLUMNS = [
 
 _DUCKDB_INSERT_CHUNK_ROWS = 250_000
 
+_TRANSACCIONES_DEFAULTS: dict = {
+    "id":               0,
+    "batch_id":         0,
+    "fecha":            0,
+    "id_original":      "",
+    "id_tarjeta":       "",
+    "dia":              "",
+    "tiempo":           "",
+    "hora":             pd.NA,
+    "modo":             "",
+    "id_linea":         pd.NA,
+    "id_ramal":         pd.NA,
+    "interno":          pd.NA,
+    "orden_trx":        pd.NA,
+    "genero":           "",
+    "tarifa":           "",
+    "latitud":          np.nan,
+    "longitud":         np.nan,
+    "factor_expansion": np.nan,
+}
+
+# Type-correct defaults for each etapas column, matched to the DuckDB schema.
+# Using None/object dtype causes parquet to write a null-typed column, which
+# triggers a DuckDB statistics assertion ("SetMin or SetMax") on INSERT.
+_ETAPAS_DEFAULTS: dict = {
+    "id":                        0,
+    "batch_id":                  0,
+    "id_tarjeta":                "",
+    "dia":                       "",
+    "id_viaje":                  pd.NA,    # INT nullable
+    "id_etapa":                  pd.NA,
+    "tiempo":                    "",
+    "hora":                      pd.NA,
+    "modo":                      "",
+    "id_linea":                  pd.NA,    # BIGINT nullable
+    "id_ramal":                  pd.NA,
+    "interno":                   pd.NA,
+    "genero":                    "",
+    "tarifa":                    "",
+    "latitud":                   np.nan,   # FLOAT
+    "longitud":                  np.nan,
+    "h3_o":                      "",
+    "h3_d":                      "",
+    "od_validado":               0,
+    "etapa_validada":            0,
+    "factor_expansion_original": np.nan,
+    "factor_expansion_linea":    np.nan,
+    "factor_expansion_tarjeta":  np.nan,
+    "factor_expansion_etapa":    np.nan,
+    "distancia":                 np.nan,
+    "travel_time_min":           np.nan,
+}
+
 
 class DuckDBDataAdapter:
     """Implements DataPort using DuckDB."""
@@ -143,7 +197,7 @@ class DuckDBDataAdapter:
             df["batch_id"] = batch.batch_id
         for col in _ETAPAS_COLUMNS:
             if col not in df.columns:
-                df[col] = None
+                df[col] = _ETAPAS_DEFAULTS.get(col, np.nan)
         return df[_ETAPAS_COLUMNS]
 
     # ── run days ──────────────────────────────────────────────────────────────
@@ -177,7 +231,7 @@ class DuckDBDataAdapter:
         df = df.copy()
         for col in _TRANSACCIONES_COLUMNS:
             if col not in df.columns:
-                df[col] = None
+                df[col] = _TRANSACCIONES_DEFAULTS.get(col, np.nan)
         df = df[_TRANSACCIONES_COLUMNS]
         cols = ", ".join(_TRANSACCIONES_COLUMNS)
         self._conn.register("_df", df)

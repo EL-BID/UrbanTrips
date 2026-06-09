@@ -167,7 +167,10 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         )
 
         paradas_etapas["parada_en_recorridos"] = (
-            paradas_etapas["parada_en_recorridos"].fillna(False).astype(bool)
+            paradas_etapas["parada_en_recorridos"]
+            .fillna(False)
+            .infer_objects(copy=False)
+            .astype(bool)
         )
 
         paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (

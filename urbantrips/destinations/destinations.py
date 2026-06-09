@@ -103,12 +103,18 @@ def _validar_destinos_con_matriz(destinos, matriz_validacion):
 # Minimización de distancia
 # ---------------------------------------------------------------------------
 
-def _h3_grid_distance_safe(h3_a, h3_b):
-    """Calcula h3.grid_distance con manejo de errores."""
-    try:
-        return h3.grid_distance(h3_a, h3_b)
-    except Exception:
-        return np.inf
+def _build_latlng_maps(cells):
+    """Builds {cell: lat} and {cell: lng} dicts for a collection of unique h3 cells."""
+    lat_map, lng_map = {}, {}
+    for cell in cells:
+        if cell and pd.notna(cell):
+            try:
+                lat, lng = h3.cell_to_latlng(cell)
+                lat_map[cell] = lat
+                lng_map[cell] = lng
+            except Exception:
+                pass
+    return lat_map, lng_map
 
 
 def imputar_destino_min_distancia(etapas, ctx: StorageContext):
@@ -128,11 +134,11 @@ def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
     Approach:
     1. Arma pares únicos (id_linea_agg, h3_d_potencial)
     2. Merge con matriz_validacion para obtener paradas candidatas
-    3. Calcula h3.grid_distance (con try/except) para cada candidata
+    3. Calcula distancia euclidiana sobre lat/lng (vectorizado) en vez de
+       h3.grid_distance por par (loop Python). Convierte h3 → lat/lng una vez
+       por celda única y luego hace aritmética numpy.
     4. Groupby para quedarse con la de menor distancia
     5. Merge de vuelta a etapas
-
-    Sin multiprocessing, sin conversión a dict, sin loop por chunks.
     """
     lag_etapas = (
         etapas.reindex(columns=["id", "id_linea_agg", "h3_d"])
@@ -154,10 +160,16 @@ def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
     candidatas = candidatas.dropna(subset=["h3_d"])
 
     if len(candidatas) > 0:
-        _dist_vec = np.vectorize(_h3_grid_distance_safe)
-        candidatas["distance_od"] = _dist_vec(
-            candidatas["lag_etapa"].values, candidatas["h3_d"].values
+        unique_cells = pd.unique(
+            np.concatenate([candidatas["lag_etapa"].values, candidatas["h3_d"].values])
         )
+        lat_map, lng_map = _build_latlng_maps(unique_cells)
+
+        dlat = candidatas["lag_etapa"].map(lat_map) - candidatas["h3_d"].map(lat_map)
+        dlng = candidatas["lag_etapa"].map(lng_map) - candidatas["h3_d"].map(lng_map)
+        candidatas = candidatas.copy()
+        candidatas["distance_od"] = np.sqrt(dlat.values ** 2 + dlng.values ** 2)
+
         candidatas = (
             candidatas
             .sort_values("distance_od")
@@ -209,8 +221,8 @@ def diagnostico_destinos(etapas):
     tasa_por_linea = {}
     if "id_linea" in etapas.columns:
         tasa_por_linea = (
-            etapas.groupby("id_linea")["od_validado"]
-            .apply(lambda g: round((g == 1).mean() * 100, 2))
+            (etapas.groupby("id_linea")["od_validado"].mean() * 100)
+            .round(2)
             .to_dict()
         )
 
@@ -272,61 +284,44 @@ def _clear_h3_parent(etapas, column, parent_h3):
     etapas.loc[mask, "etapa_validada"] = 0
     etapas.loc[mask, "od_validado"] = 0
 
-@duracion
-def infer_destinations(ctx: StorageContext):
+def _infer_destinations_for_day(dia, destinos_min_dist, metadata_lineas, ctx):
     """
-    Lee las etapas de la DB, imputa destinos potenciales y los valida.
+    Runs the full destination inference pipeline for a single day.
+    Returns the processed etapas DataFrame (columns needed for write-back and diagnostics).
     """
-    configs = leer_configs_generales(autogenerado=False)
-    destinos_min_dist = configs.get("imputar_destinos_min_distancia", False) or False
-
-    if destinos_min_dist:
-        mensaje = (
-            "Utilizando como destino la parada de la linea de origen "
-            "que minimiza la distancia con respecto al origen de la siguiente etapa"
-        )
-    else:
-        mensaje = "Utilizando como destino el origen de la siguiente etapa"
-    logger.info("%s", mensaje)
-
-    # Load only the columns needed for destination inference and diagnostics.
-    # The remaining 16+ passthrough columns (lat/lon, expansion factors, etc.)
-    # are already stored in etapas and are updated in place — no need to load
-    # them into Python just to write them back unchanged.
     etapas = ctx.data.query(
-        """
+        f"""
         SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,
                e.hora, e.tiempo, e.id_linea, e.h3_o, e.etapa_validada
         FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.hora, e.tiempo
+        WHERE e.dia = '{dia}'
+        ORDER BY e.id_tarjeta, e.id_viaje, e.id_etapa, e.hora, e.tiempo
         """
     )
 
-    metadata_lineas = ctx.insumos.get_metadata_lineas()
     etapas = etapas.merge(
         metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
     )
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
-    del etapas  # free the pre-inference copy immediately
+    del etapas
 
     if destinos_min_dist:
         destinos = imputar_destino_min_distancia(etapas_destinos_potencial, ctx)
-        # destinos["h3_d"] es la parada más cercana (snap): reemplaza al destino potencial
         etapas = etapas_destinos_potencial.drop(columns=["h3_d"]).merge(
             destinos[["id", "h3_d", "od_validado"]], on="id", how="left"
         )
     else:
         destinos = validar_destinos(etapas_destinos_potencial, ctx)
-        # solo valida el destino potencial: se conserva h3_d
         etapas = etapas_destinos_potencial.merge(
             destinos[["id", "od_validado"]], on="id", how="left"
         )
     del etapas_destinos_potencial, destinos
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
-    logger.info("Eliminando destinos de etapas con OD mismo h3: %d", etapas_mismo_od.sum())
+    logger.info(
+        "Dia %s — eliminando destinos con OD mismo h3: %d", dia, etapas_mismo_od.sum()
+    )
     etapas.loc[etapas_mismo_od, "h3_d"] = np.nan
     etapas.loc[etapas_mismo_od, "od_validado"] = 0
     del etapas_mismo_od
@@ -334,33 +329,80 @@ def infer_destinations(ctx: StorageContext):
     etapas["od_validado"] = etapas["od_validado"].fillna(0).astype(int)
     etapas["h3_d"] = etapas["h3_d"].fillna("")
 
-    calcular_indicadores_destinos_etapas(etapas, ctx)
-    diagnostico_destinos(etapas)
-
     etapas = etapas.drop(columns=["id_linea_agg"])
 
-    logger.debug("Limpiando h3_o por parent h3 excluido")
+    logger.debug("Dia %s — limpiando h3_o por parent h3 excluido", dia)
     _clear_h3_parent(etapas, "h3_o", "88754e6499fffff")
-    logger.debug("Limpiando h3_d por parent h3 excluido")
+    logger.debug("Dia %s — limpiando h3_d por parent h3 excluido", dia)
     _clear_h3_parent(etapas, "h3_d", "88754e6499fffff")
 
-    # Write back only the 3 columns that changed — avoids loading+rewriting
-    # the 16 passthrough columns (lat/lon, expansion factors, etc.).
-    if hasattr(ctx.data, "update_leg_destinations"):
-        logger.debug("Actualizando destinos en etapas (UPDATE selectivo)")
-        ctx.data.update_leg_destinations(etapas[["id", "h3_d", "od_validado", "etapa_validada"]])
-        logger.info("Etapas con destinos imputados guardadas")
-        return None
+    return etapas
 
-    # Fallback for non-DuckDB adapters: full replace
-    dias_ultima_corrida = ctx.data.get_run_days()
-    dias = dias_ultima_corrida["dia"].tolist()
-    if hasattr(ctx.data, "replace_legs_for_days"):
-        logger.debug("Reemplazando etapas de la corrida actual (fallback)")
-        ctx.data.replace_legs_for_days(etapas, dias)
+
+_DIAG_COLS = ["id", "dia", "id_tarjeta", "id_linea", "h3_o", "h3_d", "od_validado"]
+
+
+@duracion
+def infer_destinations(ctx: StorageContext):
+    """
+    Lee las etapas de la DB un día a la vez, imputa destinos y los valida.
+    Procesar por día mantiene el pico de memoria constante (~4-5 GB)
+    independientemente de cuántos días tenga la corrida.
+    """
+    configs = leer_configs_generales(autogenerado=False)
+    destinos_min_dist = configs.get("imputar_destinos_min_distancia", False) or False
+
+    if destinos_min_dist:
+        logger.info(
+            "Utilizando como destino la parada de la linea de origen "
+            "que minimiza la distancia con respecto al origen de la siguiente etapa"
+        )
     else:
-        dias_str = ", ".join(f"'{d}'" for d in dias)
-        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
-        ctx.data.save_legs(etapas)
+        logger.info("Utilizando como destino el origen de la siguiente etapa")
+
+    dias = ctx.data.get_run_days()["dia"].tolist()
+    logger.info("Imputando destinos para %d día(s): %s", len(dias), dias)
+
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    has_selective_update = hasattr(ctx.data, "update_leg_destinations")
+
+    diag_slices = []   # accumulate lightweight slices for end-of-run diagnostics
+    fallback_full = [] # only used when update_leg_destinations is unavailable
+
+    for dia in dias:
+        logger.info("Procesando dia %s", dia)
+        etapas_dia = _infer_destinations_for_day(
+            dia, destinos_min_dist, metadata_lineas, ctx
+        )
+
+        if has_selective_update:
+            ctx.data.update_leg_destinations(
+                etapas_dia[["id", "h3_d", "od_validado", "etapa_validada"]]
+            )
+            logger.info("Dia %s — destinos guardados", dia)
+        else:
+            fallback_full.append(etapas_dia)
+
+        diag_slices.append(etapas_dia[_DIAG_COLS].copy())
+        del etapas_dia
+
+    # Fallback write-back for adapters that lack selective UPDATE support
+    if not has_selective_update and fallback_full:
+        etapas_completas = pd.concat(fallback_full, ignore_index=True)
+        del fallback_full
+        if hasattr(ctx.data, "replace_legs_for_days"):
+            ctx.data.replace_legs_for_days(etapas_completas, dias)
+        else:
+            dias_str = ", ".join(f"'{d}'" for d in dias)
+            ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+            ctx.data.save_legs(etapas_completas)
+        del etapas_completas
+
+    # Diagnostics over the full run using the accumulated lightweight slices
+    etapas_diag = pd.concat(diag_slices, ignore_index=True)
+    del diag_slices
+    calcular_indicadores_destinos_etapas(etapas_diag, ctx)
+    diagnostico_destinos(etapas_diag)
+
     logger.info("Etapas con destinos imputados guardadas")
     return None
