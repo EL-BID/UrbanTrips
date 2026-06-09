@@ -90,3 +90,24 @@ def test_main_default_calls_run_all(monkeypatch):
 
     run_all_urbantrips.main()
     assert calls == [{"borrar_corrida": "", "crear_dashboard": True}]
+
+
+def test_base_dir_flag_is_accepted():
+    from urbantrips.run_all_urbantrips import build_parser
+    parser = build_parser()
+    args = parser.parse_args(["--base-dir", "/tmp/run_a"])
+    assert args.base_dir == "/tmp/run_a"
+
+
+def test_base_dir_short_flag():
+    from urbantrips.run_all_urbantrips import build_parser
+    parser = build_parser()
+    args = parser.parse_args(["-d", "/tmp/run_b"])
+    assert args.base_dir == "/tmp/run_b"
+
+
+def test_base_dir_defaults_to_none():
+    from urbantrips.run_all_urbantrips import build_parser
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.base_dir is None

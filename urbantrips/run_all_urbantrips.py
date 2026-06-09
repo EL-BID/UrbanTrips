@@ -89,6 +89,15 @@ def build_parser():
     )
 
     parser.add_argument(
+        "-d",
+        "--base-dir",
+        type=str,
+        default=None,
+        dest="base_dir",
+        help="Project root directory. Config, inputs, databases, and outputs are resolved relative to this path.",
+    )
+
+    parser.add_argument(
         "-b",
         "--borrar_corrida",
         type=str,
@@ -136,6 +145,9 @@ if __name__ == "__main__":
     )
 
     import os
+    from pathlib import Path
+    from urbantrips.utils.paths import init_paths
+
     inicio = time.time()
     parser = build_parser()
     args = parser.parse_args()
@@ -143,6 +155,11 @@ if __name__ == "__main__":
 
     if args.config:
         os.environ["URBANTRIPS_CONFIG"] = args.config
+
+    if args.base_dir:
+        os.environ["URBANTRIPS_BASE"] = args.base_dir
+
+    init_paths(Path(args.base_dir) if args.base_dir else None)
 
     main(
         borrar_corrida=args.borrar_corrida,
