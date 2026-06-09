@@ -414,6 +414,8 @@ def test_leer_configs_tuning_returns_defaults_when_no_file(tmp_path, monkeypatch
     """Returns hardcoded defaults when configs/tuning.yaml does not exist."""
     monkeypatch.chdir(tmp_path)
     import importlib
+    from urbantrips.utils.paths import reset_paths
+    reset_paths()
     import urbantrips.utils.utils as utils_mod
     importlib.reload(utils_mod)
     from urbantrips.utils.utils import leer_configs_tuning
@@ -431,6 +433,8 @@ def test_leer_configs_tuning_overrides_from_file(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     import importlib
+    from urbantrips.utils.paths import reset_paths
+    reset_paths()
     import urbantrips.utils.utils as utils_mod
     importlib.reload(utils_mod)
     from urbantrips.utils.utils import leer_configs_tuning

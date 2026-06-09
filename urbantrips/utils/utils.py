@@ -90,16 +90,12 @@ def leer_configs_generales(autogenerado=True):
     Respeta la variable de entorno URBANTRIPS_CONFIG si está definida
     (establecida por --config en run_all_urbantrips.py).
     """
-    env_path = os.environ.get("URBANTRIPS_CONFIG")
-    if env_path:
-        path = env_path
+    from urbantrips.utils.paths import get_paths
+    _p = get_paths()
+    if autogenerado:
+        path = str(_p.configs_dir / "configuraciones_generales_autogenerado.yaml")
     else:
-        archivo = (
-            "configuraciones_generales_autogenerado.yaml"
-            if autogenerado
-            else "configuraciones_generales.yaml"
-        )
-        path = os.path.join("configs", archivo)
+        path = str(_p.config_file)
 
     try:
         # Primer intento: UTF-8
@@ -153,7 +149,8 @@ def leer_configs_tuning() -> dict:
                 result[key] = value
         return result
 
-    path = os.path.join("configs", "tuning.yaml")
+    from urbantrips.utils.paths import get_paths
+    path = str(get_paths().configs_dir / "tuning.yaml")
     if not os.path.exists(path):
         return copy.deepcopy(_TUNING_DEFAULTS)
 
