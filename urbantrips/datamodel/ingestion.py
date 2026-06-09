@@ -106,7 +106,13 @@ def ingest_day_csv(
     Stream one day's CSV into transacciones_raw in fixed-size chunks.
     No full-day load into memory. No cross-row aggregation.
     """
-    for chunk in pd.read_csv(csv_path, chunksize=chunk_size, low_memory=False):
+    import os
+    if not os.path.exists(csv_path) and csv_path.endswith(".csv"):
+        zip_path = csv_path + ".zip"
+        if os.path.exists(zip_path):
+            csv_path = zip_path
+    compression = "zip" if csv_path.endswith(".zip") else "infer"
+    for chunk in pd.read_csv(csv_path, chunksize=chunk_size, low_memory=False, compression=compression):
         standardized = _standardize_chunk(
             chunk,
             nombres_variables=nombres_variables,
