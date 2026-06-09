@@ -17,6 +17,8 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 
+from urbantrips.utils.paths import get_paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ def _get_base_config_path() -> Path:
     env_config = os.environ.get("URBANTRIPS_CONFIG")
     if env_config:
         return Path(env_config)
-    return Path("configs") / "configuraciones_generales.yaml"
+    return get_paths().config_file
 
 
 def resolve_db_aliases(configs: dict) -> dict:

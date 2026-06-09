@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.utils.dataframe import calculate_weighted_means  # noqa: F401 — used by callers via this module
+from urbantrips.utils.paths import get_paths
 from urbantrips.dashboard.dash_storage import (
     _load_yaml_simple,
     _find_first_valid_yaml,
@@ -241,7 +242,7 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db="")
 
 @st.cache_data
 def get_logo():
-    file_logo = os.path.join("docs", "urbantrips_logo.jpg")
+    file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
         # URL of the image file on Github
         url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
