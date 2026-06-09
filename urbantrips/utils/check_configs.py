@@ -868,7 +868,7 @@ def check_configs_file():
     with open(file_path, "w") as file:
         yaml.dump({}, file)
 
-        logger.info("Se creo el archivo '%s' en '%s'", file_name, directory)
+        logger.info("Se creo el archivo '%s'", file_path)
 
 
 def add_dash_and_data_dbs(config_default, corrida):
