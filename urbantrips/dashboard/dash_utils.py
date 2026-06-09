@@ -96,19 +96,15 @@ def get_db_path(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
 
-    project_root = get_project_root()
+    db_dir = get_paths().db_dir
     candidates = [
-        project_root / "data" / "db" / f"{alias_db}{tipo}.duckdb",
-        project_root / "data" / "db" / f"{alias_db}{tipo}.sqlite",
-        Path("data") / "db" / f"{alias_db}{tipo}.duckdb",
-        Path("/data/db") / f"{alias_db}{tipo}.duckdb",
-        Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
-        Path("/data/db") / f"{alias_db}{tipo}.sqlite",
+        db_dir / f"{alias_db}{tipo}.duckdb",
+        db_dir / f"{alias_db}{tipo}.sqlite",
     ]
     db_path = next((p for p in candidates if p.exists()), None)
     if db_path is None:
         raise FileNotFoundError(
-            f"No se encontró {alias_db}{tipo} en 'data/db' ni en '/data/db'"
+            f"No se encontró {alias_db}{tipo} en {db_dir}"
         )
 
     return db_path
