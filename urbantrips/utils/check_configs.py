@@ -999,6 +999,15 @@ def check_config(corrida):
     configs_usuario = leer_configs_generales(autogenerado=False)
     configs_base = revise_configs(configs_usuario)
     write_config(configs_base, autogenerado=False)
+    # Re-append path override keys that write_config would otherwise drop
+    # (these keys are not in configuraciones.xlsx so revise_configs discards them)
+    _path_keys = ("input_dir", "db_dir", "output_dir")
+    _path_overrides = {k: configs_usuario[k] for k in _path_keys if k in configs_usuario and configs_usuario[k]}
+    if _path_overrides:
+        import yaml as _yaml
+        with open(_config_path, "a", encoding="utf-8") as _f:
+            _f.write("\n# Path overrides\n")
+            _yaml.dump(_path_overrides, _f, allow_unicode=True, default_flow_style=False)
     alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general
