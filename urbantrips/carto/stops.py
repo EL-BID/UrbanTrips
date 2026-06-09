@@ -7,6 +7,7 @@ import libpysal
 from urbantrips.geo import geo
 from urbantrips.utils.utils import duracion, leer_configs_generales
 from urbantrips.storage.context import StorageContext
+from urbantrips.utils.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def create_stops_table(ctx: StorageContext):
     nombre_archivo_paradas = configs.get("nombre_archivo_paradas", None)
 
     if nombre_archivo_paradas is not None:
-        stops_path = os.path.join("data", "data_ciudad", nombre_archivo_paradas)
+        stops_path = str(get_paths().input_dir / nombre_archivo_paradas)
         logger.info("Leyendo stops %s", nombre_archivo_paradas)
 
         if os.path.isfile(stops_path):
@@ -88,7 +89,7 @@ def create_temporary_stops_csv_with_node_id(geojson_path):
     # aggregate at node_id
     stops_df = aggregate_line_stops_to_node_id(stops_gdf)
 
-    data_path = os.path.join("data", "data_ciudad")
+    data_path = str(get_paths().input_dir)
     stops_df.to_csv(os.path.join(data_path, "temporary_stops.csv"), index=False)
 
 
@@ -297,7 +298,7 @@ def upload_travel_times_stations(ctx: StorageContext):
     """
     configs = leer_configs_generales(autogenerado=False)
     tts_file_name = configs["tiempos_viaje_estaciones"]
-    path = os.path.join("data", "data_ciudad", tts_file_name)
+    path = str(get_paths().input_dir / tts_file_name)
     logger.info("Leyendo tabla de tiempos de viaje entre estaciones %s", tts_file_name)
 
     if os.path.isfile(path):

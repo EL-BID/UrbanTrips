@@ -21,6 +21,7 @@ from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
 )
+from urbantrips.utils.paths import get_paths
 
 warnings.filterwarnings(
     "ignore",
@@ -50,7 +51,7 @@ def process_routes_geoms(ctx: StorageContext):
         return None
 
     geojson_name = configs["recorridos_geojson"]
-    geojson_path = os.path.join("data", "data_ciudad", geojson_name)
+    geojson_path = str(get_paths().input_dir / geojson_name)
     geojson_data = gpd.read_file(geojson_path)
 
     branches_present = configs["lineas_contienen_ramales"]
@@ -298,7 +299,7 @@ def process_routes_metadata(ctx: StorageContext):
 
     # Line metadata is mandatory
     logger.info("Leyendo tabla con informacion de lineas")
-    ruta = os.path.join("data", "data_ciudad", tabla_lineas)
+    ruta = str(get_paths().input_dir / tabla_lineas)
     info = pd.read_csv(ruta)
 
     # Check all columns are present

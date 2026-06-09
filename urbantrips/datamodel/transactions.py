@@ -18,6 +18,7 @@ from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
 )
+from urbantrips.utils.paths import get_paths
 
 warnings.filterwarnings(
     "ignore",
@@ -71,7 +72,7 @@ def create_transactions(
         )
 
     else:
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+        ruta = str(get_paths().input_dir / nombre_archivo_trx)
         logger.info("Levanta archivo de transacciones %s", ruta)
         trx = pd.read_csv(ruta)
 
@@ -550,7 +551,7 @@ def geolocalizar_trx(
     # Leer archivos de trx_eco
     id_tarjeta_trx = nombres_variables_trx["id_tarjeta_trx"]
 
-    ruta_trx_eco = os.path.join("data", "data_ciudad", nombre_archivo_trx_eco)
+    ruta_trx_eco = str(get_paths().input_dir / nombre_archivo_trx_eco)
     logger.info("Levanta archivo de transacciones %s", ruta_trx_eco)
     _trx_needed_cols = {v for v in nombres_variables_trx.values() if v}
     if tipo_trx_invalidas:
@@ -732,7 +733,7 @@ def process_and_upload_gps_table(
     """
     configs = leer_configs_generales(autogenerado=False)
 
-    ruta_gps = os.path.join("data", "data_ciudad", nombre_archivo_gps)
+    ruta_gps = str(get_paths().input_dir / nombre_archivo_gps)
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
     gps = pd.read_csv(ruta_gps, usecols=lambda c: c in _gps_needed_cols)
 

@@ -35,6 +35,7 @@ from urbantrips.utils.utils import (
     duracion,
     create_line_ids_sql_filter,
 )
+from urbantrips.utils.paths import get_paths
 from urbantrips.storage.context import StorageContext
 from urbantrips.viz.helpers import (  # noqa: F401 — re-exported for compat
     standarize_size,
@@ -2199,7 +2200,7 @@ def save_zones(ctx: StorageContext):
 
     zonas = pd.DataFrame([])
     for i in geo_files:
-        file = os.path.join("data", "data_ciudad", f"{i[0]}")
+        file = str(get_paths().input_dir / f"{i[0]}")
         if os.path.isfile(file):
             df = gpd.read_file(file)
             df = df[[i[1], "geometry"]]

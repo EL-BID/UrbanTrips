@@ -25,6 +25,7 @@ from urbantrips.geo.geo import (
     bring_latlon,
     h3_to_polygon,
 )
+from urbantrips.utils.paths import get_paths
 import warnings
 
 try:
@@ -235,7 +236,7 @@ def _load_zonificaciones_from_config(configs):
         if not file_zona or not var_zona:
             continue
 
-        db_path = os.path.join("data", "data_ciudad", file_zona)
+        db_path = str(get_paths().input_dir / file_zona)
         if not os.path.exists(db_path):
             continue
 
@@ -349,7 +350,7 @@ def guardo_zonificaciones(ctx: StorageContext):
 
         poly_file = configs["poligonos"]
 
-        db_path = os.path.join("data", "data_ciudad", poly_file)
+        db_path = str(get_paths().input_dir / poly_file)
         poligonos_db = ctx.insumos.get_raw("poligonos")
 
         if os.path.exists(db_path):
