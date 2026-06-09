@@ -279,7 +279,8 @@ def write_config(config_default, autogenerado=True):
         else "configuraciones_generales.yaml"
     )
 
-    path = os.path.join("configs", filename)
+    from urbantrips.utils.paths import get_paths
+    path = str(get_paths().configs_dir / filename)
 
     with open(path, "w", encoding="utf-8") as file:
         file.write("# Archivo de configuración para urbantrips\n\n")
@@ -428,9 +429,8 @@ def check_lineas(config_default, alias_default):
             "default",
         ] = "autobus"
 
-    path_archivo_lineas = os.path.join(
-        "data", "data_ciudad", nombre_archivo_informacion_lineas
-    )
+    from urbantrips.utils.paths import get_paths
+    path_archivo_lineas = str(get_paths().input_dir / nombre_archivo_informacion_lineas)
     if not os.path.isfile(path_archivo_lineas):
 
         logger.info("Creo archivo con información de líneas")
@@ -439,7 +439,7 @@ def check_lineas(config_default, alias_default):
         nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
         modo_trx = nombre_variables_trx.get("modo_trx", None)
         id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+        ruta = str(get_paths().input_dir / nombre_archivo_trx)
         trx = pd.read_csv(ruta)
 
         cols = [id_linea_trx]
@@ -508,16 +508,17 @@ def check_config_errors(config_default):
     orden_trx = None
     date_format = None
 
+    from urbantrips.utils.paths import get_paths
     errores = []
     nombre_archivo_trx = config_default.loc[
         config_default.variable == "nombre_archivo_trx"
     ].default.values[0]
     if not nombre_archivo_trx:
         errores += [
-            f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}'
+            f'No está declarado el archivo de transacciones en {str(get_paths().input_dir)}'
         ]
     else:
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+        ruta = str(get_paths().input_dir / nombre_archivo_trx)
         logger.info("Archivo de transacciones en proceso: %s", ruta)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
@@ -750,9 +751,7 @@ def check_config_errors(config_default):
         ].default.values[0]
 
         if nombre_archivo_informacion_lineas:
-            ruta = os.path.join(
-                "data", "data_ciudad", nombre_archivo_informacion_lineas
-            )
+            ruta = str(get_paths().input_dir / nombre_archivo_informacion_lineas)
             if not os.path.isfile(ruta):
                 errores += [
                     f"No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas"
@@ -802,7 +801,7 @@ def check_config_errors(config_default):
             ]
 
     if nombre_archivo_gps:
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_gps)
+        ruta = str(get_paths().input_dir / nombre_archivo_gps)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones gps {ruta}"]
         cols = [
@@ -845,7 +844,7 @@ def check_config_errors(config_default):
         config_default.variable == "recorridos_geojson"
     ].default.values[0]
     if recorridos_geojson:
-        ruta = os.path.join("data", "data_ciudad", recorridos_geojson)
+        ruta = str(get_paths().input_dir / recorridos_geojson)
         if not os.path.isfile(ruta):
             errores += [
                 f"No existe el archivo {recorridos_geojson} con los recorridos de las líneas de transporte público"
@@ -860,13 +859,10 @@ def check_config_errors(config_default):
 def check_configs_file():
 
     # Define the directory and file name
-    directory = "configs"
-    file_name = "configuraciones_generales_autogenerado.yaml"
-    file_path = os.path.join(directory, file_name)
-
-    # Check if the directory exists, and if not, create it
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    from urbantrips.utils.paths import get_paths
+    configs_dir = get_paths().configs_dir
+    file_path = str(configs_dir / "configuraciones_generales_autogenerado.yaml")
+    configs_dir.mkdir(parents=True, exist_ok=True)
 
     # Crea un YAML vacio
     with open(file_path, "w") as file:
@@ -991,11 +987,11 @@ def check_config(corrida):
     """
     logger.info("Usando corrida %s", corrida)
 
-    corregir_codificacion_a_utf8_sin_modificar_texto(
-        "configs/configuraciones_generales.yaml"
-    )
+    from urbantrips.utils.paths import get_paths
+    _config_path = str(get_paths().config_file)
+    corregir_codificacion_a_utf8_sin_modificar_texto(_config_path)
 
-    replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
+    replace_tabs_with_spaces(_config_path)
     # Siempre crea un autogenerado vacio {}
     check_configs_file()
 
@@ -1025,12 +1021,12 @@ def check_config(corrida):
     # Guarda el config autogenerado
     write_config(config_default, autogenerado=True)
     check_config_errors(config_default)
-    corregir_codificacion_a_utf8_sin_modificar_texto(
-        "configs/configuraciones_generales_autogenerado.yaml"
-    )
+    from urbantrips.utils.paths import get_paths as _get_paths
+    _autogen = str(_get_paths().configs_dir / "configuraciones_generales_autogenerado.yaml")
+    corregir_codificacion_a_utf8_sin_modificar_texto(_autogen)
 
     # Guarda una copia de autogenerado
-    base_path = Path() / 'configs'
+    base_path = _get_paths().configs_dir
     
     # Crear el directorio 'autogenerados' si no existe
     autogen_dir = base_path / "autogenerados"

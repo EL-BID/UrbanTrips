@@ -40,12 +40,13 @@ def test_duracion_backward_compat():
 
 
 def test_create_directories_creates_expected_paths(tmp_path, monkeypatch):
-    import os
     monkeypatch.chdir(tmp_path)
+    from urbantrips.utils.paths import reset_paths
+    reset_paths()
     from urbantrips.utils.fs import create_directories
     create_directories()
-    assert os.path.isdir("data/db")
-    assert os.path.isdir("resultados/tablas")
+    assert (tmp_path / "data" / "db").is_dir()
+    assert (tmp_path / "resultados" / "tablas").is_dir()
 
 
 def test_normalize_vars_renames_day_type():

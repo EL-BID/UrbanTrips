@@ -1,20 +1,23 @@
 import os
+from pathlib import Path
 
 
 def create_directories():
-    """Creates the standard UrbanTrips directory structure in the current working dir."""
+    """Creates the standard UrbanTrips directory structure under the active base dir."""
+    from urbantrips.utils.paths import get_paths
+    p = get_paths()
     dirs = [
-        os.path.join("data", "db"),
-        os.path.join("data", "data_ciudad"),
-        "configs",
-        os.path.join("resultados", "tablas"),
-        os.path.join("resultados", "png"),
-        "docs",
-        os.path.join("resultados", "pdf"),
-        os.path.join("resultados", "matrices"),
-        os.path.join("resultados", "data"),
-        os.path.join("resultados", "html"),
-        os.path.join("resultados", "geojson"),
+        p.db_dir,
+        p.input_dir,
+        p.configs_dir,
+        p.base / "docs",
+        p.output_dir / "tablas",
+        p.output_dir / "png",
+        p.output_dir / "pdf",
+        p.output_dir / "matrices",
+        p.output_dir / "data",
+        p.output_dir / "html",
+        p.output_dir / "geojson",
     ]
     for d in dirs:
-        os.makedirs(d, exist_ok=True)
+        Path(d).mkdir(parents=True, exist_ok=True)
