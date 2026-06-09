@@ -159,7 +159,10 @@ if __name__ == "__main__":
     if args.base_dir:
         os.environ["URBANTRIPS_BASE"] = args.base_dir
 
-    init_paths(Path(args.base_dir) if args.base_dir else None)
+    init_paths(
+        base_dir=Path(args.base_dir) if args.base_dir else None,
+        config_file=Path(args.config) if args.config else None,
+    )
 
     main(
         borrar_corrida=args.borrar_corrida,

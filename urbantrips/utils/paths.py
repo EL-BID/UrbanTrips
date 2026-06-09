@@ -43,18 +43,34 @@ def _resolve_dir(value: str | None, config_file: Path, default: Path) -> Path:
     return p if p.is_absolute() else (config_file.parent / p).resolve()
 
 
-def init_paths(base_dir: Path | None = None) -> Paths:
+def init_paths(base_dir: Path | None = None, config_file: Path | None = None) -> Paths:
     """Initialize the path singleton from base_dir.
 
     Reads input_dir / db_dir / output_dir overrides from the config YAML if present.
     Raises FileNotFoundError if base_dir doesn't exist or no config is found.
     """
     global _paths
-    base = Path(base_dir).resolve() if base_dir else Path(".").resolve()
+
+    env_config = os.environ.get("URBANTRIPS_CONFIG")
+    if config_file is None and env_config:
+        config_file = Path(env_config).resolve()
+
+    if config_file is not None:
+        config_file = Path(config_file).resolve()
+        base = (
+            config_file.parent.parent
+            if config_file.parent.name == "configs"
+            else config_file.parent
+        )
+    else:
+        base = Path(base_dir).resolve() if base_dir else Path(".").resolve()
+        if not base.exists():
+            raise FileNotFoundError(f"base_dir does not exist: {base}")
+        config_file = _find_config(base)
+
+    base = Path(base_dir).resolve() if base_dir else base
     if not base.exists():
         raise FileNotFoundError(f"base_dir does not exist: {base}")
-
-    config_file = _find_config(base)
 
     overrides: dict = {}
     try:
