@@ -63,8 +63,10 @@ def init_paths(base_dir: Path | None = None) -> Paths:
         for key in ("input_dir", "db_dir", "output_dir"):
             if key in raw and raw[key]:
                 overrides[key] = raw[key]
-    except Exception:
-        pass
+    except FileNotFoundError:
+        pass  # config file optional — defaults apply
+    except Exception as exc:
+        raise ValueError(f"Could not read config file {config_file}: {exc}") from exc
 
     _paths = Paths(
         base=base,

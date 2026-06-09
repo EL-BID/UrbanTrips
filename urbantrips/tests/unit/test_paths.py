@@ -1,7 +1,6 @@
 from __future__ import annotations
 import pytest
 from pathlib import Path
-from unittest.mock import patch
 from urbantrips.utils.paths import init_paths, get_paths, reset_paths, Paths
 
 
@@ -53,9 +52,9 @@ def test_init_paths_uses_default_subdirs(tmp_path):
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs" / "configuraciones_generales.yaml").write_text("")
     p = init_paths(tmp_path)
-    assert p.input_dir == tmp_path / "data" / "data_ciudad"
-    assert p.db_dir == tmp_path / "data" / "db"
-    assert p.output_dir == tmp_path / "resultados"
+    assert p.input_dir == tmp_path.resolve() / "data" / "data_ciudad"
+    assert p.db_dir == tmp_path.resolve() / "data" / "db"
+    assert p.output_dir == tmp_path.resolve() / "resultados"
 
 
 def test_init_paths_relative_override(tmp_path):
