@@ -19,12 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_input_path(ruta: str) -> str:
-    """Return ruta as-is if it exists, or ruta+'.zip' if the zip exists."""
-    if not os.path.isfile(ruta) and ruta.endswith(".csv"):
-        zip_path = ruta + ".zip"
-        if os.path.isfile(zip_path):
-            return zip_path
-    return ruta
+    from urbantrips.utils.io import resolve_zip
+    return resolve_zip(ruta)
+
+
+def _read_csv_input(ruta: str, **kwargs) -> "pd.DataFrame":
+    from urbantrips.utils.io import open_csv
+    with open_csv(ruta) as f:
+        return pd.read_csv(f, **kwargs)
 
 
 def check_config_fecha(df, columns_with_date, date_format):
@@ -449,8 +451,7 @@ def check_lineas(config_default, alias_default):
         modo_trx = nombre_variables_trx.get("modo_trx", None)
         id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
         ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_trx))
-        compression = "zip" if ruta.endswith(".zip") else "infer"
-        trx = pd.read_csv(ruta, compression=compression)
+        trx = _read_csv_input(ruta)
 
         cols = [id_linea_trx]
         if ramales:
@@ -533,8 +534,7 @@ def check_config_errors(config_default):
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
-            compression = "zip" if ruta.endswith(".zip") else "infer"
-            trx = pd.read_csv(ruta, nrows=1000, compression=compression)
+            trx = _read_csv_input(ruta, nrows=1000)
             
             # check date
             columns_with_date = config_default.loc[
@@ -780,7 +780,7 @@ def check_config_errors(config_default):
                 else:
                     cols = ["id_linea", "nombre_linea", "modo"]
 
-                info = pd.read_csv(ruta, compression="zip" if ruta.endswith(".zip") else "infer")
+                info = _read_csv_input(ruta)
 
                 if not pd.Series(cols).isin(info.columns).all():
                     errores += [

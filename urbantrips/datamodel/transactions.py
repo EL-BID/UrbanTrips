@@ -733,14 +733,11 @@ def process_and_upload_gps_table(
     """
     configs = leer_configs_generales(autogenerado=False)
 
-    ruta_gps = str(get_paths().input_dir / nombre_archivo_gps)
-    if not os.path.exists(ruta_gps) and ruta_gps.endswith(".csv"):
-        zip_path = ruta_gps + ".zip"
-        if os.path.exists(zip_path):
-            ruta_gps = zip_path
+    from urbantrips.utils.io import open_csv, resolve_zip
+    ruta_gps = resolve_zip(str(get_paths().input_dir / nombre_archivo_gps))
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
-    compression = "zip" if ruta_gps.endswith(".zip") else "infer"
-    gps = pd.read_csv(ruta_gps, usecols=lambda c: c in _gps_needed_cols, compression=compression)
+    with open_csv(ruta_gps) as f:
+        gps = pd.read_csv(f, usecols=lambda c: c in _gps_needed_cols)
 
     # Formatear archivos gps
     gps = renombrar_columnas_tablas(
