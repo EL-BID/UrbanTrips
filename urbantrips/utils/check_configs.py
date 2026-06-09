@@ -448,8 +448,9 @@ def check_lineas(config_default, alias_default):
         nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
         modo_trx = nombre_variables_trx.get("modo_trx", None)
         id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
-        ruta = str(get_paths().input_dir / nombre_archivo_trx)
-        trx = pd.read_csv(ruta)
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_trx))
+        compression = "zip" if ruta.endswith(".zip") else "infer"
+        trx = pd.read_csv(ruta, compression=compression)
 
         cols = [id_linea_trx]
         if ramales:
@@ -779,7 +780,7 @@ def check_config_errors(config_default):
                 else:
                     cols = ["id_linea", "nombre_linea", "modo"]
 
-                info = pd.read_csv(ruta)
+                info = pd.read_csv(ruta, compression="zip" if ruta.endswith(".zip") else "infer")
 
                 if not pd.Series(cols).isin(info.columns).all():
                     errores += [
