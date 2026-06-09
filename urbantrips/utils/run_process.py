@@ -21,6 +21,7 @@ def _build_ctx() -> StorageContext:
     from urbantrips.storage.adapters.duckdb.dash import DuckDBDashAdapter
     from urbantrips.storage.adapters.duckdb.general import DuckDBGeneralAdapter
     from urbantrips.utils import utils
+    from urbantrips.utils.paths import get_paths
 
     configs = utils.leer_configs_generales(autogenerado=False)
     # alias_db       → prefix for run-specific DBs (data, dash, general)
@@ -29,13 +30,13 @@ def _build_ctx() -> StorageContext:
     # configs keep working.
     alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
     alias_data    = configs.get("alias_db",          alias_insumos)
-    base = Path(configs.get("db_path", "data/db"))
-    base.mkdir(parents=True, exist_ok=True)
+    db_dir = get_paths().db_dir
+    db_dir.mkdir(parents=True, exist_ok=True)
     return StorageContext(
-        data=DuckDBDataAdapter(base / f"{alias_data}_data.duckdb"),
-        insumos=DuckDBInsumoAdapter(base / f"{alias_insumos}_insumos.duckdb"),
-        dash=DuckDBDashAdapter(base / f"{alias_data}_dash.duckdb"),
-        general=DuckDBGeneralAdapter(base / f"{alias_data}_general.duckdb"),
+        data=DuckDBDataAdapter(db_dir / f"{alias_data}_data.duckdb"),
+        insumos=DuckDBInsumoAdapter(db_dir / f"{alias_insumos}_insumos.duckdb"),
+        dash=DuckDBDashAdapter(db_dir / f"{alias_data}_dash.duckdb"),
+        general=DuckDBGeneralAdapter(db_dir / f"{alias_data}_general.duckdb"),
     )
 
 
@@ -143,6 +144,7 @@ def procesar_transacciones(ctx: StorageContext, corrida: str):
 
 def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
     from urbantrips.utils import utils
+    from urbantrips.utils.paths import get_paths
 
     configs_usuario = utils.leer_configs_generales(autogenerado=False)
 
@@ -151,7 +153,7 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
 
     alias_insumos = configs_usuario.get("alias_db_insumos", configs_usuario.get("alias_db", ""))
     alias_data    = configs_usuario.get("alias_db", alias_insumos)
-    base = Path(configs_usuario.get("db_path", "data/db"))
+    base = get_paths().db_dir
 
     if alias_db == "all":
         if ctx is not None:
@@ -294,8 +296,9 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             tipo_trx_invalidas = configs.get("tipo_trx_invalidas")
             lineas_contienen_ramales = configs.get("lineas_contienen_ramales", True)
             # Prefer an explicit value from the config; fall back to the {corrida}_trx.csv convention
+            from urbantrips.utils.paths import get_paths
             nombre_archivo_trx = configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
-            csv_path = os.path.join("data", "data_ciudad", nombre_archivo_trx)
+            csv_path = str(get_paths().input_dir / nombre_archivo_trx)
             logger.info("[Phase 1] Ingesting %s from %s", corrida, csv_path)
             ingest_day_csv(
                 ctx=ctx,
