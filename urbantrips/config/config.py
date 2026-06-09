@@ -22,6 +22,7 @@ _KNOWN_FIELDS = {
     "tipo_trx_invalidas", "tolerancia_parada_destino", "resolucion_h3",
     "ordenamiento_transacciones", "ventana_viajes", "ventana_duplicado",
     "tiempos_viaje_estaciones", "storage_backend", "n_batches", "parallel_workers",
+    "input_dir", "db_dir", "output_dir",
 }
 
 _REQUIRED_FIELDS = {
@@ -65,6 +66,9 @@ class Config:
     storage_backend: str = "duckdb"
     n_batches: int = 1
     parallel_workers: int | None = None
+    input_dir: str | None = None
+    db_dir: str | None = None
+    output_dir: str | None = None
     # Remaining YAML fields preserved for backward compatibility
     # during domain migration (Plan 2 will type these progressively)
     raw: dict = field(default_factory=dict, repr=False)
@@ -130,7 +134,7 @@ def _apply_legacy_defaults(known: dict[str, Any], raw: dict[str, Any]) -> dict[s
         data.setdefault("alias_db_dashboard", alias_db)
     # Optional fields left blank in the YAML come through as None and would
     # shadow the dataclass defaults; drop them so the defaults apply.
-    for opt in ("storage_backend", "n_batches", "parallel_workers"):
+    for opt in ("storage_backend", "n_batches", "parallel_workers", "input_dir", "db_dir", "output_dir"):
         if data.get(opt) is None:
             data.pop(opt, None)
     data.setdefault("nombre_archivo_trx", "[CORRIDA]_trx.csv")
