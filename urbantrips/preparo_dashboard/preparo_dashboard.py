@@ -44,6 +44,7 @@ from urbantrips.preparo_dashboard.geo import (  # noqa: F401 — re-exported
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.utils.check_configs import check_config
+from urbantrips.utils.paths import get_paths
 from urbantrips.utils.utils import calculate_weighted_means, duracion, leer_alias, leer_configs_generales
 
 logger = logging.getLogger(__name__)
@@ -830,7 +831,7 @@ def imprimo_matrices_od(ctx: StorageContext):
         od_heatmap = od_heatmap.set_index("Origen")
         od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
 
-        db_path = os.path.join("resultados", "matrices", f"{savefile}.xlsx")
+        db_path = str(get_paths().output_dir / "matrices" / f"{savefile}.xlsx")
         od_heatmap.reset_index().fillna("").to_excel(db_path, index=False)
 
         od_heatmap = pd.crosstab(
@@ -846,9 +847,7 @@ def imprimo_matrices_od(ctx: StorageContext):
         od_heatmap = od_heatmap.set_index("Origen")
         od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
 
-        db_path2 = os.path.join(
-            "resultados", "matrices", f"{savefile}_normalizada.xlsx"
-        )
+        db_path2 = str(get_paths().output_dir / "matrices" / f"{savefile}_normalizada.xlsx")
         od_heatmap.reset_index().fillna("").to_excel(db_path2, index=False)
 
         logger.debug("Saved %s --- %s", db_path, db_path2)

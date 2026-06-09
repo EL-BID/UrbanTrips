@@ -11,6 +11,7 @@ from urbantrips.utils.utils import (
     create_line_ids_sql_filter,
     leer_alias,
 )
+from urbantrips.utils.paths import get_paths
 from urbantrips.kpi.kpi import (
     create_route_section_ids,
     add_od_lrs_to_legs_from_route,
@@ -285,7 +286,7 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type, save_csv=False
 
             archivo = f"{alias}({mes}_{day_str})_matriz_od_id_linea_"
             archivo = archivo + f"{line_id}_{hr_str}.csv"
-            path = os.path.join("resultados", "matrices", archivo)
+            path = str(get_paths().output_dir / "matrices" / archivo)
             totals_by_typeday_section_id.to_csv(path, index=False)
     else:
         logger.warning("No existe recorrido para id_linea: %s", line_id)

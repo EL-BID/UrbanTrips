@@ -14,6 +14,7 @@ from matplotlib.colors import rgb2hex
 import matplotlib.pyplot as plt
 from urbantrips.utils.sql import is_date_string
 from urbantrips.utils.utils import leer_configs_tuning
+from urbantrips.utils.paths import get_paths
 import seaborn as sns
 import os
 from urbantrips.storage.context import StorageContext
@@ -494,7 +495,7 @@ def plot_cluster_legs_lrs(
                 f"cluster_LRS_id_linea_{id_linea}_{hr_str}"
                 + f"_{day_type}_{direction_str}.{frm}"
             )
-            file_path = os.path.join("resultados", frm, file_name)
+            file_path = str(get_paths().output_dir / frm / file_name)
             f.savefig(file_path, dpi=300)
 
 
@@ -665,7 +666,7 @@ def plot_cluster_legs_4d(
                 f"cluster_4D_id_linea_{id_linea}_{hr_str}"
                 + f"_{day_type}_{direction_str}.{frm}"
             )
-            file_path = os.path.join("resultados", frm, file_name)
+            file_path = str(get_paths().output_dir / frm / file_name)
             f.savefig(file_path, dpi=300)
 
 
