@@ -99,7 +99,8 @@ def agrupar_viajes(
     agg_genero_agregado=False,
     agg_tarifa_agregada=False,
 ):
-    etapas_agrupadas_zon = etapas_agrupadas.copy()
+    needs_copy = agg_transferencias or agg_modo or agg_hora or agg_distancia or agg_genero_agregado or agg_tarifa_agregada
+    etapas_agrupadas_zon = etapas_agrupadas.copy() if needs_copy else etapas_agrupadas
 
     if agg_transferencias:
         etapas_agrupadas_zon["transferencia"] = 99
@@ -135,7 +136,8 @@ def construyo_matrices(
     agg_genero_agregado=False,
     agg_tarifa_agregada=False,
 ):
-    matriz = etapas_desagrupadas.copy()
+    needs_copy = agg_transferencias or agg_modo or agg_hora or agg_distancia or agg_genero_agregado or agg_tarifa_agregada
+    matriz = etapas_desagrupadas.copy() if needs_copy else etapas_desagrupadas
 
     if agg_transferencias:
         matriz["transferencia"] = 99

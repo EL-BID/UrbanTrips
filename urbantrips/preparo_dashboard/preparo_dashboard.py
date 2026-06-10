@@ -969,7 +969,17 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
         FROM _userx_clean
         GROUP BY dia, id_tarjeta
     """).df()
-    userx = viajes.merge(_tarifa_agg, how="left")
+    userx = viajes[
+        [
+            "dia",
+            "mes",
+            "tipo_dia",
+            "id_tarjeta",
+            "genero_agregado",
+            "factor_expansion_tarjeta",
+            "factor_expansion_linea",
+        ]
+    ].merge(_tarifa_agg, how="left")
     userx = (
         userx.groupby(
             [
@@ -1138,7 +1148,19 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
         WHERE nombre_linea IS NOT NULL AND nombre_linea != ''
         GROUP BY dia, id_tarjeta, id_viaje
     """).df()
-    transfers = viajes.merge(transfers[["dia", "id_tarjeta", "id_viaje", "seq_lineas"]])
+    transfers = viajes[
+        [
+            "dia",
+            "mes",
+            "tipo_dia",
+            "id_tarjeta",
+            "id_viaje",
+            "h3_o",
+            "h3_d",
+            "modo",
+            "factor_expansion_linea",
+        ]
+    ].merge(transfers[["dia", "id_tarjeta", "id_viaje", "seq_lineas"]])
     transfers = transfers.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "seq_lineas"], as_index=False
     , observed=True).factor_expansion_linea.sum()
@@ -1185,8 +1207,28 @@ def preparo_lineas_deseo(
         id_polygon = "NONE"
         polygons_h3 = pd.DataFrame([["NONE"]], columns=["id_polygon"])
         poligonos = pd.DataFrame([["NONE", "NONE"]], columns=["id", "tipo"])
-        etapas_selec = etapas_selec.assign(id_polygon="NONE", coincidencias="NONE")
-        viajes_selec = viajes_selec.assign(id_polygon="NONE", coincidencias="NONE")
+        # Narrow to the columns this function reads before .assign copies the
+        # frame — the caller's full etapas stays alive for later stages.
+        etapas_selec = etapas_selec[
+            [
+                "dia",
+                "id_tarjeta",
+                "id_viaje",
+                "id_etapa",
+                "h3_o",
+                "h3_d",
+                "modo_agregado",
+                "rango_hora",
+                "genero_agregado",
+                "tarifa_agregada",
+                "transferencia",
+                "distancia_agregada",
+                "distance_od",
+                "travel_time_min",
+                "kmh_od",
+                "factor_expansion_linea",
+            ]
+        ].assign(id_polygon="NONE", coincidencias="NONE")
 
     # Traigo zonas
     zonas_data = ctx.insumos.get_raw("equivalencias_zonas")
@@ -1334,6 +1376,7 @@ def preparo_lineas_deseo(
             .sort_values(["dia", "id_tarjeta", "id_viaje", "id_etapa"])
             .reset_index(drop=True)
         )
+        del ultimo_viaje
 
         etapas_all["tipo_viaje"] = "Transfer_" + (etapas_all["id_etapa"] - 1).astype(
             str
@@ -1398,6 +1441,10 @@ def preparo_lineas_deseo(
             .merge(transfer2, how="left")
             .merge(fin, how="left")
         )
+        # etapas_all (leg-level, the largest frame here) is not used past this
+        # point; free it before the per-zona loop multiplies the working set.
+        del inicio, fin, transfer1, transfer2, etapas_all
+        gc.collect()
         _str_cols = [
             c for c in [
                 "h3_transfer1", "h3_transfer2", "h3_fin",
@@ -1496,9 +1543,11 @@ def preparo_lineas_deseo(
 
                 if "res_" in zona:
                     resol = int(zona.replace("res_", ""))
-                    etapas_agrupadas_zon[i] = [
-                        h3toparent(x, res=resol) for x in etapas_agrupadas_zon[i]
-                    ]
+                    _parent_map = {
+                        x: h3toparent(x, res=resol)
+                        for x in etapas_agrupadas_zon[i].unique()
+                    }
+                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].map(_parent_map)
 
                 else:
                     # zonas_data_ = zonas_data.groupby(
@@ -1660,6 +1709,7 @@ def preparo_lineas_deseo(
             ]
 
             etapas_agrupadas_zon = pd.concat([et1, et2], ignore_index=True)
+            del et1, et2
 
             # FIN - Normalizo variables (variables _norm)
 
@@ -2217,13 +2267,34 @@ def preparo_lineas_deseo(
                     ["dia", "zona", "id_polygon"],
                 )
 
+            del etapas_agrupadas_zon, viajes_matrices
+            gc.collect()
+
+        del etapas_agrupadas, h3_coords
+        gc.collect()
 
 
 def guarda_particion_modal(ctx: StorageContext, etapas):
 
     df_dummies = pd.get_dummies(etapas.modo)
-    etapas = pd.concat([etapas, df_dummies], axis=1)
     cols_dummies = df_dummies.columns.tolist()
+    etapas = pd.concat(
+        [
+            etapas[
+                [
+                    "dia",
+                    "mes",
+                    "tipo_dia",
+                    "genero_agregado",
+                    "id_tarjeta",
+                    "id_viaje",
+                    "factor_expansion_linea",
+                ]
+            ],
+            df_dummies,
+        ],
+        axis=1,
+    )
 
     etapas_modos = (
         etapas.groupby(
@@ -2256,18 +2327,17 @@ def guarda_particion_modal(ctx: StorageContext, etapas):
 
 def resumen_x_linea(ctx: StorageContext, etapas, viajes):
 
-    gps = ctx.data.get_raw("gps")
-    gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+    # Only the columns agrego_lineas reads — gps and transacciones are the two
+    # largest tables in the run; loading them whole multiplies peak RSS.
+    gps = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM gps")
     lineas = ctx.insumos.get_metadata_lineas()
     kpis = ctx.data.get_raw("kpi_by_day_line")
     servicios = ctx.data.get_raw("services")
     lineas = lineas[["id_linea", "nombre_linea", "empresa"]].sort_values(["id_linea"])
 
-    trx = ctx.data.get_raw("transacciones")
-    if "tarifa_agregada" in trx.columns:
-        trx["tarifa_agregada"] = trx["tarifa_agregada"].fillna("")
-    if "genero_agregado" in trx.columns:
-        trx["genero_agregado"] = trx["genero_agregado"].fillna("")
+    trx = ctx.data.query(
+        "SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion FROM transacciones"
+    )
 
     metric_cols = [
         "transacciones",

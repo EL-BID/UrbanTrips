@@ -123,9 +123,11 @@ def cal_velocidad_comercial(servicios):
 
 def levanto_data(ctx: StorageContext, etapas=[], viajes=[]):
 
-    gps = ctx.data.get_gps()
+    # Only the columns used below — gps and transacciones are the two largest
+    # tables in the run; loading them whole multiplies peak RSS.
+    gps = ctx.data.query("SELECT fecha, id_linea, id_ramal, interno FROM gps")
 
-    trx = ctx.data.get_transactions()
+    trx = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM transacciones")
 
     lineas = ctx.insumos.get_metadata_lineas()[
         ["id_linea", "nombre_linea", "empresa"]
