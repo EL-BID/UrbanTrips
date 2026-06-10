@@ -1551,6 +1551,22 @@ def preparo_lineas_deseo(
             ]
         ]
 
+        # Precompute h3→parent maps for every resolution used, covering all h3 values
+        # in this (dia, polygon) slice. Reused by all zonas at the same resolution.
+        _all_h3_vals: set = set()
+        for _col in ("h3_inicio", "h3_transfer1", "h3_transfer2", "h3_fin"):
+            if _col in etapas_agrupadas.columns:
+                _all_h3_vals.update(
+                    v for v in etapas_agrupadas[_col].dropna().unique() if v != ""
+                )
+
+        _res_parent_maps: dict = {}  # resolution_int → {h3_str: parent_str}
+        for _zona in zonas:
+            if "res_" in _zona:
+                _r = int(_zona.replace("res_", ""))
+                if _r not in _res_parent_maps:
+                    _res_parent_maps[_r] = {h: h3toparent(h, res=_r) for h in _all_h3_vals}
+
         for zona in zonas:
             logger.debug("Polígono %s - Tipo: %s - Zona: %s", id_polygon, tipo_poly, zona)
 
@@ -1611,11 +1627,9 @@ def preparo_lineas_deseo(
 
                 if "res_" in zona:
                     resol = int(zona.replace("res_", ""))
-                    _parent_map = {
-                        x: h3toparent(x, res=resol)
-                        for x in etapas_agrupadas_zon[i].unique()
-                    }
-                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].map(_parent_map)
+                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].map(
+                        _res_parent_maps[resol]
+                    )
 
                 else:
                     # zonas_data_ = zonas_data.groupby(
