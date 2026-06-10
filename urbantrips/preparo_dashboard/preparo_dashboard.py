@@ -1583,6 +1583,17 @@ def preparo_lineas_deseo(
             ]
             etapas_agrupadas_zon["poly_fin_norm"] = etapas_agrupadas_zon["poly_fin"]
 
+            # Precompute per-zona constants that would otherwise be rebuilt 4× in the column loop
+            if tipo_poly == "poligono" and id_polygon != "NONE":
+                _poly_centroid = poly.geometry.to_crs(3857).centroid.to_crs(4326)
+                _poly_centroid_lat = _poly_centroid.y.iloc[0]
+                _poly_centroid_lon = _poly_centroid.x.iloc[0]
+                _poly_h3_set = set(poly_h3.h3.unique())
+            else:
+                _poly_centroid_lat = None
+                _poly_centroid_lon = None
+                _poly_h3_set = set()
+
             n = 1
             for i in ["inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"]:
                 etapas_agrupadas_zon[f"lat{n}"] = etapas_agrupadas_zon[i].map(_lat_map)
@@ -1591,13 +1602,12 @@ def preparo_lineas_deseo(
                 # Selecciono el centroide del polígono en vez del centroide de cada hexágono
 
                 if tipo_poly == "poligono":
-                    poly_centroid = poly.geometry.to_crs(3857).centroid.to_crs(4326)
                     etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(poly_h3.h3.unique()), f"lat{n}"
-                    ] = poly_centroid.y.iloc[0]
+                        etapas_agrupadas_zon[i].isin(_poly_h3_set), f"lat{n}"
+                    ] = _poly_centroid_lat
                     etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(poly_h3.h3.unique()), f"lon{n}"
-                    ] = poly_centroid.x.iloc[0]
+                        etapas_agrupadas_zon[i].isin(_poly_h3_set), f"lon{n}"
+                    ] = _poly_centroid_lon
 
                 if "res_" in zona:
                     resol = int(zona.replace("res_", ""))
