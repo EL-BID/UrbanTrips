@@ -2,6 +2,7 @@ import logging
 import gc
 import os
 from datetime import datetime
+from itertools import product
 
 import duckdb
 import geopandas as gpd
@@ -1204,31 +1205,12 @@ def preparo_lineas_deseo(
     zonificaciones = ensure_geodataframe(zonificaciones)
 
     if len(polygons_h3) == 0:
+        # NONE mode: a single pseudo-polygon covering everything. etapas_selec
+        # is NOT copied here — id_polygon/coincidencias are constants attached
+        # per-day inside the loop (detected by column absence).
         id_polygon = "NONE"
         polygons_h3 = pd.DataFrame([["NONE"]], columns=["id_polygon"])
         poligonos = pd.DataFrame([["NONE", "NONE"]], columns=["id", "tipo"])
-        # Narrow to the columns this function reads before .assign copies the
-        # frame — the caller's full etapas stays alive for later stages.
-        etapas_selec = etapas_selec[
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "id_etapa",
-                "h3_o",
-                "h3_d",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "factor_expansion_linea",
-            ]
-        ].assign(id_polygon="NONE", coincidencias="NONE")
 
     # Traigo zonas
     zonas_data = ctx.insumos.get_raw("equivalencias_zonas")
@@ -1271,35 +1253,52 @@ def preparo_lineas_deseo(
     zonas = zonas_cols + res_vars
     logger.debug("Zonas: %s", zonas)
 
-    for id_polygon in polygons_h3.id_polygon.unique():
+    # Procesar día por día mantiene el working set constante sin importar
+    # cuántos días tenga la corrida (mismo patrón que destinations).
+    # Las escrituras particionan por dia, así que acumulan correctamente.
+    dias = sorted(etapas_selec.dia.unique().tolist())
+    _cols_etapas_all = [
+        "dia",
+        "id_tarjeta",
+        "id_viaje",
+        "id_etapa",
+        "h3_o",
+        "h3_d",
+        "modo_agregado",
+        "rango_hora",
+        "genero_agregado",
+        "tarifa_agregada",
+        "transferencia",
+        "distancia_agregada",
+        "distance_od",
+        "travel_time_min",
+        "kmh_od",
+        "coincidencias",
+        "factor_expansion_linea",
+    ]
+
+    for _dia, id_polygon in product(dias, polygons_h3.id_polygon.unique()):
+        logger.info("Líneas de deseo — día %s, polígono %s", _dia, id_polygon)
 
         poly_h3 = polygons_h3[polygons_h3.id_polygon == id_polygon]
         poly = poligonos[poligonos.id == id_polygon]
         tipo_poly = poly.tipo.values[0]
 
         # Preparo Etapas con inicio, transferencias y fin del viaje
-        etapas_all = etapas_selec.loc[
-            (etapas_selec.id_polygon == id_polygon),
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "id_etapa",
-                "h3_o",
-                "h3_d",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "coincidencias",
-                "factor_expansion_linea",
-            ],
-        ].copy()
+        if "id_polygon" in etapas_selec.columns:
+            etapas_all = etapas_selec.loc[
+                (etapas_selec.id_polygon == id_polygon)
+                & (etapas_selec.dia == _dia),
+                _cols_etapas_all,
+            ].copy()
+        else:
+            # NONE mode: slice the day straight off the caller's frame and
+            # attach the constant columns to the (much smaller) slice.
+            etapas_all = etapas_selec.loc[
+                etapas_selec.dia == _dia,
+                [c for c in _cols_etapas_all if c != "coincidencias"],
+            ].copy()
+            etapas_all["coincidencias"] = "NONE"
         etapas_all["etapa_max"] = etapas_all.groupby(
             ["dia", "id_tarjeta", "id_viaje"]
         , observed=True).id_etapa.transform("max")
@@ -1313,8 +1312,8 @@ def preparo_lineas_deseo(
                 * 100
             )
             logger.info(
-                "Borrando viajes con más de 3 etapas: %.2f%% del polígono %s",
-                nborrar, id_polygon,
+                "Borrando viajes con más de 3 etapas: %.2f%% del polígono %s (día %s)",
+                nborrar, id_polygon, _dia,
             )
             etapas_all = etapas_all[etapas_all.etapa_max <= 3].copy()
             del _excess
