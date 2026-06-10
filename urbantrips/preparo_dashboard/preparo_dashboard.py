@@ -64,6 +64,7 @@ warnings.filterwarnings(
 
 
 
+@duracion
 def load_and_process_data(ctx: StorageContext):
     """
     Devuelve los DataFrames `etapas` y `viajes` procesados
@@ -72,6 +73,7 @@ def load_and_process_data(ctx: StorageContext):
     """
 
     # ── 1. leer etapas y viajes (filtrados) ─────────────────────────
+    logger.info("load_and_process_data: leyendo etapas desde DB")
     etapas = ctx.data.query(
         """
         SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.tiempo, e.hora,
@@ -94,7 +96,9 @@ def load_and_process_data(ctx: StorageContext):
         WHERE e.od_validado = 1
         """
     )
+    logger.info("load_and_process_data: etapas cargadas (%d filas)", len(etapas))
 
+    logger.info("load_and_process_data: leyendo viajes desde DB")
     viajes = ctx.data.query(
         """
         SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
@@ -116,13 +120,16 @@ def load_and_process_data(ctx: StorageContext):
         WHERE v.od_validado = 1
         """
     )
+    logger.info("load_and_process_data: viajes cargados (%d filas)", len(viajes))
 
+    logger.info("load_and_process_data: clasificando tarifa y género")
     etapas["tarifa_agregada"] = clasificar_tarifa_agregada_social(etapas["tarifa"])
     etapas["genero_agregado"] = clasificar_genero_agregado(etapas["genero"])
     viajes["tarifa_agregada"] = clasificar_tarifa_agregada_social(viajes["tarifa"])
     viajes["genero_agregado"] = clasificar_genero_agregado(viajes["genero"])
 
     # ── 2. incorporar travel_time_min y velocidades ─────────────────
+    logger.info("load_and_process_data: calculando velocidades y tiempos de viaje")
 
     etapas[["kmh_od"]] = np.nan
     viajes[["kmh_od"]] = np.nan
@@ -145,6 +152,7 @@ def load_and_process_data(ctx: StorageContext):
     viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
 
     # ── 3. datetime window columns (stay in pandas) ────────────────
+    logger.info("load_and_process_data: construyendo columnas de ventana temporal")
     viajes["Fecha"] = pd.to_datetime(viajes["dia"] + " " + viajes["tiempo"], format="%Y-%m-%d %H:%M:%S")
     viajes["Fecha_next"] = viajes.groupby(["dia", "id_tarjeta"], observed=True)["Fecha"].shift(-1)
     viajes["diff_time"] = (
@@ -156,7 +164,7 @@ def load_and_process_data(ctx: StorageContext):
     )
 
     # ── 4. partición modal (vectorizada) ────────────────────────────
-
+    logger.info("load_and_process_data: calculando modo agregado")
     keys_mod = ["dia", "id_tarjeta", "id_viaje"]
     tmp = etapas.groupby(keys_mod, sort=False, observed=True).agg(
         n_unique=("modo", "nunique"),
@@ -181,8 +189,12 @@ def load_and_process_data(ctx: StorageContext):
     )
 
     # ── 5. eliminar registros sin distancias ────────────────────────
+    logger.info("load_and_process_data: filtrando registros sin distancias")
     etapas = etapas[etapas["distance_od"].notna()]
     viajes = viajes[viajes["distance_od"].notna()]
+    logger.info(
+        "load_and_process_data: tras filtro — etapas %d, viajes %d", len(etapas), len(viajes)
+    )
 
     # ── 6. rellenar nulos finales ───────────────────────────────────
     for df in (etapas, viajes):
@@ -190,6 +202,7 @@ def load_and_process_data(ctx: StorageContext):
         df["kmh_od"] = df["kmh_od"].fillna(0).astype("float32")
 
     # ── 7. columnas finales ─────────────────────────────────────────
+    logger.info("load_and_process_data: seleccionando columnas finales")
     etapas = etapas[
         [
             "id",
@@ -520,6 +533,7 @@ def _construyo_indicadores_pandas(ctx: StorageContext, viajes, poligonos=False):
     replace_dash_partition(ctx, indicadores, tabla_destino, ["dia"])
 
 
+@duracion
 def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     """Compute dashboard indicators using DuckDB for single-pass aggregations."""
     if poligonos:
@@ -534,6 +548,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     KEYS = ["id_polygon", "dia", "mes", "tipo_dia"]
 
     # ── 1. Base group ─────────────────────────────────────────────────────────
+    logger.info("construyo_indicadores: calculando indicadores base")
     base = duckdb.sql("""
         SELECT
             id_polygon, dia, mes, tipo_dia,
@@ -567,6 +582,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind6["type_val"] = "float"
 
     # ── 2. Usuarios ───────────────────────────────────────────────────────────
+    logger.info("construyo_indicadores: calculando usuarios únicos")
     usuarios = duckdb.sql("""
         SELECT id_polygon, dia, mes, tipo_dia,
             ROUND(SUM(first_fex)) AS Valor
@@ -584,6 +600,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind5["type_val"] = "int"
 
     # ── 3. By rango_hora ──────────────────────────────────────────────────────
+    logger.info("construyo_indicadores: calculando distribución por rango hora")
     by_hora = duckdb.sql("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
@@ -605,6 +622,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind3 = ind3.drop(columns=["rango_hora"])
 
     # ── 4. By modo ────────────────────────────────────────────────────────────
+    logger.info("construyo_indicadores: calculando distribución modal")
     by_modo = duckdb.sql("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
@@ -635,6 +653,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind7 = ind7.rename(columns={"dist_prom_modo": "Valor"}).drop(columns=["modo"])
 
     # ── 5. By distancia_agregada ──────────────────────────────────────────────
+    logger.info("construyo_indicadores: calculando distribución por distancia")
     by_dist = duckdb.sql("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
@@ -665,6 +684,7 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     ind8 = ind8.rename(columns={"dist_prom_dist": "Valor"}).drop(columns=["distancia_agregada"])
 
     # ── 6. Combine, merge history, add "Todos" aggregate ─────────────────────
+    logger.info("construyo_indicadores: consolidando y guardando indicadores")
     indicadores = pd.concat(
         [ind1, ind5, ind2, ind3, ind6, ind9, ind7, ind8, ind4], ignore_index=True
     )
@@ -854,9 +874,9 @@ def imprimo_matrices_od(ctx: StorageContext):
         logger.debug("Saved %s --- %s", db_path, db_path2)
 
 
+@duracion
 def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
-    logger.info("Creo indicadores de género y tarifa_agregada")
-
+    logger.info("crea_socio_indicadores: calculando medias ponderadas de viajes")
     socio_indicadores = pd.DataFrame([])
     viajes.loc[viajes.travel_time_min == 0, "travel_time_min"] = np.nan
     viajes.loc[viajes.kmh_od == 0, "kmh_od"] = np.nan
@@ -922,6 +942,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     ).round(3)
 
     # calcular tabla de indicadores
+    logger.info("crea_socio_indicadores: calculando medias ponderadas de etapas")
     etapasxx = calculate_weighted_means(
         etapasx,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "modo"],
@@ -962,6 +983,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     socio_indicadores = pd.concat([socio_indicadores, viajesxx], ignore_index=True)
 
     # Calculo viajes promedio por día por género y tarifa_agregada
+    logger.info("crea_socio_indicadores: calculando viajes promedio por usuario")
     _userx_clean = viajes[["dia", "id_tarjeta"]].copy()
     _userx_clean["tarifa_agregada"] = viajes["tarifa_agregada"].str.replace("-", "")
     _tarifa_agg = duckdb.sql("""
@@ -1017,6 +1039,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     socio_indicadores = pd.concat([socio_indicadores, userx], ignore_index=True)
 
     # Preparo socioindicadores final
+    logger.info("crea_socio_indicadores: guardando socio_indicadores, distribución y viajes_hora")
     socio_indicadores = socio_indicadores[
         [
             "tabla",
@@ -1106,8 +1129,10 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     ctx.dash.save_indicator(hora, "viajes_hora")
 
 
+@duracion
 def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_zonas):
 
+    logger.info("preparo_etapas_agregadas: agregando etapas y viajes")
     e_agg = etapas.groupby(
         ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "id_linea"], as_index=False
     , observed=True).factor_expansion_linea.sum()
@@ -1142,6 +1167,7 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
     ]  # (etapas.etapas_max>1)
     transfers = transfers.merge(lineas[["id_linea", "nombre_linea"]], how="left")
     transfers_long = transfers
+    logger.info("preparo_etapas_agregadas: construyendo secuencias de transferencias")
     transfers = duckdb.sql("""
         SELECT dia, id_tarjeta, id_viaje,
                STRING_AGG(nombre_linea, ' -- ' ORDER BY id_etapa) AS seq_lineas
@@ -1167,6 +1193,7 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
     , observed=True).factor_expansion_linea.sum()
     # transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False, observed=True).factor_expansion_linea.mean()
 
+    logger.info("preparo_etapas_agregadas: mergeando equivalencias de zonas")
     if len(equivalencias_zonas) > 0:
         zonas_cols = equivalencias_zonas.columns.tolist()
         zonas_cols = [
@@ -1187,11 +1214,13 @@ def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_
         v_agg = v_agg.merge(eq_d, how="left")
         transfers = transfers.merge(eq_d, how="left")
 
+    logger.info("preparo_etapas_agregadas: guardando etapas_agregadas, viajes_agregados, transferencias_agregadas")
     ctx.dash.save_raw(e_agg, "etapas_agregadas")
     ctx.dash.save_raw(v_agg, "viajes_agregados")
     ctx.dash.save_raw(transfers, "transferencias_agregadas")
 
 
+@duracion
 def preparo_lineas_deseo(
     ctx: StorageContext,
     etapas_selec,
@@ -1257,6 +1286,7 @@ def preparo_lineas_deseo(
     # cuántos días tenga la corrida (mismo patrón que destinations).
     # Las escrituras particionan por dia, así que acumulan correctamente.
     dias = sorted(etapas_selec.dia.unique().tolist())
+    logger.info("preparo_lineas_deseo: %d días × %d polígonos", len(dias), len(polygons_h3.id_polygon.unique()))
     _cols_etapas_all = [
         "dia",
         "id_tarjeta",
@@ -2273,6 +2303,7 @@ def preparo_lineas_deseo(
         gc.collect()
 
 
+@duracion
 def guarda_particion_modal(ctx: StorageContext, etapas):
 
     df_dummies = pd.get_dummies(etapas.modo)
@@ -2324,10 +2355,12 @@ def guarda_particion_modal(ctx: StorageContext, etapas):
 
 
 
+@duracion
 def resumen_x_linea(ctx: StorageContext, etapas, viajes):
 
     # Only the columns agrego_lineas reads — gps and transacciones are the two
     # largest tables in the run; loading them whole multiplies peak RSS.
+    logger.info("resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones")
     gps = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM gps")
     lineas = ctx.insumos.get_metadata_lineas()
     kpis = ctx.data.get_raw("kpi_by_day_line")
@@ -2348,6 +2381,7 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     ]
 
     # Resumen por línea
+    logger.info("resumen_x_linea: agregando por línea")
     all_linea = agrego_lineas(["dia", "id_linea"], trx, etapas, gps, servicios, kpis, lineas)
     all_linea["mes"] = all_linea["dia"].str[:7]
     metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
@@ -2361,6 +2395,7 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
     replace_dash_partition(ctx, all_linea, "resumen_lineas", ["dia"])
 
     # Resumen por línea y ramal
+    logger.info("resumen_x_linea: agregando por línea y ramal")
     all_ramal = agrego_lineas(["dia", "id_linea", "id_ramal"], trx, etapas, gps, servicios, kpis, lineas)
     all_ramal["mes"] = all_ramal["dia"].str[:7]
     metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
@@ -2711,7 +2746,9 @@ def preparo_indicadores_dash(
 
     guardo_zonificaciones(ctx)
 
+    logger.info("Cargando insumos: zonificaciones")
     zonificaciones = ctx.insumos.get_raw("zonificaciones")
+    logger.info("Cargando insumos: equivalencias_zonas")
     equivalencias_zonas = ctx.insumos.get_raw("equivalencias_zonas")
 
     etapas, viajes = load_and_process_data(ctx)

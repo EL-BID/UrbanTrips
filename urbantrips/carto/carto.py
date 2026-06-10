@@ -277,6 +277,7 @@ def guardo_zonificaciones(ctx: StorageContext):
         zonificaciones = _load_zonificaciones_from_config(configs)
 
         if len(zonificaciones) > 0:
+            logger.info("guardo_zonificaciones: disolviendo polígonos de zonificación")
             zonificaciones["orden"] = zonificaciones["orden"].fillna(0)
             zonificaciones["zona"] = zonificaciones["zona"].fillna("")
             zonificaciones["id"] = zonificaciones["id"].fillna("")
@@ -299,6 +300,7 @@ def guardo_zonificaciones(ctx: StorageContext):
                 .to_crs(crs_actual)
             )
 
+            logger.info("guardo_zonificaciones: generando hexágonos H3 res 6 y 7")
             h3_layers = []
             for res in (6, 7):
                 layer = generate_h3_hexagons_within_polygon(
@@ -315,6 +317,7 @@ def guardo_zonificaciones(ctx: StorageContext):
                 [zonificaciones, *h3_layers], ignore_index=True
             )
 
+            logger.info("guardo_zonificaciones: generando hexágonos H3 res %s y calculando equivalencias", configs.get("resolucion_h3"))
             full_area_res_urbantrips = generate_h3_hexagons_within_polygon(
                 zonificaciones_disolved, configs.get("resolucion_h3"), crs_val
             )
@@ -322,6 +325,7 @@ def guardo_zonificaciones(ctx: StorageContext):
                 full_area_res_urbantrips.geometry.representative_point()
             )
 
+            logger.info("guardo_zonificaciones: spatial join para equivalencias_zonas")
             equivalencias_zonas = gpd.sjoin(
                 full_area_res_urbantrips,
                 zonificaciones,
@@ -344,6 +348,7 @@ def guardo_zonificaciones(ctx: StorageContext):
                 .rename(columns={"h3_index": "h3"})
             )
 
+            logger.info("guardo_zonificaciones: guardando zonificaciones y equivalencias_zonas")
             zonificaciones_to_save = _with_wkt_geometry(zonificaciones)
 
             ctx.insumos.save_raw(zonificaciones_to_save, "zonificaciones")
@@ -354,6 +359,7 @@ def guardo_zonificaciones(ctx: StorageContext):
         poly_file = configs["poligonos"]
 
         db_path = str(get_paths().input_dir / poly_file)
+        logger.info("guardo_zonificaciones: cargando polígonos desde %s", poly_file)
         poligonos_db = ctx.insumos.get_raw("poligonos")
 
         if os.path.exists(db_path):
@@ -368,6 +374,7 @@ def guardo_zonificaciones(ctx: StorageContext):
                     ignore_index=True,
                 )
 
+            logger.info("guardo_zonificaciones: guardando polígonos (%d filas)", len(poly))
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")
 
