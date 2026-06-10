@@ -1575,29 +1575,18 @@ def preparo_lineas_deseo(
 
             # Preparo para agrupar por líneas de deseo y cambiar de resolución si es necesario
 
-            etapas_agrupadas_zon = etapas_agrupadas.copy()
-
-            etapas_agrupadas_zon["id_polygon"] = id_polygon
-            etapas_agrupadas_zon["zona"] = zona
-
-            etapas_agrupadas_zon["inicio_norm"] = etapas_agrupadas_zon["h3_inicio"]
-            etapas_agrupadas_zon["transfer1_norm"] = etapas_agrupadas_zon[
-                "h3_transfer1"
-            ]
-            etapas_agrupadas_zon["transfer2_norm"] = etapas_agrupadas_zon[
-                "h3_transfer2"
-            ]
-            etapas_agrupadas_zon["fin_norm"] = etapas_agrupadas_zon["h3_fin"]
-            etapas_agrupadas_zon["poly_inicio_norm"] = etapas_agrupadas_zon[
-                "poly_inicio"
-            ]
-            etapas_agrupadas_zon["poly_transfer1_norm"] = etapas_agrupadas_zon[
-                "poly_transfer1"
-            ]
-            etapas_agrupadas_zon["poly_transfer2_norm"] = etapas_agrupadas_zon[
-                "poly_transfer2"
-            ]
-            etapas_agrupadas_zon["poly_fin_norm"] = etapas_agrupadas_zon["poly_fin"]
+            etapas_agrupadas_zon = etapas_agrupadas.assign(
+                id_polygon=id_polygon,
+                zona=zona,
+                inicio_norm=etapas_agrupadas["h3_inicio"],
+                transfer1_norm=etapas_agrupadas["h3_transfer1"],
+                transfer2_norm=etapas_agrupadas["h3_transfer2"],
+                fin_norm=etapas_agrupadas["h3_fin"],
+                poly_inicio_norm=etapas_agrupadas["poly_inicio"],
+                poly_transfer1_norm=etapas_agrupadas["poly_transfer1"],
+                poly_transfer2_norm=etapas_agrupadas["poly_transfer2"],
+                poly_fin_norm=etapas_agrupadas["poly_fin"],
+            )
 
             # Precompute per-zona constants that would otherwise be rebuilt 4× in the column loop
             if tipo_poly == "poligono" and id_polygon != "NONE":
