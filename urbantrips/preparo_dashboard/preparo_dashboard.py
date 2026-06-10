@@ -1282,6 +1282,12 @@ def preparo_lineas_deseo(
     zonas = zonas_cols + res_vars
     logger.debug("Zonas: %s", zonas)
 
+    if len(zonificaciones) > 0 and "geometry" in zonificaciones.columns:
+        zonificaciones["lat"] = zonificaciones.geometry.representative_point().y
+        zonificaciones["lon"] = zonificaciones.geometry.representative_point().x
+
+    cuenca_ids = frozenset(poligonos.loc[poligonos.tipo == "cuenca", "id"])
+
     # Procesar día por día mantiene el working set constante sin importar
     # cuántos días tenga la corrida (mismo patrón que destinations).
     # Las escrituras particionan por dia, así que acumulan correctamente.
@@ -1908,9 +1914,6 @@ def preparo_lineas_deseo(
                 agg_distancia=False,
             )
 
-            zonificaciones["lat"] = zonificaciones.geometry.representative_point().y
-            zonificaciones["lon"] = zonificaciones.geometry.representative_point().x
-
             n = 1
             poly_lst = ["poly_inicio", "poly_transfer1", "poly_transfer2", "poly_fin"]
             for i in ["inicio", "transfer1", "transfer2", "fin"]:
@@ -2145,13 +2148,13 @@ def preparo_lineas_deseo(
 
                 etapas_agrupadas_zon.loc[
                     etapas_agrupadas_zon.poly_inicio_norm.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "inicio_norm",
                 ] = (
                     etapas_agrupadas_zon.loc[
                         etapas_agrupadas_zon.poly_inicio_norm.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "inicio_norm",
                     ]
@@ -2159,13 +2162,13 @@ def preparo_lineas_deseo(
                 )
                 etapas_agrupadas_zon.loc[
                     etapas_agrupadas_zon.poly_transfer1_norm.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "transfer1_norm",
                 ] = (
                     etapas_agrupadas_zon.loc[
                         etapas_agrupadas_zon.poly_transfer1_norm.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "transfer1_norm",
                     ]
@@ -2173,13 +2176,13 @@ def preparo_lineas_deseo(
                 )
                 etapas_agrupadas_zon.loc[
                     etapas_agrupadas_zon.poly_transfer2_norm.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "transfer2_norm",
                 ] = (
                     etapas_agrupadas_zon.loc[
                         etapas_agrupadas_zon.poly_transfer2_norm.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "transfer2_norm",
                     ]
@@ -2187,13 +2190,13 @@ def preparo_lineas_deseo(
                 )
                 etapas_agrupadas_zon.loc[
                     etapas_agrupadas_zon.poly_fin_norm.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "fin_norm",
                 ] = (
                     etapas_agrupadas_zon.loc[
                         etapas_agrupadas_zon.poly_fin_norm.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "fin_norm",
                     ]
@@ -2201,13 +2204,13 @@ def preparo_lineas_deseo(
                 )
                 viajes_matrices.loc[
                     viajes_matrices.poly_inicio.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "Origen",
                 ] = (
                     viajes_matrices.loc[
                         viajes_matrices.poly_inicio.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "Origen",
                     ]
@@ -2215,13 +2218,13 @@ def preparo_lineas_deseo(
                 )
                 viajes_matrices.loc[
                     viajes_matrices.poly_fin.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "Destino",
                 ] = (
                     viajes_matrices.loc[
                         viajes_matrices.poly_fin.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "Destino",
                     ]
@@ -2229,13 +2232,13 @@ def preparo_lineas_deseo(
                 )
                 viajes_matrices.loc[
                     viajes_matrices.poly_inicio.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "inicio",
                 ] = (
                     viajes_matrices.loc[
                         viajes_matrices.poly_inicio.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "inicio",
                     ]
@@ -2243,13 +2246,13 @@ def preparo_lineas_deseo(
                 )
                 viajes_matrices.loc[
                     viajes_matrices.poly_fin.isin(
-                        poligonos[poligonos.tipo == "cuenca"].id.unique()
+                        cuenca_ids
                     ),
                     "fin",
                 ] = (
                     viajes_matrices.loc[
                         viajes_matrices.poly_fin.isin(
-                            poligonos[poligonos.tipo == "cuenca"].id.unique()
+                            cuenca_ids
                         ),
                         "fin",
                     ]
