@@ -119,7 +119,9 @@ def select_cases_from_polygons(etapas, viajes, polygons, res=8):
     viajes_selec = gpd.GeoDataFrame([])
     polygons_h3 = gpd.GeoDataFrame([])
 
-    for _, poly in polygons.iterrows():
+    n_polys = len(polygons)
+    for idx, (_, poly) in enumerate(polygons.iterrows(), 1):
+        logger.info("select_cases_from_polygons: polígono %s (%d/%d)", poly["id"], idx, n_polys)
         poly_gdf = gpd.GeoDataFrame([poly], geometry="geometry", crs=polygons.crs)
         gdf_hexs = select_h3_from_polygon(poly_gdf, res=res, viz=False)
         gdf_hexs["id_polygon"] = poly["id"]

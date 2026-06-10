@@ -1301,6 +1301,7 @@ def preparo_lineas_deseo(
             continue
         _poly_h3_subset = polygons_h3[polygons_h3.id_polygon == _poly_id].copy()
         for _zona in zonas:
+            logger.info("Cacheando h3_equivalencias: polígono %s, zona %s", _poly_id, _zona)
             _h3_eq = creo_h3_equivalencias(
                 _poly_h3_subset,
                 _poly_row,
