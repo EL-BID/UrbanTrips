@@ -318,6 +318,9 @@ def process_routes_metadata(ctx: StorageContext):
     assert not info.id_linea.isna().any(), "id_linea no debe ser NULL"
     # fill nombre_linea from id_linea when absent
     info["nombre_linea"] = info["nombre_linea"].fillna(info["id_linea"].astype(str))
+    # fill nombre_ramal from id_ramal when absent
+    if branches_present:
+        info["nombre_ramal"] = info["nombre_ramal"].fillna(info["id_ramal"].astype(str))
 
     if "id_linea_agg" not in info.columns:
         info["id_linea_agg"] = info["id_linea"]
