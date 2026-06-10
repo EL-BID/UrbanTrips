@@ -1465,12 +1465,10 @@ def preparo_lineas_deseo(
         etapas_all = etapas_all.drop(["ultimo_viaje"], axis=1)
 
         # Guardo las coordenadas de los H3
-        h3_coords = (
-            etapas_all.groupby("h3", as_index=False, observed=True)
-            .id_viaje.count()
-            .drop(["id_viaje"], axis=1)
-        )
-        h3_coords[["lat", "lon"]] = np.array([h3_to_lat_lon(x) for x in h3_coords.h3])
+        _unique_h3 = etapas_all["h3"].dropna().unique()
+        _h3_latlon = np.array([h3_to_lat_lon(x) for x in _unique_h3])
+        _lat_map = dict(zip(_unique_h3, _h3_latlon[:, 0]))
+        _lon_map = dict(zip(_unique_h3, _h3_latlon[:, 1]))
 
         # Preparo cada etapa de viaje para poder hacer la agrupación y tener inicio, transferencias y destino en un mismo registro
         inicio = etapas_all.loc[
@@ -1587,14 +1585,8 @@ def preparo_lineas_deseo(
 
             n = 1
             for i in ["inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"]:
-
-                etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
-                    h3_coords.rename(columns={"h3": i}), how="left", on=i
-                )
-
-                etapas_agrupadas_zon[f"lon{n}"] = etapas_agrupadas_zon["lon"]
-                etapas_agrupadas_zon[f"lat{n}"] = etapas_agrupadas_zon["lat"]
-                etapas_agrupadas_zon = etapas_agrupadas_zon.drop(["lon", "lat"], axis=1)
+                etapas_agrupadas_zon[f"lat{n}"] = etapas_agrupadas_zon[i].map(_lat_map)
+                etapas_agrupadas_zon[f"lon{n}"] = etapas_agrupadas_zon[i].map(_lon_map)
 
                 # Selecciono el centroide del polígono en vez del centroide de cada hexágono
 
@@ -2329,7 +2321,7 @@ def preparo_lineas_deseo(
             del etapas_agrupadas_zon, viajes_matrices
             gc.collect()
 
-        del etapas_agrupadas, h3_coords
+        del etapas_agrupadas
         gc.collect()
 
 
