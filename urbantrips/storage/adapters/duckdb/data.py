@@ -46,6 +46,38 @@ def _resolve_memory_limit(configured: str | None) -> str:
     logger.info("[DuckDB] memory_limit=%s (auto: 25%% of RAM; override in configs/tuning.yaml)", limit)
     return limit
 
+
+def configure_global_duckdb() -> None:
+    """Pin settings on duckdb's module-level default connection.
+
+    The pipeline uses ``duckdb.sql(...)`` as a SQL engine over in-memory
+    pandas frames (e.g. calculate_weighted_means). That implicit connection
+    never goes through the adapters, so without this it runs with stock
+    defaults — memory_limit at 80% of RAM and threads = all cores — making
+    peak memory scale with whatever machine the run lands on.
+    """
+    limit = _resolve_memory_limit(None)
+    duckdb.sql(f"SET memory_limit='{limit}'")
+
+    # In-memory connections cannot spill without a temp_directory; with one,
+    # queries that exceed memory_limit offload instead of failing.
+    tmp_dir = Path(tempfile.gettempdir()) / "urbantrips_duckdb_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    duckdb.sql(f"SET temp_directory='{tmp_dir}'")
+
+    try:
+        from urbantrips.utils.utils import leer_configs_tuning
+        threads = leer_configs_tuning().get("duckdb", {}).get("threads")
+    except Exception:
+        threads = None
+    if threads:
+        duckdb.sql(f"SET threads={int(threads)}")
+
+    logger.info(
+        "[DuckDB] global connection pinned: memory_limit=%s, temp_directory=%s%s",
+        limit, tmp_dir, f", threads={threads}" if threads else "",
+    )
+
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
     "transacciones", "etapas", "viajes", "usuarios", "gps",

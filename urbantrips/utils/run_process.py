@@ -16,12 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 def _build_ctx() -> StorageContext:
-    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+    from urbantrips.storage.adapters.duckdb.data import (
+        DuckDBDataAdapter,
+        configure_global_duckdb,
+    )
     from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
     from urbantrips.storage.adapters.duckdb.dash import DuckDBDashAdapter
     from urbantrips.storage.adapters.duckdb.general import DuckDBGeneralAdapter
     from urbantrips.utils import utils
     from urbantrips.utils.paths import get_paths
+
+    # The default duckdb.sql() connection is used as a compute engine over
+    # pandas frames all over the pipeline; pin its limits so peak memory is
+    # machine-independent.
+    configure_global_duckdb()
 
     configs = utils.leer_configs_generales(autogenerado=False)
     # alias_db       → prefix for run-specific DBs (data, dash, general)
