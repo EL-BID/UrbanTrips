@@ -1308,7 +1308,8 @@ def preparo_lineas_deseo(
     ]
 
     for _dia, id_polygon in product(dias, polygons_h3.id_polygon.unique()):
-        logger.info("Líneas de deseo — día %s, polígono %s", _dia, id_polygon)
+        _poly_label = "sin filtro espacial" if id_polygon == "NONE" else f"polígono {id_polygon}"
+        logger.info("Líneas de deseo — día %s, %s", _dia, _poly_label)
 
         poly_h3 = polygons_h3[polygons_h3.id_polygon == id_polygon]
         poly = poligonos[poligonos.id == id_polygon]
