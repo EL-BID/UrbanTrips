@@ -1288,6 +1288,42 @@ def preparo_lineas_deseo(
 
     cuenca_ids = frozenset(poligonos.loc[poligonos.tipo == "cuenca", "id"])
 
+    # Pre-compute creo_h3_equivalencias for every (polygon, zona) pair that is
+    # "cuenca" — results don't vary by day, only by polygon geometry and zona.
+    _h3_equiv_cache: dict = {}      # (id_polygon, zona) → raw h3_equivalencias df
+    _h3_equiv_agg_cache: dict = {}  # (id_polygon, zona) → grouped agg df
+
+    for _poly_id in polygons_h3.id_polygon.unique():
+        if _poly_id == "NONE":
+            continue
+        _poly_row = poligonos[poligonos.id == _poly_id]
+        if _poly_row.empty or _poly_row.tipo.values[0] != "cuenca":
+            continue
+        _poly_h3_subset = polygons_h3[polygons_h3.id_polygon == _poly_id].copy()
+        for _zona in zonas:
+            _h3_eq = creo_h3_equivalencias(
+                _poly_h3_subset,
+                _poly_row,
+                _zona,
+                zonificaciones[zonificaciones.zona == _zona].copy(),
+            )
+            if len(_h3_eq) > 0:
+                _h3_equiv_cache[(_poly_id, _zona)] = _h3_eq
+                _h3_equiv_agg_cache[(_poly_id, _zona)] = (
+                    _h3_eq
+                    .groupby(
+                        [f"zona_{_zona}", f"lat_{_zona}", f"lon_{_zona}"],
+                        as_index=False,
+                        observed=True,
+                    )["h3_o"]
+                    .count()
+                    .drop(["h3_o"], axis=1)
+                )
+    logger.info(
+        "preparo_lineas_deseo: cached h3_equivalencias for %d (polygon, zona) pairs",
+        len(_h3_equiv_cache),
+    )
+
     # Procesar día por día mantiene el working set constante sin importar
     # cuántos días tenga la corrida (mismo patrón que destinations).
     # Las escrituras particionan por dia, así que acumulan correctamente.
@@ -1521,13 +1557,7 @@ def preparo_lineas_deseo(
             logger.debug("Polígono %s - Tipo: %s - Zona: %s", id_polygon, tipo_poly, zona)
 
             if id_polygon != "NONE":
-                # print(id_polygon, zona)
-                h3_equivalencias = creo_h3_equivalencias(
-                    polygons_h3[polygons_h3.id_polygon == id_polygon].copy(),
-                    poligonos[poligonos.id == id_polygon],
-                    zona,
-                    zonificaciones[zonificaciones.zona == zona].copy(),
-                )
+                h3_equivalencias = _h3_equiv_cache.get((id_polygon, zona), pd.DataFrame())
 
             # Preparo para agrupar por líneas de deseo y cambiar de resolución si es necesario
 
@@ -1635,12 +1665,8 @@ def preparo_lineas_deseo(
 
 
                     
-                    h3_equivalencias_agg = (
-                        h3_equivalencias.groupby(
-                            [f"zona_{zona}", f"lat_{zona}", f"lon_{zona}"],
-                            as_index=False, observed=True)
-                        ['h3_o'].count()
-                        .drop(["h3_o"], axis=1)
+                    h3_equivalencias_agg = _h3_equiv_agg_cache.get(
+                        (id_polygon, zona), pd.DataFrame()
                     )
 
                     etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
