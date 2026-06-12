@@ -113,7 +113,7 @@ def create_transactions(
         # chequear que no haya faltantes en id
         if trx["id"].isna().any():
             warnings.warn("Hay faltantes en el id que identifica a las trx")
-        # crear un id original de las transacciones
+        # crear un id original de las transaccione·s
         trx["id_original"] = trx["id"].copy()
 
         # Elminar trx con NA en variables fundamentales
@@ -408,10 +408,10 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
         try:
             bbox = configs["filtro_latlong_bbox"]
             minx, miny, maxx, maxy = (
-                bbox["minx"],
-                bbox["miny"],
-                bbox["maxx"],
-                bbox["maxy"],
+                float(bbox["minx"]),
+                float(bbox["miny"]),
+                float(bbox["maxx"]),
+                float(bbox["maxy"]),
             )
         except KeyError:
             logger.warning(
@@ -434,7 +434,8 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
         maxx,
         maxy,
     )
-
+    trx.longitud = pd.to_numeric(trx.longitud, errors="coerce")
+    trx.latitud = pd.to_numeric(trx.latitud, errors="coerce")
     trx["geo_valido"] = (
         trx["longitud"].between(minx, maxx) & trx["latitud"].between(miny, maxy)
     ).astype(int)
@@ -734,6 +735,7 @@ def process_and_upload_gps_table(
     configs = leer_configs_generales(autogenerado=False)
 
     from urbantrips.utils.io import open_csv, resolve_zip
+
     ruta_gps = resolve_zip(str(get_paths().input_dir / nombre_archivo_gps))
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
     with open_csv(ruta_gps) as f:
