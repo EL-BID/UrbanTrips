@@ -256,11 +256,12 @@ def upsert_equivalencias_zonas(equiv_nuevo, ctx=None, db_path="insumos"):
 
 
 def sincronizar_equivalencias_dash(ctx=None):
-    """Copy equivalencias_zonas from insumos to the dash database.
+    """Copy insumos tables needed by the dashboard to the dash database.
 
-    Dashboards join chains_norm (dash) with equivalencias_zonas inside a
-    single SQL connection, so the table must live in the same file. insumos
-    remains the canonical source; this just refreshes the dash copy.
+    equivalencias_zonas must be in dash for SQL JOINs with chains_norm.
+    zonificaciones and poligonos are copied so the dashboard reads everything
+    from a single DB, avoiding cross-DB connection issues and stale caches.
+    insumos remains the canonical source; this just refreshes the dash copies.
     """
     if ctx is not None:
         eq = ctx.insumos.get_raw("equivalencias_zonas")
@@ -268,12 +269,20 @@ def sincronizar_equivalencias_dash(ctx=None):
             logger.warning(
                 "sincronizar_equivalencias_dash: equivalencias_zonas vacía en insumos."
             )
-            return
-        eq = _asegurar_formato_long(eq)
-        ctx.dash.save_raw(eq, "equivalencias_zonas")
-        logger.info(
-            "sincronizar_equivalencias_dash: %d filas copiadas a dash.", len(eq)
-        )
+        else:
+            eq = _asegurar_formato_long(eq)
+            ctx.dash.save_raw(eq, "equivalencias_zonas")
+            logger.info(
+                "sincronizar_equivalencias_dash: equivalencias_zonas — %d filas.", len(eq)
+            )
+
+        for tabla in ("zonificaciones", "poligonos"):
+            df = ctx.insumos.get_raw(tabla)
+            if len(df) == 0:
+                logger.warning("sincronizar_equivalencias_dash: %s vacía en insumos.", tabla)
+                continue
+            ctx.dash.save_raw(df, tabla)
+            logger.info("sincronizar_equivalencias_dash: %s — %d filas.", tabla, len(df))
         return
 
     from urbantrips.dashboard.dash_utils import levanto_tabla_sql, guardar_tabla_sql
@@ -283,10 +292,21 @@ def sincronizar_equivalencias_dash(ctx=None):
         logger.warning(
             "sincronizar_equivalencias_dash: equivalencias_zonas vacía en insumos."
         )
-        return
-    eq = _asegurar_formato_long(eq)
-    guardar_tabla_sql(eq, "equivalencias_zonas", "dash", modo="replace")
-    logger.info("sincronizar_equivalencias_dash: %d filas copiadas a dash.", len(eq))
+    else:
+        eq = _asegurar_formato_long(eq)
+        guardar_tabla_sql(eq, "equivalencias_zonas", "dash", modo="replace")
+        logger.info("sincronizar_equivalencias_dash: equivalencias_zonas — %d filas.", len(eq))
+
+    for tabla in ("zonificaciones", "poligonos"):
+        df = levanto_tabla_sql(tabla, "insumos")
+        if len(df) == 0:
+            logger.warning("sincronizar_equivalencias_dash: %s vacía en insumos.", tabla)
+            continue
+        raw = pd.DataFrame(df.copy())
+        if hasattr(df, "geometry") and "geometry" in raw.columns:
+            raw["geometry"] = df.geometry.to_wkt()
+        guardar_tabla_sql(raw, tabla, "dash", modo="replace")
+        logger.info("sincronizar_equivalencias_dash: %s — %d filas.", tabla, len(df))
 
 
 def migrar_equivalencias_zonas(ctx=None, db_path="insumos"):

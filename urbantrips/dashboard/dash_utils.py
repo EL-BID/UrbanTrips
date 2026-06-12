@@ -453,24 +453,36 @@ def _sub_h3_equivalencias(zona, valor=None):
 
 @st.cache_data
 def asegurar_equivalencias_dash():
-    """Ensure the dash DB holds a copy of equivalencias_zonas.
+    """Ensure the dash DB holds copies of insumos tables used by the dashboard.
 
-    The pipeline copies it via sincronizar_equivalencias_dash; if the copy is
-    missing (older run), it is created here from insumos on the fly.
+    The pipeline copies them via sincronizar_equivalencias_dash; if missing
+    (older run), they are created here from insumos on the fly.
     """
     chk = levanto_tabla_sql(
         "equivalencias_zonas", "dash",
         query="SELECT h3 FROM equivalencias_zonas LIMIT 1",
     )
-    if len(chk) > 0:
-        return True
-    eq = levanto_tabla_sql("equivalencias_zonas", "insumos")
-    if len(eq) == 0 or "zona" not in eq.columns:
-        return False
-    guardar_tabla_sql(
-        pd.DataFrame(eq.drop(columns="geometry", errors="ignore")),
-        "equivalencias_zonas", "dash", modo="replace",
-    )
+    if len(chk) == 0:
+        eq = levanto_tabla_sql("equivalencias_zonas", "insumos")
+        if len(eq) > 0 and "zona" in eq.columns:
+            guardar_tabla_sql(
+                pd.DataFrame(eq.drop(columns="geometry", errors="ignore")),
+                "equivalencias_zonas", "dash", modo="replace",
+            )
+
+    for tabla in ("zonificaciones", "poligonos"):
+        chk2 = levanto_tabla_sql(tabla, "dash",
+                                 query=f"SELECT 1 FROM {tabla} LIMIT 1")
+        if len(chk2) > 0:
+            continue
+        src = levanto_tabla_sql_local(tabla, "insumos")
+        if len(src) == 0:
+            continue
+        raw = pd.DataFrame(src.copy())
+        if hasattr(src, "geometry") and "geometry" in raw.columns:
+            raw["geometry"] = src.geometry.to_wkt()
+        guardar_tabla_sql(raw, tabla, "dash", modo="replace")
+
     return True
 
 
@@ -1765,7 +1777,7 @@ def extract_hex_colors_from_cmap(cmap, n=5):
 def bring_latlon():
     """Map center: mean representative point of the zoning layers."""
     try:
-        zonif = levanto_tabla_sql("zonificaciones", "insumos")
+        zonif = levanto_tabla_sql("zonificaciones", "dash")
         puntos = zonif.geometry.representative_point()
         latlon = [puntos.y.mean(), puntos.x.mean()]
     except Exception:

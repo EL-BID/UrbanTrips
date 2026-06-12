@@ -162,7 +162,7 @@ def crear_mapa_lineas_deseo(
             # Origen más tenue para efecto degradado a lo largo del arco
             src_color_map = {i: _hex_to_rgba(colors_hex[i], 60) for i in range(n_bins)}
             df["color_src"] = df["_bin"].map(src_color_map)
-            width_map = {i: max(1, int(weight_base + i * 1.5)) for i in range(n_bins)}
+            width_map = {i: max(3, int(weight_base + i * 3.5)) for i in range(n_bins)}
             df["width"] = df["_bin"].map(width_map)
 
             cols = ["src_lon", "src_lat", "tgt_lon", "tgt_lat",
@@ -189,7 +189,7 @@ def crear_mapa_lineas_deseo(
                     )
                 )
         else:
-            width_map = {i: max(100, int((weight_base + i * 3) * 200)) for i in range(n_bins)}
+            width_map = {i: max(80, int((weight_base + i * 3) * 120)) for i in range(n_bins)}
             df["width"] = df["_bin"].map(width_map)
             df["path"] = df.geometry.apply(
                 lambda g: [[round(p[0], 6), round(p[1], 6)] for p in g.coords]
@@ -371,7 +371,7 @@ with st.expander("Líneas de Deseo", expanded=True):
     st.session_state.lista_etapas = ["Todos"] + traer_dias_chains()
 
     if len(st.session_state.lista_etapas) > 1:
-        zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
+        zonificaciones = levanto_tabla_sql("zonificaciones", "dash")
 
         socio_indicadores = levanto_tabla_sql("socio_indicadores", "dash")
         if "Genero" not in socio_indicadores.columns:
@@ -691,6 +691,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 ]
 
         if len(st.session_state.etapas_all) == 0:
+            st.session_state.last_filters = current_filters.copy()
             col2.write("No hay datos para mostrar")
         else:
 

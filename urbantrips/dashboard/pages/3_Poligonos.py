@@ -11,6 +11,7 @@ import numpy as np
 from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
+    levanto_tabla_sql_local,
     get_logo,
     create_data_folium,
     traigo_indicadores,
@@ -489,7 +490,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             st.session_state[var] = False
 
     dias_chains = traer_dias_chains()
-    poligonos = levanto_tabla_sql("poligonos", "insumos")
+    poligonos = levanto_tabla_sql_local("poligonos", "dash")
 
     if len(poligonos) == 0:
         st.info("No hay polígono cargado.")
@@ -497,7 +498,7 @@ with st.expander("Líneas de Deseo", expanded=True):
 
     if (len(poligonos) > 0) & (len(dias_chains) > 0):
 
-        zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
+        zonificaciones = levanto_tabla_sql("zonificaciones", "dash")
         socio_indicadores = levanto_tabla_sql("socio_indicadores")
 
         zonas_values = traigo_lista_zonas("poligonos")
