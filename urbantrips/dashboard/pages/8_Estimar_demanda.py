@@ -41,7 +41,7 @@ from shapely.geometry import shape, LineString, MultiLineString
 
 
 def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
-    location = line_od.geometry.union_all().centroid
+    location = df_agg.geometry.union_all().centroid
     location = [location.y, location.x]
     try:
         bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
