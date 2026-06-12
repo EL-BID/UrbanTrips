@@ -1,3 +1,14 @@
+import sys
+import os
+
+# Propagate --config flag to all dashboard modules via env var.
+# Usage: streamlit run dashboard.py -- --config /path/to/configuraciones_generales.yaml
+_argv = sys.argv[1:]
+if "--config" in _argv:
+    _idx = _argv.index("--config")
+    if _idx + 1 < len(_argv):
+        os.environ["URBANTRIPS_CONFIG"] = str(_argv[_idx + 1])
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -7,7 +18,6 @@ import mapclassify
 import folium
 import matplotlib.pyplot as plt
 import geopandas as gpd
-import os
 import requests
 from PIL import Image
 from shapely import wkt
@@ -49,6 +59,7 @@ alias_seleccionado = configurar_selector_dia()
 col1, col2, col3 = st.columns([1, 3, 3])
 
 indicadores = levanto_tabla_sql("indicadores", "data")
+
 indicadores = formatear_columnas_numericas(indicadores, ['porcentaje'], False)
 
 if len(indicadores) > 0:

@@ -1,6 +1,8 @@
+import logging
 import folium
 import mapclassify
 import os
+import duckdb
 import pandas as pd
 import geopandas as gpd
 from requests.exceptions import ConnectionError as r_ConnectionError
@@ -9,26 +11,27 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import contextily as cx
 
-from urbantrips.viz.viz import (
-    create_squared_polygon,
-    crear_linestring,
-    get_branch_geoms_from_line,
-    extract_hex_colors_from_cmap,
-)
+from urbantrips.viz.viz import get_branch_geoms_from_line
+from urbantrips.viz.helpers import create_squared_polygon, extract_hex_colors_from_cmap
+from urbantrips.geo.geo import crear_linestring
 
 
 from urbantrips.kpi.line_od_matrix import delete_old_lines_od_matrix_by_section_data
 
+logger = logging.getLogger(__name__)
+
 from urbantrips.utils.utils import (
-    iniciar_conexion_db,
     leer_configs_generales,
     create_line_ids_sql_filter,
     leer_alias,
 )
+from urbantrips.utils.paths import get_paths
+from urbantrips.storage.context import StorageContext
 from urbantrips.geo import geo
 
 
 def visualize_lines_od_matrix(
+    ctx: StorageContext,
     line_ids=None,
     hour_range=False,
     day_type="weekday",
@@ -61,19 +64,23 @@ def visualize_lines_od_matrix(
     sns.set_style("whitegrid")
     # Download line data
     od_lines = get_lines_od_matrix_data(
-        line_ids, hour_range, day_type, n_sections, section_meters
+        ctx, line_ids, hour_range, day_type, n_sections, section_meters
     )
 
     if od_lines is not None:
         # Viz data
-        od_lines.groupby(["id_linea", "yr_mo"]).apply(viz_line_od_matrix, stat=stat)
-        od_lines.groupby(["id_linea", "yr_mo"]).apply(map_desire_lines)
+        od_lines.groupby(["id_linea", "yr_mo"]).apply(
+            lambda df: viz_line_od_matrix(ctx, df, stat=stat)
+        )
+        od_lines.groupby(["id_linea", "yr_mo"]).apply(
+            lambda df: map_desire_lines(ctx, df)
+        )
     else:
-        print("No hay datos de matriz od para esas lineas con esos parametros")
+        logger.info("No hay datos de matriz od para esas lineas con esos parametros")
 
 
 def get_lines_od_matrix_data(
-    line_ids, hour_range=False, day_type="weekday", n_sections=10, section_meters=None
+    ctx: StorageContext, line_ids, hour_range=False, day_type="weekday", n_sections=10, section_meters=None
 ):
 
     q = """
@@ -97,13 +104,21 @@ def get_lines_od_matrix_data(
     q += hour_where
     q += f"and day_type = '{day_type}'"
 
-    conn_data = iniciar_conexion_db(tipo="data")
-    od_lines = pd.read_sql(q, conn_data)
-    conn_data.close()
+    try:
+        od_lines = ctx.data.query(q)
+    except duckdb.CatalogException:
+        # The table only exists once compute_lines_od_matrix has written rows;
+        # if no legs/route geoms matched, it was never created. Treat that as
+        # "no data" instead of crashing the dashboard.
+        logger.info(
+            "La tabla lines_od_matrix_by_section no existe todavía "
+            "(no se generaron datos para esas líneas/parámetros)."
+        )
+        return None
 
     if section_meters is not None:
         line_sections = get_route_n_sections_from_sections_meters(
-            line_ids, section_meters
+            ctx, line_ids, section_meters
         )
         od_lines = od_lines.merge(
             line_sections, on=["id_linea", "n_sections"], how="inner"
@@ -116,19 +131,21 @@ def get_lines_od_matrix_data(
     check_line_ids_in_data = line_ids_to_check.isin(line_ids_in_data)
 
     if not check_line_ids_in_data.all():
-        print("Las siguientes líneas no fueron procesadas con matriz od lineas")
-        print(", ".join(line_ids_to_check[~check_line_ids_in_data].map(str)))
-        print("para esos parámetros de n_sections o section_meters")
-        print("Volver a correr compute_lines_od_matrix() con otro parámetros")
+        logger.warning(
+            "Las siguientes líneas no fueron procesadas con matriz od lineas: %s "
+            "para esos parámetros de n_sections o section_meters. "
+            "Volver a correr compute_lines_od_matrix() con otro parámetros",
+            ", ".join(line_ids_to_check[~check_line_ids_in_data].map(str)),
+        )
 
     if len(od_lines) == 0:
-        print("La consulta para estos id_lineas con estos parametros" " volvio vacía")
+        logger.info("La consulta para estos id_lineas con estos parametros volvio vacía")
         return None
     else:
         return od_lines
 
 
-def get_route_n_sections_from_sections_meters(line_ids, section_meters):
+def get_route_n_sections_from_sections_meters(ctx: StorageContext, line_ids, section_meters):
     """
     For a given section meters param, returns how many sections there is
     in that line route geom
@@ -151,13 +168,13 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
 
     """
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
     line_ids_where = create_line_ids_sql_filter(line_ids)
-    q_route_geoms = "select * from lines_geoms" + line_ids_where
-    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    conn_insumos.close()
+    route_geoms = ctx.insumos.get_raw("lines_geoms")
+    if line_ids:
+        if isinstance(line_ids, int):
+            route_geoms = route_geoms[route_geoms.id_linea == line_ids]
+        else:
+            route_geoms = route_geoms[route_geoms.id_linea.isin(line_ids)]
 
     route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
     epsg_m = geo.get_epsg_m()
@@ -172,7 +189,7 @@ def get_route_n_sections_from_sections_meters(line_ids, section_meters):
     return route_geoms
 
 
-def viz_line_od_matrix(od_line, stat="totals"):
+def viz_line_od_matrix(ctx: StorageContext, od_line, stat="totals"):
     """
     Creates viz for line od matrix
 
@@ -200,13 +217,13 @@ def viz_line_od_matrix(od_line, stat="totals"):
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    sections = pd.read_sql(sections_data_q, conn_insumos)
+    sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
+    sections = sections_geoms_raw[
+        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+    ]
 
-    s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
-    metadata = pd.read_sql(s, conn_insumos)
-    conn_insumos.close()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    metadata = metadata_lineas[metadata_lineas.id_linea == line_id]
 
     # set title params
     if len(metadata) > 0:
@@ -266,14 +283,13 @@ def viz_line_od_matrix(od_line, stat="totals"):
         columns={"section_id_o": "Origen", "section_id_d": "Destino"}
     )
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
     delete_df = od_line.reindex(columns=["id_linea", "n_sections"]).drop_duplicates()
 
     delete_old_lines_od_matrix_by_section_data(
         delete_df, hour_range=hour_range, day_type=day, yr_mos=[mes], db_type="dash"
     )
 
-    od_line_dash.to_sql("matrices_linea", conn_dash, if_exists="append", index=False)
+    ctx.dash.append_raw(od_line_dash, "matrices_linea")
 
     matrix = od_line.pivot_table(
         values=values, index="section_id_o", columns="section_id_d"
@@ -307,13 +323,9 @@ def viz_line_od_matrix(od_line, stat="totals"):
     where id_linea = {line_id}
     and n_sections = {n_sections}
     """
-    cur = conn_dash.cursor()
-    cur.execute(q_delete)
-    conn_dash.commit()
+    ctx.dash.execute(q_delete)
 
-    gdf_dash.to_sql("matrices_linea_carto", conn_dash, if_exists="append", index=False)
-
-    conn_dash.close()
+    ctx.dash.append_raw(gdf_dash, "matrices_linea_carto")
 
     # set sections to show in map
     section_id_start_xy = (
@@ -435,12 +447,12 @@ def viz_line_od_matrix(od_line, stat="totals"):
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_matriz_od_id_linea_"
         archivo = archivo + f"{line_id}_{n_sections}_{stat}_{hr_str}.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
 
-def map_desire_lines(od_line):
+def map_desire_lines(ctx: StorageContext, od_line):
     """
     Creates viz for line od matrix
 
@@ -475,15 +487,10 @@ def map_desire_lines(od_line):
         hr_str = ""
 
     # get data
-    sections_data_q = f"""
-    select id_linea,n_sections,section_id,x,y from routes_section_id_coords 
-    where id_linea = {line_id}
-    and n_sections = {n_sections}
-    """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    sections = pd.read_sql(sections_data_q, conn_insumos)
-    conn_insumos.close()
+    sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
+    sections = sections_geoms_raw[
+        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+    ][["id_linea", "n_sections", "section_id", "x", "y"]]
 
     sections = geo.create_sections_geoms(sections, buffer_meters=250)
     sections = sections.to_crs(epsg=4326)
@@ -515,6 +522,7 @@ def map_desire_lines(od_line):
     for k_jenks in range(1, 6)[::-1]:
         try:
             create_folium_desire_lines(
+                ctx,
                 od_line,
                 cmap="Blues",
                 var_fex="legs",
@@ -528,7 +536,7 @@ def map_desire_lines(od_line):
 
 
 def create_folium_desire_lines(
-    od_line, cmap, var_fex, savefile, sections_gdf=None, k_jenks=5
+    ctx: StorageContext, od_line, cmap, var_fex, savefile, sections_gdf=None, k_jenks=5
 ):
 
     bins = [od_line[var_fex].min() - 1] + mapclassify.FisherJenks(
@@ -547,7 +555,7 @@ def create_folium_desire_lines(
     )
 
     # map branches geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=od_line.id_linea.unique().item())
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=od_line.id_linea.unique().item())
 
     if branch_geoms is not None:
         branch_geoms.explore(
@@ -582,5 +590,5 @@ def create_folium_desire_lines(
 
     fig.add_child(m)
 
-    db_path = os.path.join("resultados", "html", savefile)
+    db_path = str(get_paths().output_dir / "html" / savefile)
     m.save(db_path)

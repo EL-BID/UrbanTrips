@@ -1,12 +1,8 @@
 # Archivo de configuración para urbantrips
 
-corridas: ["martes","miercoles"]                                      # Listar los nombres de las corridas ["lunes","martes"], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv
+corridas: ['martes', 'miercoles']                                  # Listar los nombres de las corridas ['lunes','martes'], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv
 
-# Bases de datos
-alias_db: "amba_2019_muestra1"                                     # El nombre que va a tener la base de datos sqlite de insumos y dash. La de data depende de la corrida
-
-#nombre_archivo_trx: "[CORRIDA]_trx.csv"                           # CONSTRUIR [CORRIDA]_trx.csv Especificar el archivo con las transacciones a consumir
-#nombre_archivo_gps: "[CORRIDA]_gps.csv"                           # CONSTRUIR [CORRIDA]_gps.csv Especificar el archivo con las transacciones a consumir
+alias_db_insumos: "db"                                             # nombre del sqlite donde se guardan los insumos generales
 
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
@@ -29,6 +25,7 @@ nombres_variables_trx:
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
 ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
+n_batches: 30                                                      
 
 # Elimina transacciones inválidas de la tabla de transacciones
 tipo_trx_invalidas: 
@@ -49,7 +46,7 @@ epsg_m: 9265                                                       # Parámetros
 formato_fecha: "%d/%m/%Y"                                          # Configuración fecha y hora
 columna_hora: True                                                 
 
-usa_archivo_gps: False
+usa_archivo_gps: False                                             # Si existe un archivo gps
 geolocalizar_trx: False                                            
 
 # Nombre de columnas en el archivo de GPS
@@ -62,8 +59,11 @@ nombres_variables_gps:
     latitud_gps:                                                   
     longitud_gps:                                                  
     velocity_gps:                                                  
-    distance_gps:                                                  
+    distance_servicio_mts_gps:                                     # Distancia gps en metros
+    distance_servicio_mts_agg_gps:                                 # Distancia gps agregada en metros
+    id_servicio_gps:                                               # id del servicio
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
+    dominio_gps:                                                   # Dominio o Mounting kit del vehículo
 
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")

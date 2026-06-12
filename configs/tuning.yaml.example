@@ -1,0 +1,28 @@
+# configs/tuning.yaml — Advanced performance tuning for UrbanTrips.
+# Copy tuning.yaml.example to tuning.yaml and uncomment keys to override defaults.
+# This file is optional — if absent, all defaults apply automatically.
+#
+# Settings overview:
+#
+#   dbscan.grid_steps             (int,   default 5)
+#       Steps per axis in the DBSCAN parameter grid search.
+#       Total fits = grid_steps². Higher → better clustering, slower run.
+#
+#   dbscan.early_stop_silhouette  (float, default 0.7)
+#       Stop the grid search early when silhouette score exceeds this value.
+#       Range -1.0 (worst) to 1.0 (perfect). Set to 1.0 to disable early stopping.
+#
+#   duckdb.memory_limit           (str,   default null → 25% of total RAM, min 1 GB)
+#       DuckDB buffer pool cap for the main data connection.
+#       Limits how much RAM DuckDB caches internally, leaving headroom for Python
+#       worker processes and Pandas DataFrames.
+#       Accepts DuckDB size strings: "4GB", "512MB", etc.
+#       Smaller values → less RAM usage, slightly more disk I/O per batch
+#       (impact is negligible on SSD; more noticeable on HDD).
+
+dbscan:
+  grid_steps: 5
+  early_stop_silhouette: 0.7
+
+duckdb:
+  # memory_limit: "4GB"

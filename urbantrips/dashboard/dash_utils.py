@@ -1,3 +1,4 @@
+import logging
 from shapely.geometry import LineString
 import streamlit as st
 import pandas as pd
@@ -9,6 +10,7 @@ import matplotlib.pyplot as plt
 import os
 import yaml
 import sqlite3
+import duckdb
 from shapely import wkt
 from matplotlib import colors as mcolors
 from folium import Figure
@@ -17,6 +19,21 @@ import h3
 from datetime import datetime
 from pathlib import Path
 import shutil
+
+logger = logging.getLogger(__name__)
+
+from urbantrips.storage.identifiers import validate_table_name
+from urbantrips.utils.dataframe import calculate_weighted_means  # noqa: F401 — used by callers via this module
+from urbantrips.utils.paths import get_paths
+from urbantrips.dashboard.dash_storage import (
+    _load_yaml_simple,
+    _find_first_valid_yaml,
+    leer_configs_generales,
+    resolve_db_aliases,
+    normalize_vars,
+    _fetch_sql_dataframe,
+    get_project_root,
+)
 
 # def leer_configs_generales(autogenerado=True):
 #     """
@@ -49,114 +66,25 @@ import shutil
 #     return {}
 
 
-def _load_yaml_simple(path: Path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except UnicodeDecodeError:
-        with open(path, "r", encoding="latin-1") as f:
-            data = yaml.safe_load(f)
-    return data if data else {}
-
-
-def _find_first_valid_yaml(autogen_dir: Path):
-    base_path = Path("configs") / "configuraciones_generales.yaml"
-    if not base_path.exists():
-        raise FileNotFoundError(f"No existe {base_path}")
-
-    base = _load_yaml_simple(base_path)
-
-    try:
-        tmp = base["corridas"][0]
-    except Exception as e:
-        raise KeyError("No se pudo obtener base['corridas'][0]") from e
-
-    origen = autogen_dir / f"configuraciones_generales_autogenerado_{tmp}.yaml"
-
-    if not origen.exists():
-        raise FileNotFoundError(f"No existe el autogenerado esperado: {origen}")
-
-    if origen.stat().st_size == 0:
-        raise ValueError(f"El autogenerado esperado está vacío: {origen}")
-
-    return origen
-
-
-from pathlib import Path
-import yaml
-import shutil
-
-
-def leer_configs_generales(autogenerado=True):
-    path = Path("configs") / ("configuraciones_generales_autogenerado.yaml" if autogenerado else "configuraciones_generales.yaml")
-    autogen_dir = Path("configs") / "autogenerados"
-
-    print(path)
-
-    # Solo para autogenerado: si falta o está vacío, copiar
-    if autogenerado and ((not path.exists()) or path.stat().st_size == 0):
-        origen = _find_first_valid_yaml(autogen_dir)
-        shutil.copy(origen, path)
-
-    # Parsear (si falla y autogenerado=True, reemplazar y reintentar una vez)
-    try:
-        return _load_yaml_simple(path)
-    except yaml.YAMLError as e:
-        print(f"❌ Error YAML: {e}")
-
-        if autogenerado:
-            origen = _find_first_valid_yaml(autogen_dir)
-            shutil.copy(origen, path)
-            return _load_yaml_simple(path)
-
-        return {}
-    
-
-
 
 def leer_alias(tipo="dash"):
-    """
-    Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve el alias seteado en el archivo de congifuracion
-    """
-    configs = leer_configs_generales()
+    configs = leer_configs_generales(autogenerado=False)
+    corridas = configs.get("corridas", [])
 
-    configs_orig = leer_configs_generales(autogenerado=False)
-    corridas = configs_orig["corridas"]
-    if (len(corridas) > 1) & ("dia_seleccionado" in st.session_state):
+    # Multi-corrida day-selector: data and dash use the selected corrida name.
+    # Only applies when each corrida has its own DB (no shared alias_db key).
+    if tipo in ("data", "dash") and len(corridas) > 1 and "dia_seleccionado" in st.session_state and "alias_db" not in configs:
         posicion = corridas.index(st.session_state.dia_seleccionado)
+        return corridas[posicion] + "_"
 
-        # Setear el tipo de key en base al tipo de datos
-        if tipo == "data":
-            alias = corridas[posicion] + "_"
-        elif tipo == "dash":
-            alias = corridas[posicion] + "_"
-        else:
-            alias = configs["alias_db_insumos"] + "_"
-
-    else:
-
-        # Setear el tipo de key en base al tipo de datos
-        if tipo == "data":
-            key = "alias_db_data"
-        elif tipo == "insumos":
-            key = "alias_db_insumos"
-        elif tipo == "general":
-            key = "alias_db_insumos"
-        elif tipo == "dash":
-            key = "alias_db_dashboard"
-        else:
-            raise ValueError("tipo invalido: %s" % tipo)
-        # Leer el alias
-        try:
-            alias = configs[key] + "_"
-        except KeyError:
-            alias = ""
-
-    return alias
+    aliases = resolve_db_aliases(configs)
+    if tipo not in aliases:
+        raise ValueError("tipo invalido: %s" % tipo)
+    alias = aliases[tipo]
+    return alias + "_" if alias else ""
 
 
-def traigo_db_path(tipo="data", alias_db=""):
+def get_db_path(tipo="data", alias_db=""):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve el path a una base de datos con esa informacion
@@ -168,40 +96,34 @@ def traigo_db_path(tipo="data", alias_db=""):
     if not alias_db.endswith("_"):
         alias_db += "_"
 
-    # db_path = os.path.join("data", "db", f"{alias_db}{tipo}.sqlite")
-    db_path = next(
-        (
-            p
-            for p in (
-                Path("data") / "db" / f"{alias_db}{tipo}.sqlite",
-                Path("/data/db") / f"{alias_db}{tipo}.sqlite",
-            )
-            if p.exists()
-        ),
-        None,
-    )
+    db_dir = get_paths().db_dir
+    candidates = [
+        db_dir / f"{alias_db}{tipo}.duckdb",
+        db_dir / f"{alias_db}{tipo}.sqlite",
+    ]
+    db_path = next((p for p in candidates if p.exists()), None)
     if db_path is None:
         raise FileNotFoundError(
-            f"No se encontró {alias_db} en 'data/db' ni en '/data/db'"
+            f"No se encontró {alias_db}{tipo} en {db_dir}"
         )
 
     return db_path
 
 
 def iniciar_conexion_db(tipo="data", alias_db=""):
-    """ "
+    """
     Esta funcion toma un tipo de datos (data o insumos)
-    y devuelve una conexion sqlite a la db
+    y devuelve una conexion a la db (DuckDB o SQLite segun el archivo disponible)
     """
     if len(alias_db) == 0:
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
-    db_path = traigo_db_path(tipo, alias_db)
+    db_path = get_db_path(tipo, alias_db)
 
-    conn = sqlite3.connect(db_path, timeout=10)
-
-    return conn
+    if str(db_path).endswith(".duckdb"):
+        return duckdb.connect(str(db_path), read_only=False)
+    return sqlite3.connect(db_path, timeout=10)
 
 
 # Calculate weighted mean, handling division by zero or empty inputs
@@ -215,134 +137,108 @@ def weighted_mean(series, weights):
     return result
 
 
-def calculate_weighted_means(
-    df_,
-    aggregate_cols,
-    weighted_mean_cols,
-    weight_col,
-    zero_to_nan=[],
-    var_fex_summed=True,
-):
-    df = df_.copy()
-    for i in zero_to_nan:
-        df.loc[df[i] == 0, i] = np.nan
 
-    # calculate_weighted_means  # Validate inputs
-    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df.columns):
-        raise ValueError("One or more columns specified do not exist in the DataFrame.")
-    result = pd.DataFrame([])
-    # Calculate the product of the value and its weight for weighted mean calculation
-    for col in weighted_mean_cols:
-        df.loc[df[col].notna(), f"{col}_weighted"] = (
-            df.loc[df[col].notna(), col] * df.loc[df[col].notna(), weight_col]
-        )
-        grouped = (
-            df.loc[df[col].notna()]
-            .groupby(aggregate_cols, as_index=False)[[f"{col}_weighted", weight_col]]
-            .sum()
-        )
-        grouped[col] = grouped[f"{col}_weighted"] / grouped[weight_col]
-        grouped = grouped.drop([f"{col}_weighted", weight_col], axis=1)
+# def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
+#     if alias_db and not alias_db.endswith("_"):
+#         alias_db += "_"
 
-        if len(result) == 0:
-            result = grouped.copy()
+#     if len(query) == 0:
+#         tabla_sql = validate_table_name(tabla_sql)
+#         query = f"SELECT * FROM {tabla_sql}"
+
+#     conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+
+#     try:
+#         tabla = _fetch_sql_dataframe(conn, query, params=params)
+#     except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
+#         error_message = str(e).lower()
+#         if "no such table" in error_message or "does not exist" in error_message:
+#             logger.warning("La tabla '%s' no existe.", tabla_sql)
+#             tabla = pd.DataFrame([])
+#         else:
+#             raise
+#     finally:
+#         conn.close()
+
+#     if "wkt" in tabla.columns and not tabla.empty:
+#         tabla["geometry"] = tabla.wkt.apply(wkt.loads)        
+#         tabla = tabla.drop(["wkt"], axis=1)
+#     if "geometry" in tabla.columns:
+#         tabla = gpd.GeoDataFrame(
+#             tabla,
+#             geometry="geometry",
+#             crs="EPSG:4326"
+#         )
+
+#     tabla = normalize_vars(tabla)
+
+#     return tabla
+from shapely import wkt
+from shapely.geometry.base import BaseGeometry
+
+def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
+    if alias_db and not alias_db.endswith("_"):
+        alias_db += "_"
+
+    if len(query) == 0:
+        tabla_sql = validate_table_name(tabla_sql)
+        query = f"SELECT * FROM {tabla_sql}"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+
+    try:
+        tabla = _fetch_sql_dataframe(conn, query, params=params)
+    except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
+        error_message = str(e).lower()
+        if "no such table" in error_message or "does not exist" in error_message:
+            logger.warning("La tabla '%s' no existe.", tabla_sql)
+            tabla = pd.DataFrame([])
         else:
-            result = result.merge(grouped, how="left", on=aggregate_cols)
+            raise
+    finally:
+        conn.close()
 
-    if var_fex_summed:
-        fex_summed = df.groupby(aggregate_cols, as_index=False)[weight_col].sum()
-        result = result.merge(fex_summed, how="left", on=aggregate_cols)
-    else:
-        fex_mean = df.groupby(aggregate_cols, as_index=False)[weight_col].mean()
-        result = result.merge(fex_mean, how="left", on=aggregate_cols)
+    if "wkt" in tabla.columns and not tabla.empty:
+        tabla["geometry"] = tabla["wkt"].apply(wkt.loads)
+        tabla = tabla.drop(columns=["wkt"])
 
-    return result
+    elif "geometry" in tabla.columns and not tabla.empty:
+        sample_geom = tabla["geometry"].dropna().iloc[0] if tabla["geometry"].notna().any() else None
 
+        if isinstance(sample_geom, str):
+            tabla["geometry"] = tabla["geometry"].apply(
+                lambda x: wkt.loads(x) if pd.notna(x) else None
+            )
 
-def normalize_vars(tabla):
-    if "dia" in tabla.columns:
-        tabla.loc[tabla.dia == "weekday", "dia"] = "Hábil"
-        tabla.loc[tabla.dia == "weekend", "dia"] = "Fin de semana"
-    if "day_type" in tabla.columns:
-        tabla.loc[tabla.day_type == "weekday", "day_type"] = "Hábil"
-        tabla.loc[tabla.day_type == "weekend", "day_type"] = "Fin de semana"
-    if "tipo_dia" in tabla.columns:
-        tabla.loc[tabla.tipo_dia == "Dia habil", "tipo_dia"] = "Hábil"
-        # tabla.loc[tabla.tipo_dia == 'weekend', 'tipo_dia'] = 'Fin de semana'
+        elif sample_geom is not None and not isinstance(sample_geom, BaseGeometry):
+            raise TypeError(
+                f"La columna geometry existe pero no contiene geometrías válidas. "
+                f"Tipo detectado: {type(sample_geom)}"
+            )
 
-    if "nombre_linea" in tabla.columns:
-        tabla["nombre_linea"] = tabla["nombre_linea"].str.replace(" -", "")
-    if "Modo" in tabla.columns:
-        tabla["Modo"] = tabla["Modo"].str.capitalize()
-    if "modo" in tabla.columns:
-        tabla["modo"] = tabla["modo"].str.capitalize()
+    if "geometry" in tabla.columns and not tabla.empty:
+        tabla = gpd.GeoDataFrame(
+            tabla,
+            geometry="geometry",
+            crs="EPSG:4326"
+        )
+
+    tabla = normalize_vars(tabla)
+
     return tabla
-
 
 @st.cache_data
 def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-
-    if alias_db and not alias_db.endswith("_"):
-        alias_db += "_"
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
-
-    try:
-        if len(query) == 0:
-            query = f"SELECT * FROM {tabla_sql}"
-        tabla = pd.read_sql_query(query, conn)
-    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
-        if "no such table" in str(e):
-            print(f"La tabla '{tabla_sql}' no existe.")
-            tabla = pd.DataFrame([])
-        else:
-            raise
-
-    conn.close()
-
-    if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, crs=4326)
-        tabla = tabla.drop(["wkt"], axis=1)
-
-    tabla = normalize_vars(tabla)
-
-    return tabla
+    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-
-    if alias_db and not alias_db.endswith("_"):
-        alias_db += "_"
-
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
-
-    try:
-        if len(query) == 0:
-            query = f"SELECT * FROM {tabla_sql}"
-        tabla = pd.read_sql_query(query, conn)
-    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
-        if "no such table" in str(e):
-            print(f"La tabla '{tabla_sql}' no existe.")
-            tabla = pd.DataFrame([])
-        else:
-            raise
-
-    conn.close()
-
-    if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = gpd.GeoDataFrame(tabla, crs=4326)
-        tabla = tabla.drop(["wkt"], axis=1)
-
-    tabla = normalize_vars(tabla)
-
-    return tabla
+    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
 
 
 @st.cache_data
 def get_logo():
-    file_logo = os.path.join("docs", "urbantrips_logo.jpg")
+    file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")
     if not os.path.isfile(file_logo):
         # URL of the image file on Github
         url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
@@ -421,9 +317,9 @@ def agg_matriz(
         "genero_agregado",
         "tarifa_agregada",
     ],
-    weight_col=["distancia", "travel_time_min", "travel_speed"],
+    weight_col=["distance_od", "travel_time_min", "kmh_od"],
     weight_var="factor_expansion_linea",
-    zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+    zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
     agg_transferencias=False,
     agg_modo=False,
     agg_hora=False,
@@ -674,7 +570,7 @@ def create_data_folium(
             etapas,
             agg_cols_etapas,
             [
-                "distancia",
+                "distance_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -736,7 +632,7 @@ def create_data_folium(
             .copy()
         )
         if (len(etapas) >= 2000) & (mostrar_lineas_principales):
-            print("Se muestran las etapas con más viajes")
+            logger.debug("Se muestran las etapas con más viajes")
             etapas = etapas.head(2000)
 
         etapas["factor_expansion_linea"] = etapas["factor_expansion_linea"].round(0)
@@ -751,7 +647,7 @@ def create_data_folium(
         viajes = calculate_weighted_means_ods(
             etapas,
             agg_cols_viajes,
-            ["distancia", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
+            ["distance_od", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
             "factor_expansion_linea",
             agg_transferencias=agg_transferencias,
             agg_modo=agg_modo,
@@ -776,7 +672,7 @@ def create_data_folium(
             .copy()
         )
         if (len(etapas) >= 1500) & (mostrar_lineas_principales):
-            print("Se muestran las lineas con más viajes")
+            logger.debug("Se muestran las lineas con más viajes")
             viajes = viajes.head(1500)
 
         # viajes = viajes[viajes.inicio_norm != viajes.fin_norm].copy()
@@ -805,8 +701,8 @@ def create_data_folium(
             "genero_agregado",
             "tarifa_agregada",
         ],
-        weight_col=["distancia", "travel_time_min", "travel_speed"],
-        zero_to_nan=["distancia", "travel_time_min", "travel_speed"],
+        weight_col=["distance_od", "travel_time_min", "kmh_od"],
+        zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
         weight_var="factor_expansion_linea",
         agg_transferencias=agg_transferencias,
         agg_modo=agg_modo,
@@ -1103,7 +999,7 @@ def traigo_tablas_con_filtros(
             if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (
                     (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
@@ -1111,33 +1007,33 @@ def traigo_tablas_con_filtros(
                     (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
                 );
                 """
-                params = [dia] + lst1 * 4 + lst2 * 4
+                params = [var_zonif, dia] + lst1 * 4 + lst2 * 4
             elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (
                     (inicio_norm IN ({placeholders1}) OR transfer1_norm IN ({placeholders1}) OR transfer2_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
                     ) 
                 ;
                 """
-                params = [dia] + lst1 * 4
+                params = [var_zonif, dia] + lst1 * 4
             elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (                    
                     (inicio_norm IN ({placeholders2}) OR transfer1_norm IN ({placeholders2}) OR transfer2_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
                     )
                 ;
                 """
-                params = [dia] + lst2 * 4
+                params = [var_zonif, dia] + lst2 * 4
         else:
             query = f"""
             SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
+            WHERE zona = ?
             AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
@@ -1146,14 +1042,14 @@ def traigo_tablas_con_filtros(
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [dia] + lst1 * 4
+            params = [var_zonif, dia] + lst1 * 4
 
     else:
         if det_filtro1 != det_filtro2:
             if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (
                     (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))
@@ -1161,44 +1057,44 @@ def traigo_tablas_con_filtros(
                     (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
                 );
                 """
-                params = [dia] + lst1 * 2 + lst2 * 2
+                params = [var_zonif, dia] + lst1 * 2 + lst2 * 2
             elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (
                     (inicio_norm IN ({placeholders1}) OR fin_norm IN ({placeholders1}))                
                 );
                 """
-                params = [dia] + lst1 * 2
+                params = [var_zonif, dia] + lst1 * 2
 
             elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
                 query = f"""
                 SELECT * FROM agg_etapas 
-                WHERE zona = '{var_zonif}'
+                WHERE zona = ?
                 AND dia = ? 
                 AND (
                     (inicio_norm IN ({placeholders2}) OR fin_norm IN ({placeholders2}))
                 );
                 """
-                params = [dia] + lst2 * 2
+                params = [var_zonif, dia] + lst2 * 2
 
         else:
             query = f"""
             SELECT * FROM agg_etapas 
-            WHERE zona = '{var_zonif}'
+            WHERE zona = ?
             AND dia = ? 
             AND (
                     (CASE WHEN inicio_norm IN ({placeholders1}) THEN 1 ELSE 0 END) +
                     (CASE WHEN fin_norm IN ({placeholders1}) THEN 1 ELSE 0 END)
                 ) >= 2;
             """
-            params = [dia] + lst1 * 2
+            params = [var_zonif, dia] + lst1 * 2
 
     # Ejecutar consulta
 
-    agg_etapas = pd.read_sql_query(query, conn, params=params)
+    agg_etapas = _fetch_sql_dataframe(conn, query, params=params)
 
     if len(agg_etapas) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
@@ -1241,9 +1137,9 @@ def traigo_tablas_con_filtros(
             "distancia_agregada",
         ]
         weighted_mean_cols = [
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
             "lat1",
             "lon1",
             "lat2",
@@ -1262,9 +1158,9 @@ def traigo_tablas_con_filtros(
             "lon3",
             "lat4",
             "lon4",
-            "distancia",
+            "distance_od",
             "travel_time_min",
-            "travel_speed",
+            "kmh_od",
         ]
 
         agg_etapas = calculate_weighted_means(
@@ -1293,7 +1189,7 @@ def traigo_tablas_con_filtros(
         if (det_filtro1 != "Todos") & (det_filtro2 != "Todos"):
             query = f"""
             SELECT * FROM agg_matrices 
-            WHERE zona = '{var_zonif}'
+            WHERE zona = ?
             AND dia = ? 
                 AND (
                 (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
@@ -1301,45 +1197,45 @@ def traigo_tablas_con_filtros(
                 (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
             );
             """
-            params = [dia] + lst1 * 2 + lst2 * 2
+            params = [var_zonif, dia] + lst1 * 2 + lst2 * 2
         elif (det_filtro1 != "Todos") & (det_filtro2 == "Todos"):
             query = f"""
             SELECT * FROM agg_matrices 
-            WHERE zona = '{var_zonif}'
+            WHERE zona = ?
             AND dia = ? 
                 AND (
                 (inicio IN ({placeholders1}) OR fin IN ({placeholders1}))
                 )
             ;
             """
-            params = [dia] + lst1 * 2
+            params = [var_zonif, dia] + lst1 * 2
 
         elif (det_filtro1 == "Todos") & (det_filtro2 != "Todos"):
 
             query = f"""
             SELECT * FROM agg_matrices 
-            WHERE zona = '{var_zonif}'
+            WHERE zona = ?
             AND dia = ? 
                 AND 
                 (inicio IN ({placeholders2}) OR fin IN ({placeholders2}))
                 )
             ;
             """
-            params = [dia] + lst2 * 2
+            params = [var_zonif, dia] + lst2 * 2
 
     else:
         query = f"""
         SELECT * FROM agg_matrices 
-        WHERE zona = '{var_zonif}'
+        WHERE zona = ?
         AND dia = ? 
         AND (
                 (CASE WHEN inicio IN ({placeholders1}) THEN 1 ELSE 0 END) +
                 (CASE WHEN fin IN ({placeholders1}) THEN 1 ELSE 0 END)
             ) >= 2;
         """
-        params = [dia] + lst1 * 2
+        params = [var_zonif, dia] + lst1 * 2
 
-    agg_matrices = pd.read_sql_query(query, conn, params=params)
+    agg_matrices = _fetch_sql_dataframe(conn, query, params=params)
 
     if len(agg_matrices) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
@@ -1416,52 +1312,83 @@ def traigo_tablas_con_filtros(
 
 @st.cache_data
 def traer_dias_disponibles():
-    return levanto_tabla_sql(
-        "corridas", "general", query="select corrida from corridas"
-    ).corrida.values.tolist()
+    try:
+        corridas = levanto_tabla_sql(
+            "corridas", "general", query="select corrida from corridas"
+        ).corrida.values.tolist()
+        if corridas:
+            return corridas
+    except Exception:
+        pass
+    configs = leer_configs_generales(autogenerado=False)
+    return configs.get("corridas", [])
 
 
 def configurar_selector_dia():
 
-    dias_disponibles = traer_dias_disponibles()
+    # dias_disponibles = traer_dias_disponibles()
 
-    if len(dias_disponibles) > 1:
+    # if len(dias_disponibles) > 1:
 
-        # Inicialización una única vez
-        if "dia_seleccionado" not in st.session_state:
-            st.session_state.dia_seleccionado = dias_disponibles[0]
-            st.session_state.dia_anterior = dias_disponibles[0]
+    #     # Inicialización una única vez
+    #     if "dia_seleccionado" not in st.session_state:
+    #         st.session_state.dia_seleccionado = dias_disponibles[0]
+    #         st.session_state.dia_anterior = dias_disponibles[0]
 
-        # Sidebar con lógica aislada, sin pisar valores
-        with st.sidebar:
-            seleccion = st.selectbox(
-                "Seleccioná un día",
-                dias_disponibles,
-                index=dias_disponibles.index(st.session_state.dia_seleccionado),
-                key="__selector_dia",  # distinto del nombre en session_state
-            )
+    #     # Sidebar con lógica aislada, sin pisar valores
+    #     with st.sidebar:
+    #         seleccion = st.selectbox(
+    #             "Seleccioná un día",
+    #             dias_disponibles,
+    #             index=dias_disponibles.index(st.session_state.dia_seleccionado),
+    #             key="__selector_dia",  # distinto del nombre en session_state
+    #         )
 
-        # Si la selección cambió, actualizar estado y reiniciar app
-        if seleccion != st.session_state.dia_anterior:
-            st.session_state.dia_seleccionado = seleccion
-            st.session_state.dia_anterior = seleccion
-            st.cache_data.clear()
-            st.rerun()
-    else:
-        seleccion = dias_disponibles[0]
+    #     # Si la selección cambió, actualizar estado y reiniciar app
+    #     if seleccion != st.session_state.dia_anterior:
+    #         st.session_state.dia_seleccionado = seleccion
+    #         st.session_state.dia_anterior = seleccion
+    #         st.cache_data.clear()
+    #         st.rerun()
+    # else:
+    #     seleccion = dias_disponibles[0]
 
-    base_path = Path() / 'configs'
-    autogen_dir = base_path / "autogenerados"
-    archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
+    # base_path = Path() / 'configs'
+    # autogen_dir = base_path / "autogenerados"
+    # archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
     
-    # Verificar que existan el directorio y el archivo
-    if autogen_dir.exists() and archivo_autogen.exists():
-        destino = base_path / "configuraciones_generales_autogenerado.yaml"
-        shutil.copy(archivo_autogen, destino)
-        print(f"✅ Archivo {archivo_autogen} copiado")
-    else:
-        print("⚠️ No existe el directorio 'autogenerados' o el archivo especificado.")
-        
+    # # Verificar que existan el directorio y el archivo
+    # if autogen_dir.exists() and archivo_autogen.exists():
+    #     destino = base_path / "configuraciones_generales_autogenerado.yaml"
+    #     shutil.copy(archivo_autogen, destino)
+    #     logger.info("Archivo %s copiado", archivo_autogen)
+    # else:
+    #     logger.warning("No existe el directorio 'autogenerados' o el archivo especificado.")
+    dias_disponibles = traer_dias_disponibles()
+    if not dias_disponibles:
+        return ""
+
+    # Inicialización una única vez
+    if "dia_seleccionado" not in st.session_state:
+        st.session_state.dia_seleccionado = dias_disponibles[0]
+        st.session_state.dia_anterior = dias_disponibles[0]
+
+    # Sidebar con lógica aislada, sin pisar valores
+    with st.sidebar:
+        seleccion = st.selectbox(
+            "Seleccioná un día",
+            dias_disponibles,
+            index=dias_disponibles.index(st.session_state.dia_seleccionado),
+            key="__selector_dia",  # distinto del nombre en session_state
+        )
+
+    # Si la selección cambió, actualizar estado y reiniciar app
+    if seleccion != st.session_state.dia_anterior:
+        st.session_state.dia_seleccionado = seleccion
+        st.session_state.dia_anterior = seleccion
+        st.cache_data.clear()
+        st.rerun()
+
     return seleccion
 
 def tabla_existe(conn, table_name):

@@ -1,13 +1,12 @@
-import json
+import logging
+import duckdb
 import shapely
 import pandas as pd
 import numpy as np
 import os
 import geopandas as gpd
 from shapely import wkt
-from shapely.geometry import LineString, Polygon
 import h3
-import mapclassify
 import folium
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -31,11 +30,20 @@ from urbantrips.geo import geo
 from urbantrips.geo.geo import normalizo_lat_lon, crear_linestring
 from urbantrips.utils.utils import (
     leer_configs_generales,
-    traigo_db_path,
-    iniciar_conexion_db,
+    get_db_path,
     leer_alias,
     duracion,
     create_line_ids_sql_filter,
+)
+from urbantrips.utils.paths import get_paths
+from urbantrips.storage.context import StorageContext
+from urbantrips.viz.helpers import (  # noqa: F401 — re-exported for compat
+    standarize_size,
+    create_squared_polygon,
+    format_num,
+    extract_hex_colors_from_cmap,
+    crea_df_burbujas,
+    crear_mapa_folium,
 )
 from urbantrips.carto.carto import get_h3_indices_in_geometry
 
@@ -43,6 +51,8 @@ import warnings
 
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 
 def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
@@ -63,7 +73,7 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
             ax.set_title(f"Linea {id_linea}", fontsize=6)
             ax.axis("off")
 
-            db_path = os.path.join("resultados", "png", f"{alias}linea_{id_linea}.png")
+            db_path = str(get_paths().output_dir / "png" / f"{alias}linea_{id_linea}.png")
 
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -71,11 +81,12 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
             pass
 
     else:
-        print(f"No se pudo producir un grafico para el id_linea {id_linea}")
+        logger.warning("No se pudo producir un grafico para el id_linea %s", id_linea)
 
 
 @duracion
 def visualize_route_section_load(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     day_type="weekday",
@@ -115,6 +126,7 @@ def visualize_route_section_load(
     sns.set_style("whitegrid")
 
     section_load_data = get_route_section_load(
+        ctx=ctx,
         line_ids=line_ids,
         hour_range=hour_range,
         day_type=day_type,
@@ -124,16 +136,19 @@ def visualize_route_section_load(
 
     # Create a viz for each route
     section_load_data.groupby(["id_linea", "yr_mo"]).apply(
-        viz_etapas_x_tramo_recorrido,
-        stat=stat,
-        factor=factor,
-        factor_min=factor_min,
-        return_gdfs=False,
-        save_gdf=save_gdf,
+        lambda df: viz_etapas_x_tramo_recorrido(
+            ctx, df,
+            stat=stat,
+            factor=factor,
+            factor_min=factor_min,
+            return_gdfs=False,
+            save_gdf=save_gdf,
+        )
     )
 
 
 def get_route_section_load(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     day_type="weekday",
@@ -168,8 +183,6 @@ def get_route_section_load(
         dataframe with load per section per route
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
-
     q = load_route_section_load_data_q(
         line_ids=line_ids,
         hour_range=hour_range,
@@ -179,23 +192,12 @@ def get_route_section_load(
     )
 
     # Read data from section load table
-    section_load_data = pd.read_sql(q, conn_data)
-
-    conn_data.close()
+    section_load_data = ctx.data.query(q)
 
     if len(section_load_data) == 0:
-        print("No hay datos de carga por tramo para estos parametros.")
-        print(
-            " id_linea:",
-            line_ids,
-            " rango_hrs:",
-            hour_range,
-            " n_sections:",
-            n_sections,
-            " section_meters:",
-            section_meters,
-            " day_type:",
-            day_type,
+        logger.info(
+            "No hay datos de carga por tramo | id_linea=%s rango_hrs=%s n_sections=%s section_meters=%s day_type=%s",
+            line_ids, hour_range, n_sections, section_meters, day_type,
         )
 
     return section_load_data
@@ -268,16 +270,10 @@ def load_route_section_load_data_q(
     return q_main_data
 
 
-def standarize_size(series, min_size, max_size):
-    if series.min() == series.max():
-        return pd.Series([min_size] * len(series))
-    return min_size + (max_size - min_size) * (series - series.min()) / (
-        series.max() - series.min()
-    )
 
 
 def viz_etapas_x_tramo_recorrido(
-    df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
+    ctx: StorageContext, df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
 ):
     """
     Plots and saves a section load viz for a given route
@@ -306,20 +302,16 @@ def viz_etapas_x_tramo_recorrido(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
     line_id = df.id_linea.unique().item()
     n_sections = df.n_sections.unique().item()
     mes = df.yr_mo.unique().item()
     day = df["day_type"].unique().item()
 
     # get line name from metadata
-    s = f"select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
-    id_linea_str = pd.read_sql(s, conn_insumos)
-
-    if len(id_linea_str) > 0:
-        id_linea_str = id_linea_str.nombre_linea.item()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    id_linea_rows = metadata_lineas[metadata_lineas.id_linea == line_id]
+    if len(id_linea_rows) > 0:
+        id_linea_str = id_linea_rows.nombre_linea.item()
     else:
         id_linea_str = ""
 
@@ -346,7 +338,7 @@ def viz_etapas_x_tramo_recorrido(
     else:
         raise Exception("Indicador stat debe ser 'cantidad_etapas' o 'prop_etapas'")
 
-    print("Produciendo grafico de ocupacion por tramos", line_id)
+    logger.info("Produciendo grafico de ocupacion por tramos %s", line_id)
 
     df["buff_factor"] = standarize_size(
         series=df[indicator_col], min_size=factor_min, max_size=factor
@@ -370,14 +362,10 @@ def viz_etapas_x_tramo_recorrido(
     df_d1 = df.loc[df.sentido == "vuelta", cols]
 
     # get data
-    sections_geoms_q = f"""
-    select * from routes_section_id_coords 
-    where id_linea = {line_id}
-    and n_sections = {n_sections}
-    """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
+    sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
+    sections_geoms = sections_geoms_raw[
+        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+    ]
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
     # Arrows
@@ -434,7 +422,7 @@ def viz_etapas_x_tramo_recorrido(
     box.plot(ax=ax2, color="#ffffff00")
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -644,7 +632,7 @@ def viz_etapas_x_tramo_recorrido(
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
         archivo = archivo + f"{line_id}_{stat}_{hr_str}_{n_sections}_sections.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
@@ -687,11 +675,7 @@ def viz_etapas_x_tramo_recorrido(
         db_type="dash",
     )
 
-    conn_dash__ = iniciar_conexion_db(tipo="dash")
-    gdf_d_dash.to_sql(
-        "ocupacion_por_linea_tramo", conn_dash__, if_exists="append", index=False
-    )
-    conn_dash__.close()
+    ctx.dash.append_raw(gdf_d_dash, "ocupacion_por_linea_tramo")
 
     if save_gdf:
         gdf_d0 = gdf_d0.to_crs(epsg=4326)
@@ -700,8 +684,8 @@ def viz_etapas_x_tramo_recorrido(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_{stat}{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
@@ -711,24 +695,14 @@ def viz_etapas_x_tramo_recorrido(
 
 
 def imprimir_matrices_od(
-    viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
+    ctx: StorageContext, viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
 ):
 
     alias = leer_alias()
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    zonas = pd.read_sql_query(
-        """
-        SELECT * from zonas
-        """,
-        conn_insumos,
-    )
-
-    conn_insumos.close()
-    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+    zonas = ctx.insumos.get_zones()
+    zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+    zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
     df, matriz_zonas = traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d")
 
@@ -895,6 +869,7 @@ def imprimir_matrices_od(
 
 
 def imprime_lineas_deseo(
+    ctx: StorageContext,
     df,
     h3_o="",
     h3_d="",
@@ -918,20 +893,9 @@ def imprime_lineas_deseo(
     pd.options.mode.chained_assignment = None
     alias = leer_alias()
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    zonas = pd.read_sql_query(
-        """
-        SELECT * from zonas
-        """,
-        conn_insumos,
-    )
-
-    conn_insumos.close()
-
-    zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-    zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+    zonas = ctx.insumos.get_zones()
+    zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+    zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -957,6 +921,7 @@ def imprime_lineas_deseo(
         var_zona = m[1]
 
         lineas_deseo(
+            ctx,
             df,
             zonas,
             var_zona,
@@ -978,6 +943,7 @@ def imprime_lineas_deseo(
         )
 
         lineas_deseo(
+            ctx,
             df[(df.cant_etapas > 1)],
             zonas,
             var_zona,
@@ -999,6 +965,7 @@ def imprime_lineas_deseo(
         )
 
         lineas_deseo(
+            ctx,
             df[(df.distancias <= 5)],
             zonas,
             var_zona,
@@ -1051,6 +1018,7 @@ def imprime_lineas_deseo(
 
         if manana != None:
             lineas_deseo(
+                ctx,
                 df[
                     (df.hora.astype(int) >= manana - 1)
                     & (df.hora.astype(int) <= manana + 1)
@@ -1077,6 +1045,7 @@ def imprime_lineas_deseo(
 
         if mediodia != None:
             lineas_deseo(
+                ctx,
                 df[
                     (df.hora.astype(int) >= mediodia - 1)
                     & (df.hora.astype(int) <= mediodia + 1)
@@ -1103,6 +1072,7 @@ def imprime_lineas_deseo(
 
         if tarde != None:
             lineas_deseo(
+                ctx,
                 df[
                     (df.hora.astype(int) >= tarde - 1)
                     & (df.hora.astype(int) <= tarde + 1)
@@ -1128,20 +1098,12 @@ def imprime_lineas_deseo(
             )
 
 
-def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
-
-    conn_data = iniciar_conexion_db(tipo="data")
+def indicadores_hora_punta(ctx: StorageContext, viajesxhora_dash, desc_dia, tipo_dia):
 
     try:
-        indicadores = pd.read_sql_query(
-            """
-            SELECT *
-            FROM hora_punta
-            """,
-            conn_data,
-        )
+        indicadores = ctx.data.query("SELECT * FROM hora_punta")
     except DatabaseError as e:
-        print("No existe la tabla indicadores, construyendola..", e)
+        logger.warning("No existe la tabla indicadores, construyendola: %s", e)
         indicadores = pd.DataFrame([])
 
     ind_horas = pd.DataFrame([])
@@ -1251,12 +1213,11 @@ def indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia):
             )
         ]
     indicadores = pd.concat([indicadores, ind_horas])
-    indicadores.to_sql("hora_punta", conn_data, if_exists="replace", index=False)
-
-    conn_data.close()
+    ctx.data.save_raw(indicadores, "hora_punta")
 
 
 def imprime_graficos_hora(
+    ctx: StorageContext,
     viajes,
     title="Cantidad de viajes en transporte público",
     savefile="viajes",
@@ -1267,7 +1228,7 @@ def imprime_graficos_hora(
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
-    db_path = traigo_db_path
+    db_path = get_db_path
     alias = leer_alias()
 
     df_aux = pd.DataFrame(
@@ -1312,11 +1273,11 @@ def imprime_graficos_hora(
         ax.set_xticks(list(range(0, 24)))
         ax.tick_params(labelsize=6)
 
-        print("Nuevos archivos en resultados: ", f"{alias}{savefile_}")
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
     # Viajes por hora y modo de transporte
@@ -1343,16 +1304,13 @@ def imprime_graficos_hora(
     ]
     viajesxhora_dash.columns = ["tipo_dia", "desc_dia", "Hora", "Viajes", "Modo"]
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
-
     query = f"""
         DELETE FROM viajes_hora
         WHERE desc_dia = "{desc_dia}"
         and tipo_dia = "{tipo_dia}"
     """
 
-    conn_dash.execute(query)
-    conn_dash.commit()
+    ctx.dash.execute(query)
 
     modos = viajesxhora_dash.Modo.unique().tolist()
     hrs = [str(i).zfill(2) for i in range(0, 24)]
@@ -1377,11 +1335,9 @@ def imprime_graficos_hora(
                     ]
                 )
 
-    viajesxhora_dash.to_sql("viajes_hora", conn_dash, if_exists="append", index=False)
+    ctx.dash.append_raw(viajesxhora_dash, "viajes_hora")
 
-    conn_dash.close()
-
-    indicadores_hora_punta(viajesxhora_dash, desc_dia, tipo_dia)
+    indicadores_hora_punta(ctx, viajesxhora_dash, desc_dia, tipo_dia)
 
     # Viajes por hora
     savefile_ = f"{savefile}_modo"
@@ -1405,11 +1361,11 @@ def imprime_graficos_hora(
         ax.set_ylabel("Viajes", fontsize=8)
         ax.set_xticks(list(range(0, 24)))
         ax.tick_params(labelsize=6)
-        print("Nuevos archivos en resultados: ", f"{alias}{savefile_}")
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
     # Distribución de viajes
@@ -1462,17 +1418,13 @@ def imprime_graficos_hora(
     vi_dash = vi_dash[["desc_dia", "tipo_dia", "distancias", "cant", "modo"]]
     vi_dash.columns = ["desc_dia", "tipo_dia", "Distancia", "Viajes", "Modo"]
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
     query = f"""
         DELETE FROM distribucion
         WHERE desc_dia = "{desc_dia}"
         and tipo_dia = "{tipo_dia}"
         """
-    conn_dash.execute(query)
-    conn_dash.commit()
-
-    vi_dash.to_sql("distribucion", conn_dash, if_exists="append", index=False)
-    conn_dash.close()
+    ctx.dash.execute(query)
+    ctx.dash.append_raw(vi_dash, "distribucion")
 
     ytitle = "Viajes"
     if vi.cant.mean() > 1000:
@@ -1502,17 +1454,18 @@ def imprime_graficos_hora(
 
         fig.tight_layout()
 
-        print("Nuevos archivos en resultados: ", f"{alias}{savefile_}")
-        db_path = os.path.join("resultados", "png", f"{alias}{savefile_}.png")
+        logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile_)
+        db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile_}.png")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-        db_path = os.path.join("resultados", "pdf", f"{alias}{savefile_}.pdf")
+        db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile_}.pdf")
         fig.savefig(db_path, dpi=300, bbox_inches="tight")
     except ValueError as e:
-        print(e)
+        logger.warning("imprime_distancias error: %s", e)
 
 
 def imprime_burbujas(
+    ctx: StorageContext,
     df,
     res=7,
     h3_o="h3_o",
@@ -1528,22 +1481,10 @@ def imprime_burbujas(
 
     pd.options.mode.chained_assignment = None
     configs = leer_configs_generales()
-    db_path = traigo_db_path
+    db_path = get_db_path
     alias = leer_alias()
 
-    conn_data = iniciar_conexion_db(tipo="data")
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    zonas = pd.read_sql_query(
-        """
-        SELECT * from zonas
-        """,
-        conn_insumos,
-    )
-
-    conn_data.close()
-    conn_insumos.close()
+    zonas = ctx.insumos.get_zones()
 
     zonas = gpd.GeoDataFrame(
         zonas,
@@ -1612,18 +1553,18 @@ def imprime_burbujas(
             ax.axis("off")
 
             if len(savefile) > 0:
-                print("Nuevos archivos en resultados: ", f"{alias}{savefile}")
-                db_path = os.path.join("resultados", "png", f"{alias}{savefile}.png")
+                logger.debug("Nuevos archivos en resultados: %s%s", alias, savefile)
+                db_path = str(get_paths().output_dir / "png" / f"{alias}{savefile}.png")
                 fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-                db_path = os.path.join("resultados", "pdf", f"{alias}{savefile}.pdf")
+                db_path = str(get_paths().output_dir / "pdf" / f"{alias}{savefile}.pdf")
                 fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
             # if show_fig:
             #     display(fig)
 
         except ValueError as e:
-            print(e)
+            logger.warning("imprime_burbujas error: %s", e)
 
 
 def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
@@ -1639,8 +1580,8 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
     vars_zona = []
 
     if res_agg:
-        zonas["h3_r6"] = zonas["h3"].apply(h3.cell_to_parent, res=6)
-        zonas["h3_r7"] = zonas["h3"].apply(h3.cell_to_parent, res=7)
+        zonas["h3_r6"] = [h3.cell_to_parent(x, 6) for x in zonas["h3"]]
+        zonas["h3_r7"] = [h3.cell_to_parent(x, 7) for x in zonas["h3"]]
 
         matriz_zonas += [["", "h3_r6", ""], ["", "h3_r7", ""]]
         vars_zona += ["h3_r6"]
@@ -1681,6 +1622,7 @@ def traigo_zonificacion(viajes, zonas, h3_o="h3_o", h3_d="h3_d", res_agg=False):
 
 
 def imprime_od(
+    ctx: StorageContext,
     df,
     zona_origen,
     zona_destino,
@@ -1919,7 +1861,7 @@ def imprime_od(
                                 i.set_color("white")
 
                     except Exception as e:
-                        print("Error al procesar el texto:", e)
+                        logger.debug("Error al procesar el texto: %s", e)
                         pass
                 ii += 1
 
@@ -1929,15 +1871,15 @@ def imprime_od(
 
             savefile = savefile + "_matrizod"
 
-            print("Nuevos archivos en resultados: ", savefile)
+            logger.debug("Nuevos archivos en resultados: %s", savefile)
 
-            db_path = os.path.join("resultados", "png", f"{savefile}.png")
+            db_path = str(get_paths().output_dir / "png" / f"{savefile}.png")
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-            db_path = os.path.join("resultados", "pdf", f"{savefile}.pdf")
+            db_path = str(get_paths().output_dir / "pdf" / f"{savefile}.pdf")
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-            db_path = os.path.join("resultados", "matrices", f"{savefile}.xlsx")
+            db_path = str(get_paths().output_dir / "matrices" / f"{savefile}.xlsx")
 
             if normalize:
                 dash_tot = df.copy()
@@ -1963,8 +1905,6 @@ def imprime_od(
         # Guardo datos para el dashboard
         if "h3_r" not in var_zona:
 
-            conn_dash = iniciar_conexion_db(tipo="dash")
-
             df = df[[zona_origen, zona_destino, var_fex]].copy()
             df.columns = ["Origen", "Destino", "Viajes"]
 
@@ -1973,13 +1913,10 @@ def imprime_od(
             df["var_zona"] = var_zona.replace("h3_r", "H3 Resolucion ")
             df["filtro1"] = filtro1
 
-            df_ant = pd.read_sql_query(
-                """
-                SELECT *
-                FROM matrices
-                """,
-                conn_dash,
-            )
+            try:
+                df_ant = ctx.dash.get_indicator("matrices")
+            except Exception:
+                df_ant = pd.DataFrame([])
 
             df_ant = df_ant[
                 ~(
@@ -1988,7 +1925,7 @@ def imprime_od(
                     & (df_ant.var_zona == var_zona.replace("h3_r", "H3 Resolucion "))
                     & (df_ant.filtro1 == filtro1)
                 )
-            ]
+            ] if len(df_ant) > 0 else df_ant
 
             df = pd.concat([df_ant, df], ignore_index=True)
 
@@ -2011,11 +1948,11 @@ def imprime_od(
                 n += 1
             df["Destino"] = df.Destino.replace(matriz_order_row, cols)
 
-            df.to_sql("matrices", conn_dash, if_exists="replace", index=False)
-            conn_dash.close()
+            ctx.dash.save_indicator(df, "matrices")
 
 
 def lineas_deseo(
+    ctx: StorageContext,
     df,
     zonas,
     var_zona,
@@ -2037,30 +1974,14 @@ def lineas_deseo(
     filtro1="",
 ):
 
-    hexs = (
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona, as_index=False)
-        .size()
-        .drop(["size"], axis=1)
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona)
-        .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "longitud"}),
-        how="left",
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby(var_zona)
-        .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "latitud"}),
-        how="left",
-    )
+    _zonas_filt = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
+    hexs = duckdb.sql(f"""
+        SELECT "{var_zona}",
+               SUM(longitud * fex) / NULLIF(SUM(fex), 0) AS longitud,
+               SUM(latitud * fex) / NULLIF(SUM(fex), 0) AS latitud
+        FROM _zonas_filt
+        GROUP BY "{var_zona}"
+    """).df()
 
     tmp_o = f"{var_zona}_o"
     tmp_d = f"{var_zona}_d"
@@ -2176,11 +2097,11 @@ def lineas_deseo(
 
                     savefile = savefile + "_lineas_deseo"
 
-                    print("Nuevos archivos en resultados: ", savefile)
-                    db_path = os.path.join("resultados", "png", f"{savefile}.png")
+                    logger.debug("Nuevos archivos en resultados: %s", savefile)
+                    db_path = str(get_paths().output_dir / "png" / f"{savefile}.png")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
-                    db_path = os.path.join("resultados", "pdf", f"{savefile}.pdf")
+                    db_path = str(get_paths().output_dir / "pdf" / f"{savefile}.pdf")
                     fig.savefig(db_path, dpi=300, bbox_inches="tight")
 
                     # Guarda geojson para el dashboard
@@ -2215,7 +2136,6 @@ def lineas_deseo(
                     df_folium["var_zona"] = var_zona.replace("h3_r", "H3 Resolucion ")
                     df_folium["filtro1"] = filtro1
 
-                    conn_dash = iniciar_conexion_db(tipo="dash")
                     var_zona_q = var_zona.replace("h3_r", "H3 Resolucion ")
 
                     query = f"""
@@ -2227,13 +2147,8 @@ def lineas_deseo(
                         filtro1 = '{filtro1}'
                     """
 
-                    conn_dash.execute(query)
-                    conn_dash.commit()
-
-                    df_folium.to_sql(
-                        "lineas_deseo", conn_dash, if_exists="append", index=False
-                    )
-                    conn_dash.close()
+                    ctx.dash.execute(query)
+                    ctx.dash.append_raw(df_folium, "lineas_deseo")
 
                     crear_mapa_folium(
                         df_agg,
@@ -2246,116 +2161,22 @@ def lineas_deseo(
                 # if show_fig:
                 #     display(fig)
             except ValueError as e:
-                print(e)
+                logger.warning("imprime_lineas_deseo inner error: %s", e)
 
         except ValueError as e:
-            print("Error al crear líneas de deseo:", e)
+            logger.warning("Error al crear líneas de deseo: %s", e)
             pass
 
 
-def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7):
-
-    zonas["h3_o_tmp"] = zonas["h3"].apply(h3.cell_to_parent, res=res)
-
-    hexs = (
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp", as_index=False)
-        .size()
-        .drop(["size"], axis=1)
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp")
-        .apply(lambda x: np.average(x["longitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "longitud"}),
-        how="left",
-    )
-
-    hexs = hexs.merge(
-        zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
-        .groupby("h3_o_tmp")
-        .apply(lambda x: np.average(x["latitud"], weights=x["fex"]))
-        .reset_index()
-        .rename(columns={0: "latitud"}),
-        how="left",
-    )
-
-    df["h3_o_tmp"] = df[h3_o].apply(h3.cell_to_parent, res=res)
-
-    # Agrego a res de gráfico latlong
-    df_agg = df.groupby(["dia", "h3_o_tmp"], as_index=False).agg({var_fex: "sum"})
-    df_agg = df_agg.groupby(["h3_o_tmp"], as_index=False).agg({var_fex: "mean"})
-
-    df_agg = df_agg.merge(
-        hexs.rename(columns={"latitud": "lat_o", "longitud": "lon_o"})
-    )
-
-    df_agg = gpd.GeoDataFrame(
-        df_agg,
-        geometry=gpd.points_from_xy(df_agg["lon_o"], df_agg["lat_o"]),
-        crs=4326,
-    )
-
-    df_agg = df_agg.sort_values(var_fex, ascending=False).reset_index(drop=True)
-    df_agg["cumsum"] = round(df_agg[var_fex].cumsum() / df_agg[var_fex].sum() * 100)
-    df_agg = df_agg[df_agg["cumsum"] < porc_viajes]
-
-    return df_agg
 
 
-def crear_mapa_folium(df_agg, cmap, var_fex, savefile, k_jenks=5):
-
-    bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
-        df_agg[var_fex], k=k_jenks
-    ).bins.tolist()
-    range_bins = range(0, len(bins) - 1)
-    bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
-    df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
-
-    fig = Figure(width=800, height=800)
-    m = folium.Map(
-        location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
-        zoom_start=9,
-        tiles="cartodbpositron",
-    )
-
-    title_html = """
-    <h3 align="center" style="font-size:20px"><b>Your map title</b></h3>
-    """
-    m.get_root().html.add_child(folium.Element(title_html))
-
-    line_w = 0.5
-
-    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
-
-    n = 0
-    for i in bins_labels:
-
-        df_agg[df_agg.cuts == i].explore(
-            m=m,
-            color=colors[n],
-            style_kwds={"fillOpacity": 0.3, "weight": line_w},
-            name=i,
-            tooltip=False,
-        )
-        n += 1
-        line_w += 3
-
-    folium.LayerControl(name="xx").add_to(m)
-
-    fig.add_child(m)
-
-    db_path = os.path.join("resultados", "html", savefile)
-    m.save(db_path)
 
 
-def save_zones():
+def save_zones(ctx: StorageContext):
     """
     Esta función guarda las geografí­as de las zonas para el dashboard
     """
-    print("Creando zonificación para dashboard")
+    logger.info("Creando zonificación para dashboard")
 
     configs = leer_configs_generales()
 
@@ -2379,7 +2200,7 @@ def save_zones():
 
     zonas = pd.DataFrame([])
     for i in geo_files:
-        file = os.path.join("data", "data_ciudad", f"{i[0]}")
+        file = str(get_paths().input_dir / f"{i[0]}")
         if os.path.isfile(file):
             df = gpd.read_file(file)
             df = df[[i[1], "geometry"]]
@@ -2392,13 +2213,10 @@ def save_zones():
         zonas["wkt"] = zonas.geometry.to_wkt()
         zonas = zonas.drop(["geometry"], axis=1)
 
-        conn_dash = iniciar_conexion_db(tipo="dash")
-        zonas.to_sql("zonas", conn_dash, if_exists="replace", index=False)
-        conn_dash.close()
+        ctx.dash.save_indicator(zonas, "zonas")
 
 
-def plot_dispatched_services_wrapper(top_line_ids):
-    conn_data = iniciar_conexion_db(tipo="data")
+def plot_dispatched_services_wrapper(ctx: StorageContext, top_line_ids):
     line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     q = """
@@ -2406,15 +2224,15 @@ def plot_dispatched_services_wrapper(top_line_ids):
     from services_by_line_hour
     """
     q = q + line_ids_where + "and dia = 'weekday'" + ";"
-    service_data = pd.read_sql(q, conn_data)
+    service_data = ctx.data.query(q)
 
     if len(service_data) > 0:
-        service_data.groupby(["id_linea"]).apply(plot_dispatched_services_by_line_day)
+        service_data.groupby(["id_linea"]).apply(
+            lambda df: plot_dispatched_services_by_line_day(ctx, df)
+        )
 
-    conn_data.close()
 
-
-def plot_dispatched_services_by_line_day(df, save_fig=False):
+def plot_dispatched_services_by_line_day(ctx: StorageContext, df, save_fig=False):
     """
     Reads services' data and plots how many services
     by line, type of day (weekday weekend), and hour.
@@ -2441,20 +2259,17 @@ def plot_dispatched_services_by_line_day(df, save_fig=False):
     else:
         day_str = day
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
-    id_linea_str = pd.read_sql(s, conn_insumos)
-    conn_insumos.close()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    id_linea_str = metadata_lineas.loc[
+        metadata_lineas.id_linea == line_id, "nombre_linea"
+    ]
 
     if len(id_linea_str) > 0:
-        id_linea_str = id_linea_str.nombre_linea.item()
-        id_linea_str = id_linea_str + " -"
+        id_linea_str = id_linea_str.item() + " -"
     else:
         id_linea_str = ""
 
-    print("Creando plot de servicios despachados por linea", "id linea:", line_id)
+    logger.info("Creando plot de servicios despachados por linea id %s", line_id)
 
     try:
 
@@ -2484,37 +2299,34 @@ def plot_dispatched_services_by_line_day(df, save_fig=False):
         if save_fig:
             for frm in ["png", "pdf"]:
                 archivo = f"servicios_despachados_id_linea_{line_id}_{day}.{frm}"
-                db_path = os.path.join("resultados", frm, archivo)
+                db_path = str(get_paths().output_dir / frm / archivo)
                 f.savefig(db_path, dpi=300)
                 plt.close()
     except Exception as e:
-        print("ERROR", e)
+        logger.error("plot servicios despachados error: %s", e)
 
 
-def plot_basic_kpi_wrapper(top_line_ids):
+def plot_basic_kpi_wrapper(ctx: StorageContext, top_line_ids):
     sns.set_style("whitegrid")
 
-    conn_data = iniciar_conexion_db(tipo="data")
     line_ids_where = create_line_ids_sql_filter(top_line_ids)
 
     # get top trx id_lines
     q = """
         select *
         from basic_kpi_by_line_hr
-        
+
         """
     q = q + line_ids_where + "and dia = 'weekday'" + ";"
-    kpi_data = pd.read_sql(q, conn_data)
+    kpi_data = ctx.data.query(q)
 
     if len(kpi_data) > 0:
         kpi_data.groupby(["id_linea", "yr_mo"]).apply(
-            plot_basic_kpi, standarize_supply_demand=False
+            lambda df: plot_basic_kpi(ctx, df, standarize_supply_demand=False)
         )
 
-    conn_data.close()
 
-
-def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwargs):
+def plot_basic_kpi(ctx: StorageContext, kpi_by_line_hr, standarize_supply_demand=False, *args, **kwargs):
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
     alias = leer_alias()
@@ -2527,20 +2339,14 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
     else:
         day_str = day
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
-    s = (
-        f"select nombre_linea from metadata_lineas"
-        + f" where id_linea = {line_id} AND nombre_linea IS NOT NULL;"
-    )
-
-    id_linea_str = pd.read_sql(s, conn_insumos)
-    conn_insumos.close()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    id_linea_str = metadata_lineas.loc[
+        (metadata_lineas.id_linea == line_id) & (metadata_lineas.nombre_linea.notna()),
+        "nombre_linea",
+    ]
 
     if len(id_linea_str) > 0:
-        id_linea_str = id_linea_str.nombre_linea.item()
-        id_linea_str = id_linea_str + " -"
+        id_linea_str = id_linea_str.item() + " -"
     else:
         id_linea_str = ""
 
@@ -2585,10 +2391,10 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
     )
 
     if missing_data:
-        print("No es posible crear plot de KPI basicos por linea", "id linea:", line_id)
+        logger.info("No es posible crear plot de KPI basicos por linea id %s", line_id)
 
     else:
-        print("Creando plot de KPI basicos por linea", "id linea:", line_id)
+        logger.info("Creando plot de KPI basicos por linea id %s", line_id)
 
         f, ax = plt.subplots(figsize=(8, 6))
 
@@ -2647,7 +2453,7 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
 
         for frm in ["png", "pdf"]:
             archivo = f"{alias}_{mes}({day_str})_kpi_basicos_id_linea_{line_id}.{frm}"
-            db_path = os.path.join("resultados", frm, archivo)
+            db_path = str(get_paths().output_dir / frm / archivo)
             f.savefig(
                 db_path, dpi=300, bbox_extra_artists=(ax_note,), bbox_inches="tight"
             )
@@ -2674,48 +2480,34 @@ def plot_basic_kpi(kpi_by_line_hr, standarize_supply_demand=False, *args, **kwar
             ]
         )
 
-        conn_dash = iniciar_conexion_db(tipo="dash")
-
         query = f"""
             DELETE FROM basic_kpi_by_line_hr
             WHERE dia = "{day}"
             and id_linea = "{line_id}"
             and yr_mo = "{mes}"
             """
-        conn_dash.execute(query)
-        conn_dash.commit()
-
-        kpi_stats_line_plot.to_sql(
-            "basic_kpi_by_line_hr",
-            conn_dash,
-            if_exists="append",
-            index=False,
-        )
-        conn_dash.close()
+        ctx.dash.execute(query)
+        ctx.dash.append_raw(kpi_stats_line_plot, "basic_kpi_by_line_hr")
 
 
-def get_branch_geoms_from_line(id_linea):
+def get_branch_geoms_from_line(ctx: StorageContext, id_linea):
     """
     Takes a line id and returns a geoSeries with
     all branches' geoms
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+    metadata_ramales = ctx.insumos.get_metadata_ramales()
+    valid_ramales = metadata_ramales.loc[
+        metadata_ramales.id_linea == id_linea, "id_ramal"
+    ].tolist()
 
-    branch_geoms_query = f"""
-        select * from branches_geoms bg 
-        where id_ramal in (
-            select id_ramal from metadata_ramales mr 
-            where id_linea = {id_linea}
-        )
-        ;
-    """
-    branch_geoms = pd.read_sql(branch_geoms_query, conn_insumos)
+    branches_geoms_raw = ctx.insumos.get_raw("branches_geoms")
+    branch_geoms = branches_geoms_raw[
+        branches_geoms_raw.id_ramal.isin(valid_ramales)
+    ]
+
     branch_geoms = gpd.GeoSeries.from_wkt(
         branch_geoms.wkt.values, index=branch_geoms.id_ramal.values, crs="EPSG:4326"
     )
-
-    conn_insumos.close()
 
     if len(branch_geoms) == 0:
         branch_geoms = None
@@ -2723,50 +2515,16 @@ def get_branch_geoms_from_line(id_linea):
     return branch_geoms
 
 
-def create_squared_polygon(min_x, min_y, max_x, max_y, epsg):
-
-    width = max(max_x - min_x, max_y - min_y)
-    center_x = (max_x + min_x) / 2
-    center_y = (max_y + min_y) / 2
-
-    square_bbox_min_x = center_x - width / 2
-    square_bbox_min_y = center_y - width / 2
-    square_bbox_max_x = center_x + width / 2
-    square_bbox_max_y = center_y + width / 2
-
-    square_bbox_coords = [
-        (square_bbox_min_x, square_bbox_min_y),
-        (square_bbox_max_x, square_bbox_min_y),
-        (square_bbox_max_x, square_bbox_max_y),
-        (square_bbox_min_x, square_bbox_max_y),
-    ]
-
-    p = Polygon(square_bbox_coords)
-    s = gpd.GeoSeries([p], crs=f"EPSG:{epsg}")
-    return s
 
 
-def format_num(num, lpad=10):
-    fnum = "{:,}".format(num).replace(".", "*").replace(",", ".").replace("*", ",")
-    if lpad > 0:
-        fnum = fnum.rjust(lpad, " ")
-    return fnum
 
 
-def indicadores_dash():
+def indicadores_dash(ctx: StorageContext):
     alias = leer_alias()
 
     configs = leer_configs_generales()
 
-    conn_data = iniciar_conexion_db(tipo="data")
-
-    indicadores = pd.read_sql_query(
-        """
-        SELECT *
-        FROM indicadores
-        """,
-        conn_data,
-    )
+    indicadores = ctx.data.query("SELECT * FROM indicadores")
 
     hora_punta = indicadores[indicadores.detalle.str.contains("Hora punta")]
     indicadores = indicadores[~indicadores.detalle.str.contains("Hora punta")]
@@ -2808,8 +2566,6 @@ def indicadores_dash():
     indicadores.loc[
         indicadores.detalle == "Cantidad de viajes con transferencia", "detalle"
     ] = "Viajes con transferencia"
-
-    conn_data.close()
 
     indicadores.loc[
         indicadores.detalle.isin(
@@ -2905,25 +2661,12 @@ def indicadores_dash():
     indicadores.loc[indicadores.orden == 2, "Titulo"] = "Información procesada"
     indicadores.loc[indicadores.orden == 3, "Titulo"] = "Partición modal"
 
-    conn_dash = iniciar_conexion_db(tipo="dash")
-    indicadores.to_sql("indicadores", conn_dash, if_exists="replace", index=False)
-    conn_dash.close()
+    ctx.dash.save_indicator(indicadores, "indicadores")
 
 
-def extract_hex_colors_from_cmap(cmap, n=5):
-    # Choose a colormap
-    cmap = plt.get_cmap(cmap)
-
-    # Extract colors from the colormap
-    colors = cmap(np.linspace(0, 1, n))
-
-    # Convert the colors to hex format
-    hex_colors = [mcolors.rgb2hex(color) for color in colors]
-
-    return hex_colors
 
 
-def viz_travel_times_poly(polygon):
+def viz_travel_times_poly(ctx: StorageContext, polygon):
     """
     This function takes a shapely polygon as destination
     fills it with h3 indexes in config resolution
@@ -2931,8 +2674,6 @@ def viz_travel_times_poly(polygon):
     """
     configs = leer_configs_generales()
     h3_res = configs["resolucion_h3"]
-
-    conn_data = iniciar_conexion_db(tipo="data")
 
     poly_h3 = get_h3_indices_in_geometry(polygon, h3_res)
 
@@ -2943,7 +2684,7 @@ def viz_travel_times_poly(polygon):
     poly_str = "','".join(poly_h3)
 
     q = f"""
-    select h3_o,factor_expansion_linea,travel_time_min 
+    select h3_o,factor_expansion_linea,travel_time_min
     from viajes v
     join travel_times_trips tt
     on  v.dia = tt.dia
@@ -2952,7 +2693,7 @@ def viz_travel_times_poly(polygon):
     where od_validado = 1
     and h3_d in ('{poly_str}')
     """
-    v = pd.read_sql(q, conn_data)
+    v = ctx.data.query(q)
 
     travel_time_choro = (
         v.groupby("h3_o")
@@ -2971,7 +2712,7 @@ def viz_travel_times_poly(polygon):
 
 
 @duracion
-def create_visualizations():
+def create_visualizations(ctx: StorageContext):
     """
     Esta funcion corre las diferentes funciones de visualizaciones
     """
@@ -2979,38 +2720,11 @@ def create_visualizations():
     pd.options.mode.chained_assignment = None
 
     # Leer informacion de viajes y distancias
-    conn_data = iniciar_conexion_db(tipo="data")
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
+    viajes = ctx.data.query("SELECT * FROM viajes where od_validado==1")
 
-    viajes = pd.read_sql_query(
-        """
-        SELECT *
-        FROM viajes
-        where od_validado==1
-        """,
-        conn_data,
-    )
+    etapas = ctx.data.query("SELECT * FROM etapas where od_validado==1")
 
-    etapas = pd.read_sql_query(
-        """
-        SELECT *
-        FROM etapas
-        where od_validado==1
-        """,
-        conn_data,
-    )
-
-    distancias = pd.read_sql_query(
-        """
-        SELECT *
-        FROM distancias
-        """,
-        conn_insumos,
-    )
-
-    conn_insumos.close()
-    conn_data.close()
+    distancias = ctx.insumos.get_raw("distancias")
 
     # Agrego campo de distancias de los viajes
     viajes = viajes.merge(distancias, how="left", on=["h3_o", "h3_d"])
@@ -3048,9 +2762,10 @@ def create_visualizations():
             (etapas.yr == i.yr) & (etapas.mo == i.mo) & (etapas.tipo_dia == i.tipo_dia)
         ]
 
-        print("Imprimiendo gráficos")
+        logger.info("Imprimiendo gráficos")
         titulo = f"Cantidad de viajes en transporte público {desc_dia}"
         imprime_graficos_hora(
+            ctx,
             viajes_dia,
             title=titulo,
             savefile=f"{desc_dia_file}_viajes",
@@ -3059,7 +2774,7 @@ def create_visualizations():
             tipo_dia=i.tipo_dia,
         )
 
-    save_zones()
+    save_zones(ctx)
 
-    print("Indicadores para dash")
-    indicadores_dash()
+    logger.info("Indicadores para dash")
+    indicadores_dash(ctx)

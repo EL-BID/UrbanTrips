@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import geopandas as gpd
 from urbantrips.carto.carto import floor_rounding, create_route_section_ids
@@ -9,16 +10,19 @@ from urbantrips.carto.routes import (
 )
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db,
     leer_configs_generales,
     check_date_type,
     create_line_ids_sql_filter,
     is_date_string,
 )
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
 @duracion
 def compute_route_section_supply(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     n_sections=10,
@@ -30,22 +34,12 @@ def compute_route_section_supply(
 
     Parameters
     ----------
+    ctx : StorageContext
     line_ids : int, list of ints or bool
-        route id or list of route ids present in the legs dataset. Route
-        section load will be computed for that subset of lines. If False, it
-        will run with all routes.
     hour_range : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24. Route section
-        load will be computed for legs happening within tat time range.
-        If False it won't filter by hour.
     n_sections: int
-        number of sections to split the route geom
     section_meters: int
-        section lenght in meters to split the route geom. If specified,
-        this will be used instead of n_sections.
     day_type: str
-        type of day on which the section load is to be computed. It can take
-        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
     """
 
     check_date_type(day_type)
@@ -57,32 +51,32 @@ def compute_route_section_supply(
             raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
     # read legs data
-    gps = read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
+    gps = read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
     if gps is None:
-        print("No existen datos de GPS para los filtros aplicados")
+        logger.info("No existen datos de GPS para los filtros aplicados")
         return None
 
     # read routes geoms
     route_geoms = get_route_geoms_with_sections_data(
-        line_ids_where, section_meters, n_sections
+        line_ids, section_meters, n_sections, ctx
     )
 
     # check which section geoms are already crated
-    new_route_geoms = check_exists_route_section_points_table(route_geoms)
+    new_route_geoms = check_exists_route_section_points_table(route_geoms, ctx)
 
     # create the line and n sections pair missing and upload it to the db
     if len(new_route_geoms) > 0:
 
-        upload_route_section_points_table(new_route_geoms, delete_old_data=False)
+        upload_route_section_points_table(new_route_geoms, ctx, delete_old_data=False)
 
     # delete old seciton load data
     yr_mos = gps.yr_mo.unique()
     delete_old_supply_stats_by_section_id(
-        route_geoms, hour_range, day_type, yr_mos, db_type="data"
+        route_geoms, hour_range, day_type, yr_mos, ctx
     )
 
     # compute section load
-    print("Computing supply stats per route section ...")
+    logger.info("Computing supply stats per route section ...")
 
     if (len(route_geoms) > 0) and (len(gps) > 0):
 
@@ -124,26 +118,20 @@ def compute_route_section_supply(
             ]
         )
 
-        conn_data = iniciar_conexion_db(tipo="data")
-        print("Uploading data to db...")
-        section_supply_stats_table.to_sql(
-            "supply_stats_by_section_id",
-            conn_data,
-            if_exists="append",
-            index=False,
-        )
-        conn_data.close()
+        logger.debug("Uploading data to db...")
+        ctx.data.append_raw(section_supply_stats_table, "supply_stats_by_section_id")
     else:
-        print("No existen recorridos o etapas para las líneas")
-        print("Cantidad de lineas:", len(line_ids))
-        print("Cantidad de recorridos", len(route_geoms))
-        print("Cantidad de puntos gps", len(gps))
+        logger.info(
+            "No existen recorridos o etapas para las líneas | lineas=%d recorridos=%d gps=%d",
+            len(line_ids), len(route_geoms), len(gps),
+        )
+        section_supply_stats_table = None
     return section_supply_stats_table
 
 
 def compute_section_supply_stats(gps, route_geoms):
     line_id = gps.id_linea.unique()[0]
-    print(f"Calculando estadisticos de oferta por tramo para linea id {line_id}")
+    logger.debug("Calculando estadisticos de oferta por tramo para linea id %s", line_id)
 
     if (route_geoms.id_linea == line_id).any():
         route = route_geoms.loc[route_geoms.id_linea == line_id, :]
@@ -262,48 +250,25 @@ def compute_section_supply_stats(gps, route_geoms):
     return section_supply_stats
 
 
-def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
+def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx: StorageContext):
     """
-    Reads legs data by line id, hour range and type of day
-
-    Parameters
-    ----------
-    line_ids_where : str
-        where clause in a sql query with line ids .
-    hour_range : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24. Route section
-        load will be computed for legs happening within tat time range.
-        If False it won't filter by hour.
-    day_type: str
-        type of day on which the section load is to be computed. It can take
-        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
-
-    Returns
-    -------
-    legs : pandas.DataFrame
-        dataframe with legs data by line id, hour range and type of day
-
+    Reads GPS data by line id, hour range and type of day.
     """
 
-    # Read legs data by line id, hours, day type
-    #
     q_main = """
-    select *
-    from gps
+    SELECT *
+    FROM gps
     """
     q_main = q_main + line_ids_where
 
     day_type_is_a_date = is_date_string(day_type)
 
     if day_type_is_a_date:
-        q_main = q_main + f" and dia = '{day_type}'"
+        q_main = q_main + f" AND dia = '{day_type}'"
 
-    print("Obteniendo datos de GPS")
+    logger.debug("Obteniendo datos de GPS")
 
-    # get data for gps
-    conn_data = iniciar_conexion_db(tipo="data")
-    gps = pd.read_sql(q_main, conn_data)
-    conn_data.close()
+    gps = ctx.data.query(q_main)
 
     if len(gps) == 0:
         return None
@@ -329,17 +294,12 @@ def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type):
 
 
 def delete_old_supply_stats_by_section_id(
-    route_geoms, hour_range, day_type, yr_mos, db_type="data"
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext
 ):
     """
-    Deletes old data in table ocupacion_por_linea_tramo
+    Deletes old data in table supply_stats_by_section_id
     """
     table_name = "supply_stats_by_section_id"
-
-    if db_type == "data":
-        conn = iniciar_conexion_db(tipo="data")
-    else:
-        conn = iniciar_conexion_db(tipo="dash")
 
     # hour range filter
     if hour_range:
@@ -353,27 +313,22 @@ def delete_old_supply_stats_by_section_id(
     delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
     for yr_mo in yr_mos:
         for _, row in delete_df.iterrows():
-            # Delete old data for those parameters
-            print(f"Borrando datos antiguos de {table_name}")
-            print(row.id_linea)
-            print(f"{row.n_sections} secciones")
-            print(yr_mo)
-            if hour_range:
-                print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
+            logger.debug(
+                "Borrando datos antiguos de %s | linea=%s secciones=%s yr_mo=%s%s",
+                table_name, row.id_linea, row.n_sections, yr_mo,
+                f" horas {hour_range[0]}-{hour_range[1]}" if hour_range else "",
+            )
 
             q_delete = f"""
-                delete from {table_name}
-                where id_linea = {row.id_linea} 
-                and hour_min {hora_min_filter}
-                and hour_max {hora_max_filter}
-                and day_type = '{day_type}'
-                and n_sections = {row.n_sections}
-                and yr_mo = '{yr_mo}';
+                DELETE FROM {table_name}
+                WHERE id_linea = {row.id_linea}
+                AND hour_min {hora_min_filter}
+                AND hour_max {hora_max_filter}
+                AND day_type = '{day_type}'
+                AND n_sections = {row.n_sections}
+                AND yr_mo = '{yr_mo}'
                 """
 
-            cur = conn.cursor()
-            cur.execute(q_delete)
-            conn.commit()
+            ctx.data.execute(q_delete)
 
-    conn.close()
-    print("Fin borrado datos previos")
+    logger.debug("Fin borrado datos previos")
