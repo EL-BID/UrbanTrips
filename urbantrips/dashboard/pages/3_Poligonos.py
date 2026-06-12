@@ -11,7 +11,6 @@ import numpy as np
 from dash_storage import normalize_vars
 from dash_utils import (
     levanto_tabla_sql,
-    levanto_tabla_sql_local,
     get_logo,
     create_data_folium,
     traigo_indicadores,
@@ -19,6 +18,12 @@ from dash_utils import (
     traigo_lista_zonas,
     configurar_selector_dia,
     calcular_bins,
+    build_where_clauses,
+    traer_dias_chains,
+    traer_opciones_chains,
+    condicion_zona_sql,
+    condicion_poligono_sql,
+    traer_etapas_matrices_sql,
 )
 
 from streamlit_folium import folium_static
@@ -483,39 +488,18 @@ with st.expander("Líneas de Deseo", expanded=True):
         if var not in st.session_state:
             st.session_state[var] = False
 
-    etapas_lst_ = levanto_tabla_sql(
-        "poly_etapas", "dash", "SELECT DISTINCT dia FROM poly_etapas;"
-    )
+    dias_chains = traer_dias_chains()
     poligonos = levanto_tabla_sql("poligonos", "insumos")
-
-    # st.session_state.etapas = traigo()
 
     if len(poligonos) == 0:
         st.info("No hay polígono cargado.")
         st.stop()
 
-    if (len(poligonos) > 0) & (len(etapas_lst_) > 0):
+    if (len(poligonos) > 0) & (len(dias_chains) > 0):
 
         zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
         socio_indicadores = levanto_tabla_sql("socio_indicadores")
-        # desc_tipo_dia_ = levanto_tabla_sql(
-        #     "poly_etapas", "dash", "SELECT DISTINCT tipo_dia FROM poly_etapas;"
-        # )
-        desc_zona_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT zona FROM poly_etapas;"
-        ).sort_values("zona")
-        modos_list_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT modo_agregado FROM poly_etapas;"
-        )
-        rango_hora_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT rango_hora FROM poly_etapas;"
-        )
-        distancia_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT distance_od FROM poly_etapas;"
-        )
-        desc_poly_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT id_polygon FROM poly_etapas;"
-        )
+
         zonas_values = traigo_lista_zonas("poligonos")
 
         # st.session_state.etapas_all = st.session_state.etapas_all[st.session_state.etapas_all.factor_expansion_linea > 0].copy()
@@ -536,42 +520,31 @@ with st.expander("Líneas de Deseo", expanded=True):
         if "data_cargada" not in st.session_state:
             st.session_state.data_cargada = False
 
-        # Opciones de los filtros en Streamlit
-        # st.session_state.etapas_lst = ['Todos'] + etapas_lst_.mes.unique().tolist()
-        st.session_state.etapas_lst = etapas_lst_.dia.unique().tolist()
+        # Opciones de los filtros en Streamlit (desde chains_norm)
+        st.session_state.etapas_lst = dias_chains
         desc_dia = col1.selectbox("Día", options=st.session_state.etapas_lst)
 
-        # desc_tipo_dia = col1.selectbox(
-        #     "Tipo día", options=desc_tipo_dia_.tipo_dia.unique()
-        # )
-
         st.session_state.desc_poly = col1.selectbox(
-            "Polígono", options=desc_poly_all_.id_polygon.unique()
+            "Polígono", options=poligonos.id.unique()
         )
 
-        desc_zona = col1.selectbox("Zonificación", options=desc_zona_.zona.unique())
+        desc_zona = col1.selectbox(
+            "Zonificación", options=zonas_values.zona.unique()
+        )
         transf_list_all = ["Todos", "Con transferencia", "Sin transferencia"]
         transf_list = col1.selectbox("Transferencias", options=transf_list_all)
 
-        modos_list_all = ["Todos"] + modos_list_all_[
-            modos_list_all_.modo_agregado != "99"
-        ].modo_agregado.unique().tolist()
-        # modos_list = col1.selectbox('Modos', options=[text.capitalize() for text in modos_list_all])
+        modos_list_all = ["Todos"] + traer_opciones_chains("modo_agregado")
         modos_list = col1.selectbox("Modos", options=[text for text in modos_list_all])
 
-        rango_hora_all = ["Todos"] + rango_hora_all_[
-            rango_hora_all_.rango_hora != "99"
-        ].rango_hora.unique().tolist()
-        # rango_hora = col1.selectbox('Rango hora', options=[text.capitalize() for text in rango_hora_all])
+        rango_hora_all = ["Todos"] + traer_opciones_chains("rango_hora")
         rango_hora = col1.selectbox(
             "Rango hora", options=[text for text in rango_hora_all]
         )
 
-        distancia_all = ["Todas"] + distancia_all_[
-            distancia_all_.distance_od != "99"
-        ].distance_od.unique().tolist()
+        distancia_all = ["Todas"] + traer_opciones_chains("distancia_agregada")
 
-        distancia_agregada = col1.selectbox("distance_od", options=distancia_all)
+        distancia_agregada = col1.selectbox("Distancia", options=distancia_all)
 
         desc_et_vi = col1.selectbox(
             "Datos de", options=["Etapas", "Viajes", "Ninguno"], index=1
@@ -667,43 +640,47 @@ with st.expander("Líneas de Deseo", expanded=True):
         # Solo cargar datos si hay cambios en los filtros
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
 
-            query = ""
-            conditions = " AND ".join(
-                f"{key} = '{value}'"
-                for key, value in current_filters.items()
-                if (value is not None)
-                & (key != "desc_zonas_values1")
-                & (key != "desc_zonas_values2")
-            )
-            if conditions:
-                query += f" WHERE {conditions}"
+            # WHERE opcional sobre chains_norm con los filtros del usuario
+            filters = {
+                "modo_agregado": current_filters["modo_agregado"],
+                "rango_hora": current_filters["rango_hora"],
+                "transferencia": current_filters["transferencia"],
+                "distancia_agregada": current_filters["distancia_agregada"],
+            }
+            where_extra = build_where_clauses(filters)
 
-            conditions_etapas1 = ""
-            conditions_matrices1 = ""
+            # Filtro por polígono según tipo: 'poligono' (origen O destino) o
+            # 'cuenca' (origen Y destino, salvo checkbox 'Origen o Destino en cuenca')
+            tipo_poly = (
+                poly["tipo"].iloc[0]
+                if poly is not None and not poly.empty and "tipo" in poly.columns
+                else "poligono"
+            )
+            condiciones = condicion_poligono_sql(
+                st.session_state.desc_poly,
+                tipo_poly,
+                od_en_poligono=desc_cuenca,
+            )
+
+            # Filtros adicionales por zona de la zonificación seleccionada
             if desc_zonas_values1 != "Todos":
-                conditions_etapas1 = f" AND (inicio_norm = '{desc_zonas_values1}' OR transfer1_norm = '{desc_zonas_values1}' OR transfer2_norm = '{desc_zonas_values1}' OR fin_norm = '{desc_zonas_values1}')"
-                conditions_matrices1 = f" AND (inicio = '{desc_zonas_values1}' OR fin = '{desc_zonas_values1}')"
-
-            conditions_etapas2 = ""
-            conditions_matrices2 = ""
+                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values1)
             if desc_zonas_values2 != "Todos":
-                conditions_etapas2 = f" AND (inicio_norm = '{desc_zonas_values2}' OR transfer1_norm = '{desc_zonas_values2}' OR transfer2_norm = '{desc_zonas_values2}' OR fin_norm = '{desc_zonas_values2}')"
-                conditions_matrices2 = f" AND (inicio = '{desc_zonas_values2}' OR fin = '{desc_zonas_values2}')"
+                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values2)
 
-            query_etapas = query + conditions_etapas1 + conditions_etapas2
-            query_matrices = query + conditions_matrices1 + conditions_matrices2
-
-            st.session_state.etapas_ = levanto_tabla_sql_local(
-                "poly_etapas",
-                tabla_tipo="dash",
-                query=f"SELECT * FROM poly_etapas{query_etapas}",
+            # join + GROUP BY dentro de la base dash; el sufijo ' (cuenca)'
+            # se aplica en el propio query para polígonos tipo cuenca
+            etapas_, matrices_ = traer_etapas_matrices_sql(
+                desc_zona,
+                zonificaciones,
+                desc_dia,
+                where_extra,
+                condiciones,
+                id_polygon=st.session_state.desc_poly,
+                sufijo_cuenca=(tipo_poly == "cuenca"),
             )
-
-            st.session_state.matrices_ = levanto_tabla_sql_local(
-                "poly_matrices",
-                tabla_tipo="dash",
-                query=f"SELECT * FROM poly_matrices{query_matrices}",
-            )
+            st.session_state.etapas_ = etapas_
+            st.session_state.matrices_ = matrices_
 
             if len(st.session_state.etapas_) == 0:
                 col2.write("No hay datos para mostrar")

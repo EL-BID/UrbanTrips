@@ -377,25 +377,50 @@ class DuckDBDataAdapter:
         finally:
             self._conn.unregister("_trip_id_updates")
 
+    def begin_leg_destination_updates(self) -> None:
+        """Drop the index covering od_validado before bulk destination updates.
+
+        DuckDB executes an UPDATE that touches an indexed column as a per-row
+        DELETE+INSERT, maintaining every ART index of the table (including the
+        PRIMARY KEY) row by row — ~34 min per ~1M-leg day in production. With
+        the index dropped, none of the updated columns (h3_d, od_validado,
+        etapa_validada) is indexed, so the UPDATE runs as an in-place,
+        vectorized column rewrite (seconds). Call end_leg_destination_updates()
+        to recreate the index once all days are written.
+        """
+        self._conn.execute("DROP INDEX IF EXISTS idx_etapas_dia_od_validado")
+
+    def end_leg_destination_updates(self) -> None:
+        """Recreate the index dropped by begin_leg_destination_updates()."""
+        self._conn.execute(schema.IDX_ETAPAS_DIA_OD_VALIDADO)
+
     def update_leg_destinations(self, df: pd.DataFrame) -> None:
         """Update only h3_d, od_validado, etapa_validada for existing legs, matched by id.
 
         Called after destination inference to avoid rewriting all 26 columns
         for every leg — only the 3 columns that destination inference changes
         are touched.
+
+        od_validado is covered by idx_etapas_dia_od_validado: bracket calls to
+        this method with begin/end_leg_destination_updates(), otherwise DuckDB
+        degrades the UPDATE to a per-row DELETE+INSERT (see begin docstring).
         """
         if df.empty:
             return
-        updates = df[["id", "h3_d", "od_validado", "etapa_validada"]].copy()
+        cols = ["id", "h3_d", "od_validado", "etapa_validada"]
+        if "dia" in df.columns:
+            cols = ["id", "dia", "h3_d", "od_validado", "etapa_validada"]
+        updates = df[cols].copy()
         self._conn.register("_dest_updates", updates)
         try:
-            self._conn.execute("""
+            dia_filter = "AND etapas.dia = u.dia" if "dia" in df.columns else ""
+            self._conn.execute(f"""
                 UPDATE etapas
                 SET h3_d          = u.h3_d,
                     od_validado   = u.od_validado,
                     etapa_validada = u.etapa_validada
                 FROM _dest_updates u
-                WHERE etapas.id = u.id
+                WHERE etapas.id = u.id {dia_filter}
             """)
         finally:
             self._conn.unregister("_dest_updates")
@@ -454,6 +479,12 @@ class DuckDBDataAdapter:
             parquet_glob = str(tmp_path / "*.parquet").replace("'", "''")
             placeholders = ", ".join("?" for _ in days)
 
+            # threads=1 only for this insert; the setting persists on the
+            # connection, so restore the previous value or every later query
+            # (e.g. destination write-backs) runs single-threaded.
+            prev_threads = self._conn.execute(
+                "SELECT current_setting('threads')"
+            ).fetchone()[0]
             self._conn.execute("PRAGMA threads=1")
             self._conn.execute("BEGIN TRANSACTION")
             try:
@@ -472,6 +503,8 @@ class DuckDBDataAdapter:
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise
+            finally:
+                self._conn.execute(f"PRAGMA threads={int(prev_threads)}")
 
     # ── trips (viajes) ────────────────────────────────────────────────────────
 

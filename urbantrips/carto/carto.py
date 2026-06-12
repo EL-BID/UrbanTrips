@@ -26,6 +26,10 @@ from urbantrips.geo.geo import (
     h3_to_polygon,
 )
 from urbantrips.utils.paths import get_paths
+from urbantrips.carto.equivalencias import (
+    construir_equivalencias_zonas,
+    upsert_equivalencias_zonas,
+)
 import warnings
 
 try:
@@ -63,6 +67,16 @@ def _normalize_zone_ids(ids):
         numeric_ids.loc[integral_numeric].astype("Int64").astype(str)
     )
     return normalized
+
+
+def _as_geodataframe_wkt(df, crs_default="EPSG:4326"):
+    """Return a GeoDataFrame parsing WKT strings in 'geometry' when needed."""
+    out = df.copy()
+    out["geometry"] = out["geometry"].apply(
+        lambda g: wkt.loads(g) if isinstance(g, str) else g
+    )
+    crs = getattr(df, "crs", None) or crs_default
+    return gpd.GeoDataFrame(out, geometry="geometry", crs=crs)
 
 
 def _with_wkt_geometry(df):
@@ -269,8 +283,28 @@ def _load_zonificaciones_from_config(configs):
 
 
 @duracion
-def guardo_zonificaciones(ctx: StorageContext):
+def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
+    """Persist zoning layers and polygons, and rebuild the long-format
+    equivalencias_zonas table for them.
+
+    Parameters
+    ----------
+    ctx : StorageContext
+    resoluciones_equivalencias : iterable of int, optional
+        Extra H3 resolutions for equivalencias_zonas, on top of
+        configs['resolucion_h3'] (e.g. the resolution used by chains_norm).
+    """
     configs = leer_configs_generales(autogenerado=False)
+
+    from urbantrips.preparo_dashboard.chains import RES_CHAINS_NORM
+
+    resoluciones = {configs.get("resolucion_h3"), RES_CHAINS_NORM}
+    if resoluciones_equivalencias is not None:
+        resoluciones |= set(resoluciones_equivalencias)
+    resoluciones = sorted(r for r in resoluciones if r)
+
+    zonificaciones_para_equivalencias = None
+    poligonos_para_equivalencias = None
 
     if configs["zonificaciones"]:
         logger.info("Crear zonificaciones en db")
@@ -317,42 +351,11 @@ def guardo_zonificaciones(ctx: StorageContext):
                 [zonificaciones, *h3_layers], ignore_index=True
             )
 
-            logger.info("guardo_zonificaciones: generando hexágonos H3 res %s y calculando equivalencias", configs.get("resolucion_h3"))
-            full_area_res_urbantrips = generate_h3_hexagons_within_polygon(
-                zonificaciones_disolved, configs.get("resolucion_h3"), crs_val
-            )
-            full_area_res_urbantrips.geometry = (
-                full_area_res_urbantrips.geometry.representative_point()
-            )
-
-            logger.info("guardo_zonificaciones: spatial join para equivalencias_zonas")
-            equivalencias_zonas = gpd.sjoin(
-                full_area_res_urbantrips,
-                zonificaciones,
-                how="inner",
-                predicate="intersects",
-            )
-            equivalencias_zonas["latitud"] = equivalencias_zonas.geometry.y
-            equivalencias_zonas["longitud"] = equivalencias_zonas.geometry.x
-            equivalencias_zonas = (
-                equivalencias_zonas.reindex(
-                    columns=["h3_index", "latitud", "longitud", "zona", "id"]
-                )
-                .pivot_table(
-                    index=["h3_index", "latitud", "longitud"],
-                    columns="zona",
-                    values="id",
-                    aggfunc="first",
-                )
-                .reset_index()
-                .rename(columns={"h3_index": "h3"})
-            )
-
-            logger.info("guardo_zonificaciones: guardando zonificaciones y equivalencias_zonas")
+            logger.info("guardo_zonificaciones: guardando zonificaciones")
             zonificaciones_to_save = _with_wkt_geometry(zonificaciones)
 
             ctx.insumos.save_raw(zonificaciones_to_save, "zonificaciones")
-            ctx.insumos.save_raw(equivalencias_zonas, "equivalencias_zonas")
+            zonificaciones_para_equivalencias = zonificaciones
 
     if configs["poligonos"]:
 
@@ -377,6 +380,22 @@ def guardo_zonificaciones(ctx: StorageContext):
             logger.info("guardo_zonificaciones: guardando polígonos (%d filas)", len(poly))
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")
+            poligonos_para_equivalencias = _as_geodataframe_wkt(poly)
+
+    if (
+        zonificaciones_para_equivalencias is not None
+        or poligonos_para_equivalencias is not None
+    ):
+        logger.info(
+            "guardo_zonificaciones: generando equivalencias_zonas long (res %s)",
+            resoluciones,
+        )
+        equivalencias = construir_equivalencias_zonas(
+            gdf_zonas=zonificaciones_para_equivalencias,
+            gdf_poligonos=poligonos_para_equivalencias,
+            resoluciones=resoluciones,
+        )
+        upsert_equivalencias_zonas(equivalencias, ctx=ctx)
 
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     """

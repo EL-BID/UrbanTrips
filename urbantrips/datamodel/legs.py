@@ -19,6 +19,7 @@ from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
     agrego_indicador,
+    VELOCIDAD_MAXIMA_KMH,
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
@@ -446,14 +447,22 @@ def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
     Takes a transaction dataframe with a time delta in seconds and
     a time window in minutes
 
+    The window is anchored to the FIRST transaction of the trip: every tap
+    within `ventana_viajes` minutes of the trip's first tap belongs to the
+    same trip, regardless of the gap between consecutive taps. The first tap
+    beyond the window starts a new trip (and a new window). This mirrors
+    integrated-fare schemes such as AMBA's, where the discount window runs
+    from the first boarding. Smaller cities can configure a shorter window
+    in configuraciones_generales.yaml.
+
     Parameters
     ----------
     trx : pandas DataFrame
         transactions data
 
     ventana_viajes : int
-        time window in minutes to consider transactions as part of the
-        same trip
+        time window in minutes, measured from the trip's first transaction,
+        to consider transactions as part of the same trip
 
     Returns
     ----------
@@ -885,7 +894,7 @@ def assign_time_distances(ctx: StorageContext):
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 70),
+            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
             "kmh_od",
         ] = np.nan
 
@@ -900,7 +909,7 @@ def assign_time_distances(ctx: StorageContext):
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= 70),
+            (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= VELOCIDAD_MAXIMA_KMH),
             "kmh_route",
         ] = np.nan
 
@@ -909,7 +918,7 @@ def assign_time_distances(ctx: StorageContext):
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= 70),
+            (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= VELOCIDAD_MAXIMA_KMH),
             "kmh_route_gps",
         ] = np.nan
 
@@ -948,7 +957,8 @@ def assign_time_distances(ctx: StorageContext):
 
         for col in ["kmh_od", "kmh_route", "kmh_route_gps"]:
             travel_times_trips.loc[
-                (travel_times_trips[col] == np.inf) | (travel_times_trips[col] >= 70), col
+                (travel_times_trips[col] == np.inf)
+                | (travel_times_trips[col] >= VELOCIDAD_MAXIMA_KMH), col
             ] = np.nan
 
     else:
@@ -1247,7 +1257,7 @@ def assign_stations_od(ctx: StorageContext):
         ).round(1)
 
         travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= 70),
+            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
             "kmh_od",
         ] = np.nan
 

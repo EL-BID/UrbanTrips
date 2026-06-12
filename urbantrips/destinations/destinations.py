@@ -168,7 +168,13 @@ def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
         dlat = candidatas["lag_etapa"].map(lat_map) - candidatas["h3_d"].map(lat_map)
         dlng = candidatas["lag_etapa"].map(lng_map) - candidatas["h3_d"].map(lng_map)
         candidatas = candidatas.copy()
-        candidatas["distance_od"] = np.sqrt(dlat.values ** 2 + dlng.values ** 2)
+        # equirectangular correction: a longitude degree spans cos(lat) times
+        # a latitude degree, so without it the ranking is biased toward
+        # north-south candidates (~20% at lat -34)
+        cos_lat = np.cos(np.deg2rad(candidatas["lag_etapa"].map(lat_map).mean()))
+        candidatas["distance_od"] = np.sqrt(
+            dlat.values ** 2 + (dlng.values * cos_lat) ** 2
+        )
 
         candidatas = (
             candidatas
@@ -263,6 +269,12 @@ def calcular_indicadores_destinos_etapas(etapas, ctx: StorageContext):
         ctx=ctx,
     )
 
+# H3 cell of (lat 0, lon 0) at res 8: legs whose coordinates were missing
+# (latitud/longitud == 0) geocode to this "null island" cell in the middle of
+# the ocean. Cleared from h3_o/h3_d below; applies to any city.
+H3_NULL_ISLAND_RES8 = h3.latlng_to_cell(0, 0, 8)
+
+
 def verif_h3_parent(h3_index, resolution=8):
     if pd.isna(h3_index) or h3_index == "":
         return ""
@@ -331,10 +343,10 @@ def _infer_destinations_for_day(dia, destinos_min_dist, metadata_lineas, ctx):
 
     etapas = etapas.drop(columns=["id_linea_agg"])
 
-    logger.debug("Dia %s — limpiando h3_o por parent h3 excluido", dia)
-    _clear_h3_parent(etapas, "h3_o", "88754e6499fffff")
-    logger.debug("Dia %s — limpiando h3_d por parent h3 excluido", dia)
-    _clear_h3_parent(etapas, "h3_d", "88754e6499fffff")
+    logger.debug("Dia %s — limpiando h3_o con coordenadas (0, 0)", dia)
+    _clear_h3_parent(etapas, "h3_o", H3_NULL_ISLAND_RES8)
+    logger.debug("Dia %s — limpiando h3_d con coordenadas (0, 0)", dia)
+    _clear_h3_parent(etapas, "h3_d", H3_NULL_ISLAND_RES8)
 
     return etapas
 
@@ -369,22 +381,32 @@ def infer_destinations(ctx: StorageContext):
     diag_slices = []   # accumulate lightweight slices for end-of-run diagnostics
     fallback_full = [] # only used when update_leg_destinations is unavailable
 
-    for dia in dias:
-        logger.info("Procesando dia %s", dia)
-        etapas_dia = _infer_destinations_for_day(
-            dia, destinos_min_dist, metadata_lineas, ctx
-        )
-
-        if has_selective_update:
-            ctx.data.update_leg_destinations(
-                etapas_dia[["id", "h3_d", "od_validado", "etapa_validada"]]
+    # Drop the index on (dia, od_validado) while the per-day UPDATEs run:
+    # updating an indexed column makes DuckDB rewrite each row (delete+insert
+    # with full ART maintenance), turning the write-back into the dominant
+    # cost of the step (~34 min/day vs seconds without the index).
+    if has_selective_update and hasattr(ctx.data, "begin_leg_destination_updates"):
+        ctx.data.begin_leg_destination_updates()
+    try:
+        for dia in dias:
+            logger.info("Procesando dia %s", dia)
+            etapas_dia = _infer_destinations_for_day(
+                dia, destinos_min_dist, metadata_lineas, ctx
             )
-            logger.info("Dia %s — destinos guardados", dia)
-        else:
-            fallback_full.append(etapas_dia)
 
-        diag_slices.append(etapas_dia[_DIAG_COLS].copy())
-        del etapas_dia
+            if has_selective_update:
+                ctx.data.update_leg_destinations(
+                    etapas_dia[["id", "dia", "h3_d", "od_validado", "etapa_validada"]]
+                )
+                logger.info("Dia %s — destinos guardados", dia)
+            else:
+                fallback_full.append(etapas_dia)
+
+            diag_slices.append(etapas_dia[_DIAG_COLS].copy())
+            del etapas_dia
+    finally:
+        if has_selective_update and hasattr(ctx.data, "end_leg_destination_updates"):
+            ctx.data.end_leg_destination_updates()
 
     # Fallback write-back for adapters that lack selective UPDATE support
     if not has_selective_update and fallback_full:

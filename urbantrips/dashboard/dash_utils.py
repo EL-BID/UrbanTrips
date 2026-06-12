@@ -236,6 +236,880 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db="")
     return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
 
 
+def build_where_clauses(filters: dict, table_alias: str = "c") -> str:
+    """
+    Build optional WHERE clauses from a filters dict.
+    Keys are column names in chains_norm.
+    None values are skipped (user selected 'Todos'/'Todas').
+    Returns a string starting with ' AND ' or empty string.
+    """
+    clauses = []
+    for col, val in filters.items():
+        if val is not None:
+            if isinstance(val, int):
+                clauses.append(f"{table_alias}.{col} = {val}")
+            else:
+                clauses.append(f"{table_alias}.{col} = '{val}'")
+    return (" AND " + " AND ".join(clauses)) if clauses else ""
+
+
+# ---------------------------------------------------------------------------
+# chains_norm loaders — on-the-fly aggregation replacing the precomputed
+# agg_etapas / agg_matrices / poly_etapas / poly_matrices tables.
+# ---------------------------------------------------------------------------
+
+_CHAINS_COLS = (
+    "c.dia, c.h3_inicio, c.h3_fin, "
+    "c.h3_inicio_norm, c.h3_transfer1_norm, c.h3_transfer2_norm, c.h3_fin_norm, "
+    "c.transferencia, c.modo_agregado, c.rango_hora, c.distancia_agregada, "
+    "c.genero_agregado, c.tarifa_agregada, "
+    "c.distance_od, c.travel_time_min, c.travel_speed, c.seq_lineas, "
+    "c.factor_expansion_linea"
+)
+
+# (output metric, source column in chains_norm) for fex-weighted means
+_CHAINS_METRICAS = [
+    ("distance_od", "distance_od"),
+    ("travel_time_min", "travel_time_min"),
+    ("kmh_od", "travel_speed"),
+]
+
+
+def _agg_chains_ponderado(df, dims):
+    """Group chains rows by dims summing fex and adding the fex-weighted
+    means of distance_od / travel_time_min / kmh_od. NaN and 0 values are
+    excluded from each mean (same convention as zero_to_nan downstream)."""
+    df = df.copy()
+    sumas = {"factor_expansion_linea": ("factor_expansion_linea", "sum")}
+    for met, src in _CHAINS_METRICAS:
+        valido = df[src].notna() & (df[src] != 0)
+        df[f"_{met}_num"] = (df[src] * df["factor_expansion_linea"]).where(valido, 0)
+        df[f"_{met}_den"] = df["factor_expansion_linea"].where(valido, 0)
+        sumas[f"_{met}_num"] = (f"_{met}_num", "sum")
+        sumas[f"_{met}_den"] = (f"_{met}_den", "sum")
+
+    agg = df.groupby(dims, as_index=False).agg(**sumas)
+    for met, _src in _CHAINS_METRICAS:
+        agg[met] = (
+            (agg[f"_{met}_num"] / agg[f"_{met}_den"].replace(0, np.nan))
+            .fillna(0)
+            .round(2)
+        )
+        agg = agg.drop(columns=[f"_{met}_num", f"_{met}_den"])
+    return agg
+
+
+@st.cache_data
+def traer_dias_chains():
+    """Available days in chains_norm, sorted ascending."""
+    df = levanto_tabla_sql(
+        "chains_norm", "dash", "SELECT DISTINCT dia FROM chains_norm ORDER BY dia;"
+    )
+    return df["dia"].tolist() if len(df) > 0 else []
+
+
+@st.cache_data
+def traer_opciones_chains(col):
+    """Distinct non-empty values of a chains_norm filter column."""
+    df = levanto_tabla_sql(
+        "chains_norm", "dash",
+        f"SELECT DISTINCT {col} FROM chains_norm ORDER BY {col};",
+    )
+    if len(df) == 0:
+        return []
+    return [v for v in df[col].dropna().tolist() if str(v) != ""]
+
+
+@st.cache_data
+def traer_mapa_zona(zona, solo_zonificacion=True):
+    """h3 -> zone id mapping for one layer of the long equivalencias_zonas."""
+    tipo_filtro = " AND tipo = 'zonificacion'" if solo_zonificacion else ""
+    eq = levanto_tabla_sql(
+        "equivalencias_zonas", "insumos",
+        query=(
+            "SELECT h3, id FROM equivalencias_zonas "
+            f"WHERE zona = '{zona}'{tipo_filtro}"
+        ),
+    )
+    if len(eq) == 0:
+        return {}
+    return dict(zip(eq["h3"], eq["id"]))
+
+
+@st.cache_data
+def traer_h3_poligono(id_polygon):
+    """H3 cell set of one analysis polygon (tipo 'poligono' or 'cuenca')."""
+    eq = levanto_tabla_sql(
+        "equivalencias_zonas", "insumos",
+        query=f"SELECT h3 FROM equivalencias_zonas WHERE zona = '{id_polygon}'",
+    )
+    return set(eq["h3"]) if len(eq) > 0 else set()
+
+
+@st.cache_data
+def traer_poligonos_largos():
+    """Analysis polygons (id, tipo) present in long equivalencias_zonas."""
+    return levanto_tabla_sql(
+        "equivalencias_zonas", "insumos",
+        query=(
+            "SELECT DISTINCT zona AS id, tipo FROM equivalencias_zonas "
+            "WHERE tipo IN ('poligono', 'cuenca') ORDER BY zona"
+        ),
+    )
+
+
+def levanto_chains_norm(dia_seleccionado=None, where_extra=""):
+    """Read chains_norm rows for one day (or all days) with optional extra
+    WHERE clauses produced by build_where_clauses (alias 'c')."""
+    where = " WHERE 1=1"
+    if dia_seleccionado is not None and dia_seleccionado != "Todos":
+        where += f" AND c.dia = '{dia_seleccionado}'"
+    query = f"SELECT {_CHAINS_COLS} FROM chains_norm c{where}{where_extra}"
+    return levanto_tabla_sql("chains_norm", "dash", query=query)
+
+
+def coordenadas_zonas(zonificaciones, zona_seleccionada):
+    """Per-zone representative point and display order for one zoning layer.
+
+    Returns a DataFrame (id, lat, lon, orden_id) where orden_id is the
+    '###_id' label the OD matrices sort and display by. Zone ids that are
+    valid H3 cells but missing from zonificaciones (e.g. res_X layers) get
+    the cell centroid as coordinates.
+    """
+    cols = ["id", "lat", "lon", "orden_id"]
+    if len(zonificaciones) == 0 or "geometry" not in zonificaciones.columns:
+        return pd.DataFrame(columns=cols)
+
+    zonif = zonificaciones[zonificaciones.zona == zona_seleccionada].copy()
+    if len(zonif) == 0:
+        return pd.DataFrame(columns=cols)
+
+    puntos = zonif.geometry.representative_point()
+    zonif["lat"] = puntos.y
+    zonif["lon"] = puntos.x
+
+    if "orden" in zonif.columns and zonif["orden"].notna().all():
+        orden = zonif["orden"].astype(int)
+    else:
+        orden = zonif["id"].rank(method="dense").astype(int)
+    zonif["orden_id"] = (
+        orden.astype(str).str.zfill(3) + "_" + zonif["id"].astype(str)
+    )
+
+    return zonif[cols].drop_duplicates(subset=["id"])
+
+
+def _coords_h3_faltantes(ids, coords):
+    """Complete the coords frame with H3 centroids for zone ids that are
+    valid H3 cells (res_X layers built straight from cells)."""
+    conocidos = set(coords["id"])
+    faltantes = [
+        i for i in pd.unique(pd.Series(list(ids)).dropna())
+        if i not in conocidos and isinstance(i, str) and h3.is_valid_cell(i)
+    ]
+    if not faltantes:
+        return coords
+    latlon = [h3.cell_to_latlng(c) for c in faltantes]
+    extra = pd.DataFrame(
+        {
+            "id": faltantes,
+            "lat": [p[0] for p in latlon],
+            "lon": [p[1] for p in latlon],
+        }
+    ).sort_values("id")
+    extra["orden_id"] = (
+        (pd.RangeIndex(len(extra)) + len(coords) + 1)
+        .astype(str).str.zfill(3) + "_" + extra["id"].astype(str)
+    )
+    return pd.concat([coords, extra], ignore_index=True)
+
+
+def _aplicar_sufijo_cuenca(serie_zona, serie_h3, h3_cuenca):
+    """Append ' (cuenca)' to zone names whose H3 cell is inside the basin."""
+    out = serie_zona.copy()
+    mask = serie_h3.isin(h3_cuenca) & out.notna()
+    out.loc[mask] = out.loc[mask].astype(str) + " (cuenca)"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# SQL path: chains_norm x equivalencias_zonas joined and aggregated inside
+# the dash DB (single connection), so only aggregated rows reach Streamlit.
+# Requires the dash copy of equivalencias_zonas (asegurar_equivalencias_dash).
+# ---------------------------------------------------------------------------
+
+def _sql_txt(valor):
+    """Escape a value for inclusion in a SQL string literal."""
+    return str(valor).replace("'", "''")
+
+
+def _sub_h3_equivalencias(zona, valor=None):
+    """Subquery with the H3 cells of one layer (and optionally one zone)."""
+    sub = f"SELECT h3 FROM equivalencias_zonas WHERE zona = '{_sql_txt(zona)}'"
+    if valor is not None:
+        sub += f" AND id = '{_sql_txt(valor)}'"
+    return sub
+
+
+@st.cache_data
+def asegurar_equivalencias_dash():
+    """Ensure the dash DB holds a copy of equivalencias_zonas.
+
+    The pipeline copies it via sincronizar_equivalencias_dash; if the copy is
+    missing (older run), it is created here from insumos on the fly.
+    """
+    chk = levanto_tabla_sql(
+        "equivalencias_zonas", "dash",
+        query="SELECT h3 FROM equivalencias_zonas LIMIT 1",
+    )
+    if len(chk) > 0:
+        return True
+    eq = levanto_tabla_sql("equivalencias_zonas", "insumos")
+    if len(eq) == 0 or "zona" not in eq.columns:
+        return False
+    guardar_tabla_sql(
+        pd.DataFrame(eq.drop(columns="geometry", errors="ignore")),
+        "equivalencias_zonas", "dash", modo="replace",
+    )
+    return True
+
+
+def condicion_zona_sql(zona_filtro, valor_filtro,
+                       tipo_filtro="OD y Transferencias", direccional=False):
+    """SQL condition: the chain touches one zone of any zoning layer.
+
+    With 'Solo OD' only origin/destination are checked; otherwise transfers
+    count too. direccional=True uses the raw chain instead of the
+    normalized one.
+    """
+    if valor_filtro in (None, "", "Todos"):
+        return ""
+    sub = _sub_h3_equivalencias(zona_filtro, valor_filtro)
+    sufijo = "" if direccional else "_norm"
+    cols = [f"h3_inicio{sufijo}", f"h3_fin{sufijo}"]
+    if tipo_filtro == "OD y Transferencias":
+        cols += [f"h3_transfer1{sufijo}", f"h3_transfer2{sufijo}"]
+    partes = " OR ".join(f"c.{col} IN ({sub})" for col in cols)
+    return f" AND ({partes})"
+
+
+def condicion_poligono_sql(id_polygon, tipo_poligono, od_en_poligono=False):
+    """SQL condition for analysis-polygon membership.
+
+    tipo 'poligono' (or basin with the 'origin OR destination' checkbox on):
+    either end inside. tipo 'cuenca' strict: both ends inside.
+    """
+    if id_polygon in (None, "", "NONE"):
+        return ""
+    sub = _sub_h3_equivalencias(id_polygon)
+    if tipo_poligono == "cuenca" and not od_en_poligono:
+        return (
+            f" AND c.h3_inicio_norm IN ({sub})"
+            f" AND c.h3_fin_norm IN ({sub})"
+        )
+    return (
+        f" AND (c.h3_inicio_norm IN ({sub})"
+        f" OR c.h3_fin_norm IN ({sub}))"
+    )
+
+
+def condicion_linea_sql(nombre_linea):
+    """SQL condition: seq_lineas contains the line as an exact segment."""
+    if nombre_linea in (None, "", "Todas"):
+        return ""
+    linea = _sql_txt(nombre_linea)
+    return (
+        f" AND (c.seq_lineas = '{linea}'"
+        f" OR c.seq_lineas LIKE '{linea} -- %'"
+        f" OR c.seq_lineas LIKE '% -- {linea}'"
+        f" OR c.seq_lineas LIKE '% -- {linea} -- %')"
+    )
+
+
+def _sql_media_ponderada(col):
+    """fex-weighted mean of a chains_norm column, excluding NULL and 0."""
+    valido = f"c.{col} IS NOT NULL AND c.{col} != 0"
+    return (
+        f"ROUND(COALESCE("
+        f"SUM(CASE WHEN {valido} THEN c.{col} * c.factor_expansion_linea ELSE 0 END)"
+        f" / NULLIF(SUM(CASE WHEN {valido} THEN c.factor_expansion_linea ELSE 0 END), 0)"
+        f", 0), 2)"
+    )
+
+
+def _where_chains(dia_seleccionado=None, where_extra="", condiciones=""):
+    where = " WHERE 1=1"
+    if dia_seleccionado is not None and dia_seleccionado != "Todos":
+        where += f" AND c.dia = '{_sql_txt(dia_seleccionado)}'"
+    return where + where_extra + condiciones
+
+
+_SQL_METRICAS = (
+    "SUM(c.factor_expansion_linea) AS factor_expansion_linea, "
+    + _sql_media_ponderada("distance_od") + " AS distance_od, "
+    + _sql_media_ponderada("travel_time_min") + " AS travel_time_min, "
+    + _sql_media_ponderada("travel_speed") + " AS kmh_od"
+)
+
+_SQL_DIMS = (
+    "c.transferencia, c.modo_agregado, c.rango_hora, c.distancia_agregada, "
+    "c.genero_agregado, c.tarifa_agregada"
+)
+
+
+def traer_etapas_matrices_sql(
+    zona_seleccionada,
+    zonificaciones,
+    dia_seleccionado=None,
+    where_extra="",
+    condiciones="",
+    id_polygon="NONE",
+    sufijo_cuenca=False,
+):
+    """Aggregate chains_norm joined with equivalencias_zonas fully in SQL.
+
+    Returns (etapas_all, matrices_all) already decorated for
+    create_data_folium: etapas_all is bidirectional (normalized chain with
+    transfers), matrices_all is directional OD. Metrics are fex-weighted
+    means computed in the same query.
+    """
+    vacios = (pd.DataFrame([]), pd.DataFrame([]))
+    if not asegurar_equivalencias_dash():
+        return vacios
+
+    z = _sql_txt(zona_seleccionada)
+    where = _where_chains(dia_seleccionado, where_extra, condiciones)
+
+    if sufijo_cuenca and id_polygon not in (None, "", "NONE"):
+        sub_poly = _sub_h3_equivalencias(id_polygon)
+
+        def _con_sufijo(h3_col, id_expr):
+            return (
+                f"CASE WHEN c.{h3_col} IN ({sub_poly}) "
+                f"THEN {id_expr} || ' (cuenca)' ELSE {id_expr} END"
+            )
+    else:
+        def _con_sufijo(h3_col, id_expr):
+            return id_expr
+
+    expr_inicio_norm = _con_sufijo("h3_inicio_norm", "eq_o.id")
+    expr_fin_norm = _con_sufijo("h3_fin_norm", "eq_d.id")
+    query_etapas = f"""
+        SELECT {expr_inicio_norm} AS inicio_norm,
+               COALESCE(eq_t1.id, '') AS transfer1_norm,
+               COALESCE(eq_t2.id, '') AS transfer2_norm,
+               {expr_fin_norm} AS fin_norm,
+               {_SQL_DIMS},
+               {_SQL_METRICAS}
+        FROM chains_norm c
+        JOIN equivalencias_zonas eq_o
+            ON c.h3_inicio_norm = eq_o.h3 AND eq_o.zona = '{z}'
+        JOIN equivalencias_zonas eq_d
+            ON c.h3_fin_norm = eq_d.h3 AND eq_d.zona = '{z}'
+        LEFT JOIN equivalencias_zonas eq_t1
+            ON c.h3_transfer1_norm = eq_t1.h3 AND eq_t1.zona = '{z}'
+        LEFT JOIN equivalencias_zonas eq_t2
+            ON c.h3_transfer2_norm = eq_t2.h3 AND eq_t2.zona = '{z}'
+        {where}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+    """
+    etapas_all = levanto_tabla_sql("chains_norm", "dash", query=query_etapas)
+
+    expr_inicio = _con_sufijo("h3_inicio", "eq_o.id")
+    expr_fin = _con_sufijo("h3_fin", "eq_d.id")
+    query_matrices = f"""
+        SELECT {expr_inicio} AS inicio,
+               {expr_fin} AS fin,
+               {_SQL_DIMS},
+               {_SQL_METRICAS}
+        FROM chains_norm c
+        JOIN equivalencias_zonas eq_o
+            ON c.h3_inicio = eq_o.h3 AND eq_o.zona = '{z}'
+        JOIN equivalencias_zonas eq_d
+            ON c.h3_fin = eq_d.h3 AND eq_d.zona = '{z}'
+        {where}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+    """
+    matrices_all = levanto_tabla_sql("chains_norm", "dash", query=query_matrices)
+
+    return decorar_etapas_matrices(
+        etapas_all, matrices_all, zona_seleccionada, zonificaciones, id_polygon
+    )
+
+
+def _explotar_etapas(df, solo_linea=None):
+    """One row per leg from chains_norm rows.
+
+    Leg k's origin is chain position k (h3_inicio, h3_transfer1,
+    h3_transfer2); its destination is the next position, or h3_fin for the
+    last leg. The line of leg k is position k of seq_lineas. Legs whose
+    origin equals their destination are dropped (urbantrips_viejo
+    convention in etapas_agregadas).
+    """
+    if len(df) == 0 or "seq_lineas" not in df.columns:
+        return pd.DataFrame([])
+
+    seq_vacia = df["seq_lineas"].fillna("") == ""
+    seqs = df["seq_lineas"].fillna("").str.split(" -- ")
+    n_etapas = seqs.str.len().where(~seq_vacia, 0)
+
+    origenes = ["h3_inicio", "h3_transfer1", "h3_transfer2"]
+    siguientes = ["h3_transfer1", "h3_transfer2", None]
+    cols_h3 = ["h3_inicio", "h3_transfer1", "h3_transfer2", "h3_fin"]
+    attr_cols = [c for c in df.columns if c not in cols_h3 + ["seq_lineas"]]
+
+    partes = []
+    for k in range(3):
+        o = df[origenes[k]].fillna("")
+        if siguientes[k] is None:
+            d = df["h3_fin"].fillna("")
+        else:
+            d = df[siguientes[k]].fillna("")
+            d = d.where(d != "", df["h3_fin"].fillna(""))
+        linea_k = seqs.str[k]
+        mask = (o != "") & (n_etapas > k) & linea_k.notna() & (o != d)
+        if solo_linea is not None:
+            mask &= linea_k == solo_linea
+        if mask.any():
+            parte = df.loc[mask, attr_cols].copy()
+            parte["h3_o"] = o[mask]
+            parte["h3_d"] = d[mask]
+            parte["nombre_linea"] = linea_k[mask]
+            partes.append(parte)
+
+    if not partes:
+        return pd.DataFrame([])
+    return pd.concat(partes, ignore_index=True)
+
+
+def traer_etapas_matrices_linea(
+    zona_seleccionada,
+    zonificaciones,
+    nombre_linea,
+    dia_seleccionado=None,
+    where_extra="",
+    condiciones="",
+):
+    """Leg-level OD frames for one line (urbantrips_viejo semantics).
+
+    The old line selector mapped the OD pairs of that line's LEGS
+    (etapas_agregadas WHERE nombre_linea = x), not whole trips. Here trips
+    containing the line are fetched, their legs exploded and only the legs
+    of the selected line kept.
+    """
+    vacios = (pd.DataFrame([]), pd.DataFrame([]))
+    if not asegurar_equivalencias_dash():
+        return vacios
+
+    where = _where_chains(
+        dia_seleccionado, where_extra, condiciones + condicion_linea_sql(nombre_linea)
+    )
+    query = (
+        "SELECT c.h3_inicio, c.h3_transfer1, c.h3_transfer2, c.h3_fin, "
+        "c.seq_lineas, c.transferencia, c.modo_agregado, c.rango_hora, "
+        "c.distancia_agregada, c.genero_agregado, c.tarifa_agregada, "
+        "c.distance_od, c.travel_time_min, c.travel_speed, "
+        f"c.factor_expansion_linea FROM chains_norm c{where}"
+    )
+    df = levanto_tabla_sql("chains_norm", "dash", query=query)
+    legs = _explotar_etapas(df, solo_linea=nombre_linea)
+    if len(legs) == 0:
+        return vacios
+
+    zmap = traer_mapa_zona(zona_seleccionada)
+    legs["zona_o"] = legs["h3_o"].map(zmap)
+    legs["zona_d"] = legs["h3_d"].map(zmap)
+    legs = legs[legs["zona_o"].notna() & legs["zona_d"].notna()].copy()
+    if len(legs) == 0:
+        return vacios
+
+    dims_filtros = [
+        "transferencia", "modo_agregado", "rango_hora",
+        "distancia_agregada", "genero_agregado", "tarifa_agregada",
+    ]
+
+    # bidirectional pairs for the desire-lines frame
+    invertir = legs["zona_o"] > legs["zona_d"]
+    legs["inicio_norm"] = legs["zona_o"].where(~invertir, legs["zona_d"])
+    legs["fin_norm"] = legs["zona_d"].where(~invertir, legs["zona_o"])
+    legs["transfer1_norm"] = ""
+    legs["transfer2_norm"] = ""
+    etapas_all = _agg_chains_ponderado(
+        legs,
+        dims_filtros + ["inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"],
+    )
+
+    # directional pairs for the OD matrix
+    legs["inicio"] = legs["zona_o"]
+    legs["fin"] = legs["zona_d"]
+    matrices_all = _agg_chains_ponderado(legs, dims_filtros + ["inicio", "fin"])
+
+    return decorar_etapas_matrices(
+        etapas_all, matrices_all, zona_seleccionada, zonificaciones
+    )
+
+
+@st.cache_data
+def traer_h3_zona_valor(zona_filtro, valor_filtro):
+    """H3 cell set of one zone of one zoning layer."""
+    eq = levanto_tabla_sql(
+        "equivalencias_zonas", "insumos",
+        query=(
+            "SELECT h3 FROM equivalencias_zonas "
+            f"WHERE zona = '{_sql_txt(zona_filtro)}' AND id = '{_sql_txt(valor_filtro)}'"
+        ),
+    )
+    return set(eq["h3"]) if len(eq) > 0 else set()
+
+
+def viajes_con_origen_en_zona(dia_seleccionado, where_extra, zona_filtro, valor_filtro):
+    """Trips whose (directional) origin falls in the zone, by modo_agregado.
+
+    Mirrors urbantrips_viejo: viajes_agregados WHERE {zonif}_o = zona.
+    """
+    sub = _sub_h3_equivalencias(zona_filtro, valor_filtro)
+    where = _where_chains(
+        dia_seleccionado, where_extra, f" AND c.h3_inicio IN ({sub})"
+    )
+    query = (
+        "SELECT c.modo_agregado, "
+        "SUM(c.factor_expansion_linea) AS factor_expansion_linea "
+        f"FROM chains_norm c{where} GROUP BY 1"
+    )
+    return levanto_tabla_sql("chains_norm", "dash", query=query)
+
+
+def etapas_por_linea_en_zona(dia_seleccionado, where_extra, zona_filtro, valor_filtro):
+    """Legs whose (directional) origin falls in the zone, by line.
+
+    Mirrors urbantrips_viejo: etapas_agregadas WHERE {zonif}_o = zona
+    grouped by nombre_linea (leg-level counts).
+    """
+    sub = _sub_h3_equivalencias(zona_filtro, valor_filtro)
+    cond = (
+        f" AND (c.h3_inicio IN ({sub})"
+        f" OR c.h3_transfer1 IN ({sub})"
+        f" OR c.h3_transfer2 IN ({sub}))"
+    )
+    where = _where_chains(dia_seleccionado, where_extra, cond)
+    query = (
+        "SELECT c.h3_inicio, c.h3_transfer1, c.h3_transfer2, c.h3_fin, "
+        "c.seq_lineas, c.factor_expansion_linea "
+        f"FROM chains_norm c{where}"
+    )
+    df = levanto_tabla_sql("chains_norm", "dash", query=query)
+    legs = _explotar_etapas(df)
+    if len(legs) == 0:
+        return pd.DataFrame(columns=["nombre_linea", "factor_expansion_linea"])
+
+    h3_zona = traer_h3_zona_valor(zona_filtro, valor_filtro)
+    legs = legs[legs["h3_o"].isin(h3_zona)]
+    return (
+        legs.groupby("nombre_linea", as_index=False)
+        .factor_expansion_linea.sum()
+        .sort_values("factor_expansion_linea", ascending=False)
+    )
+
+
+def viajes_entre_zonas_sql(
+    dia_seleccionado, where_extra, zonif1, valor1, zonif2, valor2
+):
+    """Trips with one (directional) end in each filtered zone, labeled
+    Zona_1 / Zona_2 by their origin."""
+    sub1 = _sub_h3_equivalencias(zonif1, valor1)
+    sub2 = _sub_h3_equivalencias(zonif2, valor2)
+    cond = (
+        f" AND ((c.h3_inicio IN ({sub1}) AND c.h3_fin IN ({sub2}))"
+        f" OR (c.h3_inicio IN ({sub2}) AND c.h3_fin IN ({sub1})))"
+    )
+    where = _where_chains(dia_seleccionado, where_extra, cond)
+    query = (
+        "SELECT c.h3_inicio, c.h3_fin, c.modo_agregado, c.seq_lineas, "
+        "c.transferencia, c.factor_expansion_linea "
+        f"FROM chains_norm c{where}"
+    )
+    df = levanto_tabla_sql("chains_norm", "dash", query=query)
+    if len(df) == 0:
+        return df
+
+    en_zona1 = df["h3_inicio"].isin(traer_h3_zona_valor(zonif1, valor1))
+    df["Zona_1"] = np.where(en_zona1, "Zona 1", "Zona 2")
+    df["Zona_2"] = np.where(en_zona1, "Zona 2", "Zona 1")
+    return df
+
+
+def etapas_entre_zonas_sql(
+    dia_seleccionado, where_extra, zonif1, valor1, zonif2, valor2
+):
+    """Legs of the trips that travel between the two filtered zones.
+
+    Trips are selected by their full OD (same condition as
+    viajes_entre_zonas_sql) and then exploded into legs, so a trip A->B
+    with one transfer counts 1 viaje and 2 etapas regardless of where each
+    leg starts or ends. This answers "how many legs are needed to travel
+    between the zones" (deliberate departure from urbantrips_viejo, which
+    only counted legs whose own OD crossed directly and therefore showed
+    empty for zone pairs that require transfers).
+    """
+    sub1 = _sub_h3_equivalencias(zonif1, valor1)
+    sub2 = _sub_h3_equivalencias(zonif2, valor2)
+    cond = (
+        f" AND ((c.h3_inicio IN ({sub1}) AND c.h3_fin IN ({sub2}))"
+        f" OR (c.h3_inicio IN ({sub2}) AND c.h3_fin IN ({sub1})))"
+    )
+    where = _where_chains(dia_seleccionado, where_extra, cond)
+    query = (
+        "SELECT c.h3_inicio, c.h3_transfer1, c.h3_transfer2, c.h3_fin, "
+        "c.seq_lineas, c.factor_expansion_linea "
+        f"FROM chains_norm c{where}"
+    )
+    df = levanto_tabla_sql("chains_norm", "dash", query=query)
+    if len(df) == 0:
+        return df
+
+    # direction labeled at trip level so legs inherit it through the explode
+    en_zona1 = df["h3_inicio"].isin(traer_h3_zona_valor(zonif1, valor1))
+    df["Zona_1"] = np.where(en_zona1, "Zona 1", "Zona 2")
+    df["Zona_2"] = np.where(en_zona1, "Zona 2", "Zona 1")
+    return _explotar_etapas(df)
+
+
+def decorar_etapas_matrices(
+    etapas_all, matrices_all, zona_seleccionada, zonificaciones, id_polygon="NONE"
+):
+    """Attach zone coordinates, matrix labels (Origen/Destino) and constant
+    columns to the aggregated frames. Shared by the SQL and pandas paths."""
+
+    def _base(serie):
+        return serie.astype(str).str.replace(" (cuenca)", "", regex=False)
+
+    series_ids = []
+    if len(etapas_all) > 0:
+        series_ids += [
+            etapas_all["inicio_norm"], etapas_all["fin_norm"],
+            etapas_all["transfer1_norm"], etapas_all["transfer2_norm"],
+        ]
+    if len(matrices_all) > 0:
+        series_ids += [matrices_all["inicio"], matrices_all["fin"]]
+    if not series_ids:
+        return etapas_all, matrices_all
+
+    coords = coordenadas_zonas(zonificaciones, zona_seleccionada)
+    ids_usados = _base(pd.concat(series_ids))
+    coords = _coords_h3_faltantes(ids_usados[ids_usados != ""], coords)
+    lat_map = dict(zip(coords["id"], coords["lat"]))
+    lon_map = dict(zip(coords["id"], coords["lon"]))
+    orden_map = dict(zip(coords["id"], coords["orden_id"]))
+
+    if len(etapas_all) > 0:
+        for n, col in enumerate(
+            ["inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"], start=1
+        ):
+            base = _base(etapas_all[col])
+            etapas_all[f"lat{n}_norm"] = base.map(lat_map).fillna(0)
+            etapas_all[f"lon{n}_norm"] = base.map(lon_map).fillna(0)
+        etapas_all["zona"] = zona_seleccionada
+        etapas_all["id_polygon"] = id_polygon
+
+    if len(matrices_all) > 0:
+        base_inicio = _base(matrices_all["inicio"])
+        base_fin = _base(matrices_all["fin"])
+        sufijo_inicio = np.where(
+            matrices_all["inicio"].astype(str).str.endswith(" (cuenca)"),
+            " (cuenca)", "",
+        )
+        sufijo_fin = np.where(
+            matrices_all["fin"].astype(str).str.endswith(" (cuenca)"),
+            " (cuenca)", "",
+        )
+        matrices_all["Origen"] = (
+            base_inicio.map(orden_map).fillna(base_inicio) + sufijo_inicio
+        )
+        matrices_all["Destino"] = (
+            base_fin.map(orden_map).fillna(base_fin) + sufijo_fin
+        )
+        matrices_all["lat1"] = base_inicio.map(lat_map).fillna(0)
+        matrices_all["lon1"] = base_inicio.map(lon_map).fillna(0)
+        matrices_all["lat4"] = base_fin.map(lat_map).fillna(0)
+        matrices_all["lon4"] = base_fin.map(lon_map).fillna(0)
+        matrices_all["zona"] = zona_seleccionada
+        matrices_all["id_polygon"] = id_polygon
+
+    return etapas_all, matrices_all
+
+
+def armar_etapas_matrices_chains(
+    chains,
+    zona_seleccionada,
+    zonificaciones,
+    id_polygon="NONE",
+    h3_cuenca=None,
+):
+    """Aggregate chains_norm rows into the agg_etapas / agg_matrices shapes
+    create_data_folium expects.
+
+    - etapas_all: bidirectional (uses *_norm chains) with transfer stops.
+    - matrices_all: directional OD (h3_inicio / h3_fin, no *_norm).
+
+    chains_norm carries no distance_od / travel_time_min, so those columns
+    are filled with 0 (same convention as the old line-level loader);
+    kmh_od is the fex-weighted mean of travel_speed.
+
+    When h3_cuenca is given, zone names whose cell falls inside the basin
+    get the ' (cuenca)' suffix (post-processing for tipo 'cuenca').
+    """
+    cols_etapas_vacias = [
+        "id_polygon", "zona", "inicio_norm", "transfer1_norm", "transfer2_norm",
+        "fin_norm", "transferencia", "modo_agregado", "rango_hora",
+        "distancia_agregada", "genero_agregado", "tarifa_agregada",
+        "lat1_norm", "lon1_norm", "lat2_norm", "lon2_norm",
+        "lat3_norm", "lon3_norm", "lat4_norm", "lon4_norm",
+        "distance_od", "travel_time_min", "kmh_od", "factor_expansion_linea",
+    ]
+    cols_matrices_vacias = [
+        "id_polygon", "zona", "inicio", "fin", "Origen", "Destino",
+        "transferencia", "modo_agregado", "rango_hora", "distancia_agregada",
+        "genero_agregado", "tarifa_agregada", "lat1", "lon1", "lat4", "lon4",
+        "distance_od", "travel_time_min", "kmh_od", "factor_expansion_linea",
+    ]
+    if len(chains) == 0:
+        return (
+            pd.DataFrame(columns=cols_etapas_vacias),
+            pd.DataFrame(columns=cols_matrices_vacias),
+        )
+
+    zmap = traer_mapa_zona(zona_seleccionada)
+    if not zmap:
+        return (
+            pd.DataFrame(columns=cols_etapas_vacias),
+            pd.DataFrame(columns=cols_matrices_vacias),
+        )
+
+    dims_filtros = [
+        "transferencia", "modo_agregado", "rango_hora",
+        "distancia_agregada", "genero_agregado", "tarifa_agregada",
+    ]
+
+    # ── etapas (bidirectional, with transfers) ──────────────────────────
+    e = chains.copy()
+    e["inicio_norm"] = e["h3_inicio_norm"].map(zmap)
+    e["transfer1_norm"] = e["h3_transfer1_norm"].map(zmap)
+    e["transfer2_norm"] = e["h3_transfer2_norm"].map(zmap)
+    e["fin_norm"] = e["h3_fin_norm"].map(zmap)
+
+    if h3_cuenca:
+        e["inicio_norm"] = _aplicar_sufijo_cuenca(
+            e["inicio_norm"], e["h3_inicio_norm"], h3_cuenca
+        )
+        e["fin_norm"] = _aplicar_sufijo_cuenca(
+            e["fin_norm"], e["h3_fin_norm"], h3_cuenca
+        )
+
+    e = e[e["inicio_norm"].notna() & e["fin_norm"].notna()].copy()
+    e[["transfer1_norm", "transfer2_norm"]] = (
+        e[["transfer1_norm", "transfer2_norm"]].fillna("")
+    )
+
+    dims_e = dims_filtros + [
+        "inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"
+    ]
+    etapas_all = _agg_chains_ponderado(e, dims_e)
+
+    # ── matrices (directional OD) ───────────────────────────────────────
+    m = chains.copy()
+    m["inicio"] = m["h3_inicio"].map(zmap)
+    m["fin"] = m["h3_fin"].map(zmap)
+
+    if h3_cuenca:
+        m["inicio"] = _aplicar_sufijo_cuenca(m["inicio"], m["h3_inicio"], h3_cuenca)
+        m["fin"] = _aplicar_sufijo_cuenca(m["fin"], m["h3_fin"], h3_cuenca)
+
+    m = m[m["inicio"].notna() & m["fin"].notna()].copy()
+
+    dims_m = dims_filtros + ["inicio", "fin"]
+    matrices_all = _agg_chains_ponderado(m, dims_m)
+
+    return decorar_etapas_matrices(
+        etapas_all, matrices_all, zona_seleccionada, zonificaciones, id_polygon
+    )
+
+
+def filtrar_chains_por_zona(chains, zona_filtro, valor_filtro, tipo_filtro="OD y Transferencias"):
+    """Keep chains whose normalized chain touches one zone of any layer.
+
+    zona_filtro is the zoning layer of the filter, valor_filtro the zone id.
+    With 'Solo OD' only origin/destination are checked; otherwise transfers
+    count too.
+    """
+    if len(chains) == 0 or valor_filtro is None:
+        return chains
+    zmap = traer_mapa_zona(zona_filtro)
+    if not zmap:
+        return chains.iloc[0:0]
+
+    mask = (
+        (chains["h3_inicio_norm"].map(zmap) == valor_filtro)
+        | (chains["h3_fin_norm"].map(zmap) == valor_filtro)
+    )
+    if tipo_filtro == "OD y Transferencias":
+        mask = mask | (
+            (chains["h3_transfer1_norm"].map(zmap) == valor_filtro)
+            | (chains["h3_transfer2_norm"].map(zmap) == valor_filtro)
+        )
+    return chains[mask]
+
+
+@st.cache_data
+def traer_lineas_chains():
+    """Line names available for the line filter (from metadata_lineas)."""
+    df = levanto_tabla_sql(
+        "metadata_lineas", "insumos",
+        query=(
+            "SELECT DISTINCT nombre_linea FROM metadata_lineas "
+            "WHERE nombre_linea IS NOT NULL ORDER BY nombre_linea"
+        ),
+    )
+    if len(df) == 0:
+        return []
+    return [v for v in df["nombre_linea"].dropna().tolist() if str(v) != ""]
+
+
+def filtrar_chains_por_linea(chains, nombre_linea):
+    """Keep trips whose seq_lineas includes the given line name."""
+    if (
+        len(chains) == 0
+        or nombre_linea in (None, "", "Todas")
+        or "seq_lineas" not in chains.columns
+    ):
+        return chains
+    import re
+
+    patron = r"(?:^| -- )" + re.escape(str(nombre_linea)) + r"(?: -- |$)"
+    return chains[
+        chains["seq_lineas"].fillna("").str.contains(patron, regex=True)
+    ]
+
+
+def filtrar_chains_por_poligono(chains, id_polygon, tipo_poligono, od_en_poligono=False):
+    """Filter chains by analysis polygon membership.
+
+    tipo 'poligono' (or basin with the 'origin OR destination' checkbox on):
+    keep trips touching the polygon at either end. tipo 'cuenca' strict mode:
+    both ends must fall inside the basin.
+    """
+    if len(chains) == 0 or id_polygon in (None, "", "NONE"):
+        return chains
+    h3_poly = traer_h3_poligono(id_polygon)
+    if not h3_poly:
+        return chains.iloc[0:0]
+
+    en_o = chains["h3_inicio_norm"].isin(h3_poly)
+    en_d = chains["h3_fin_norm"].isin(h3_poly)
+    if tipo_poligono == "cuenca" and not od_en_poligono:
+        return chains[en_o & en_d]
+    return chains[en_o | en_d]
+
+
 @st.cache_data
 def get_logo():
     file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")
@@ -558,9 +1432,10 @@ def create_data_folium(
             lat="lat_norm",
             lon="lon_norm",
         )
-        transferencias["factor_expansion_linea"] = transferencias[
-            "factor_expansion_linea"
-        ].round(0)
+        if len(transferencias) > 0:
+            transferencias["factor_expansion_linea"] = transferencias[
+                "factor_expansion_linea"
+            ].round(0)
     else:
         transferencias = pd.DataFrame([])
 
@@ -888,49 +1763,41 @@ def extract_hex_colors_from_cmap(cmap, n=5):
 
 @st.cache_data
 def bring_latlon():
+    """Map center: mean representative point of the zoning layers."""
     try:
-        latlon = levanto_tabla_sql(
-                    "agg_etapas",
-                    "dash",
-                    "SELECT lat1_norm, lon1_norm FROM agg_etapas ORDER BY factor_expansion_linea DESC LIMIT 1000;",
-                )
-        lat = latlon["lat1_norm"].mean()
-        lon = latlon["lon1_norm"].mean()
-        latlon = [lat, lon]
-    except:
-    	latlon = [-32.891401, -68.843242]
+        zonif = levanto_tabla_sql("zonificaciones", "insumos")
+        puntos = zonif.geometry.representative_point()
+        latlon = [puntos.y.mean(), puntos.x.mean()]
+    except Exception:
+        latlon = [-32.891401, -68.843242]
     return latlon
 
 
 @st.cache_data
 def traigo_lista_zonas(tipo="etapas"):
+    """Zone names per zoning layer, from the zonificaciones table.
 
-    if tipo == "etapas":
-        table = "agg_etapas"
-    else:
-        table = "poly_etapas"
+    Replaces the old lookup over agg_etapas / poly_etapas (removed): zones
+    now come straight from the zoning layers used to build
+    equivalencias_zonas.
+    """
+    zonas_values = levanto_tabla_sql(
+        "zonificaciones",
+        "insumos",
+        "SELECT DISTINCT zona, id FROM zonificaciones;",
+    )
+    if len(zonas_values) == 0:
+        return pd.DataFrame(columns=["zona", "Nombre"])
 
-    query = f"""
-            SELECT DISTINCT zona, inicio_norm FROM {table}
-            UNION
-            SELECT DISTINCT zona, transfer1_norm FROM {table}
-            UNION
-            SELECT DISTINCT zona, transfer2_norm FROM {table}
-            UNION
-            SELECT DISTINCT zona, fin_norm FROM {table};
-            """
-    zonas_values = etapas = levanto_tabla_sql(table, "dash", query)
     zonas_values = (
         zonas_values[
-            (zonas_values.inicio_norm != "")
-            & (zonas_values.inicio_norm.notna())
-            & (zonas_values.inicio_norm != " (cuenca)")
+            (zonas_values.id.notna()) & (zonas_values.id.astype(str) != "")
         ]
-        .sort_values(["zona", "inicio_norm"])
-        .rename(columns={"inicio_norm": "Nombre"})
+        .sort_values(["zona", "id"])
+        .rename(columns={"id": "Nombre"})
     )
 
-    return zonas_values
+    return zonas_values[["zona", "Nombre"]]
 
 
 def normalizar_zonas(df, inicio_col, lat1_col, lon1_col, fin_col, lat2_col, lon2_col):

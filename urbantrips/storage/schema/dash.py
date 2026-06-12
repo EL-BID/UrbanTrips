@@ -125,15 +125,45 @@ CREATE TABLE IF NOT EXISTS services_by_line_hour (
 )
 """
 
+CHAINS_NORM = """
+CREATE TABLE IF NOT EXISTS chains_norm (
+    dia                    TEXT,
+    id_tarjeta             TEXT,
+    id_viaje               BIGINT,
+    h3_inicio              TEXT,
+    h3_transfer1           TEXT,
+    h3_transfer2           TEXT,
+    h3_fin                 TEXT,
+    h3_inicio_norm         TEXT,
+    h3_transfer1_norm      TEXT,
+    h3_transfer2_norm      TEXT,
+    h3_fin_norm            TEXT,
+    modo_agregado          TEXT,
+    rango_hora             TEXT,
+    genero_agregado        TEXT,
+    tarifa_agregada        TEXT,
+    transferencia          INTEGER,
+    distancia_agregada     TEXT,
+    travel_speed           DOUBLE,
+    factor_expansion_linea DOUBLE,
+    tipo_dia               TEXT,
+    mes                    TEXT,
+    seq_lineas             TEXT,
+    distance_od            DOUBLE,
+    travel_time_min        DOUBLE
+)
+"""
+
 ALL_TABLES = [
     MATRICES, LINEAS_DESEO, VIAJES_HORA, DISTRIBUCION, INDICADORES,
     PARTICION_MODAL, OCUPACION_POR_LINEA_TRAMO, LINES_OD_MATRIX_BY_SECTION,
-    MATRICES_LINEA_CARTO, SERVICES_BY_LINE_HOUR,
+    MATRICES_LINEA_CARTO, SERVICES_BY_LINE_HOUR, CHAINS_NORM,
 ]
 
 # Explicit set of valid table names for DashPort adapter validation
 VALID_TABLE_NAMES: frozenset[str] = frozenset({
     "matrices", "lineas_deseo", "viajes_hora", "distribucion", "indicadores",
     "particion_modal", "ocupacion_por_linea_tramo", "lines_od_matrix_by_section",
-    "matrices_linea_carto", "services_by_line_hour",
+    "matrices_linea_carto", "services_by_line_hour", "chains_norm",
+    "equivalencias_zonas",
 })
