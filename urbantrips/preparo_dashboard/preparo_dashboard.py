@@ -2771,7 +2771,7 @@ def proceso_lineas_deseo(
 
 @duracion
 def preparo_indicadores_dash(
-    ctx: StorageContext | None = None,
+    ctx: StorageContext,
     corrida="",
     lineas_deseo=True,
     poligonos=True,
