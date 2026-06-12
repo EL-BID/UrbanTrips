@@ -1364,7 +1364,31 @@ def configurar_selector_dia():
     #     logger.info("Archivo %s copiado", archivo_autogen)
     # else:
     #     logger.warning("No existe el directorio 'autogenerados' o el archivo especificado.")
-    seleccion = ''
+    dias_disponibles = traer_dias_disponibles()
+    if not dias_disponibles:
+        return ""
+
+    # Inicialización una única vez
+    if "dia_seleccionado" not in st.session_state:
+        st.session_state.dia_seleccionado = dias_disponibles[0]
+        st.session_state.dia_anterior = dias_disponibles[0]
+
+    # Sidebar con lógica aislada, sin pisar valores
+    with st.sidebar:
+        seleccion = st.selectbox(
+            "Seleccioná un día",
+            dias_disponibles,
+            index=dias_disponibles.index(st.session_state.dia_seleccionado),
+            key="__selector_dia",  # distinto del nombre en session_state
+        )
+
+    # Si la selección cambió, actualizar estado y reiniciar app
+    if seleccion != st.session_state.dia_anterior:
+        st.session_state.dia_seleccionado = seleccion
+        st.session_state.dia_anterior = seleccion
+        st.cache_data.clear()
+        st.rerun()
+
     return seleccion
 
 def tabla_existe(conn, table_name):
