@@ -12,10 +12,17 @@ def open_csv(path: str) -> "contextmanager[IO]":
     if path.endswith(".zip"):
         with zipfile.ZipFile(path) as zf:
             members = [
-                m for m in zf.namelist()
-                if not m.startswith("__MACOSX") and not os.path.basename(m).startswith("._")
+                m
+                for m in zf.namelist()
+                if not m.endswith("/")
+                and not m.startswith("__MACOSX")
+                and not os.path.basename(m).startswith("._")
             ]
-            with zf.open(members[0]) as f:
+            if not members:
+                raise FileNotFoundError(f"No CSV files found inside zip: {path}")
+            csv_members = [m for m in members if m.lower().endswith(".csv")]
+            member = csv_members[0] if csv_members else members[0]
+            with zf.open(member) as f:
                 yield f
     else:
         with open(path, "rb") as f:
