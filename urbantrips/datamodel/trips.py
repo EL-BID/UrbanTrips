@@ -217,7 +217,7 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
             SELECT
                 id_tarjeta,
                 id_viaje,
-                ARG_MIN(dia, id) AS dia,
+                dia,
                 ARG_MIN(tiempo, id) AS tiempo,
                 ARG_MIN(hora, id) AS hora,
                 COUNT(*) AS cant_etapas,
@@ -238,7 +238,10 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
                 AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
             FROM etapas
             WHERE dia IN ({dias_str})
-            GROUP BY id_tarjeta, id_viaje
+            -- dia DEBE estar en la clave: id_viaje arranca en 1 por tarjeta
+            -- cada día, así que sin dia los viajes de una misma tarjeta en
+            -- días distintos colisionan y se funden en uno solo.
+            GROUP BY id_tarjeta, id_viaje, dia
         ),
         classified AS (
             SELECT
@@ -321,6 +324,72 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
 
     for table in ["_ut_etapas_fex"]:
         ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+@duracion
+def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool = True):
+    """Check that the viajes table is consistent with etapas, day by day.
+
+    Every trip key (dia, id_tarjeta, id_viaje) present in etapas must exist in
+    viajes with the same cant_etapas, and vice versa. A mismatch means viajes
+    was built from a different state of etapas (partial or interrupted run):
+    indicators (built from viajes) would silently diverge from chains_norm and
+    the dashboard maps (built from etapas). Fix: re-run `--step legs`.
+
+    Returns a DataFrame with one row per inconsistent day (empty when OK).
+    """
+    diff = ctx.data.query(
+        """
+        WITH te AS (
+            SELECT dia, id_tarjeta, id_viaje, COUNT(*) AS cant_etapas_e
+            FROM etapas GROUP BY 1, 2, 3
+        ),
+        j AS (
+            SELECT COALESCE(te.dia, v.dia) AS dia,
+                   CASE WHEN v.dia IS NULL THEN 1 ELSE 0 END AS solo_en_etapas,
+                   CASE WHEN te.dia IS NULL THEN 1 ELSE 0 END AS solo_en_viajes,
+                   CASE WHEN te.dia IS NOT NULL AND v.dia IS NOT NULL
+                             AND te.cant_etapas_e != v.cant_etapas
+                        THEN 1 ELSE 0 END AS cant_etapas_distinta
+            FROM te
+            FULL OUTER JOIN viajes v
+              ON te.dia = v.dia AND te.id_tarjeta = v.id_tarjeta
+             AND te.id_viaje = v.id_viaje
+        )
+        SELECT dia,
+               SUM(solo_en_etapas) AS viajes_solo_en_etapas,
+               SUM(solo_en_viajes) AS viajes_solo_en_viajes,
+               SUM(cant_etapas_distinta) AS cant_etapas_distinta
+        FROM j
+        GROUP BY dia
+        HAVING SUM(solo_en_etapas) > 0 OR SUM(solo_en_viajes) > 0
+            OR SUM(cant_etapas_distinta) > 0
+        ORDER BY dia
+        """
+    )
+
+    if len(diff) == 0:
+        logger.info("Integridad viajes/etapas verificada: OK.")
+        return diff
+
+    for row in diff.itertuples(index=False):
+        logger.error(
+            "Integridad viajes/etapas FALLA para %s: %d viajes solo en etapas, "
+            "%d solo en viajes, %d con cant_etapas distinta.",
+            row.dia, int(row.viajes_solo_en_etapas),
+            int(row.viajes_solo_en_viajes), int(row.cant_etapas_distinta),
+        )
+    msg = (
+        "La tabla viajes no es consistente con etapas para los días: "
+        f"{diff['dia'].tolist()}. Los indicadores (desde viajes) divergirían "
+        "de chains_norm y los mapas (desde etapas). "
+        "Re-correr `python run_all_urbantrips.py --step legs` y luego "
+        "`--step dashboard`."
+    )
+    if raise_on_error:
+        raise RuntimeError(msg)
+    logger.warning(msg)
+    return diff
 
 
 @duracion

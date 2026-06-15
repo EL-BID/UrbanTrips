@@ -219,8 +219,14 @@ def create_transactions(
         tmp_trx_limpio.cant_trx == tmp_trx_limpio.cant_trx_limpias
     ]
 
-    # Mantener solo las trx de tarjeta con todas las transacciones validas
-    trx = trx.loc[trx.id_tarjeta.isin(tmp_trx_limpio.id_tarjeta), :]
+    # Mantener solo las trx de tarjetas-dia con todas las transacciones
+    # validas (el filtro es por dia + tarjeta: una tarjeta limpia un dia
+    # puede estar sucia otro dia)
+    trx = trx.merge(
+        tmp_trx_limpio[["dia", "id_tarjeta"]],
+        on=["dia", "id_tarjeta"],
+        how="inner",
+    )
 
     trx = trx.sort_values("id")
 

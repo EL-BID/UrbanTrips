@@ -299,7 +299,8 @@ def test_insumos_adapter_close_is_idempotent(tmp_path):
 def test_preparo_dashboard_passes_frames_by_reference(mocker):
     """
     The top-level orchestrator must NOT call .copy() on etapas/viajes before
-    passing to proceso_lineas_deseo, proceso_poligonos, or calculo_kpi_lineas.
+    passing them to resumen_x_linea, construyo_indicadores,
+    crea_socio_indicadores, guarda_particion_modal or calculo_kpi_lineas.
     Verified by checking that the id() of the DataFrame received inside each
     function matches the id() of the original.
     """
@@ -315,13 +316,20 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
 
     received_ids = {}
 
-    def capture_lineas_deseo(ctx, etapas, viajes, **kwargs):
-        received_ids["lineas_etapas"] = id(etapas)
-        received_ids["lineas_viajes"] = id(viajes)
+    def capture_resumen(ctx, etapas, viajes):
+        received_ids["resumen_etapas"] = id(etapas)
+        received_ids["resumen_viajes"] = id(viajes)
 
-    def capture_poligonos(ctx, etapas, viajes, **kwargs):
-        received_ids["poly_etapas"] = id(etapas)
-        received_ids["poly_viajes"] = id(viajes)
+    def capture_indicadores(ctx, viajes=None, poligonos=False):
+        if not poligonos:
+            received_ids["ind_viajes"] = id(viajes)
+
+    def capture_socio(ctx, etapas, viajes):
+        received_ids["socio_etapas"] = id(etapas)
+        received_ids["socio_viajes"] = id(viajes)
+
+    def capture_particion(ctx, etapas):
+        received_ids["part_etapas"] = id(etapas)
 
     def capture_kpi(ctx, etapas, viajes):
         received_ids["kpi_etapas"] = id(etapas)
@@ -332,22 +340,29 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
 
     with (
         patch("urbantrips.preparo_dashboard.preparo_dashboard.guardo_zonificaciones"),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.migrar_equivalencias_zonas"),
         patch("urbantrips.preparo_dashboard.preparo_dashboard.load_and_process_data",
               return_value=(etapas, viajes)),
-        patch("urbantrips.preparo_dashboard.preparo_dashboard.proceso_lineas_deseo",
-              side_effect=capture_lineas_deseo),
-        patch("urbantrips.preparo_dashboard.preparo_dashboard.proceso_poligonos",
-              side_effect=capture_poligonos),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.resumen_x_linea",
+              side_effect=capture_resumen),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.construyo_indicadores",
+              side_effect=capture_indicadores),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.crea_socio_indicadores",
+              side_effect=capture_socio),
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.guarda_particion_modal",
+              side_effect=capture_particion),
         patch("urbantrips.preparo_dashboard.preparo_dashboard.calculo_kpi_lineas",
               side_effect=capture_kpi),
         patch("urbantrips.preparo_dashboard.preparo_dashboard.crear_indices_unificados"),
     ):
         preparo_dashboard(ctx, lineas_deseo=True, poligonos=True, kpis=True)
 
-    assert received_ids["lineas_etapas"] == etapas_id, "proceso_lineas_deseo received a copy of etapas"
-    assert received_ids["lineas_viajes"] == viajes_id, "proceso_lineas_deseo received a copy de viajes"
-    assert received_ids["poly_etapas"] == etapas_id, "proceso_poligonos received a copy of etapas"
-    assert received_ids["poly_viajes"] == viajes_id, "proceso_poligonos received a copy of viajes"
+    assert received_ids["resumen_etapas"] == etapas_id, "resumen_x_linea received a copy of etapas"
+    assert received_ids["resumen_viajes"] == viajes_id, "resumen_x_linea received a copy of viajes"
+    assert received_ids["ind_viajes"] == viajes_id, "construyo_indicadores received a copy of viajes"
+    assert received_ids["socio_etapas"] == etapas_id, "crea_socio_indicadores received a copy of etapas"
+    assert received_ids["socio_viajes"] == viajes_id, "crea_socio_indicadores received a copy of viajes"
+    assert received_ids["part_etapas"] == etapas_id, "guarda_particion_modal received a copy of etapas"
     assert received_ids["kpi_etapas"] == etapas_id, "calculo_kpi_lineas received a copy of etapas"
     assert received_ids["kpi_viajes"] == viajes_id, "calculo_kpi_lineas received a copy of viajes"
 
@@ -601,8 +616,9 @@ def test_load_distancia_agregada_etapas():
 
 def test_load_distancia_agregada_viajes():
     _, viajes = _run_load_and_process(_make_synthetic_etapas_b5(), _make_synthetic_viajes_b5())
-    assert all(viajes.loc[viajes.distance_od <= 5, "distancia_agregada"] == "Viajes cortos (<=5kms)")
-    assert all(viajes.loc[viajes.distance_od > 5, "distancia_agregada"] == "Viajes largos (>5kms)")
+    # unified with chains_norm labels (singular) — was "Viajes cortos/largos"
+    assert all(viajes.loc[viajes.distance_od <= 5, "distancia_agregada"] == "Viaje corto (<=5kms)")
+    assert all(viajes.loc[viajes.distance_od > 5, "distancia_agregada"] == "Viaje largo (>5kms)")
 
 
 def test_load_transferencia():

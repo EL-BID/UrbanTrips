@@ -99,6 +99,52 @@ def test_save_legs_chunked_upsert(tmp_path, monkeypatch):
     assert result.loc[result["id"] == 1, "h3_d"].iloc[0] == "882a100d5bfffff"
 
 
+def test_update_leg_destinations_with_index_bracket(tmp_path):
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    adapter.save_legs(_sample_legs())
+
+    adapter.begin_leg_destination_updates()
+    try:
+        updates = pd.DataFrame({
+            "id": [1],
+            "dia": ["2024-01-01"],
+            "h3_d": ["882a100d9bfffff"],
+            "od_validado": [0],
+            "etapa_validada": [0],
+        })
+        adapter.update_leg_destinations(updates)
+    finally:
+        adapter.end_leg_destination_updates()
+
+    result = adapter.get_legs().set_index("id")
+    assert result.loc[1, "h3_d"] == "882a100d9bfffff"
+    assert result.loc[1, "od_validado"] == 0
+    assert result.loc[1, "etapa_validada"] == 0
+    # leg 2 untouched
+    assert result.loc[2, "od_validado"] == 1
+
+    # the index must exist again after the bracket
+    idx = adapter._conn.execute(
+        "SELECT index_name FROM duckdb_indexes() "
+        "WHERE table_name = 'etapas' AND index_name = 'idx_etapas_dia_od_validado'"
+    ).fetchall()
+    assert idx, "idx_etapas_dia_od_validado was not recreated"
+
+
+def test_replace_legs_for_days_restores_threads_setting(tmp_path):
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    adapter._conn.execute("PRAGMA threads=4")
+    adapter.replace_legs_for_days(_sample_legs(), ["2024-01-01"])
+    threads = adapter._conn.execute(
+        "SELECT current_setting('threads')"
+    ).fetchone()[0]
+    assert int(threads) == 4
+
+
 def test_replace_legs_for_days_replaces_only_requested_days(tmp_path, monkeypatch):
     from urbantrips.storage.adapters.duckdb import data as duckdb_data
 

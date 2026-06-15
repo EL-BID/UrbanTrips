@@ -14,6 +14,10 @@ from shapely.geometry import MultiPolygon, Point
 
 from urbantrips.carto import carto
 from urbantrips.carto.carto import guardo_zonificaciones
+from urbantrips.carto.equivalencias import (
+    migrar_equivalencias_zonas,
+    sincronizar_equivalencias_dash,
+)
 from urbantrips.geo.geo import (
     create_h3_gdf,
     h3_to_geodataframe,
@@ -27,8 +31,13 @@ from urbantrips.preparo_dashboard.aggregation import (  # noqa: F401 — re-expo
     agg_matriz,
     agrego_lineas,
     agrupar_viajes,
+    calcular_modo_agregado,
+    clasificar_distancia_agregada,
     clasificar_genero_agregado,
+    clasificar_mes,
+    clasificar_rango_hora,
     clasificar_tarifa_agregada_social,
+    clasificar_tipo_dia,
     construyo_matrices,
     determinar_modo_agregado,
     format_dataframe,
@@ -46,7 +55,13 @@ from urbantrips.preparo_dashboard.geo import (  # noqa: F401 — re-exported
 from urbantrips.storage.context import StorageContext
 from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.paths import get_paths
-from urbantrips.utils.utils import calculate_weighted_means, duracion, leer_alias, leer_configs_generales
+from urbantrips.utils.utils import (
+    calculate_weighted_means,
+    duracion,
+    leer_alias,
+    leer_configs_generales,
+    VELOCIDAD_MAXIMA_KMH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +97,7 @@ def load_and_process_data(ctx: StorageContext):
                e.factor_expansion_original, e.factor_expansion_linea,
                e.factor_expansion_tarjeta,
                tt.travel_time_min, tt.distance_od, tt.distance_route,
-               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
-               CASE WHEN DAYOFWEEK(CAST(e.dia AS DATE)) >= 6
-                    THEN 'Fin de Semana' ELSE 'Hábil' END              AS tipo_dia,
-               STRFTIME(CAST(e.dia AS DATE), '%Y-%m')                  AS mes,
-               CASE WHEN e.hora BETWEEN 13 AND 16 THEN '13-16'
-                    WHEN e.hora > 16 THEN '17-24'
-                    ELSE '0-12' END                                    AS rango_hora,
-               CASE WHEN tt.distance_od > 5 THEN 'Etapa larga (>5kms)'
-                    ELSE 'Etapa corta (<=5kms)' END                    AS distancia_agregada
+               tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
         FROM etapas e
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
         WHERE e.od_validado = 1
@@ -98,19 +105,19 @@ def load_and_process_data(ctx: StorageContext):
     )
     logger.info("load_and_process_data: etapas cargadas (%d filas)", len(etapas))
 
+    # derived filter columns via the shared classifiers (same logic as chains)
+    etapas["tipo_dia"] = clasificar_tipo_dia(etapas["dia"])
+    etapas["mes"] = clasificar_mes(etapas["dia"])
+    etapas["rango_hora"] = clasificar_rango_hora(etapas["hora"])
+    etapas["distancia_agregada"] = clasificar_distancia_agregada(
+        etapas["distance_od"], nivel="etapa"
+    )
+
     logger.info("load_and_process_data: leyendo viajes desde DB")
     viajes = ctx.data.query(
         """
         SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
                tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
-               CASE WHEN DAYOFWEEK(CAST(v.dia AS DATE)) >= 6
-                    THEN 'Fin de Semana' ELSE 'Hábil' END              AS tipo_dia,
-               STRFTIME(CAST(v.dia AS DATE), '%Y-%m')                  AS mes,
-               CASE WHEN v.hora BETWEEN 13 AND 16 THEN '13-16'
-                    WHEN v.hora > 16 THEN '17-24'
-                    ELSE '0-12' END                                    AS rango_hora,
-               CASE WHEN tt.distance_od > 5 THEN 'Viajes largos (>5kms)'
-                    ELSE 'Viajes cortos (<=5kms)' END                  AS distancia_agregada,
                CAST(v.cant_etapas > 1 AS INTEGER)                      AS transferencia
         FROM viajes v
         LEFT JOIN travel_times_trips tt
@@ -121,6 +128,13 @@ def load_and_process_data(ctx: StorageContext):
         """
     )
     logger.info("load_and_process_data: viajes cargados (%d filas)", len(viajes))
+
+    viajes["tipo_dia"] = clasificar_tipo_dia(viajes["dia"])
+    viajes["mes"] = clasificar_mes(viajes["dia"])
+    viajes["rango_hora"] = clasificar_rango_hora(viajes["hora"])
+    viajes["distancia_agregada"] = clasificar_distancia_agregada(
+        viajes["distance_od"], nivel="viaje"
+    )
 
     logger.info("load_and_process_data: clasificando tarifa y género")
     etapas["tarifa_agregada"] = clasificar_tarifa_agregada_social(etapas["tarifa"])
@@ -149,7 +163,7 @@ def load_and_process_data(ctx: StorageContext):
         (viajes["distance_od"] / (viajes["travel_time_min"] / 60)).round(1),
         np.nan,
     )
-    viajes.loc[viajes["kmh_od"] >= 80, "kmh_od"] = np.nan
+    viajes.loc[viajes["kmh_od"] >= VELOCIDAD_MAXIMA_KMH, "kmh_od"] = np.nan
 
     # ── 3. datetime window columns (stay in pandas) ────────────────
     logger.info("load_and_process_data: construyendo columnas de ventana temporal")
@@ -163,24 +177,11 @@ def load_and_process_data(ctx: StorageContext):
         viajes[["dia", "id_tarjeta", "id_viaje", "transferencia"]], how="left"
     )
 
-    # ── 4. partición modal (vectorizada) ────────────────────────────
+    # ── 4. partición modal (clasificador compartido con chains) ─────
     logger.info("load_and_process_data: calculando modo agregado")
     keys_mod = ["dia", "id_tarjeta", "id_viaje"]
-    tmp = etapas.groupby(keys_mod, sort=False, observed=True).agg(
-        n_unique=("modo", "nunique"),
-        etapas_tot=("modo", "size"),
-        modo_ref=("modo", "first"),
-    )
-    tmp["modo_agregado"] = np.where(
-        tmp["n_unique"] == 1,
-        np.where(
-            tmp["etapas_tot"] > 1,
-            "multietapa (" + tmp["modo_ref"] + ")",
-            tmp["modo_ref"],
-        ),
-        "multimodal",
-    )
-    etapas = etapas.merge(tmp["modo_agregado"].reset_index(), on=keys_mod)
+    tmp = calcular_modo_agregado(etapas, keys_mod)
+    etapas = etapas.merge(tmp[keys_mod + ["modo_agregado"]], on=keys_mod)
     viajes = viajes.merge(
         etapas.groupby(keys_mod + ["modo_agregado"], as_index=False, observed=True)
         .size()
@@ -533,13 +534,101 @@ def _construyo_indicadores_pandas(ctx: StorageContext, viajes, poligonos=False):
     replace_dash_partition(ctx, indicadores, tabla_destino, ["dia"])
 
 
+def _viajes_poligonos_desde_chains(ctx: StorageContext):
+    """Build a trips-like frame per analysis polygon from chains_norm.
+
+    For every polygon in the long-format equivalencias_zonas (tipo
+    'poligono' or 'cuenca'), trips are selected by membership of their
+    normalized origin/destination cells in the polygon's H3 set:
+
+    - tipo 'poligono' (area): origin OR destination inside the polygon.
+    - tipo 'cuenca' (basin):  origin AND destination inside the polygon.
+
+    The polygon id is assigned as the id_polygon column so the regular
+    indicator computation can run unchanged (distance_od is the trip-level
+    value stored in chains_norm).
+    """
+    try:
+        equivalencias = ctx.insumos.query(
+            "SELECT h3, zona, tipo FROM equivalencias_zonas "
+            "WHERE tipo IN ('poligono', 'cuenca')"
+        )
+    except Exception:
+        logger.warning(
+            "construyo_indicadores: no se pudo leer equivalencias_zonas "
+            "(¿falta migrar a formato long?)."
+        )
+        return pd.DataFrame([])
+
+    if len(equivalencias) == 0:
+        return pd.DataFrame([])
+
+    try:
+        chains = ctx.dash.query(
+            "SELECT dia, mes, tipo_dia, id_tarjeta, "
+            "h3_inicio_norm, h3_fin_norm, modo_agregado, rango_hora, "
+            "transferencia, distancia_agregada, distance_od, "
+            "factor_expansion_linea "
+            "FROM chains_norm"
+        )
+    except Exception:
+        logger.warning("construyo_indicadores: la tabla chains_norm no existe en dash.")
+        return pd.DataFrame([])
+
+    if len(chains) == 0:
+        return pd.DataFrame([])
+
+    frames = []
+    for (zona, tipo), grupo in equivalencias.groupby(["zona", "tipo"], observed=True):
+        h3_poly = set(grupo["h3"])
+        en_origen = chains["h3_inicio_norm"].isin(h3_poly)
+        en_destino = chains["h3_fin_norm"].isin(h3_poly)
+        mask = (en_origen & en_destino) if tipo == "cuenca" else (en_origen | en_destino)
+        if not mask.any():
+            continue
+        seleccion = chains.loc[mask].drop(columns=["h3_inicio_norm", "h3_fin_norm"])
+        seleccion = seleccion.assign(id_polygon=zona)
+        frames.append(seleccion)
+        logger.info(
+            "construyo_indicadores: polígono %s (%s) — %s viajes.",
+            zona, tipo, f"{int(mask.sum()):,}",
+        )
+
+    if not frames:
+        return pd.DataFrame([])
+
+    viajes = pd.concat(frames, ignore_index=True)
+    viajes = viajes.rename(columns={"modo_agregado": "modo"})
+    return viajes
+
+
 @duracion
-def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
-    """Compute dashboard indicators using DuckDB for single-pass aggregations."""
+def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
+    """Compute dashboard indicators using DuckDB for single-pass aggregations.
+
+    When ``viajes`` is omitted and ``poligonos=True``, trips are selected
+    on the fly from chains_norm + equivalencias_zonas per analysis polygon
+    instead of receiving a pre-filtered frame.
+    """
     if poligonos:
         nombre_tabla = "poly_indicadores"
     else:
         nombre_tabla = "agg_indicadores"
+
+    desde_chains = False
+    if viajes is None:
+        if not poligonos:
+            raise ValueError(
+                "construyo_indicadores: viajes es requerido cuando poligonos=False."
+            )
+        viajes = _viajes_poligonos_desde_chains(ctx)
+        desde_chains = True
+        if len(viajes) == 0:
+            logger.info(
+                "construyo_indicadores: sin polígonos en equivalencias_zonas "
+                "o sin datos en chains_norm — no se generan poly_indicadores."
+            )
+            return
 
     if "id_polygon" not in viajes.columns:
         viajes = viajes.copy()
@@ -688,6 +777,10 @@ def construyo_indicadores(ctx: StorageContext, viajes, poligonos=False):
     indicadores = pd.concat(
         [ind1, ind5, ind2, ind3, ind6, ind9, ind7, ind8, ind4], ignore_index=True
     )
+
+    if desde_chains:
+        # drop groups whose metric had no valid values (all-NaN weighted means)
+        indicadores = indicadores[indicadores["Valor"].notna()]
 
     try:
         indicadores_ant = ctx.dash.get_raw(nombre_tabla)
@@ -1131,93 +1224,16 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
 
 @duracion
 def preparo_etapas_agregadas(ctx: StorageContext, etapas, viajes, equivalencias_zonas):
+    """Deprecated stub kept for signature compatibility.
 
-    logger.info("preparo_etapas_agregadas: agregando etapas y viajes")
-    e_agg = etapas.groupby(
-        ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "id_linea"], as_index=False
-    , observed=True).factor_expansion_linea.sum()
-
-    e_agg = e_agg[e_agg.h3_o != e_agg.h3_d]
-    lineas = ctx.insumos.get_metadata_lineas()
-    e_agg = e_agg.merge(lineas[["id_linea", "nombre_linea"]])
-
-    v_agg = viajes.groupby(
-        ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo"], as_index=False
-    , observed=True).factor_expansion_linea.sum()
-    # v_agg = v_agg.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo'], as_index=False, observed=True).factor_expansion_linea.mean()
-    v_agg = v_agg[v_agg.h3_o != v_agg.h3_d]
-
-    etapas = etapas.assign(
-        etapas_max=etapas.groupby(["dia", "id_tarjeta", "id_viaje"], observed=True).id_etapa.transform("max")
+    The etapas_agregadas / viajes_agregados / transferencias_agregadas tables
+    were replaced by on-the-fly dashboard aggregation over chains_norm +
+    equivalencias_zonas (see urbantrips.preparo_dashboard.chains).
+    """
+    logger.info(
+        "preparo_etapas_agregadas: skipped — replaced by on-the-fly "
+        "aggregation over chains_norm + equivalencias_zonas."
     )
-
-    transfers = etapas.loc[
-        :,
-        [
-            "dia",
-            "id_tarjeta",
-            "id_viaje",
-            "id_etapa",
-            "etapas_max",
-            "id_linea",
-            "h3_o",
-            "h3_d",
-            "factor_expansion_linea",
-        ],
-    ]  # (etapas.etapas_max>1)
-    transfers = transfers.merge(lineas[["id_linea", "nombre_linea"]], how="left")
-    transfers_long = transfers
-    logger.info("preparo_etapas_agregadas: construyendo secuencias de transferencias")
-    transfers = duckdb.sql("""
-        SELECT dia, id_tarjeta, id_viaje,
-               STRING_AGG(nombre_linea, ' -- ' ORDER BY id_etapa) AS seq_lineas
-        FROM transfers_long
-        WHERE nombre_linea IS NOT NULL AND nombre_linea != ''
-        GROUP BY dia, id_tarjeta, id_viaje
-    """).df()
-    transfers = viajes[
-        [
-            "dia",
-            "mes",
-            "tipo_dia",
-            "id_tarjeta",
-            "id_viaje",
-            "h3_o",
-            "h3_d",
-            "modo",
-            "factor_expansion_linea",
-        ]
-    ].merge(transfers[["dia", "id_tarjeta", "id_viaje", "seq_lineas"]])
-    transfers = transfers.groupby(
-        ["dia", "mes", "tipo_dia", "h3_o", "h3_d", "modo", "seq_lineas"], as_index=False
-    , observed=True).factor_expansion_linea.sum()
-    # transfers = transfers.groupby(['dia', 'mes', 'tipo_dia', 'h3_o', 'h3_d', 'modo', 'seq_lineas'], as_index=False, observed=True).factor_expansion_linea.mean()
-
-    logger.info("preparo_etapas_agregadas: mergeando equivalencias de zonas")
-    if len(equivalencias_zonas) > 0:
-        zonas_cols = equivalencias_zonas.columns.tolist()
-        zonas_cols = [
-            item for item in zonas_cols if item not in ["fex", "latitud", "longitud"]
-        ]
-        equivalencias_zonas = equivalencias_zonas[zonas_cols]
-
-        zonas_cols_o = [f"{item}_o" for item in zonas_cols]
-        zonas_cols_d = [f"{item}_d" for item in zonas_cols]
-
-        eq_o = equivalencias_zonas.rename(columns=dict(zip(zonas_cols, zonas_cols_o)))
-        e_agg = e_agg.merge(eq_o, how="left")
-        v_agg = v_agg.merge(eq_o, how="left")
-        transfers = transfers.merge(eq_o, how="left")
-
-        eq_d = equivalencias_zonas.rename(columns=dict(zip(zonas_cols, zonas_cols_d)))
-        e_agg = e_agg.merge(eq_d, how="left")
-        v_agg = v_agg.merge(eq_d, how="left")
-        transfers = transfers.merge(eq_d, how="left")
-
-    logger.info("preparo_etapas_agregadas: guardando etapas_agregadas, viajes_agregados, transferencias_agregadas")
-    ctx.dash.save_raw(e_agg, "etapas_agregadas")
-    ctx.dash.save_raw(v_agg, "viajes_agregados")
-    ctx.dash.save_raw(transfers, "transferencias_agregadas")
 
 
 @duracion
@@ -1230,1113 +1246,16 @@ def preparo_lineas_deseo(
     res=6,
     zonificaciones=[],
 ):
+    """Deprecated stub kept for signature compatibility.
 
-    zonificaciones = ensure_geodataframe(zonificaciones)
-
-    if len(polygons_h3) == 0:
-        # NONE mode: a single pseudo-polygon covering everything. etapas_selec
-        # is NOT copied here — id_polygon/coincidencias are constants attached
-        # per-day inside the loop (detected by column absence).
-        id_polygon = "NONE"
-        polygons_h3 = pd.DataFrame([["NONE"]], columns=["id_polygon"])
-        poligonos = pd.DataFrame([["NONE", "NONE"]], columns=["id", "tipo"])
-
-    # Traigo zonas
-    zonas_data = ctx.insumos.get_raw("equivalencias_zonas")
-    zonas_cols = (
-        [c for c in zonas_data.columns if c not in ["h3", "latitud", "longitud"]]
-        if len(zonas_data) > 0
-        else []
-    )
-
-    if type(res) == int:
-        res = [res]
-
-    res_vars = []
-    for i in res:
-        res_vars += [f"res_{i}"]
-        if not f"res_{i}" in zonificaciones.zona.unique().tolist():
-            h3_vals = pd.concat(
-                [
-                    etapas_selec.loc[etapas_selec.h3_o.notna(), ["h3_o"]].rename(
-                        columns={"h3_o": "h3"}
-                    ),
-                    etapas_selec.loc[etapas_selec.h3_d.notna(), ["h3_d"]].rename(
-                        columns={"h3_d": "h3"}
-                    ),
-                ]
-            ).drop_duplicates()
-            h3_vals["h3_res"] = [h3toparent(x, res=i) for x in h3_vals["h3"]]
-
-            h3_zona = (
-                create_h3_gdf(h3_vals.h3_res.tolist())
-                .rename(columns={"hexagon_id": "id"})
-                .drop_duplicates()
-            )
-            h3_zona["zona"] = f"res_{i}"
-            zonificaciones = ensure_geodataframe(
-                pd.concat([zonificaciones, h3_zona], ignore_index=True)
-            )
-
-    zonas_cols = [x for x in zonas_cols if "res" not in x]
-    zonas = zonas_cols + res_vars
-    logger.debug("Zonas: %s", zonas)
-
-    if len(zonificaciones) > 0 and "geometry" in zonificaciones.columns:
-        zonificaciones["lat"] = zonificaciones.geometry.representative_point().y
-        zonificaciones["lon"] = zonificaciones.geometry.representative_point().x
-
-    cuenca_ids = frozenset(poligonos.loc[poligonos.tipo == "cuenca", "id"])
-
-    # Pre-compute creo_h3_equivalencias for every (polygon, zona) pair that is
-    # "cuenca" — results don't vary by day, only by polygon geometry and zona.
-    _h3_equiv_cache: dict = {}      # (id_polygon, zona) → raw h3_equivalencias df
-    _h3_equiv_agg_cache: dict = {}  # (id_polygon, zona) → grouped agg df
-
-    for _poly_id in polygons_h3.id_polygon.unique():
-        if _poly_id == "NONE":
-            continue
-        _poly_row = poligonos[poligonos.id == _poly_id]
-        if _poly_row.empty or _poly_row.tipo.values[0] != "cuenca":
-            continue
-        _poly_h3_subset = polygons_h3[polygons_h3.id_polygon == _poly_id].copy()
-        for _zona in zonas:
-            logger.info("Cacheando h3_equivalencias: polígono %s, zona %s", _poly_id, _zona)
-            _h3_eq = creo_h3_equivalencias(
-                _poly_h3_subset,
-                _poly_row,
-                _zona,
-                zonificaciones[zonificaciones.zona == _zona].copy(),
-            )
-            if len(_h3_eq) > 0:
-                _h3_equiv_cache[(_poly_id, _zona)] = _h3_eq
-                _h3_equiv_agg_cache[(_poly_id, _zona)] = (
-                    _h3_eq
-                    .groupby(
-                        [f"zona_{_zona}", f"lat_{_zona}", f"lon_{_zona}"],
-                        as_index=False,
-                        observed=True,
-                    )["h3_o"]
-                    .count()
-                    .drop(["h3_o"], axis=1)
-                )
+    The precomputed agg_etapas / agg_matrices / poly_etapas / poly_matrices
+    tables were replaced by on-the-fly dashboard aggregation over chains_norm
+    + equivalencias_zonas (see urbantrips.preparo_dashboard.chains).
+    """
     logger.info(
-        "preparo_lineas_deseo: cached h3_equivalencias for %d (polygon, zona) pairs",
-        len(_h3_equiv_cache),
+        "preparo_lineas_deseo: skipped — replaced by on-the-fly aggregation "
+        "over chains_norm + equivalencias_zonas."
     )
-
-    # Procesar día por día mantiene el working set constante sin importar
-    # cuántos días tenga la corrida (mismo patrón que destinations).
-    # Las escrituras particionan por dia, así que acumulan correctamente.
-    dias = sorted(etapas_selec.dia.unique().tolist())
-    logger.info("preparo_lineas_deseo: %d días × %d polígonos", len(dias), len(polygons_h3.id_polygon.unique()))
-    _cols_etapas_all = [
-        "dia",
-        "id_tarjeta",
-        "id_viaje",
-        "id_etapa",
-        "h3_o",
-        "h3_d",
-        "modo_agregado",
-        "rango_hora",
-        "genero_agregado",
-        "tarifa_agregada",
-        "transferencia",
-        "distancia_agregada",
-        "distance_od",
-        "travel_time_min",
-        "kmh_od",
-        "coincidencias",
-        "factor_expansion_linea",
-    ]
-
-    for _dia, id_polygon in product(dias, polygons_h3.id_polygon.unique()):
-        _poly_label = "sin filtro espacial" if id_polygon == "NONE" else f"polígono {id_polygon}"
-        logger.info("Líneas de deseo — día %s, %s", _dia, _poly_label)
-
-        poly_h3 = polygons_h3[polygons_h3.id_polygon == id_polygon]
-        poly = poligonos[poligonos.id == id_polygon]
-        tipo_poly = poly.tipo.values[0]
-
-        # Preparo Etapas con inicio, transferencias y fin del viaje
-        if "id_polygon" in etapas_selec.columns:
-            etapas_all = etapas_selec.loc[
-                (etapas_selec.id_polygon == id_polygon)
-                & (etapas_selec.dia == _dia),
-                _cols_etapas_all,
-            ].copy()
-        else:
-            # NONE mode: slice the day straight off the caller's frame and
-            # attach the constant columns to the (much smaller) slice.
-            etapas_all = etapas_selec.loc[
-                etapas_selec.dia == _dia,
-                [c for c in _cols_etapas_all if c != "coincidencias"],
-            ].copy()
-            etapas_all["coincidencias"] = "NONE"
-        etapas_all["etapa_max"] = etapas_all.groupby(
-            ["dia", "id_tarjeta", "id_viaje"]
-        , observed=True).id_etapa.transform("max")
-
-        # Borro los casos que tienen 3 transferencias o más
-        _excess = etapas_all[etapas_all.etapa_max > 3]
-        if len(_excess) > 0:
-            nborrar = (
-                len(_excess[["id_tarjeta", "id_viaje"]].value_counts())
-                / len(etapas_all[["id_tarjeta", "id_viaje"]].value_counts())
-                * 100
-            )
-            logger.info(
-                "Borrando viajes con más de 3 etapas: %.2f%% del polígono %s (día %s)",
-                nborrar, id_polygon, _dia,
-            )
-            etapas_all = etapas_all[etapas_all.etapa_max <= 3].copy()
-            del _excess
-
-        etapas_all["ultimo_viaje"] = 0
-        etapas_all.loc[etapas_all.etapa_max == etapas_all.id_etapa, "ultimo_viaje"] = 1
-
-        ultimo_viaje = etapas_all[etapas_all.ultimo_viaje == 1]
-
-        etapas_all["h3"] = etapas_all["h3_o"]
-        etapas_all = etapas_all[
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "id_etapa",
-                "h3",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "coincidencias",
-                "factor_expansion_linea",
-            ]
-        ]
-        etapas_all["ultimo_viaje"] = 0
-
-        ultimo_viaje["h3"] = ultimo_viaje["h3_d"]
-        ultimo_viaje["id_etapa"] += 1
-        ultimo_viaje = ultimo_viaje[
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "id_etapa",
-                "h3",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "coincidencias",
-                "factor_expansion_linea",
-                "ultimo_viaje",
-            ]
-        ]
-
-        etapas_all = (
-            pd.concat([etapas_all, ultimo_viaje])
-            .sort_values(["dia", "id_tarjeta", "id_viaje", "id_etapa"])
-            .reset_index(drop=True)
-        )
-        del ultimo_viaje
-
-        etapas_all["tipo_viaje"] = "Transfer_" + (etapas_all["id_etapa"] - 1).astype(
-            str
-        )
-        etapas_all.loc[etapas_all.ultimo_viaje == 1, "tipo_viaje"] = "Fin"
-        etapas_all.loc[etapas_all.id_etapa == 1, "tipo_viaje"] = "Inicio"
-
-        etapas_all["polygon"] = ""
-        if id_polygon != "NONE":
-            etapas_all.loc[etapas_all.h3.isin(poly_h3.h3.unique()), "polygon"] = (
-                id_polygon
-            )
-
-        etapas_all = etapas_all.drop(["ultimo_viaje"], axis=1)
-
-        # Guardo las coordenadas de los H3
-        _unique_h3 = etapas_all["h3"].dropna().unique()
-        _h3_latlon = np.array([h3_to_lat_lon(x) for x in _unique_h3])
-        _lat_map = dict(zip(_unique_h3, _h3_latlon[:, 0]))
-        _lon_map = dict(zip(_unique_h3, _h3_latlon[:, 1]))
-
-        # Preparo cada etapa de viaje para poder hacer la agrupación y tener inicio, transferencias y destino en un mismo registro
-        inicio = etapas_all.loc[
-            etapas_all.tipo_viaje == "Inicio",
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "h3",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "coincidencias",
-                "factor_expansion_linea",
-                "polygon",
-            ],
-        ].rename(columns={"h3": "h3_inicio", "polygon": "poly_inicio"})
-
-        fin = etapas_all.loc[
-            etapas_all.tipo_viaje == "Fin",
-            ["dia", "id_tarjeta", "id_viaje", "h3", "polygon"],
-        ].rename(columns={"h3": "h3_fin", "polygon": "poly_fin"})
-        transfer1 = etapas_all.loc[
-            etapas_all.tipo_viaje == "Transfer_1",
-            ["dia", "id_tarjeta", "id_viaje", "h3", "polygon"],
-        ].rename(columns={"h3": "h3_transfer1", "polygon": "poly_transfer1"})
-        transfer2 = etapas_all.loc[
-            etapas_all.tipo_viaje == "Transfer_2",
-            ["dia", "id_tarjeta", "id_viaje", "h3", "polygon"],
-        ].rename(columns={"h3": "h3_transfer2", "polygon": "poly_transfer2"})
-
-        etapas_agrupadas = (
-            inicio.merge(transfer1, how="left")
-            .merge(transfer2, how="left")
-            .merge(fin, how="left")
-        )
-        # etapas_all (leg-level, the largest frame here) is not used past this
-        # point; free it before the per-zona loop multiplies the working set.
-        del inicio, fin, transfer1, transfer2, etapas_all
-        gc.collect()
-        _str_cols = [
-            c for c in [
-                "h3_transfer1", "h3_transfer2", "h3_fin",
-                "poly_transfer1", "poly_transfer2", "poly_fin",
-            ]
-            if c in etapas_agrupadas.columns
-        ]
-        etapas_agrupadas[_str_cols] = etapas_agrupadas[_str_cols].fillna("")
-
-        etapas_agrupadas = etapas_agrupadas[
-            [
-                "dia",
-                "id_tarjeta",
-                "id_viaje",
-                "h3_inicio",
-                "h3_transfer1",
-                "h3_transfer2",
-                "h3_fin",
-                "poly_inicio",
-                "poly_transfer1",
-                "poly_transfer2",
-                "poly_fin",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "transferencia",
-                "distancia_agregada",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "coincidencias",
-                "factor_expansion_linea",
-            ]
-        ]
-
-        # Precompute h3→parent maps for every resolution used, covering all h3 values
-        # in this (dia, polygon) slice. Reused by all zonas at the same resolution.
-        _all_h3_vals: set = set()
-        for _col in ("h3_inicio", "h3_transfer1", "h3_transfer2", "h3_fin"):
-            if _col in etapas_agrupadas.columns:
-                _all_h3_vals.update(
-                    v for v in etapas_agrupadas[_col].dropna().unique() if v != ""
-                )
-
-        _res_parent_maps: dict = {}  # resolution_int → {h3_str: parent_str}
-        for _zona in zonas:
-            if "res_" in _zona:
-                _r = int(_zona.replace("res_", ""))
-                if _r not in _res_parent_maps:
-                    _res_parent_maps[_r] = {h: h3toparent(h, res=_r) for h in _all_h3_vals}
-
-        for zona in zonas:
-            logger.debug("Polígono %s - Tipo: %s - Zona: %s", id_polygon, tipo_poly, zona)
-
-            if id_polygon != "NONE":
-                h3_equivalencias = _h3_equiv_cache.get((id_polygon, zona), pd.DataFrame())
-
-            # Preparo para agrupar por líneas de deseo y cambiar de resolución si es necesario
-
-            etapas_agrupadas_zon = etapas_agrupadas.assign(
-                id_polygon=id_polygon,
-                zona=zona,
-                inicio_norm=etapas_agrupadas["h3_inicio"],
-                transfer1_norm=etapas_agrupadas["h3_transfer1"],
-                transfer2_norm=etapas_agrupadas["h3_transfer2"],
-                fin_norm=etapas_agrupadas["h3_fin"],
-                poly_inicio_norm=etapas_agrupadas["poly_inicio"],
-                poly_transfer1_norm=etapas_agrupadas["poly_transfer1"],
-                poly_transfer2_norm=etapas_agrupadas["poly_transfer2"],
-                poly_fin_norm=etapas_agrupadas["poly_fin"],
-            )
-
-            # Precompute per-zona constants that would otherwise be rebuilt 4× in the column loop
-            if tipo_poly == "poligono" and id_polygon != "NONE":
-                _poly_centroid = poly.geometry.to_crs(3857).centroid.to_crs(4326)
-                _poly_centroid_lat = _poly_centroid.y.iloc[0]
-                _poly_centroid_lon = _poly_centroid.x.iloc[0]
-                _poly_h3_set = set(poly_h3.h3.unique())
-            else:
-                _poly_centroid_lat = None
-                _poly_centroid_lon = None
-                _poly_h3_set = set()
-
-            n = 1
-            for i in ["inicio_norm", "transfer1_norm", "transfer2_norm", "fin_norm"]:
-                etapas_agrupadas_zon[f"lat{n}"] = etapas_agrupadas_zon[i].map(_lat_map)
-                etapas_agrupadas_zon[f"lon{n}"] = etapas_agrupadas_zon[i].map(_lon_map)
-
-                # Selecciono el centroide del polígono en vez del centroide de cada hexágono
-
-                if tipo_poly == "poligono":
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(_poly_h3_set), f"lat{n}"
-                    ] = _poly_centroid_lat
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon[i].isin(_poly_h3_set), f"lon{n}"
-                    ] = _poly_centroid_lon
-
-                if "res_" in zona:
-                    resol = int(zona.replace("res_", ""))
-                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].map(
-                        _res_parent_maps[resol]
-                    )
-
-                else:
-                    # zonas_data_ = zonas_data.groupby(
-                    #     ['h3', 'latitud', 'longitud'], as_index=False, observed=True)[zona].first()
-
-                    etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
-                        zonas_data[["h3", zona]].rename(
-                            columns={"h3": i, zona: "zona_tmp"}
-                        ),
-                        how="left",
-                    )
-
-                    etapas_agrupadas_zon[i] = etapas_agrupadas_zon["zona_tmp"]
-                    etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
-                        ["zona_tmp"], axis=1
-                    )
-
-                    if (
-                        len(
-                            etapas_agrupadas_zon[
-                                (etapas_agrupadas_zon.inicio_norm.isna())
-                                | (etapas_agrupadas_zon.fin_norm.isna())
-                            ]
-                        )
-                        > 0
-                    ) & (i == "fin_norm"):
-                        cant_etapas = len(
-                            etapas_agrupadas_zon[
-                                (etapas_agrupadas_zon.inicio_norm.isna())
-                                | (etapas_agrupadas_zon.fin_norm.isna())
-                            ]
-                        )
-                        logger.warning(
-                            "Hay %d registros a los que no se les pudo asignar %s",
-                            cant_etapas, zona,
-                        )
-
-                    etapas_agrupadas_zon = etapas_agrupadas_zon[
-                        ~(
-                            (etapas_agrupadas_zon.inicio_norm.isna())
-                            | (etapas_agrupadas_zon.fin_norm.isna())
-                        )
-                    ]
-
-                # Si es cuenca modifico las latitudes longitudes donde coincide el polígono de cuenca con el h3
-                if tipo_poly == "cuenca":
-                    # reemplazo latitudes y longitudes de cuenca para normalizar
-                    poly_var = i.replace("h3_", "").replace("_norm", "")
-
-
-                    
-                    h3_equivalencias_agg = _h3_equiv_agg_cache.get(
-                        (id_polygon, zona), pd.DataFrame()
-                    )
-
-                    etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
-                        h3_equivalencias_agg[
-                            [f"zona_{zona}", f"lat_{zona}", f"lon_{zona}"]
-                        ].rename(columns={f"zona_{zona}": i}),
-                        how="left",
-                        on=i,
-                    )
-
-                    etapas_agrupadas_zon.loc[
-                        (etapas_agrupadas_zon[f"lat_{zona}"].notna())
-                        & (etapas_agrupadas_zon[f"poly_{poly_var}"] != ""),
-                        f"lat{n}",
-                    ] = etapas_agrupadas_zon.loc[
-                        (etapas_agrupadas_zon[f"lat_{zona}"].notna())
-                        & (etapas_agrupadas_zon[f"poly_{poly_var}"] != ""),
-                        f"lat_{zona}",
-                    ]
-
-                    etapas_agrupadas_zon.loc[
-                        (etapas_agrupadas_zon[f"lon_{zona}"].notna())
-                        & (etapas_agrupadas_zon[f"poly_{poly_var}"] != ""),
-                        f"lon{n}",
-                    ] = etapas_agrupadas_zon.loc[
-                        (etapas_agrupadas_zon[f"lon_{zona}"].notna())
-                        & (etapas_agrupadas_zon[f"poly_{poly_var}"] != ""),
-                        f"lon_{zona}",
-                    ]
-
-                    etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
-                        [f"lon_{zona}", f"lat_{zona}"], axis=1
-                    )
-
-                etapas_agrupadas_zon[i] = etapas_agrupadas_zon[i].fillna("")
-                n += 1
-
-            # INICIO - Normalizo variables (variables _norm)
-            etapas_agrupadas_zon["inicio"] = etapas_agrupadas_zon["inicio_norm"]
-            etapas_agrupadas_zon["transfer1"] = etapas_agrupadas_zon["transfer1_norm"]
-            etapas_agrupadas_zon["transfer2"] = etapas_agrupadas_zon["transfer2_norm"]
-            etapas_agrupadas_zon["fin"] = etapas_agrupadas_zon["fin_norm"]
-            etapas_agrupadas_zon["poly_inicio"] = etapas_agrupadas_zon[
-                "poly_inicio_norm"
-            ]
-            etapas_agrupadas_zon["poly_transfer1"] = etapas_agrupadas_zon[
-                "poly_transfer1_norm"
-            ]
-            etapas_agrupadas_zon["poly_transfer2"] = etapas_agrupadas_zon[
-                "poly_transfer2_norm"
-            ]
-            etapas_agrupadas_zon["poly_fin"] = etapas_agrupadas_zon["poly_fin_norm"]
-            etapas_agrupadas_zon["lat1_norm"] = etapas_agrupadas_zon["lat1"]
-            etapas_agrupadas_zon["lat2_norm"] = etapas_agrupadas_zon["lat2"]
-            etapas_agrupadas_zon["lat3_norm"] = etapas_agrupadas_zon["lat3"]
-            etapas_agrupadas_zon["lat4_norm"] = etapas_agrupadas_zon["lat4"]
-            etapas_agrupadas_zon["lon1_norm"] = etapas_agrupadas_zon["lon1"]
-            etapas_agrupadas_zon["lon2_norm"] = etapas_agrupadas_zon["lon2"]
-            etapas_agrupadas_zon["lon3_norm"] = etapas_agrupadas_zon["lon3"]
-            etapas_agrupadas_zon["lon4_norm"] = etapas_agrupadas_zon["lon4"]
-
-            et1 = etapas_agrupadas_zon[
-                etapas_agrupadas_zon.inicio <= etapas_agrupadas_zon.fin
-            ].copy()
-            et2 = etapas_agrupadas_zon[
-                (etapas_agrupadas_zon.inicio > etapas_agrupadas_zon.fin)
-            ].copy()
-
-            et2["inicio_norm"] = et2["fin"]
-            et2["fin_norm"] = et2["inicio"]
-            et2["poly_inicio_norm"] = et2["poly_fin"]
-            et2["poly_fin_norm"] = et2["poly_inicio"]
-
-            et2["lat1_norm"] = et2["lat4"]
-            et2["lon1_norm"] = et2["lon4"]
-            et2["lat4_norm"] = et2["lat1"]
-            et2["lon4_norm"] = et2["lon1"]
-
-            et2.loc[et2.transfer2 != "", "transfer1_norm"] = et2.loc[
-                et2.transfer2 != "", "transfer2"
-            ]
-            et2.loc[et2.transfer2 != "", "transfer2_norm"] = et2.loc[
-                et2.transfer2 != "", "transfer1"
-            ]
-            et2.loc[et2.transfer2 != "", "poly_transfer1_norm"] = et2.loc[
-                et2.transfer2 != "", "poly_transfer2"
-            ]
-            et2.loc[et2.transfer2 != "", "poly_transfer2_norm"] = et2.loc[
-                et2.transfer2 != "", "poly_transfer1"
-            ]
-            et2.loc[et2.transfer2 != "", "lat2_norm"] = et2.loc[
-                et2.transfer2 != "", "lat3"
-            ]
-            et2.loc[et2.transfer2 != "", "lon2_norm"] = et2.loc[
-                et2.transfer2 != "", "lon3"
-            ]
-            et2.loc[et2.transfer2 != "", "lat3_norm"] = et2.loc[
-                et2.transfer2 != "", "lat2"
-            ]
-            et2.loc[et2.transfer2 != "", "lon3_norm"] = et2.loc[
-                et2.transfer2 != "", "lon2"
-            ]
-
-            etapas_agrupadas_zon = pd.concat([et1, et2], ignore_index=True)
-            del et1, et2
-
-            # FIN - Normalizo variables (variables _norm)
-
-            ### etapas_agrupadas_zon = normalizo_zona(etapas_agrupadas_zon,
-            ###                                       zonificaciones[zonificaciones.zona == zona].copy())
-
-            etapas_agrupadas_zon["tipo_dia_"] = (
-                pd.to_datetime(etapas_agrupadas_zon.dia).dt.weekday.astype(str).copy()
-            )
-            etapas_agrupadas_zon["tipo_dia"] = "Hábil"
-            etapas_agrupadas_zon.loc[
-                etapas_agrupadas_zon.tipo_dia_.astype(int) >= 5, "tipo_dia"
-            ] = "Fin de Semana"
-            etapas_agrupadas_zon = etapas_agrupadas_zon.drop(["tipo_dia_"], axis=1)
-            etapas_agrupadas_zon["mes"] = etapas_agrupadas_zon.dia.str[:7]
-
-            etapas_agrupadas_zon = etapas_agrupadas_zon[
-                [
-                    "id_polygon",
-                    "zona",
-                    "dia",
-                    "mes",
-                    "tipo_dia",
-                    "id_tarjeta",
-                    "id_viaje",
-                    "h3_inicio",
-                    "h3_transfer1",
-                    "h3_transfer2",
-                    "h3_fin",
-                    "inicio",
-                    "transfer1",
-                    "transfer2",
-                    "fin",
-                    "poly_inicio",
-                    "poly_transfer1",
-                    "poly_transfer2",
-                    "poly_fin",
-                    "inicio_norm",
-                    "transfer1_norm",
-                    "transfer2_norm",
-                    "fin_norm",
-                    "poly_inicio_norm",
-                    "poly_transfer1_norm",
-                    "poly_transfer2_norm",
-                    "poly_fin_norm",
-                    "lon1",
-                    "lat1",
-                    "lon2",
-                    "lat2",
-                    "lon3",
-                    "lat3",
-                    "lon4",
-                    "lat4",
-                    "lon1_norm",
-                    "lat1_norm",
-                    "lon2_norm",
-                    "lat2_norm",
-                    "lon3_norm",
-                    "lat3_norm",
-                    "lon4_norm",
-                    "lat4_norm",
-                    "transferencia",
-                    "modo_agregado",
-                    "rango_hora",
-                    "genero_agregado",
-                    "tarifa_agregada",
-                    "coincidencias",
-                    "distancia_agregada",
-                    "distance_od",
-                    "travel_time_min",
-                    "kmh_od",
-                    "factor_expansion_linea",
-                ]
-            ]
-
-            aggregate_cols = [
-                "id_polygon",
-                "dia",
-                "mes",
-                "tipo_dia",
-                "zona",
-                "inicio",
-                "fin",
-                "poly_inicio",
-                "poly_fin",
-                "transferencia",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "coincidencias",
-                "distancia_agregada",
-            ]
-
-            viajes_matrices = construyo_matrices(
-                etapas_agrupadas_zon,
-                aggregate_cols,
-                zonificaciones,
-                False,
-                False,
-                False,
-            )
-
-            # Agrupación de viajes
-            aggregate_cols = [
-                "id_polygon",
-                "dia",
-                "mes",
-                "tipo_dia",
-                "zona",
-                "inicio_norm",
-                "transfer1_norm",
-                "transfer2_norm",
-                "fin_norm",
-                "poly_inicio_norm",
-                "poly_transfer1_norm",
-                "poly_transfer2_norm",
-                "poly_fin_norm",
-                "transferencia",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "coincidencias",
-                "distancia_agregada",
-            ]
-
-            weighted_mean_cols = [
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "lat1_norm",
-                "lon1_norm",
-                "lat2_norm",
-                "lon2_norm",
-                "lat3_norm",
-                "lon3_norm",
-                "lat4_norm",
-                "lon4_norm",
-            ]
-
-            weight_col = "factor_expansion_linea"
-
-            zero_to_nan = [
-                "lat1_norm",
-                "lon1_norm",
-                "lat2_norm",
-                "lon2_norm",
-                "lat3_norm",
-                "lon3_norm",
-                "lat4_norm",
-                "lon4_norm",
-                "travel_time_min",
-                "kmh_od",
-            ]
-
-            etapas_agrupadas_zon = agrupar_viajes(
-                etapas_agrupadas_zon,
-                aggregate_cols,
-                weighted_mean_cols,
-                weight_col,
-                zero_to_nan,
-                agg_transferencias=False,
-                agg_modo=False,
-                agg_hora=False,
-                agg_distancia=False,
-            )
-
-            n = 1
-            poly_lst = ["poly_inicio", "poly_transfer1", "poly_transfer2", "poly_fin"]
-            for i in ["inicio", "transfer1", "transfer2", "fin"]:
-                etapas_agrupadas_zon = etapas_agrupadas_zon.merge(
-                    zonificaciones[["zona", "id", "lat", "lon"]].rename(
-                        columns={
-                            "id": f"{i}_norm",
-                            "lat": f"lat{n}_norm_tmp",
-                            "lon": f"lon{n}_norm_tmp",
-                        }
-                    ),
-                    how="left",
-                    on=["zona", f"{i}_norm"],
-                )
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon[f"{poly_lst[n-1]}_norm"] == "", f"lat{n}_norm"
-                ] = etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon[f"{poly_lst[n-1]}_norm"] == "",
-                    f"lat{n}_norm_tmp",
-                ]
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon[f"{poly_lst[n-1]}_norm"] == "", f"lon{n}_norm"
-                ] = etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon[f"{poly_lst[n-1]}_norm"] == "",
-                    f"lon{n}_norm_tmp",
-                ]
-
-                etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
-                    [f"lat{n}_norm_tmp", f"lon{n}_norm_tmp"], axis=1
-                )
-
-                if (n == 1) | (n == 4):
-                    viajes_matrices = viajes_matrices.merge(
-                        zonificaciones[["zona", "id", "lat", "lon"]].rename(
-                            columns={
-                                "id": f"{i}",
-                                "lat": f"lat{n}_tmp",
-                                "lon": f"lon{n}_tmp",
-                            }
-                        ),
-                        how="left",
-                        on=["zona", f"{i}"],
-                    )
-                    viajes_matrices.loc[
-                        viajes_matrices[f"{poly_lst[n-1]}"] == "", f"lat{n}"
-                    ] = viajes_matrices.loc[
-                        viajes_matrices[f"{poly_lst[n-1]}"] == "", f"lat{n}_tmp"
-                    ]
-                    viajes_matrices.loc[
-                        viajes_matrices[f"{poly_lst[n-1]}"] == "", f"lon{n}"
-                    ] = viajes_matrices.loc[
-                        viajes_matrices[f"{poly_lst[n-1]}"] == "", f"lon{n}_tmp"
-                    ]
-                    viajes_matrices = viajes_matrices.drop(
-                        [f"lat{n}_tmp", f"lon{n}_tmp"], axis=1
-                    )
-
-                n += 1
-
-            # # Agrupar a nivel de mes y corregir factor de expansión
-            sum_viajes = (
-                etapas_agrupadas_zon.groupby(
-                    ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                , observed=True)
-                .factor_expansion_linea.sum()
-                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False, observed=True)
-                .factor_expansion_linea.mean()
-                .round()
-            )
-
-            aggregate_cols = [
-                "dia",
-                "mes",
-                "tipo_dia",
-                "id_polygon",
-                "poly_inicio_norm",
-                "poly_transfer1_norm",
-                "poly_transfer2_norm",
-                "poly_fin_norm",
-                "zona",
-                "inicio_norm",
-                "transfer1_norm",
-                "transfer2_norm",
-                "fin_norm",
-                "transferencia",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "coincidencias",
-                "distancia_agregada",
-            ]
-            weighted_mean_cols = [
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-                "lat1_norm",
-                "lon1_norm",
-                "lat2_norm",
-                "lon2_norm",
-                "lat3_norm",
-                "lon3_norm",
-                "lat4_norm",
-                "lon4_norm",
-            ]
-
-            etapas_agrupadas_zon = calculate_weighted_means(
-                etapas_agrupadas_zon,
-                aggregate_cols=aggregate_cols,
-                weighted_mean_cols=weighted_mean_cols,
-                weight_col="factor_expansion_linea",
-                zero_to_nan=zero_to_nan,
-                var_fex_summed=False,
-            )
-
-            sum_viajes["factor_expansion_linea"] = 1 - (
-                sum_viajes["factor_expansion_linea"]
-                / etapas_agrupadas_zon.groupby(
-                    ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                , observed=True)
-                .factor_expansion_linea.sum()
-                .factor_expansion_linea
-            )
-            sum_viajes = sum_viajes.rename(
-                columns={"factor_expansion_linea": "factor_correccion"}
-            )
-
-            etapas_agrupadas_zon = etapas_agrupadas_zon.merge(sum_viajes)
-            etapas_agrupadas_zon["factor_expansion_linea2"] = (
-                etapas_agrupadas_zon["factor_expansion_linea"]
-                * etapas_agrupadas_zon["factor_correccion"]
-            )
-            etapas_agrupadas_zon["factor_expansion_linea2"] = (
-                etapas_agrupadas_zon["factor_expansion_linea"]
-                - etapas_agrupadas_zon["factor_expansion_linea2"]
-            )
-            etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
-                ["factor_correccion", "factor_expansion_linea"], axis=1
-            )
-            etapas_agrupadas_zon = etapas_agrupadas_zon.rename(
-                columns={"factor_expansion_linea2": "factor_expansion_linea"}
-            )
-
-            # # Agrupar a nivel de dia y corregir factor de expansión
-            sum_viajes = (
-                viajes_matrices.groupby(
-                    ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                , observed=True)
-                .factor_expansion_linea.sum()
-                .groupby(["dia", "mes", "tipo_dia", "zona"], as_index=False, observed=True)
-                .factor_expansion_linea.mean()
-            )
-
-            aggregate_cols = [
-                "id_polygon",
-                "poly_inicio",
-                "poly_fin",
-                "dia",
-                "mes",
-                "tipo_dia",
-                "zona",
-                "inicio",
-                "fin",
-                "transferencia",
-                "modo_agregado",
-                "rango_hora",
-                "genero_agregado",
-                "tarifa_agregada",
-                "coincidencias",
-                "distancia_agregada",
-                "orden_origen",
-                "orden_destino",
-                "Origen",
-                "Destino",
-            ]
-            weighted_mean_cols = [
-                "lat1",
-                "lon1",
-                "lat4",
-                "lon4",
-                "distance_od",
-                "travel_time_min",
-                "kmh_od",
-            ]
-            zero_to_nan = [
-                "lat1",
-                "lon1",
-                "lat4",
-                "lon4",
-                "kmh_od",
-                "travel_time_min",
-            ]
-
-            viajes_matrices = calculate_weighted_means(
-                viajes_matrices,
-                aggregate_cols=aggregate_cols,
-                weighted_mean_cols=weighted_mean_cols,
-                weight_col="factor_expansion_linea",
-                zero_to_nan=zero_to_nan,
-                var_fex_summed=False,
-            )
-
-            sum_viajes["factor_expansion_linea"] = 1 - (
-                sum_viajes["factor_expansion_linea"]
-                / viajes_matrices.groupby(
-                    ["dia", "mes", "tipo_dia", "zona"], as_index=False
-                , observed=True)
-                .factor_expansion_linea.sum()
-                .factor_expansion_linea
-            )
-            sum_viajes = sum_viajes.rename(
-                columns={"factor_expansion_linea": "factor_correccion"}
-            )
-
-            viajes_matrices = viajes_matrices.merge(sum_viajes)
-            viajes_matrices["factor_expansion_linea2"] = (
-                viajes_matrices["factor_expansion_linea"]
-                * viajes_matrices["factor_correccion"]
-            )
-            viajes_matrices["factor_expansion_linea2"] = (
-                viajes_matrices["factor_expansion_linea"]
-                - viajes_matrices["factor_expansion_linea2"]
-            )
-            viajes_matrices = viajes_matrices.drop(
-                ["factor_correccion", "factor_expansion_linea"], axis=1
-            )
-            viajes_matrices = viajes_matrices.rename(
-                columns={"factor_expansion_linea2": "factor_expansion_linea"}
-            )
-
-            if len(poligonos[poligonos.tipo == "cuenca"]) > 0:
-
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon.poly_inicio_norm.isin(
-                        cuenca_ids
-                    ),
-                    "inicio_norm",
-                ] = (
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon.poly_inicio_norm.isin(
-                            cuenca_ids
-                        ),
-                        "inicio_norm",
-                    ]
-                    + " (cuenca)"
-                )
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon.poly_transfer1_norm.isin(
-                        cuenca_ids
-                    ),
-                    "transfer1_norm",
-                ] = (
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon.poly_transfer1_norm.isin(
-                            cuenca_ids
-                        ),
-                        "transfer1_norm",
-                    ]
-                    + " (cuenca)"
-                )
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon.poly_transfer2_norm.isin(
-                        cuenca_ids
-                    ),
-                    "transfer2_norm",
-                ] = (
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon.poly_transfer2_norm.isin(
-                            cuenca_ids
-                        ),
-                        "transfer2_norm",
-                    ]
-                    + " (cuenca)"
-                )
-                etapas_agrupadas_zon.loc[
-                    etapas_agrupadas_zon.poly_fin_norm.isin(
-                        cuenca_ids
-                    ),
-                    "fin_norm",
-                ] = (
-                    etapas_agrupadas_zon.loc[
-                        etapas_agrupadas_zon.poly_fin_norm.isin(
-                            cuenca_ids
-                        ),
-                        "fin_norm",
-                    ]
-                    + " (cuenca)"
-                )
-                viajes_matrices.loc[
-                    viajes_matrices.poly_inicio.isin(
-                        cuenca_ids
-                    ),
-                    "Origen",
-                ] = (
-                    viajes_matrices.loc[
-                        viajes_matrices.poly_inicio.isin(
-                            cuenca_ids
-                        ),
-                        "Origen",
-                    ]
-                    + " (cuenca)"
-                )
-                viajes_matrices.loc[
-                    viajes_matrices.poly_fin.isin(
-                        cuenca_ids
-                    ),
-                    "Destino",
-                ] = (
-                    viajes_matrices.loc[
-                        viajes_matrices.poly_fin.isin(
-                            cuenca_ids
-                        ),
-                        "Destino",
-                    ]
-                    + " (cuenca)"
-                )
-                viajes_matrices.loc[
-                    viajes_matrices.poly_inicio.isin(
-                        cuenca_ids
-                    ),
-                    "inicio",
-                ] = (
-                    viajes_matrices.loc[
-                        viajes_matrices.poly_inicio.isin(
-                            cuenca_ids
-                        ),
-                        "inicio",
-                    ]
-                    + " (cuenca)"
-                )
-                viajes_matrices.loc[
-                    viajes_matrices.poly_fin.isin(
-                        cuenca_ids
-                    ),
-                    "fin",
-                ] = (
-                    viajes_matrices.loc[
-                        viajes_matrices.poly_fin.isin(
-                            cuenca_ids
-                        ),
-                        "fin",
-                    ]
-                    + " (cuenca)"
-                )
-
-            etapas_agrupadas_zon = etapas_agrupadas_zon.fillna(0)
-
-            if id_polygon == "NONE":
-
-                etapas_agrupadas_zon = etapas_agrupadas_zon.drop(
-                    [
-                        "id_polygon",
-                        "poly_inicio_norm",
-                        "poly_transfer1_norm",
-                        "poly_transfer2_norm",
-                        "poly_fin_norm",
-                    ],
-                    axis=1,
-                )
-
-                viajes_matrices = viajes_matrices.drop(
-                    ["poly_inicio", "poly_fin"], axis=1
-                )
-
-                replace_dash_partition(
-                    ctx, etapas_agrupadas_zon, "agg_etapas", ["dia", "zona"]
-                )
-
-                replace_dash_partition(
-                    ctx, viajes_matrices, "agg_matrices", ["dia", "zona"]
-                )
-            else:
-                replace_dash_partition(
-                    ctx,
-                    etapas_agrupadas_zon,
-                    "poly_etapas",
-                    ["dia", "zona", "id_polygon"],
-                )
-
-                replace_dash_partition(
-                    ctx,
-                    viajes_matrices,
-                    "poly_matrices",
-                    ["dia", "zona", "id_polygon"],
-                )
-
-            del etapas_agrupadas_zon, viajes_matrices
-            gc.collect()
-
-        del etapas_agrupadas
-        gc.collect()
 
 
 @duracion
@@ -2454,31 +1373,16 @@ def proceso_poligonos(
     resoluciones=[6],
     poligon_id="",
 ):
-    logger.info("Procesa polígonos")
-    poligonos = ensure_geodataframe(ctx.insumos.get_raw("poligonos"))
-    if (len(poligonos) > 0) & (poligon_id != ""):
-        poligonos = poligonos[poligonos.id == poligon_id]
-    if len(poligonos) > 0:
+    """Deprecated stub kept for signature compatibility.
 
-        configs = leer_configs_generales(autogenerado=False)
-        res = configs["resolucion_h3"]
-
-        # Select cases based fron polygon
-        etapas_selec, viajes_selec, polygons, polygons_h3 = select_cases_from_polygons(
-            etapas, viajes, poligonos, res=res
-        )
-
-        preparo_lineas_deseo(
-            ctx,
-            etapas_selec,
-            viajes_selec,
-            polygons_h3,
-            poligonos=poligonos,
-            res=resoluciones,
-            zonificaciones=zonificaciones,
-        )
-
-        construyo_indicadores(ctx, viajes_selec, poligonos=True)
+    Polygon filtering moved to on-the-fly dashboard queries over chains_norm
+    + equivalencias_zonas (tipo 'poligono'/'cuenca'). Polygon indicators are
+    produced by construyo_indicadores(ctx, poligonos=True).
+    """
+    logger.info(
+        "proceso_poligonos: skipped — replaced by on-the-fly aggregation "
+        "over chains_norm + equivalencias_zonas."
+    )
 
 
 def _table_exists(port, table: str) -> bool:
@@ -2697,6 +1601,21 @@ def crear_indices_unificados(ctx: StorageContext):
         ],
     )
 
+    _maybe_create(
+        ctx.dash,
+        "chains_norm",
+        [
+            ("idx_chains_dia", ["dia"]),
+            ("idx_chains_od_norm", ["h3_inicio_norm", "h3_fin_norm"]),
+            ("idx_chains_od", ["h3_inicio", "h3_fin"]),
+            ("idx_chains_modo", ["modo_agregado"]),
+            ("idx_chains_rango_hora", ["rango_hora"]),
+            ("idx_chains_tipo_dia", ["tipo_dia"]),
+            ("idx_chains_transferencia", ["transferencia"]),
+            ("idx_chains_distancia", ["distancia_agregada"]),
+        ],
+    )
+
     # =================
     #   INSUMOS
     # =================
@@ -2730,6 +1649,10 @@ def crear_indices_unificados(ctx: StorageContext):
         "equivalencias_zonas",
         [
             ("idx_eqz_h3", ["h3"]),
+            # critical dashboard join: chains_norm h3 -> zone id
+            ("idx_eqz_h3_zona", ["h3", "zona"]),
+            # IN-subqueries filter by zona ('SELECT h3 ... WHERE zona = x')
+            ("idx_eqz_zona_h3", ["zona", "h3"]),
         ],
     )
 
@@ -2779,35 +1702,48 @@ def preparo_indicadores_dash(
     resoluciones=[6],
     poligon_id="",
 ):
+    """Prepare dashboard inputs.
+
+    Builds equivalencias_zonas (config resolution + res 10 for chains_norm),
+    runs the chains_norm pipeline day by day, then computes the non-spatial
+    indicator tables. The lineas_deseo / resoluciones / poligon_id parameters
+    are kept for signature compatibility but no longer drive precomputed tables.
+    """
+    from urbantrips.preparo_dashboard.chains import (
+        procesar_pipeline_por_dia,
+        RES_CHAINS_NORM,
+    )
+    from urbantrips.datamodel.trips import verificar_integridad_viajes_etapas
+
+    # fail fast if viajes is stale relative to etapas: indicators (from
+    # viajes) and chains_norm/maps (from etapas) would silently diverge
+    verificar_integridad_viajes_etapas(ctx)
 
     guardo_zonificaciones(ctx)
 
-    logger.info("Cargando insumos: zonificaciones")
-    zonificaciones = ctx.insumos.get_raw("zonificaciones")
-    logger.info("Cargando insumos: equivalencias_zonas")
-    equivalencias_zonas = ctx.insumos.get_raw("equivalencias_zonas")
+    # one-shot wide -> long migration; no-op when already migrated
+    migrar_equivalencias_zonas(ctx=ctx)
+
+    # refresh the dash copy so dashboards join chains_norm x equivalencias
+    # in a single SQL connection
+    sincronizar_equivalencias_dash(ctx=ctx)
+
+    # build chains_norm (trip-level OD table at res 10 used by all dashboard pages)
+    procesar_pipeline_por_dia(res=RES_CHAINS_NORM, guardar=True, ctx=ctx)
 
     etapas, viajes = load_and_process_data(ctx)
 
-    if lineas_deseo:
-        proceso_lineas_deseo(
-            ctx,
-            etapas=etapas,
-            viajes=viajes,
-            zonificaciones=zonificaciones,
-            equivalencias_zonas=equivalencias_zonas,
-            resoluciones=resoluciones,
-        )
+    resumen_x_linea(ctx, etapas, viajes)
+
+    construyo_indicadores(ctx, viajes, poligonos=False)
 
     if poligonos:
-        proceso_poligonos(
-            ctx,
-            etapas=etapas,
-            viajes=viajes,
-            zonificaciones=zonificaciones,
-            resoluciones=resoluciones,
-            poligon_id=poligon_id,
-        )
+        # trips per polygon are selected on the fly from chains_norm
+        construyo_indicadores(ctx, poligonos=True)
+
+    crea_socio_indicadores(ctx, etapas, viajes)
+
+    guarda_particion_modal(ctx, etapas)
 
     if kpis:
         kpis = calculo_kpi_lineas(

@@ -1,11 +1,17 @@
 """
 Pure DataFrame aggregation and classification helpers for the dashboard preparation layer.
 No DB access — all functions take DataFrames and return DataFrames.
+
+The clasificar_* functions are the single source of truth for the derived
+filter columns (tipo_dia, mes, rango_hora, distancia_agregada, tarifa_agregada,
+genero_agregado, modo_agregado) shared by load_and_process_data and the
+chains_norm pipeline. Keeping them here avoids divergence between the two
+paths (e.g. weekend classification differing between SQL and pandas).
 """
 import logging
 
+import numpy as np
 import pandas as pd
-import unidecode
 
 from urbantrips.utils.utils import calculate_weighted_means
 
@@ -18,39 +24,120 @@ def clasificar_tarifa_agregada_social(serie_tarifa_agregada):
     - 'educacion_jubilacion': incluye escolar, jubilado, pensionado, etc.
     - 'tarifa_social': otras categorías con descuento.
     - 'sin_descuento': valores nulos o vacíos.
+
+    Vectorizada; las raíces buscadas (jubilad, pensionad, escolar) no llevan
+    tilde, por lo que omitir unidecode no cambia el resultado.
     """
-    def normalizar(texto):
-        if pd.isna(texto):
-            return ""
-        return unidecode.unidecode(str(texto).strip().lower())
+    s = serie_tarifa_agregada.fillna("").astype(str).str.strip().str.lower()
 
-    def clasificar(valor):
-        val = normalizar(valor)
-        if val in {"", "-"}:
-            return "sin_descuento"
-        if any(palabra in val for palabra in ["jubilad", "pensionad", "escolar"]):
-            return "educacion_jubilacion"
-        return "tarifa_social"
+    es_vacio = s.isin(["", "-"])
+    es_edu_jub = (
+        s.str.contains("jubilad", na=False)
+        | s.str.contains("pensionad", na=False)
+        | s.str.contains("escolar", na=False)
+    )
 
-    return serie_tarifa_agregada.apply(clasificar)
+    resultado = pd.Series(
+        "tarifa_social", index=serie_tarifa_agregada.index, dtype="object"
+    )
+    resultado[es_edu_jub] = "educacion_jubilacion"
+    resultado[es_vacio] = "sin_descuento"
+    return resultado
 
 
 def clasificar_genero_agregado(serie_genero_agregado):
-    def normalizar(val):
-        if pd.isna(val):
-            return ""
-        return str(val).strip().lower()
+    """Mapea valores crudos de género a Masculino / Femenino / No informado."""
+    s = serie_genero_agregado.fillna("").astype(str).str.strip().str.lower()
 
-    def mapear(val):
-        val = normalizar(val)
-        if val in ["m", "masculino", "varón", "varon", "hombre"]:
-            return "Masculino"
-        elif val in ["f", "femenino", "mujer"]:
-            return "Femenino"
-        else:
-            return "No informado"
+    masculino = s.isin(["m", "masculino", "varón", "varon", "hombre"])
+    femenino = s.isin(["f", "femenino", "mujer"])
 
-    return serie_genero_agregado.apply(mapear)
+    # .tolist() converts numpy.str_ scalars to native str — DuckDB's pandas
+    # scanner rejects numpy.str_ ("Unsupported string type")
+    return pd.Series(
+        np.select(
+            [masculino, femenino],
+            ["Masculino", "Femenino"],
+            default="No informado",
+        ).tolist(),
+        index=serie_genero_agregado.index,
+        dtype="object",
+    )
+
+
+def clasificar_tipo_dia(serie_dia):
+    """'Fin de Semana' (sábado y domingo) / 'Hábil', desde 'YYYY-MM-DD'.
+
+    Clasifica los días únicos y mapea, para no parsear fechas fila a fila.
+    """
+    dias = pd.Series(serie_dia.unique())
+    dow = pd.to_datetime(dias, format="%Y-%m-%d").dt.dayofweek
+    lookup = dict(
+        zip(dias, np.where(dow >= 5, "Fin de Semana", "Hábil").tolist())
+    )
+    return serie_dia.map(lookup)
+
+
+def clasificar_mes(serie_dia):
+    """'YYYY-MM' desde 'YYYY-MM-DD' (mapea sobre días únicos)."""
+    dias = pd.Series(serie_dia.unique())
+    lookup = dict(zip(dias, dias.astype(str).str[:7]))
+    return serie_dia.map(lookup)
+
+
+def clasificar_rango_hora(serie_hora):
+    """Rango horario '0-12' / '13-16' / '17-24' desde la hora entera."""
+    return pd.Series(
+        np.select(
+            [serie_hora.between(13, 16), serie_hora.between(17, 24)],
+            ["13-16", "17-24"],
+            default="0-12",
+        ).tolist(),
+        index=serie_hora.index,
+        dtype="object",
+    )
+
+
+def clasificar_distancia_agregada(serie_distancia, nivel="viaje"):
+    """Etiqueta corto/largo (umbral 5 km) para etapas o viajes."""
+    if nivel == "etapa":
+        largo, corto = "Etapa larga (>5kms)", "Etapa corta (<=5kms)"
+    else:
+        largo, corto = "Viaje largo (>5kms)", "Viaje corto (<=5kms)"
+    dist = pd.to_numeric(serie_distancia, errors="coerce")
+    return pd.Series(
+        np.where(dist > 5, largo, corto).tolist(),
+        index=serie_distancia.index,
+        dtype="object",
+    )
+
+
+def calcular_modo_agregado(etapas, keys=("dia", "id_tarjeta", "id_viaje")):
+    """modo_agregado y transferencia a nivel viaje, desde las etapas.
+
+    modo_agregado: modo único ('colectivo'), 'multietapa (modo)' si el viaje
+    tiene varias etapas del mismo modo, o 'multimodal' si combina modos.
+    transferencia: 1 si el viaje tiene más de una etapa.
+
+    Devuelve un DataFrame keys + [modo_agregado, transferencia].
+    """
+    keys = list(keys)
+    agg = etapas.groupby(keys, sort=False).agg(
+        n_unique=("modo", "nunique"),
+        n_etapas=("modo", "size"),
+        modo_ref=("modo", "first"),
+    )
+    agg["modo_agregado"] = np.where(
+        agg["n_unique"] == 1,
+        np.where(
+            agg["n_etapas"] > 1,
+            "multietapa (" + agg["modo_ref"].astype(str) + ")",
+            agg["modo_ref"],
+        ),
+        "multimodal",
+    ).tolist()
+    agg["transferencia"] = (agg["n_etapas"] > 1).astype("int8")
+    return agg[["modo_agregado", "transferencia"]].reset_index()
 
 
 def format_values(row):

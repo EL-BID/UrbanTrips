@@ -22,6 +22,11 @@ from urbantrips.utils.dataframe import normalize_vars, calculate_weighted_means 
 
 logger = logging.getLogger(__name__)
 
+# Single speed-outlier cap (km/h) shared by every speed metric (kmh_od,
+# kmh_route, kmh_route_gps, travel_speed) at leg, trip and chain level.
+# Values at or above the cap are treated as missing (NaN) and excluded from
+# weighted means. 80 covers commuter-rail door-to-door OD speeds in AMBA.
+VELOCIDAD_MAXIMA_KMH = 80
 
 
 def leer_alias(tipo="data"):
