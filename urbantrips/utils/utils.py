@@ -539,9 +539,16 @@ def levanto_tabla_sql(
     conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)        
+        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
         tabla = tabla.drop(["wkt"], axis=1)
-    if "geometry" in tabla.columns:
+    if "geometry" in tabla.columns and not tabla.empty:
+        # La columna 'geometry' puede venir como texto WKT (convención de
+        # save_raw del pipeline para poligonos/zonificaciones); en ese caso
+        # hay que parsearla antes de construir el GeoDataFrame.
+        if tabla["geometry"].map(lambda g: isinstance(g, str)).any():
+            tabla["geometry"] = tabla["geometry"].apply(
+                lambda x: wkt.loads(x) if isinstance(x, str) and x.strip() else x
+            )
         tabla = gpd.GeoDataFrame(
             tabla,
             geometry="geometry",

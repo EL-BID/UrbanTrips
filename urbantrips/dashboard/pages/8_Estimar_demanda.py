@@ -26,6 +26,11 @@ from dash_utils import (
 from shapely.ops import linemerge
 from urbantrips.utils.utils import guardar_tabla_sql
 from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
+from urbantrips.carto.equivalencias import (
+    construir_equivalencias_zonas,
+    upsert_equivalencias_zonas,
+)
+from urbantrips.preparo_dashboard.chains import RES_CHAINS_NORM
 from urbantrips.utils.check_configs import check_config
 from urbantrips.kpi.line_od_matrix import compute_line_od_matrix
 from urbantrips.kpi.kpi import compute_section_load_table
@@ -1184,63 +1189,47 @@ with st.expander("Polígono de análisis de cuenca"):
     drawn_poli_id = st.session_state["drawn_poli_id"]
 
     if st.button("Procesar polígono"):
-        st.write(
-            "Procesando polígono del recorrido para análisis de cuenca. Esto puede tomar unos minutos..."
-        )
-        # Agregar resultado al geojson de poligonos
-        poligonos = levanto_tabla_sql_local("poligonos", "insumos")
-
-        if len(poligonos) > 0:
-            poligonos["wkt"] = poligonos.geometry.map(lambda g: g.wkt)
-        
         drawn_poli_id = st.session_state["drawn_poli_id"]
-        st.write("Polígono: "+drawn_poli_id)
-        # drawn_poli_id = "estimacion de demanda dibujada"
+        st.write("Procesando polígono de cuenca: " + drawn_poli_id)
 
-        
-        drawn_poli = gdf.copy()
-        drawn_poli["id"] = drawn_poli_id
-        drawn_poli["tipo"] = "cuenca"
-        drawn_poli["wkt"] = drawn_poli.geometry.map(lambda g: g.wkt)
+        # Geometría del polígono = buffer dibujado de la línea (gdf)
+        poly_gdf = gdf.copy()
+        poly_gdf["id"] = drawn_poli_id
+        poly_gdf["tipo"] = "cuenca"
+        poly_gdf = poly_gdf.reindex(columns=["id", "tipo", "geometry"])
+        if poly_gdf.crs is None:
+            poly_gdf = poly_gdf.set_crs(4326)
 
-        poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
+        # --- 1) Upsert de la geometría del polígono en la tabla 'poligonos' ---
+        # Se preserva el contorno para los mapas. Se reemplaza solo este id.
+        poligonos = levanto_tabla_sql_local("poligonos", "insumos")
+        if len(poligonos) > 0:
+            poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
+        poligonos_out = pd.concat([poligonos, poly_gdf], ignore_index=True)
+        st.write("Guardando geometría del polígono en base de insumos")
+        guardar_tabla_sql(poligonos_out, "poligonos", "insumos", modo="replace")
 
-        drawn_poli = pd.concat([poligonos, drawn_poli], ignore_index=True)
-        drawn_poli = drawn_poli.reindex(columns=["id", "tipo", "wkt"])
-
-        st.write("Guardando poligono en base de insumos")
-
-        guardar_tabla_sql(drawn_poli, "poligonos", "insumos", modo="replace")
-                
-        st.write("Corriendo cuencas para Polígonos ...")
-
-        
-        # for corrida_tmp in corridas:
-        #     st.write('Corrida', corrida_tmp)
-        #     preparo_indicadores_dash(
-        #         lineas_deseo=False,
-        #         poligonos=True,
-        #         kpis=False,
-        #         corrida=corrida_tmp,
-        #         resoluciones=[6],
-        #         poligon_id=drawn_poli_id,
-        #     )
-        
-        
-        from urbantrips.utils.run_process import _build_ctx
-        ctx = _build_ctx()
-
-        preparo_indicadores_dash(
-            ctx,
-            lineas_deseo=False,
-            poligonos=True,
-            kpis=False,
-            corrida=None,
-            resoluciones=[6],
-            poligon_id=drawn_poli_id,
+        # --- 2) Construir equivalencias_zonas (formato largo) para el polígono ---
+        # Mismas resoluciones que el pipeline (resolucion_h3 + RES_CHAINS_NORM),
+        # para que los joins del dashboard funcionen en todas las capas.
+        resoluciones = sorted({int(configs["resolucion_h3"]), RES_CHAINS_NORM})
+        equiv = construir_equivalencias_zonas(
+            gdf_poligonos=poly_gdf,
+            resoluciones=resoluciones,
+            modo_poligonos="overlap",
         )
-        
-        
+
+        # --- 3) Upsert en equivalencias_zonas (borra solo este polígono y lo
+        # reescribe, preservando el resto) en insumos y en la copia dash. ---
+        st.write(
+            f"Actualizando equivalencias_zonas: {len(equiv)} celdas H3 para "
+            f"'{drawn_poli_id}'"
+        )
+        upsert_equivalencias_zonas(equiv, db_path="insumos")
+        upsert_equivalencias_zonas(equiv, db_path="dash")
 
         st.cache_data.clear()
-        st.write("Datos procesados, puede ver los patrones en el apartado Polígonos")
+        st.success(
+            f"Polígono '{drawn_poli_id}' procesado. "
+            "Puede ver los patrones en el apartado Polígonos."
+        )
