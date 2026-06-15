@@ -108,9 +108,9 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
 @st.cache_data
 def traigo_mes_dia():
     mes_dia = levanto_tabla_sql_local(
-        "etapas_agregadas",
+        "chains_norm",
         "dash",
-        "SELECT DISTINCT mes, tipo_dia FROM etapas_agregadas;",
+        "SELECT DISTINCT mes, tipo_dia FROM chains_norm;",
     )
     mes = mes_dia.mes.values.tolist()
     tipo_dia = mes_dia.tipo_dia.values.tolist()    
@@ -1201,12 +1201,15 @@ with st.expander("Polígono de análisis de cuenca"):
 
         # --- 1) Upsert de la geometría del polígono en la tabla 'poligonos' ---
         # Se preserva el contorno para los mapas. Se reemplaza solo este id.
+        # insumos es la fuente; dash es el espejo que lee el dashboard
+        # (pages/3_Poligonos lee poligonos desde 'dash').
         poligonos = levanto_tabla_sql_local("poligonos", "insumos")
         if len(poligonos) > 0:
             poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
         poligonos_out = pd.concat([poligonos, poly_gdf], ignore_index=True)
-        st.write("Guardando geometría del polígono en base de insumos")
-        guardar_tabla_sql(poligonos_out, "poligonos", "insumos", modo="replace")
+        st.write("Guardando geometría del polígono en insumos y dash")
+        for _tabla_tipo in ("insumos", "dash"):
+            guardar_tabla_sql(poligonos_out, "poligonos", _tabla_tipo, modo="replace")
 
         # --- 2) Construir equivalencias_zonas (formato largo) para el polígono ---
         # Mismas resoluciones que el pipeline (resolucion_h3 + RES_CHAINS_NORM),
