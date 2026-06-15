@@ -246,7 +246,60 @@ def upsert_equivalencias_zonas(equiv_nuevo, ctx=None, db_path="insumos"):
         return
 
     from urbantrips.dashboard.dash_utils import levanto_tabla_sql, guardar_tabla_sql
+    from urbantrips.utils.utils import iniciar_conexion_db
 
+    # ¿La tabla ya existe y está en formato long?
+    try:
+        cols = list(
+            levanto_tabla_sql(
+                "equivalencias_zonas",
+                db_path,
+                query="SELECT * FROM equivalencias_zonas LIMIT 0",
+            ).columns
+        )
+    except Exception:
+        cols = []
+
+    cols_eq = ["h3", "zona", "id", "tipo", "res"]
+    conn = iniciar_conexion_db(tipo=db_path) if "zona" in cols else None
+
+    # Fast path (DuckDB, tabla long): DELETE de las zonas afectadas + INSERT
+    # incremental SIN dropear el índice. Sobre millones de filas, recrear el
+    # índice para un delta chico es ~175x más lento (DuckDB mantiene el índice
+    # ART en el insert). Evita además leer/reescribir la tabla entera.
+    if conn is not None and hasattr(conn, "register"):
+        try:
+            placeholders = ", ".join(["?"] * len(zonas_nuevas))
+            conn.execute(
+                f"DELETE FROM equivalencias_zonas WHERE zona IN ({placeholders})",
+                zonas_nuevas,
+            )
+            conn.register("equiv_nuevo_tmp", equiv_nuevo.reindex(columns=cols_eq))
+            conn.execute(
+                "INSERT INTO equivalencias_zonas (h3, zona, id, tipo, res) "
+                "SELECT h3, zona, id, tipo, res FROM equiv_nuevo_tmp"
+            )
+            conn.unregister("equiv_nuevo_tmp")
+        finally:
+            conn.close()
+        return
+
+    if conn is not None:
+        conn.close()
+
+    # SQLite long: DELETE + append (guardar_tabla_sql dropea/recrea índices).
+    if "zona" in cols:
+        guardar_tabla_sql(
+            equiv_nuevo,
+            "equivalencias_zonas",
+            db_path,
+            filtros={"zona": zonas_nuevas},
+            modo="append",
+        )
+        return
+
+    # Fallback (tabla vacía/inexistente o en formato wide legacy): migrar a
+    # long y reescribir entera.
     existentes = levanto_tabla_sql("equivalencias_zonas", db_path)
     existentes = _asegurar_formato_long(existentes)
     if len(existentes) > 0:
