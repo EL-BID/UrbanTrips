@@ -967,6 +967,33 @@ def _coords_zona_poligono(id_polygon, zona_seleccionada):
     return df.groupby("id", as_index=False)[["lat", "lon"]].mean()
 
 
+@st.cache_data
+def _coords_poligono_centro(id_polygon):
+    """Single centroid of the analysis polygon.
+
+    Mean centroid of all the polygon's H3 cells (zona = id_polygon). Used for
+    tipo 'poligono', where every in-polygon endpoint collapses to one point
+    (urbantrips_viejo behaviour: the whole polygon is a single origin/
+    destination). For tipo 'cuenca' use _coords_zona_poligono instead, which
+    keeps one centroid per zone the basin crosses. Returns (lat, lon) or
+    (nan, nan) when unavailable.
+    """
+    if id_polygon in (None, "", "NONE"):
+        return (np.nan, np.nan)
+    query = (
+        "SELECT DISTINCT h3 FROM equivalencias_zonas "
+        f"WHERE zona = '{_sql_txt(id_polygon)}'"
+    )
+    df = levanto_tabla_sql("equivalencias_zonas", "dash", query=query)
+    if len(df) == 0:
+        return (np.nan, np.nan)
+    latlng = [h3.cell_to_latlng(c) for c in df["h3"] if h3.is_valid_cell(c)]
+    if not latlng:
+        return (np.nan, np.nan)
+    return (float(np.mean([p[0] for p in latlng])),
+            float(np.mean([p[1] for p in latlng])))
+
+
 def decorar_etapas_matrices(
     etapas_all, matrices_all, zona_seleccionada, zonificaciones, id_polygon="NONE"
 ):
@@ -995,24 +1022,36 @@ def decorar_etapas_matrices(
     lon_map = dict(zip(coords["id"], coords["lon"]))
     orden_map = dict(zip(coords["id"], coords["orden_id"]))
 
+    # ' (cuenca)' endpoints: one centroid per zone the basin crosses.
     coords_poly = _coords_zona_poligono(id_polygon, zona_seleccionada)
     lat_map_poly = dict(zip(coords_poly["id"], coords_poly["lat"]))
     lon_map_poly = dict(zip(coords_poly["id"], coords_poly["lon"]))
+    # ' (poligono)' endpoints: a single point, the polygon's centroid.
+    lat_centro, lon_centro = _coords_poligono_centro(id_polygon)
 
     def _lat_lon(serie_full):
-        """(lat, lon) Series: suffixed names use the polygon centroid (with
-        fallback to the full-zone one); plain names use the full-zone one."""
+        """(lat, lon) Series chosen by the endpoint's suffix:
+        - ' (cuenca)': per-zone centroid restricted to basin∩zone
+          (_coords_zona_poligono), fallback full-zone;
+        - ' (poligono)': the single polygon centroid (_coords_poligono_centro),
+          fallback full-zone;
+        - plain name: the full-zone representative point.
+        """
         base = _base_zona(serie_full)
-        con_sufijo = pd.Series(
-            np.asarray(_sufijo_zona(serie_full)) != "", index=serie_full.index
-        )
+        suf = np.asarray(_sufijo_zona(serie_full))
+        es_cuenca = pd.Series(suf == " (cuenca)", index=serie_full.index)
+        es_polig = pd.Series(suf == " (poligono)", index=serie_full.index)
+
         lat = base.map(lat_map)
         lon = base.map(lon_map)
-        lat_p = base.map(lat_map_poly).fillna(lat)
-        lon_p = base.map(lon_map_poly).fillna(lon)
-        lat = lat.where(~con_sufijo, lat_p).fillna(0)
-        lon = lon.where(~con_sufijo, lon_p).fillna(0)
-        return lat, lon
+        # cuenca: per-zone restricted centroid
+        lat = lat.where(~es_cuenca, base.map(lat_map_poly).fillna(lat))
+        lon = lon.where(~es_cuenca, base.map(lon_map_poly).fillna(lon))
+        # poligono: single polygon centroid (only if available)
+        if not np.isnan(lat_centro):
+            lat = lat.where(~es_polig, lat_centro)
+            lon = lon.where(~es_polig, lon_centro)
+        return lat.fillna(0), lon.fillna(0)
 
     if len(etapas_all) > 0:
         for n, col in enumerate(
