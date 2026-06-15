@@ -9,374 +9,27 @@ import plotly.express as px
 from shapely import wkt
 from dash_utils import (
     levanto_tabla_sql,
-    levanto_tabla_sql_local,
     get_logo,
     create_data_folium,
-    traigo_indicadores,
     extract_hex_colors_from_cmap,
-    iniciar_conexion_db,
     normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
-    traigo_tablas_con_filtros,
     configurar_selector_dia,
-    get_h3_indices_in_geometry,
+    build_where_clauses,
+    traer_dias_chains,
+    traer_opciones_chains,
+    traer_lineas_chains,
+    condicion_zona_sql,
+    traer_etapas_matrices_sql,
+    traer_etapas_matrices_linea,
+    viajes_con_origen_en_zona,
+    etapas_por_linea_en_zona,
+    viajes_entre_zonas_sql,
+    etapas_entre_zonas_sql,
+    crear_mapa_lineas_deseo,
 )
-from shapely.geometry import Polygon, MultiPolygon
 from datetime import datetime
-
-
-def _hex_to_rgba(hex_color: str, alpha: int = 200) -> list:
-    h = hex_color.lstrip("#")
-    return [int(h[i : i + 2], 16) for i in (0, 2, 4)] + [alpha]
-
-
-def obtener_clases_fisherjenks(
-    df: pd.DataFrame, var_fex: str, max_clases: int = 5, min_clases: int = 1
-):
-    """
-    Determina un número óptimo de clases usando Fisher-Jenks, ajustándose si hay pocos valores únicos.
-
-    Parámetros:
-        - df (pd.DataFrame): DataFrame con la columna a clasificar.
-        - var_fex (str): Nombre de la columna de valores.
-        - max_clases (int): Número máximo de clases.
-        - min_clases (int): Número mínimo de clases.
-
-    Retorna:
-        - list: Lista de bins clasificados.
-    """
-    unique_values = df[var_fex].nunique()
-    k = min(max_clases, max(min_clases, unique_values))
-
-    while k >= min_clases:
-        try:
-            bins = [df[var_fex].min() - 1] + mapclassify.FisherJenks(
-                df[var_fex], k=k
-            ).bins.tolist()
-            return bins
-        except ValueError:
-            k -= 1
-
-    # Si no se puede clasificar, devolver un bin único
-    return [df[var_fex].min() - 1, df[var_fex].max()]
-
-
-def simplificar_geometrias(df: pd.DataFrame, tolerance: float = 0.001):
-    """Simplifica las geometrías para mejorar el rendimiento."""
-    if "geometry" in df.columns:
-        df["geometry"] = df["geometry"].simplify(tolerance, preserve_topology=True)
-    return df
-
-
-def traigo_viajes_linea(
-    zona_seleccionada,
-    dia_seleccionado,
-    nombre_linea,
-    zonificaciones,
-    filtro_seleccion1="",
-    filtro_seleccion2="",
-    zona_filtro_seleccion1="",
-    zona_filtro_seleccion2="",
-):
-    zonif = zonificaciones.loc[
-        zonificaciones.zona == zona_seleccionada, ["id", "orden", "geometry"]
-    ].copy()
-    zonif["geometry"] = zonif.geometry.representative_point()
-    zonif["lon"] = zonif.geometry.x
-    zonif["lat"] = zonif.geometry.y
-    zonif["orden_id"] = (
-        zonif.orden.astype(int).astype(str).str.zfill(3) + "_" + zonif.id
-    )
-
-    var_o = f"{zona_seleccionada}_o"
-    var_d = f"{zona_seleccionada}_d"
-
-    query = f"select * from etapas_agregadas where dia=='{dia_seleccionado}' and nombre_linea=='{nombre_linea}'"
-
-    f1, f2 = "", ""
-    if (filtro_seleccion1 != "Todos") & (filtro_seleccion2 != "Todos"):
-        f1 = f" ({filtro_seleccion1}_o = '{zona_filtro_seleccion1}' and {filtro_seleccion2}_d = '{zona_filtro_seleccion2}') "
-        f2 = f" ({filtro_seleccion2}_o = '{zona_filtro_seleccion2}' and {filtro_seleccion1}_d = '{zona_filtro_seleccion1}') "
-
-    elif filtro_seleccion1 != "Todos":
-        f1 = f" ({filtro_seleccion1}_o = '{zona_filtro_seleccion1}' or {filtro_seleccion1}_d = '{zona_filtro_seleccion1}') "
-
-    elif filtro_seleccion2 != "Todos":
-        f2 = f" ({filtro_seleccion2}_o = '{zona_filtro_seleccion2}' or {filtro_seleccion2}_d = '{zona_filtro_seleccion2}') "
-
-    if f1 and f2:
-        query += " and (" + f1 + " or " + f2 + ")"
-    elif f1:
-        query += " and" + f1
-    elif f2:
-        query += " and" + f2
-    print(query)
-    etapas_agregadas = levanto_tabla_sql("etapas_agregadas", "dash", query=query)
-
-    et1 = etapas_agregadas[etapas_agregadas[var_o] <= etapas_agregadas[var_d]].copy()
-    et2 = etapas_agregadas[etapas_agregadas[var_o] > etapas_agregadas[var_d]].copy()
-    et1[f"{var_o}_norm"] = et1[f"{var_o}"]
-    et1[f"{var_d}_norm"] = et1[f"{var_d}"]
-    et2[f"{var_o}_norm"] = et2[f"{var_d}"]
-    et2[f"{var_d}_norm"] = et2[f"{var_o}"]
-    etapas_agregadas = pd.concat([et1, et2], ignore_index=True)
-    etapas_agregadas = etapas_agregadas.merge(
-        zonif[["id", "orden_id", "lat", "lon"]].rename(
-            columns={
-                "id": f"{var_o}_norm",
-                "orden_id": "Origen",
-                "lat": "lat1_norm",
-                "lon": "lon1_norm",
-            }
-        ),
-        how="left",
-    )
-    etapas_agregadas = etapas_agregadas.merge(
-        zonif[["id", "orden_id", "lat", "lon"]].rename(
-            columns={
-                "id": f"{var_d}_norm",
-                "orden_id": "Destino",
-                "lat": "lat4_norm",
-                "lon": "lon4_norm",
-            }
-        ),
-        how="left",
-    )
-
-    etapas_agregadas = etapas_agregadas.rename(
-        columns={
-            f"{var_o}": "inicio",
-            f"{var_d}": "fin",
-            f"{var_o}_norm": "inicio_norm",
-            f"{var_d}_norm": "fin_norm",
-        }
-    )
-
-    etapas_agregadas["zona"] = zona_seleccionada
-    etapas_agregadas["transferencia"] = 99
-    etapas_agregadas["modo_agregado"] = 99
-    etapas_agregadas["rango_hora"] = 99
-    etapas_agregadas["genero_agregado"] = 99
-    etapas_agregadas["tarifa_agregada"] = 99
-    etapas_agregadas["distancia_agregada"] = 99
-    etapas_agregadas["distance_od"] = 0
-    etapas_agregadas["travel_time_min"] = 0
-    etapas_agregadas["kmh_od"] = 0
-    etapas_agregadas["id_polygon"] = "NONE"
-
-    return etapas_agregadas
-
-
-def crear_mapa_lineas_deseo(
-    df_viajes: pd.DataFrame,
-    df_etapas: pd.DataFrame,
-    zonif: pd.DataFrame,
-    origenes: pd.DataFrame,
-    destinos: pd.DataFrame,
-    transferencias: pd.DataFrame,
-    var_fex: str,
-    cmap_viajes: str = "viridis_r",
-    cmap_etapas: str = "magma_r",
-    cmap_puntos: str = "YlOrRd",
-    map_title: str = "",
-    savefile: str = "",
-    k_jenks: int = 5,
-    latlon: list = None,
-    tipo_visualizacion: str = "Líneas",
-) -> pdk.Deck:
-    """
-    Crea un mapa interactivo con pydeck (WebGL) para viajes, etapas, orígenes, destinos y transferencias.
-    Misma lógica de clasificación Fisher-Jenks que la versión folium, con mayor rendimiento de renderizado.
-
-    Retorna:
-        - pdk.Deck: Mapa interactivo pydeck.
-    """
-
-    if len(df_viajes) > 0:
-        df_viajes = df_viajes[df_viajes["geometry"].notna()]
-    if len(df_etapas) > 0:
-        df_etapas = df_etapas[df_etapas["geometry"].notna()]
-
-    print(datetime.now(), "simplificar geometrias", len(df_viajes), len(df_etapas))
-    df_etapas, df_viajes, origenes, destinos, transferencias = [
-        simplificar_geometrias(df)
-        for df in [df_etapas, df_viajes, origenes, destinos, transferencias]
-    ]
-    print(datetime.now(), "fin simplificar geometrias", len(df_viajes), len(df_etapas))
-
-    layers = []
-
-    def agregar_capa_lineas(df, nombre, var_fex, cmap, weight_base=0.5):
-        if len(df) == 0:
-            return
-
-        bins = obtener_clases_fisherjenks(df, var_fex)
-        n_bins = len(bins) - 1
-        colors_hex = extract_hex_colors_from_cmap(cmap="viridis_r", n=k_jenks)
-
-        df = df.copy()
-        df["_bin"] = pd.cut(
-            df[var_fex], bins=bins, labels=False, include_lowest=True
-        ).fillna(0).astype(int).clip(0, n_bins - 1)
-
-        # Colores full-alpha: la opacidad se controla a nivel de layer, no de feature.
-        # Esto evita el problema de blending de WebGL con transparencia por feature.
-        color_map = {i: _hex_to_rgba(colors_hex[i], 255) for i in range(n_bins)}
-        # Curva exponencial: bin 0 casi invisible (8%), bin n-1 completamente opaco (100%)
-        opacity_map = {
-            i: round(0.08 + (i / max(n_bins - 1, 1)) ** 2 * 0.92, 3)
-            for i in range(n_bins)
-        }
-
-        df["color"] = df["_bin"].map(color_map)
-        df["label"] = nombre
-
-        # depthTest=False fuerza orden de pintado estricto por posición en el array de layers,
-        # sin que el depth buffer de WebGL interfiera con la transparencia.
-        DEPTH_OFF = {"depthTest": False}
-
-        if tipo_visualizacion == "Arcos":
-            df["src_lon"] = df.geometry.apply(lambda g: round(g.coords[0][0], 6))
-            df["src_lat"] = df.geometry.apply(lambda g: round(g.coords[0][1], 6))
-            df["tgt_lon"] = df.geometry.apply(lambda g: round(g.coords[-1][0], 6))
-            df["tgt_lat"] = df.geometry.apply(lambda g: round(g.coords[-1][1], 6))
-            # Origen más tenue para efecto degradado a lo largo del arco
-            src_color_map = {i: _hex_to_rgba(colors_hex[i], 60) for i in range(n_bins)}
-            df["color_src"] = df["_bin"].map(src_color_map)
-            width_map = {i: max(1, int(weight_base + i * 1.5)) for i in range(n_bins)}
-            df["width"] = df["_bin"].map(width_map)
-
-            cols = ["src_lon", "src_lat", "tgt_lon", "tgt_lat",
-                    "color_src", "color", "width", "_bin", "label", var_fex]
-            pdk_df = df[cols].copy()
-
-            for bin_idx in range(n_bins):
-                subset = pdk_df[pdk_df["_bin"] == bin_idx]
-                if len(subset) == 0:
-                    continue
-                layers.append(
-                    pdk.Layer(
-                        "ArcLayer",
-                        subset,
-                        get_source_position=["src_lon", "src_lat"],
-                        get_target_position=["tgt_lon", "tgt_lat"],
-                        get_source_color="color_src",
-                        get_target_color="color",
-                        get_width="width",
-                        opacity=opacity_map[bin_idx],
-                        parameters=DEPTH_OFF,
-                        pickable=True,
-                        auto_highlight=True,
-                    )
-                )
-        else:
-            width_map = {i: max(100, int((weight_base + i * 3) * 200)) for i in range(n_bins)}
-            df["width"] = df["_bin"].map(width_map)
-            df["path"] = df.geometry.apply(
-                lambda g: [[round(p[0], 6), round(p[1], 6)] for p in g.coords]
-            )
-
-            cols = ["path", "color", "width", "_bin", "label", var_fex]
-            pdk_df = df[cols].copy()
-
-            for bin_idx in range(n_bins):
-                subset = pdk_df[pdk_df["_bin"] == bin_idx]
-                if len(subset) == 0:
-                    continue
-                layers.append(
-                    pdk.Layer(
-                        "PathLayer",
-                        subset,
-                        get_path="path",
-                        get_color="color",
-                        get_width="width",
-                        width_min_pixels=1,
-                        opacity=opacity_map[bin_idx],
-                        parameters=DEPTH_OFF,
-                        pickable=True,
-                        auto_highlight=True,
-                    )
-                )
-
-    def agregar_capa_puntos(df, nombre, var_fex, cmap):
-        if len(df) == 0:
-            return
-
-        colors_hex = extract_hex_colors_from_cmap(cmap=cmap, n=10)
-        df = df.copy()
-        max_val = df[var_fex].max()
-        min_val = df[var_fex].min()
-
-        if max_val > min_val:
-            df["_cidx"] = (
-                (df[var_fex] - min_val) / (max_val - min_val) * 9
-            ).astype(int).clip(0, 9)
-        else:
-            df["_cidx"] = 0
-
-        df["color"] = df["_cidx"].apply(lambda i: _hex_to_rgba(colors_hex[i]))
-        df["lon"] = df.geometry.x
-        df["lat"] = df.geometry.y
-        # Radio en metros proporcional al valor (equivale al radius de folium en píxeles)
-        df["radius"] = 300 + (df[var_fex] / max_val) * 1500
-        df["label"] = nombre
-
-        pdk_df = df[["lon", "lat", "color", "radius", "label", var_fex]].copy()
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                pdk_df,
-                get_position=["lon", "lat"],
-                get_fill_color="color",
-                get_radius="radius",
-                radius_min_pixels=5,
-                pickable=True,
-                auto_highlight=True,
-            )
-        )
-
-    agregar_capa_lineas(df_etapas, "Etapas", var_fex, cmap_etapas, weight_base=0.5)
-    agregar_capa_lineas(df_viajes, "Viajes", var_fex, cmap_viajes, weight_base=0.5)
-    agregar_capa_puntos(origenes, "Orígenes", var_fex, cmap_puntos)
-    agregar_capa_puntos(destinos, "Destinos", var_fex, cmap_puntos)
-    agregar_capa_puntos(transferencias, "Transferencias", var_fex, cmap_puntos)
-
-    if len(zonif) > 0:
-        zonif_json = json.loads(zonif.to_json())
-        # Inyectar "label" en cada feature para que el tooltip compartido muestre el id de zona
-        for feature in zonif_json.get("features", []):
-            props = feature.get("properties", {})
-            props["label"] = props.get("id", "")
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer",
-                data=zonif_json,
-                id="zonas",
-                stroked=True,
-                filled=True,
-                get_fill_color=[0, 0, 255, 0],
-                get_line_color=[0, 0, 128, 180],
-                line_width_min_pixels=1,
-                pickable=True,
-                auto_highlight=True,
-            )
-        )
-
-    if not layers:
-        return None
-
-    view_state = pdk.ViewState(latitude=latlon[0], longitude=latlon[1], zoom=9)
-
-    return pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        map_style="light",
-        tooltip={
-            "html": "<b>{label}</b><br/>{" + var_fex + "}",
-            "style": {"backgroundColor": "rgba(0,0,0,0.75)", "color": "white", "padding": "6px 10px", "borderRadius": "4px"},
-        },
-    )
 
 
 # Función para detectar cambios
@@ -391,6 +44,12 @@ alias_seleccionado = configurar_selector_dia()
 logo = get_logo()
 st.image(logo)
 
+# Defaults for variables defined inside the data-gated block below, so the
+# Matrices / Zonas expanders don't raise NameError when chains_norm is empty.
+dia_seleccionado = "Todos"
+filtro_seleccion1 = filtro_seleccion2 = "Todos"
+zona_filtro_seleccion1 = zona_filtro_seleccion2 = None
+
 with st.expander("Líneas de Deseo", expanded=True):
 
     col1, col2, col3 = st.columns([1, 7, 1])
@@ -402,6 +61,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         "lista_etapas",
         "matrices_all",
         "etapas_all",
+        "where_extra",
         "etapas",
         "viajes",
         "matriz",
@@ -442,17 +102,11 @@ with st.expander("Líneas de Deseo", expanded=True):
         if var not in st.session_state:
             st.session_state[var] = False
 
-    st.session_state.lista_etapas = levanto_tabla_sql(
-        "socio_indicadores", "dash", "SELECT DISTINCT dia FROM socio_indicadores;"
-    )
-    st.session_state.lista_etapas = [
-        "Todos"
-    ] + st.session_state.lista_etapas.dia.unique().tolist()
+    # Selector de días desde chains_norm
+    st.session_state.lista_etapas = ["Todos"] + traer_dias_chains()
 
-    if len(st.session_state.lista_etapas) > 0:
-        zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
-
-        equivalencias_zonas = levanto_tabla_sql("equivalencias_zonas", "insumos")
+    if len(st.session_state.lista_etapas) > 1:
+        zonificaciones = levanto_tabla_sql("zonificaciones", "dash")
 
         socio_indicadores = levanto_tabla_sql("socio_indicadores", "dash")
         if "Genero" not in socio_indicadores.columns:
@@ -460,31 +114,14 @@ with st.expander("Líneas de Deseo", expanded=True):
         if "Tarifa" not in socio_indicadores.columns:
             socio_indicadores["Tarifa"] = "-"
 
-        # lista_tipo_dia = levanto_tabla_sql('agg_etapas', 'dash', 'SELECT DISTINCT tipo_dia FROM agg_etapas;')
-        lista_zonas = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT zona FROM agg_etapas;"
-        ).sort_values("zona")
-        lista_modos_agregados = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT modo_agregado FROM agg_etapas;"
-        )
-        lista_rango_hora = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT rango_hora FROM agg_etapas;"
-        )
-        lista_distancia_db = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT distancia_agregada FROM agg_etapas;"
-        )
+        # Selectores desde chains_norm + zonificaciones
         lista_zonas = traigo_lista_zonas("etapas")
-        lista_genero_agregado = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT genero_agregado FROM agg_etapas;"
-        )
-        lista_tarifa_agregada = levanto_tabla_sql(
-            "agg_etapas", "dash", "SELECT DISTINCT tarifa_agregada FROM agg_etapas;"
-        )
-        lista_nombre_linea = levanto_tabla_sql(
-            "etapas_agregadas",
-            "dash",
-            "SELECT DISTINCT nombre_linea FROM etapas_agregadas ORDER BY nombre_linea;",
-        )
+        lista_modos = ["Todos"] + traer_opciones_chains("modo_agregado")
+        lista_rango_hora = ["Todos"] + traer_opciones_chains("rango_hora")
+        lista_distancia = ["Todas"] + traer_opciones_chains("distancia_agregada")
+        lista_genero_agregado = ["Todos"] + traer_opciones_chains("genero_agregado")
+        lista_tarifa_agregada = ["Todos"] + traer_opciones_chains("tarifa_agregada")
+        lista_transfer = ["Todos", "Con transferencia", "Sin transferencia"]
 
         # Inicializar valores de `st.session_state` solo si no existen
         if "last_filters" not in st.session_state:
@@ -508,34 +145,11 @@ with st.expander("Líneas de Deseo", expanded=True):
             st.session_state.data_cargada = False
 
         valores_zonas = lista_zonas.zona.unique().tolist()
-        lista_distancia = ["Todas"] + lista_distancia_db[
-            lista_distancia_db.distancia_agregada != "99"
-        ].distancia_agregada.unique().tolist()
-        lista_transfer = ["Todos", "Con transferencia", "Sin transferencia"]
-        lista_modos = ["Todos"] + lista_modos_agregados[
-            lista_modos_agregados.modo_agregado != "99"
-        ].modo_agregado.unique().tolist()
-        lista_rango_hora = ["Todos"] + lista_rango_hora[
-            lista_rango_hora.rango_hora != "99"
-        ].rango_hora.unique().tolist()
-
-        lista_genero_agregado = ["Todos"] + lista_genero_agregado[
-            lista_genero_agregado.genero_agregado != "99"
-        ].genero_agregado.unique().tolist()
-
-        lista_tarifa_agregada = ["Todos"] + lista_tarifa_agregada[
-            lista_tarifa_agregada.tarifa_agregada != "99"
-        ].tarifa_agregada.unique().tolist()
-
-        lista_nombre_linea = [
-            "Todas"
-        ] + lista_nombre_linea.nombre_linea.unique().tolist()
 
         # Opciones de los filtros en Streamlit
         dia_seleccionado = col1.selectbox(
             "Día", options=st.session_state.lista_etapas, index=1
         )
-        # tipo_dia_seleccionado = col1.selectbox('Tipo día', options=lista_tipo_dia.tipo_dia.unique())
         zona_seleccionada = col1.selectbox("Zonificación", options=valores_zonas)
 
         transfer_seleccionado = col1.selectbox("Transferencias", options=lista_transfer)
@@ -545,7 +159,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         rango_hora_seleccionado = col1.selectbox(
             "Rango hora", options=[text for text in lista_rango_hora]
         )
-        distancia_seleccionada = col1.selectbox("distance_od", options=lista_distancia)
+        distancia_seleccionada = col1.selectbox("Distancia", options=lista_distancia)
         genero_agregado_seleccionado = col1.selectbox(
             "Género", options=[text for text in lista_genero_agregado]
         )
@@ -593,7 +207,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         )
 
         nombre_linea_seleccionado = col3.selectbox(
-            "Línea", options=["Todas"] + lista_nombre_linea
+            "Línea", options=["Todas"] + traer_lineas_chains()
         )
 
         col3.write("Mostrar:")
@@ -609,15 +223,11 @@ with st.expander("Líneas de Deseo", expanded=True):
             ":red[Transferencias]", value=False
         )
 
-        # zonificacion_seleccion = col3.checkbox(
-        #     'Mostrar zonificación', value=True)
-
         zona_mostrar = col3.selectbox(
             "Mostrar zonificación",
             options=valores_zonas + ["Ninguna"],
             index=index_zona,
         )
-        # if zonificacion_seleccion:
 
         if zona_mostrar != "Ninguna":
             zonif = zonificaciones[zonificaciones.zona == zona_mostrar]
@@ -703,172 +313,53 @@ with st.expander("Líneas de Deseo", expanded=True):
         # Solo cargar datos si hay cambios en los filtros
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
 
-            query = ""
-            conditions = " AND ".join(
-                f"{key} = '{value}'"
-                for key, value in current_filters.items()
-                if (value is not None)
-                & (key != "filtro_seleccion1")
-                & (key != "filtro_seleccion2")
-                & (key != "zona_filtro_seleccion1")
-                & (key != "zona_filtro_seleccion2")
-                & (key != "zona_filtro_seleccion1")
-                & (key != "tipo_filtro")
-                & (key != "lineas_principales")
-                & (key != "alias_seleccionado")
-            )
-            if conditions:
-                query += f" WHERE {conditions}"
+            # WHERE opcional sobre chains_norm con los filtros del usuario
+            filters = {
+                "modo_agregado": current_filters["modo_agregado"],
+                "rango_hora": current_filters["rango_hora"],
+                "transferencia": current_filters["transferencia"],
+                "distancia_agregada": current_filters["distancia_agregada"],
+                "genero_agregado": current_filters["genero_agregado"],
+                "tarifa_agregada": current_filters["tarifa_agregada"],
+            }
+            where_extra = build_where_clauses(filters)
+            st.session_state.where_extra = where_extra
 
-            conditions_etapas1 = ""
-            conditions_matrices1 = ""
-            st.session_state["zona_1"] = []
-
+            # Filtros adicionales por zona (sobre cualquier zonificación),
+            # resueltos como condiciones SQL sobre chains_norm
+            condiciones = ""
             if filtro_seleccion1 != "Todos":
-
-                if tipo_filtro == "OD y Transferencias":
-                    conditions_etapas1 = f" AND (inicio_norm = '{filtro_seleccion1}' OR transfer1_norm = '{filtro_seleccion1}' OR transfer2_norm = '{filtro_seleccion1}' OR fin_norm = '{filtro_seleccion1}')"
-                else:
-                    conditions_etapas1 = f" AND (inicio_norm = '{filtro_seleccion1}' OR fin_norm = '{filtro_seleccion1}')"
-
-                conditions_matrices1 = f" AND (inicio = '{filtro_seleccion1}' OR fin = '{filtro_seleccion1}')"
-
-                # Obtener la geometría filtrada
-                geometry = zonificaciones[
-                    (zonificaciones.zona == zona_filtro_seleccion1)
-                    & (zonificaciones.id == filtro_seleccion1)
-                ].geometry.values[0]
-
-                # Inicializar una lista para almacenar los índices H3
-                h3_indices_total = []
-
-                # Verificar el tipo de geometría
-                if isinstance(geometry, Polygon):
-                    # Si es un Polygon, procesarlo directamente
-                    h3_indices = get_h3_indices_in_geometry(geometry, 8)
-                    h3_indices_total.extend(h3_indices)
-                elif isinstance(geometry, MultiPolygon):
-                    # Si es un MultiPolygon, iterar sobre cada Polygon
-                    for poly in geometry.geoms:
-                        h3_indices = get_h3_indices_in_geometry(poly, 8)
-                        h3_indices_total.extend(h3_indices)
-                else:
-                    st.error(
-                        "La geometría proporcionada no es un Polygon ni un MultiPolygon."
-                    )
-
-                # Extender los índices H3 en el estado de la sesión
-                st.session_state["zona_1"] = []
-                st.session_state["zona_1"].extend(h3_indices_total)
-
-            conditions_etapas2 = ""
-            conditions_matrices2 = ""
-            st.session_state["zona_2"] = []
-
+                condiciones += condicion_zona_sql(
+                    zona_filtro_seleccion1, filtro_seleccion1, tipo_filtro
+                )
             if filtro_seleccion2 != "Todos":
-                if tipo_filtro == "OD y Transferencias":
-                    conditions_etapas2 = f" AND (inicio_norm = '{filtro_seleccion2}' OR transfer1_norm = '{filtro_seleccion2}' OR transfer2_norm = '{filtro_seleccion2}' OR fin_norm = '{filtro_seleccion2}')"
-                else:
-                    conditions_etapas2 = f" AND (inicio_norm = '{filtro_seleccion2}' OR fin_norm = '{filtro_seleccion2}')"
-
-                conditions_matrices2 = f" AND (inicio = '{filtro_seleccion2}' OR fin = '{filtro_seleccion2}')"
-                geometry = zonificaciones[
-                    (zonificaciones.zona == zona_filtro_seleccion2)
-                    & (zonificaciones.id == filtro_seleccion2)
-                ].geometry.values[0]
-
-                # Inicializar una lista para almacenar los índices H3
-                h3_indices_total = []
-
-                # Verificar el tipo de geometría
-                if isinstance(geometry, Polygon):
-                    # Si es un Polygon, procesarlo directamente
-                    h3_indices = get_h3_indices_in_geometry(geometry, 8)
-                    h3_indices_total.extend(h3_indices)
-                elif isinstance(geometry, MultiPolygon):
-                    # Si es un MultiPolygon, iterar sobre cada Polygon
-                    for poly in geometry.geoms:
-                        h3_indices = get_h3_indices_in_geometry(poly, 8)
-                        h3_indices_total.extend(h3_indices)
-                else:
-                    st.error(
-                        "La geometría proporcionada no es un Polygon ni un MultiPolygon."
-                    )
-
-                # Extender los índices H3 en el estado de la sesión
-                st.session_state["zona_2"] = []
-                st.session_state["zona_2"].extend(h3_indices_total)
-
-            query_etapas = query + conditions_etapas1 + conditions_etapas2
-            query_matrices = query + conditions_matrices1 + conditions_matrices2
+                condiciones += condicion_zona_sql(
+                    zona_filtro_seleccion2, filtro_seleccion2, tipo_filtro
+                )
 
             if nombre_linea_seleccionado != "Todas":
-                if (
-                    (transfer_seleccionado != "Todos")
-                    or (modo_seleccionado != "Todos")
-                    or (rango_hora_seleccionado != "Todos")
-                    or (distancia_seleccionada != "Todas")
-                    or (genero_agregado_seleccionado != "Todos")
-                    or (tarifa_agregada_seleccionado != "Todos")
-                ):
-                    col2.write(
-                        'Las variables de selección: Transferencias, Modos, Rango Hora, Distancia, Género y Tarifa deben estar en modo "Todos"'
-                    )
-
-                    agg_etapas = pd.DataFrame([])
-                    agg_matrices = pd.DataFrame([])
-                    st.session_state.etapas_all = pd.DataFrame([])
-                    st.session_state.matrices_all = pd.DataFrame([])
-
-                else:
-                    agg_etapas = traigo_viajes_linea(
-                        zona_seleccionada,
-                        dia_seleccionado,
-                        nombre_linea_seleccionado,
-                        zonificaciones,
-                        filtro_seleccion1,
-                        filtro_seleccion2,
-                        zona_filtro_seleccion1,
-                        zona_filtro_seleccion2,
-                    )
-
-                    agg_matrices = agg_etapas.copy()
-                    st.session_state.etapas_all = agg_etapas.copy()
-                    st.session_state.matrices_all = agg_matrices.copy()
-
-            elif ((filtro_seleccion1 != "Todos") | (filtro_seleccion2 != "Todos")) & (
-                (zona_seleccionada != zona_filtro_seleccion1)
-                | (zona_seleccionada != zona_filtro_seleccion2)
-            ):
-
-                agg_etapas, agg_matrices = traigo_tablas_con_filtros(
-                    dia_seleccionado,
+                # nivel etapa de la línea seleccionada (semántica del viejo
+                # traigo_viajes_linea: pares OD de las etapas de esa línea)
+                etapas_all, matrices_all = traer_etapas_matrices_linea(
                     zona_seleccionada,
-                    zona_filtro_seleccion1,
-                    filtro_seleccion1,
-                    zona_filtro_seleccion2,
-                    filtro_seleccion2,
-                    tipo_filtro,
-                    equivalencias_zonas,
                     zonificaciones,
+                    nombre_linea_seleccionado,
+                    dia_seleccionado,
+                    where_extra,
+                    condiciones,
                 )
-                st.session_state.etapas_all = agg_etapas.copy()
-                st.session_state.matrices_all = agg_matrices.copy()
-
             else:
-
-                st.session_state.etapas_all = levanto_tabla_sql_local(
-                    "agg_etapas",
-                    tabla_tipo="dash",
-                    query=f"SELECT * FROM agg_etapas{query_etapas}",
+                # join + GROUP BY dentro de la base dash (una sola conexión)
+                etapas_all, matrices_all = traer_etapas_matrices_sql(
+                    zona_seleccionada,
+                    zonificaciones,
+                    dia_seleccionado,
+                    where_extra,
+                    condiciones,
                 )
-                print(query_matrices)
 
-                st.session_state.matrices_all = levanto_tabla_sql_local(
-                    "agg_matrices",
-                    tabla_tipo="dash",
-                    query=f"SELECT * FROM agg_matrices{query_matrices}",
-                )
+            st.session_state.etapas_all = etapas_all
+            st.session_state.matrices_all = matrices_all
 
             if len(st.session_state.matrices_all) != 0:
 
@@ -898,40 +389,16 @@ with st.expander("Líneas de Deseo", expanded=True):
                     .round(2)
                 )
 
-                if transfer_seleccionado == "Todos":
-                    st.session_state.desc_transfers = True
-                else:
-                    st.session_state.desc_transfers = False
-
-                if modo_seleccionado == "Todos":
-                    st.session_state.desc_modos = True
-                else:
-                    st.session_state.desc_modos = False
-
-                if rango_hora_seleccionado == "Todos":
-                    st.session_state.desc_horas = True
-                else:
-                    st.session_state.desc_horas = False
-
-                if nombre_linea_seleccionado == "Todos":
-                    st.session_state.desc_nombre_linea = True
-                else:
-                    st.session_state.desc_nombre_linea = False
-
-                if distancia_seleccionada == "Todas":
-                    st.session_state.desc_distancia = True
-                else:
-                    st.session_state.desc_distancia = False
-
-                if genero_agregado_seleccionado == "Todos":
-                    st.session_state.desc_genero_agregado = True
-                else:
-                    st.session_state.desc_genero_agregado = False
-
-                if tarifa_agregada_seleccionado == "Todos":
-                    st.session_state.desc_tarifa_agregada = True
-                else:
-                    st.session_state.desc_tarifa_agregada = False
+                st.session_state.desc_transfers = transfer_seleccionado == "Todos"
+                st.session_state.desc_modos = modo_seleccionado == "Todos"
+                st.session_state.desc_horas = rango_hora_seleccionado == "Todos"
+                st.session_state.desc_distancia = distancia_seleccionada == "Todas"
+                st.session_state.desc_genero_agregado = (
+                    genero_agregado_seleccionado == "Todos"
+                )
+                st.session_state.desc_tarifa_agregada = (
+                    tarifa_agregada_seleccionado == "Todos"
+                )
 
                 st.session_state.agg_cols_etapas = [
                     "zona",
@@ -959,6 +426,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 ]
 
         if len(st.session_state.etapas_all) == 0:
+            st.session_state.last_filters = current_filters.copy()
             col2.write("No hay datos para mostrar")
         else:
 
@@ -1080,6 +548,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                         col2.write(st.session_state.viajes)
             else:
                 col2.text("No hay datos suficientes para mostrar el mapa.")
+    else:
+        st.write("No hay datos en chains_norm para mostrar")
 
 
 with st.expander("Matrices"):
@@ -1117,13 +587,12 @@ with st.expander("Matrices"):
         mmatriz_ = col1.checkbox("Mostrar tabla", value=False, key="mmatriz_")
         st.session_state.mmatriz = mmatriz_
         col1.write(f"Día: {dia_seleccionado}")
-        # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
 
         col1.write(
                 'Cantidad total de viajes: ' +
                 f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
             )
-        
+
         col1.write(f"Transferencias: {transfer_seleccionado}")
         col1.write(f"Modos: {modo_seleccionado}")
         col1.write(f"Rango hora: {rango_hora_seleccionado}")
@@ -1131,7 +600,7 @@ with st.expander("Matrices"):
         col1.write(f"Genero: {genero_agregado_seleccionado}")
         col1.write(f"Tarifa: {tarifa_agregada_seleccionado}")
 
-        if nombre_linea_seleccionado != "Todos":
+        if nombre_linea_seleccionado != "Todas":
             col1.write(f"Línea: {nombre_linea_seleccionado}")
 
         if tipo_matriz == "Distancia promedio (kms)":
@@ -1178,11 +647,6 @@ with st.expander("Matrices"):
 
         fig.update_coloraxes(showscale=False)
 
-        # fig.update_xaxes(title_font=dict(size=16))
-        # fig.update_yaxes(title_font=dict(size=16))
-        # fig.update_xaxes(tickfont=dict(size=14), tickangle=-45, automargin=True)
-        # fig.update_yaxes(tickfont=dict(size=14), automargin=True)
-
         if len(od_heatmap) <= 30:
             fig.update_layout(width=1100, height=1100, font=dict(size=10))
             fig.update_traces(textfont=dict(size=12))
@@ -1201,323 +665,131 @@ with st.expander("Matrices"):
 
 with st.expander("Zonas", expanded=False):
     col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 2])
-    zona1 = st.session_state["zona_1"]
-    zona2 = st.session_state["zona_2"]
 
-    if len(zona1) > 0:
-        query1 = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_filtro_seleccion1}_o = '{filtro_seleccion1}');"
-        etapas1 = levanto_tabla_sql_local(
-            "etapas_agregadas", tabla_tipo="dash", query=query1
+    where_extra = st.session_state.get("where_extra", "")
+
+    # Igual que urbantrips_viejo: Etapas = etapas (por línea) con origen de
+    # la etapa en la zona; Viajes = viajes (por modo) con origen del viaje
+    # en la zona (ambos direccionales).
+    for filtro_zona, zonif_zona, col_e, col_v in [
+        (filtro_seleccion1, zona_filtro_seleccion1, col2, col3),
+        (filtro_seleccion2, zona_filtro_seleccion2, col4, col5),
+    ]:
+        if filtro_zona == "Todos":
+            continue
+
+        etapas_z = etapas_por_linea_en_zona(
+            dia_seleccionado, where_extra, zonif_zona, filtro_zona
+        )
+        viajes_z = viajes_con_origen_en_zona(
+            dia_seleccionado, where_extra, zonif_zona, filtro_zona
         )
 
-        if len(etapas1) > 0:
-            etapas1["Zona_1"] = "Zona 1"
+        col_e.markdown(
+            f"""
+            <h3 style='font-size:22px;'>{filtro_zona}</h3>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            ## Viajes
-            query1 = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND {zona_filtro_seleccion1}_o = '{filtro_seleccion1}';"
-            viajes1 = levanto_tabla_sql_local(
-                "viajes_agregados", tabla_tipo="dash", query=query1
+        if len(etapas_z) > 0:
+            etapas_z = etapas_z.rename(
+                columns={"nombre_linea": "Línea", "factor_expansion_linea": "Etapas"}
             )
-            viajes1["Zona_1"] = "Zona 1"
-
-            modos_e1 = (
-                etapas1.groupby(["modo", "nombre_linea"], as_index=False)
-                .factor_expansion_linea.sum()
-                .rename(
-                    columns={
-                        "factor_expansion_linea": "Etapas",
-                        "nombre_linea": "Línea",
-                        "modo": "Modo",
-                    }
-                )
+            total_e = pd.DataFrame(
+                {"Línea": ["Total"], "Etapas": [etapas_z["Etapas"].sum()]}
             )
+            etapas_z = pd.concat([etapas_z, total_e], ignore_index=True)
+            etapas_z["Etapas"] = etapas_z["Etapas"].round()
+            col_e.write("Etapas (origen de la etapa en la zona)")
+            col_e.dataframe(etapas_z.set_index("Línea"), height=400, width=400)
 
-            modos_v1 = (
-                viajes1.groupby(["modo"], as_index=False)
-                .factor_expansion_linea.sum()
-                .rename(columns={"factor_expansion_linea": "Viajes", "modo": "Modo"})
+        if len(viajes_z) > 0:
+            viajes_z = viajes_z.rename(
+                columns={"modo_agregado": "Modo", "factor_expansion_linea": "Viajes"}
             )
-
-            # Calculate the total and append as a new row
-            total_row1e = pd.DataFrame(
-                {
-                    "Modo": ["Total"],
-                    "Línea": ["-"],
-                    "Etapas": [modos_e1["Etapas"].sum()],
-                }
+            total_v = pd.DataFrame(
+                {"Modo": ["Total"], "Viajes": [viajes_z["Viajes"].sum()]}
             )
-            modos_e1 = pd.concat([modos_e1, total_row1e], ignore_index=True)
-
-            # Calculate the total and append as a new row
-            total_row1 = pd.DataFrame(
-                {"Modo": ["Total"], "Viajes": [modos_v1["Viajes"].sum()]}
-            )
-            modos_v1 = pd.concat([modos_v1, total_row1], ignore_index=True)
-
-            col2.markdown(
-                f"""
-                <h3 style='font-size:22px;'>{filtro_seleccion1}</h3>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            col2.write("Etapas")
-            modos_e1["Etapas"] = modos_e1["Etapas"].round()
-            col2.dataframe(modos_e1.set_index("Modo"), height=400, width=400)
-
-            col3.markdown(
-                f"""
+            viajes_z = pd.concat([viajes_z, total_v], ignore_index=True)
+            viajes_z["Viajes"] = viajes_z["Viajes"].round()
+            col_v.markdown(
+                """
                 <h3 style='font-size:22px;'></h3>
                 """,
                 unsafe_allow_html=True,
             )
-            col3.write("Viajes")
-            modos_v1["Viajes"] = modos_v1["Viajes"].round()
-            col3.dataframe(modos_v1.set_index("Modo"), height=400, width=300)
+            col_v.write("Viajes (origen del viaje en la zona)")
+            col_v.dataframe(viajes_z.set_index("Modo"), height=400, width=300)
 
-    if len(zona2) > 0:
-
-        query2 = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_filtro_seleccion2}_o = '{filtro_seleccion2}');"
-        etapas2 = levanto_tabla_sql_local(
-            "etapas_agregadas", tabla_tipo="dash", query=query2
-        )
-
-        if len(etapas2) > 0:
-
-            ## Etapas
-            if len(etapas2) > 0:
-                etapas2["Zona_2"] = "Zona 2"
-
-                ## Viajes
-                query2 = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND {zona_filtro_seleccion2}_o = '{filtro_seleccion2}';"
-                viajes2 = levanto_tabla_sql_local(
-                    "viajes_agregados", tabla_tipo="dash", query=query2
-                )
-                viajes2["Zona_2"] = "Zona 2"
-
-                modos_e2 = (
-                    etapas2.groupby(["modo", "nombre_linea"], as_index=False)
-                    .factor_expansion_linea.sum()
-                    .rename(
-                        columns={
-                            "factor_expansion_linea": "Etapas",
-                            "nombre_linea": "Línea",
-                            "modo": "Modo",
-                        }
-                    )
-                )
-
-                modos_v2 = (
-                    viajes2.groupby(["modo"], as_index=False)
-                    .factor_expansion_linea.sum()
-                    .rename(
-                        columns={"factor_expansion_linea": "Viajes", "modo": "Modo"}
-                    )
-                )
-                # Calculate the total and append as a new row
-                total_row2e = pd.DataFrame(
-                    {
-                        "Modo": ["Total"],
-                        "Línea": ["-"],
-                        "Etapas": [modos_e2["Etapas"].sum()],
-                    }
-                )
-                modos_e2 = pd.concat([modos_e2, total_row2e], ignore_index=True)
-
-                # Calculate the total and append as a new row
-                total_row2 = pd.DataFrame(
-                    {"Modo": ["Total"], "Viajes": [modos_v2["Viajes"].sum()]}
-                )
-                modos_v2 = pd.concat([modos_v2, total_row2], ignore_index=True)
-
-                col4.markdown(
-                    f"""
-                        <h3 style='font-size:22px;'>{filtro_seleccion2}</h3>
-                        """,
-                    unsafe_allow_html=True,
-                )
-                col4.write("Etapas")
-                modos_e2["Etapas"] = modos_e2["Etapas"].round()
-                col4.dataframe(modos_e2.set_index("Modo"), height=400, width=400)
-
-                modos_v2["Viajes"] = modos_v2["Viajes"].round()
-                col5.markdown(
-                    f"""
-                    <h3 style='font-size:22px;'></h3>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                col5.write("Viajes")
-                col5.dataframe(modos_v2.set_index("Modo"), height=400, width=300)
 
 with st.expander("Viajes entre zonas", expanded=True):
     col1, col2, col3 = st.columns([1, 2, 4])
 
-    transferencias_modos = pd.DataFrame([])
-    modos_e = pd.DataFrame([])
-    modos_v = pd.DataFrame([])
-    transferencias = pd.DataFrame([])
-    zonasod_e = pd.DataFrame([])
-    zonasod_v = pd.DataFrame([])
+    where_extra = st.session_state.get("where_extra", "")
 
-    if len(zona1) > 0 and len(zona2) > 0:
+    if filtro_seleccion1 != "Todos" and filtro_seleccion2 != "Todos":
 
         col1.write(f"Día: {dia_seleccionado}")
-        # col1.write(f'Tipo día: {tipo_dia_seleccionado}')
         col1.write(f"Zona 1: {filtro_seleccion1}")
         col1.write(f"Zona 2: {filtro_seleccion2}")
 
-        ## Etapas
-        h3_values = [filtro_seleccion1, filtro_seleccion2]
-        h3_values = ", ".join(f"'{valor}'" for valor in h3_values)
-        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:
-            query = f"SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
-        else:
-            query = f"""SELECT * FROM etapas_agregadas WHERE dia = '{dia_seleccionado}' AND
-                        ((({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values}))) AND 
-                         (({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values}))));"""
-
-        etapas = levanto_tabla_sql_local(
-            "etapas_agregadas", tabla_tipo="dash", query=query
+        entre_zonas = viajes_entre_zonas_sql(
+            dia_seleccionado,
+            where_extra,
+            zona_filtro_seleccion1,
+            filtro_seleccion1,
+            zona_filtro_seleccion2,
+            filtro_seleccion2,
         )
 
-        if len(etapas) > 0:
-
-            etapas["Zona_1"] = ""
-            etapas["Zona_2"] = ""
-            etapas.loc[etapas.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-            etapas.loc[etapas.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-            etapas.loc[etapas.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-            etapas.loc[etapas.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
-            etapas = etapas[
-                (etapas.Zona_1 != "")
-                & (etapas.Zona_2 != "")
-                & (etapas.Zona_1 != etapas.Zona_2)
-            ]
-
-            etapas = etapas.fillna("")
-
-            zonasod_e = (
-                etapas.groupby(["Zona_1", "Zona_2"], as_index=False)
-                .factor_expansion_linea.sum()
-                .rename(columns={"factor_expansion_linea": "Etapas"})
-            )  # .round()
-            zonasod_e["Etapas"] = zonasod_e["Etapas"].apply(lambda x: f"{int(x):,}")
-
-            zonasod_e["Zonas"] = zonasod_e["Zona_1"] + " - " + zonasod_e["Zona_2"]
-            zonasod_e = zonasod_e[["Zonas", "Etapas"]]
-
-            modos_e = (
-                etapas.groupby(["modo", "nombre_linea"], as_index=False)
-                .factor_expansion_linea.sum()
-                .rename(
-                    columns={
-                        "factor_expansion_linea": "Viajes",
-                        "nombre_linea": "Líneas",
-                        "modo": "Modo",
-                    }
-                )
-            )  # .round()
-
-        ## Viajes
-        h3_values = [filtro_seleccion1, filtro_seleccion2]
-        h3_values = ", ".join(f"'{valor}'" for valor in h3_values)
-        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:
-            query = f"SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
-        else:
-            query = f"""SELECT * FROM viajes_agregados WHERE dia = '{dia_seleccionado}' AND 
-                        (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) 
-                           AND ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
-
-        viajes = levanto_tabla_sql_local(
-            "viajes_agregados", tabla_tipo="dash", query=query
+        etapas_ez = etapas_entre_zonas_sql(
+            dia_seleccionado,
+            where_extra,
+            zona_filtro_seleccion1,
+            filtro_seleccion1,
+            zona_filtro_seleccion2,
+            filtro_seleccion2,
         )
 
-        if len(viajes) > 0:
-
-            viajes["Zona_1"] = ""
-            viajes["Zona_2"] = ""
-            viajes.loc[viajes.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-            viajes.loc[viajes.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-            viajes.loc[viajes.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-            viajes.loc[viajes.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
-            viajes = viajes[
-                (viajes.Zona_1 != "")
-                & (viajes.Zona_2 != "")
-                & (viajes.Zona_1 != viajes.Zona_2)
-            ]
-
+        if len(entre_zonas) > 0:
             zonasod_v = (
-                viajes.groupby(["Zona_1", "Zona_2"], as_index=False)
+                entre_zonas.groupby(["Zona_1", "Zona_2"], as_index=False)
                 .factor_expansion_linea.sum()
                 .rename(columns={"factor_expansion_linea": "Viajes"})
             )
-
             zonasod_v["Zonas"] = zonasod_v["Zona_1"] + " - " + zonasod_v["Zona_2"]
             zonasod_v = zonasod_v[["Zonas", "Viajes"]]
             zonasod_v["Viajes"] = zonasod_v["Viajes"].apply(lambda x: f"{int(x):,}")
 
             modos_v = (
-                viajes.groupby(["modo"], as_index=False)
+                entre_zonas.groupby(["modo_agregado"], as_index=False)
                 .factor_expansion_linea.sum()
-                .rename(columns={"factor_expansion_linea": "Viajes", "modo": "Modo"})
-            )
-
-            if len(modos_v) > 0:
-                # Calculate the total and append as a new row
-                total_row = pd.DataFrame(
-                    {"Modo": ["Total"], "Viajes": [modos_v["Viajes"].sum()]}
+                .rename(
+                    columns={"factor_expansion_linea": "Viajes", "modo_agregado": "Modo"}
                 )
-                modos_v = pd.concat([modos_v, total_row], ignore_index=True)
-                modos_v["Viajes"] = modos_v["Viajes"].apply(lambda x: f"{int(x):,}")
-
-        # Transferencias
-        h3_values = [filtro_seleccion1, filtro_seleccion2]
-        h3_values = ", ".join(f"'{valor}'" for valor in h3_values)
-        if zona_seleccionada == zona_filtro_seleccion1 == zona_filtro_seleccion2:
-            query = f"SELECT * FROM transferencias_agregadas WHERE dia = '{dia_seleccionado}' AND ({zona_seleccionada}_o IN ({h3_values}) OR {zona_seleccionada}_d IN ({h3_values}));"
-        else:
-            query = f"""SELECT * FROM transferencias_agregadas WHERE dia = '{dia_seleccionado}' AND 
-            (({zona_filtro_seleccion1}_o IN ({h3_values}) OR {zona_filtro_seleccion1}_d IN ({h3_values})) AND
-             ({zona_filtro_seleccion2}_o IN ({h3_values}) OR {zona_filtro_seleccion2}_d IN ({h3_values})));"""
-
-        transferencias = levanto_tabla_sql_local(
-            "transferencias_agregadas", tabla_tipo="dash", query=query
-        )
-
-        if len(transferencias) > 0:
-
-            transferencias["Zona_1"] = ""
-            transferencias["Zona_2"] = ""
-            transferencias.loc[transferencias.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-            transferencias.loc[transferencias.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-            transferencias.loc[transferencias.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-            transferencias.loc[transferencias.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
-            transferencias = transferencias[
-                (transferencias.Zona_1 != "")
-                & (transferencias.Zona_2 != "")
-                & (transferencias.Zona_1 != transferencias.Zona_2)
-            ]
-
-            transferencias = transferencias.fillna("")
+            )
+            total_row = pd.DataFrame(
+                {"Modo": ["Total"], "Viajes": [modos_v["Viajes"].sum()]}
+            )
+            modos_v = pd.concat([modos_v, total_row], ignore_index=True)
+            modos_v["Viajes"] = modos_v["Viajes"].apply(lambda x: f"{int(x):,}")
 
             transferencias = (
-                transferencias.groupby(["modo", "seq_lineas"], as_index=False)
+                entre_zonas[entre_zonas.seq_lineas != ""]
+                .groupby(["modo_agregado", "seq_lineas"], as_index=False)
                 .factor_expansion_linea.sum()
                 .rename(
                     columns={
                         "factor_expansion_linea": "Viajes",
-                        "modo": "Modo",
+                        "modo_agregado": "Modo",
                         "seq_lineas": "Líneas",
                     }
                 )
                 .sort_values("Viajes", ascending=False)
             )
-
-            # Calculate the total and append as a new row
             if len(transferencias) > 0:
-                total_rowe = pd.DataFrame(
+                total_rowt = pd.DataFrame(
                     {
                         "Modo": ["Total"],
                         "Líneas": ["-"],
@@ -1525,34 +797,40 @@ with st.expander("Viajes entre zonas", expanded=True):
                     }
                 )
                 transferencias = pd.concat(
-                    [transferencias, total_rowe], ignore_index=True
+                    [transferencias, total_rowt], ignore_index=True
                 )
                 transferencias["Viajes"] = transferencias["Viajes"].apply(
                     lambda x: f"{int(x):,}"
                 )
 
-        # Muestro resultados en el dashboard
+            col2.write("Etapas")
+            if len(etapas_ez) > 0:
+                zonasod_e = (
+                    etapas_ez.groupby(["Zona_1", "Zona_2"], as_index=False)
+                    .factor_expansion_linea.sum()
+                    .rename(columns={"factor_expansion_linea": "Etapas"})
+                )
+                zonasod_e["Zonas"] = (
+                    zonasod_e["Zona_1"] + " - " + zonasod_e["Zona_2"]
+                )
+                zonasod_e = zonasod_e[["Zonas", "Etapas"]]
+                zonasod_e["Etapas"] = zonasod_e["Etapas"].apply(
+                    lambda x: f"{int(x):,}"
+                )
+                col2.dataframe(zonasod_e.set_index("Zonas"), height=100, width=300)
+            else:
+                col2.write("No hay datos para mostrar")
 
-        col2.write("Etapas")
-        if len(zonasod_e) > 0:
-            col2.dataframe(zonasod_e.set_index("Zonas"), height=100, width=300)
-        else:
-            col2.write("No hay datos para mostrar")
-
-        col2.write("Viajes")
-        if len(zonasod_v):
+            col2.write("Viajes")
             col2.dataframe(zonasod_v.set_index("Zonas"), height=100, width=300)
-        else:
-            col2.write("No hay datos para mostrar")
 
-        col2.write("Modal")
-        if len(modos_v) > 0:
+            col2.write("Modal")
             col2.dataframe(modos_v.set_index("Modo"), height=300, width=300)
+
+            col3.write("Viajes por líneas")
+            if len(transferencias) > 0:
+                col3.dataframe(transferencias.set_index("Modo"), height=700, width=800)
+            else:
+                col3.write("No hay datos para mostrar")
         else:
             col2.write("No hay datos para mostrar")
-
-        col3.write("Viajes por líneas")
-        if len(transferencias) > 0:
-            col3.dataframe(transferencias.set_index("Modo"), height=700, width=800)
-        else:
-            col3.write("No hay datos para mostrar")

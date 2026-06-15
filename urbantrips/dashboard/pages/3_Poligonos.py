@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-import folium
-from streamlit_folium import st_folium
-import mapclassify
+import pydeck as pdk
 import plotly.express as px
-from folium import Figure
-from shapely import wkt
 import numpy as np
 from dash_storage import normalize_vars
 from dash_utils import (
@@ -15,224 +11,19 @@ from dash_utils import (
     get_logo,
     create_data_folium,
     traigo_indicadores,
-    extract_hex_colors_from_cmap,
     traigo_lista_zonas,
     configurar_selector_dia,
-    calcular_bins,
+    build_where_clauses,
+    traer_dias_chains,
+    traer_opciones_chains,
+    condicion_zona_sql,
+    condicion_poligono_sql,
+    traer_etapas_matrices_sql,
+    crear_mapa_lineas_deseo,
+    bring_latlon,
 )
 
-from streamlit_folium import folium_static
-
-import mapclassify
-
-import numpy as np
 from collections import OrderedDict
-
-
-def crear_mapa_poligonos(
-    df_viajes,
-    df_etapas,
-    poly,
-    zonif,
-    origenes,
-    destinos,
-    var_fex,
-    cmap_viajes="Blues",
-    cmap_etapas="Greens",
-    map_title="",
-    savefile="",
-    k_jenks=5,
-    show_poly=False,
-):
-
-    m = ""
-    if (
-        (len(df_viajes) > 0)
-        | (len(df_etapas) > 0)
-        | (len(origenes) > 0)
-        | (len(destinos) > 0)
-    ):
-
-        fig = Figure(width=800, height=600)
-        m = folium.Map(
-            location=[
-                poly.geometry.representative_point().y.mean(),
-                poly.geometry.representative_point().x.mean(),
-            ],
-            zoom_start=9,
-            tiles="cartodbpositron",
-        )
-
-        colors_viajes = extract_hex_colors_from_cmap(cmap="viridis_r", n=k_jenks)
-        colors_etapas = extract_hex_colors_from_cmap(cmap="magma_r", n=k_jenks)
-
-        # Etapas
-        line_w = 0.5
-        if len(df_etapas) > 0:
-
-            # bins = calcular_bins(df_etapas, var_fex, 5)
-
-            # range_bins = range(0, len(bins) - 1)
-            # bins_labels = [
-            #     f"{int(bins[n])} a {int(bins[n+1])} etapas" for n in range_bins
-            # ]
-            # df_etapas["cuts"] = pd.cut(
-            #     df_etapas[var_fex], bins=bins, labels=bins_labels
-            # )
-
-            df_etapas, bins_labels = calcular_bins(df_etapas, var_fex, 5)
-
-            n = 0
-            for i in bins_labels:
-
-                df_etapas[df_etapas.cuts == i].explore(
-                    m=m,
-                    color=colors_etapas[n],
-                    style_kwds={"fillOpacity": 0.1, "weight": line_w},
-                    name=i,
-                    tooltip=False,
-                )
-                n += 1
-                line_w += 3
-
-        # Viajes
-        line_w = 0.5
-        if len(df_viajes) > 0:
-
-            # bins = calcular_bins(df_viajes, var_fex, 5)
-
-            # range_bins = range(0, len(bins) - 1)
-
-            # bins_limpios = sorted(set(
-            #     0 if pd.isna(b) or np.isinf(b) else b
-            #     for b in bins
-            # ))
-
-            # # 3. Crear etiquetas seguras
-            # bins_labels = [
-            #     f"{int(bins_limpios[n])} a {int(bins_limpios[n+1])} viajes"
-            #     for n in range(len(bins_limpios) - 1)
-            # ]
-
-            # # 4. Cortar y asignar categorías
-            # df_viajes["cuts"] = pd.cut(
-            #     df_viajes[var_fex],
-            #     bins=bins_limpios,
-            #     labels=bins_labels,
-            #     include_lowest=True
-            # )
-            df_viajes, bins_labels = calcular_bins(df_viajes, var_fex, 5)
-
-            n = 0
-            for i in bins_labels:
-
-                df_viajes[df_viajes.cuts == i].explore(
-                    m=m,
-                    color=colors_viajes[n],
-                    style_kwds={"fillOpacity": 0.1, "weight": line_w},
-                    name=i,
-                    tooltip=False,
-                )
-                n += 1
-                line_w += 3
-
-        if len(origenes) > 0:
-
-            # bins = calcular_bins(origenes, var_fex, 5)
-
-            # range_bins = range(0, len(bins) - 1)
-            # bins_labels = [
-            #     f"{int(bins[n])} a {int(bins[n+1])} origenes" for n in range_bins
-            # ]
-
-            # origenes["cuts"] = pd.cut(
-            #     origenes[var_fex], bins=bins, labels=bins_labels
-            # )
-            origenes, bins_labels = calcular_bins(origenes, var_fex, 5)
-
-            n = 0
-            line_w = 10
-            for i in bins_labels:
-
-                origenes[origenes.cuts == i].explore(
-                    m=m,
-                    # color=colors_origenes[n],
-                    color="#0173b299",
-                    style_kwds={"fillOpacity": 0.1, "weight": line_w},
-                    name=i,
-                    tooltip=False,
-                )
-                n += 1
-                line_w += 5
-
-        if len(destinos) > 0:
-
-            # bins = calcular_bins(destinos, var_fex, 5)
-
-            # range_bins = range(0, len(bins) - 1)
-            # bins_labels = [
-            #     f"{int(bins[n])} a {int(bins[n+1])} destinos" for n in range_bins
-            # ]
-
-            # destinos["cuts"] = pd.cut(
-            #     destinos[var_fex], bins=bins, labels=bins_labels
-            # )
-            destinos, bins_labels = calcular_bins(destinos, var_fex, 5)
-
-            n = 0
-            line_w = 10
-            for i in bins_labels:
-
-                destinos[destinos.cuts == i].explore(
-                    m=m,
-                    # color=colors_destinos[n],
-                    color="#de8f0599",
-                    style_kwds={"fillOpacity": 0.1, "weight": line_w},
-                    name=i,
-                    tooltip=False,
-                )
-                n += 1
-                line_w += 5
-
-        # Agrego polígono
-        if (len(poly) > 0) & (show_poly):
-            geojson = poly.to_json()
-            # Add the GeoJSON to the map as a GeoJson Layer
-            folium.GeoJson(
-                geojson,
-                name=poly.id.values[0],
-                style_function=lambda feature: {
-                    "fillColor": "grey",
-                    "color": "white",
-                    "weight": 2,
-                    "fillOpacity": 0.5,
-                },
-                tooltip=folium.GeoJsonTooltip(
-                    fields=["id"], labels=False, sticky=False
-                ),
-            ).add_to(m)
-
-        # Agrego polígono
-        if len(zonif) > 0:
-            geojson = zonif.to_json()
-            # Add the GeoJSON to the map as a GeoJson Layer
-            folium.GeoJson(
-                geojson,
-                name="Zonificación",
-                style_function=lambda feature: {
-                    "fillColor": "navy",
-                    "color": "navy",
-                    "weight": 0.5,
-                    "fillOpacity": 0.2,
-                },
-                tooltip=folium.GeoJsonTooltip(
-                    fields=["id"], labels=False, sticky=False
-                ),
-            ).add_to(m)
-
-        folium.LayerControl(name="xx").add_to(m)
-
-    return m
 
 
 def traigo_socio_indicadores(socio_indicadores):
@@ -419,7 +210,6 @@ def traigo_socio_indicadores(socio_indicadores):
     )
 
 
-# Función para detectar cambios
 def hay_cambios_en_filtros(current, last):
     return current != last
 
@@ -468,60 +258,36 @@ with st.expander("Líneas de Deseo", expanded=True):
         "desc_distancia",
         "agg_cols_etapas",
         "agg_cols_viajes",
-        "poly"
+        "poly",
+        "map_poligonos",
     ]
 
     variables_bool = ['resumen']
-    
 
-    # Inicializar todas las variables con None si no existen en session_state
     for var in variables:
         if var not in st.session_state:
             st.session_state[var] = ""
-            
+
     for var in variables_bool:
         if var not in st.session_state:
             st.session_state[var] = False
 
-    etapas_lst_ = levanto_tabla_sql(
-        "poly_etapas", "dash", "SELECT DISTINCT dia FROM poly_etapas;"
-    )
-    poligonos = levanto_tabla_sql("poligonos", "insumos")
-
-    # st.session_state.etapas = traigo()
+    dias_chains = traer_dias_chains()
+    poligonos = levanto_tabla_sql_local("poligonos", "dash")
 
     if len(poligonos) == 0:
         st.info("No hay polígono cargado.")
         st.stop()
 
-    if (len(poligonos) > 0) & (len(etapas_lst_) > 0):
+    if (len(poligonos) > 0) & (len(dias_chains) > 0):
 
-        zonificaciones = levanto_tabla_sql("zonificaciones", "insumos")
+        zonificaciones = levanto_tabla_sql("zonificaciones", "dash")
         socio_indicadores = levanto_tabla_sql("socio_indicadores")
-        # desc_tipo_dia_ = levanto_tabla_sql(
-        #     "poly_etapas", "dash", "SELECT DISTINCT tipo_dia FROM poly_etapas;"
-        # )
-        desc_zona_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT zona FROM poly_etapas;"
-        ).sort_values("zona")
-        modos_list_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT modo_agregado FROM poly_etapas;"
-        )
-        rango_hora_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT rango_hora FROM poly_etapas;"
-        )
-        distancia_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT distance_od FROM poly_etapas;"
-        )
-        desc_poly_all_ = levanto_tabla_sql(
-            "poly_etapas", "dash", "SELECT DISTINCT id_polygon FROM poly_etapas;"
-        )
+
         zonas_values = traigo_lista_zonas("poligonos")
 
-        # st.session_state.etapas_all = st.session_state.etapas_all[st.session_state.etapas_all.factor_expansion_linea > 0].copy()
         general, modal, distancias = traigo_indicadores("poligonos")
 
-        # Inicializar valores de `st.session_state` solo si no existen
         if "last_filters" not in st.session_state:
             st.session_state.last_filters = {
                 "dia": "Todos",
@@ -536,42 +302,29 @@ with st.expander("Líneas de Deseo", expanded=True):
         if "data_cargada" not in st.session_state:
             st.session_state.data_cargada = False
 
-        # Opciones de los filtros en Streamlit
-        # st.session_state.etapas_lst = ['Todos'] + etapas_lst_.mes.unique().tolist()
-        st.session_state.etapas_lst = etapas_lst_.dia.unique().tolist()
+        st.session_state.etapas_lst = dias_chains
         desc_dia = col1.selectbox("Día", options=st.session_state.etapas_lst)
 
-        # desc_tipo_dia = col1.selectbox(
-        #     "Tipo día", options=desc_tipo_dia_.tipo_dia.unique()
-        # )
-
         st.session_state.desc_poly = col1.selectbox(
-            "Polígono", options=desc_poly_all_.id_polygon.unique()
+            "Polígono", options=poligonos.id.unique()
         )
 
-        desc_zona = col1.selectbox("Zonificación", options=desc_zona_.zona.unique())
+        desc_zona = col1.selectbox(
+            "Zonificación", options=zonas_values.zona.unique()
+        )
         transf_list_all = ["Todos", "Con transferencia", "Sin transferencia"]
         transf_list = col1.selectbox("Transferencias", options=transf_list_all)
 
-        modos_list_all = ["Todos"] + modos_list_all_[
-            modos_list_all_.modo_agregado != "99"
-        ].modo_agregado.unique().tolist()
-        # modos_list = col1.selectbox('Modos', options=[text.capitalize() for text in modos_list_all])
+        modos_list_all = ["Todos"] + traer_opciones_chains("modo_agregado")
         modos_list = col1.selectbox("Modos", options=[text for text in modos_list_all])
 
-        rango_hora_all = ["Todos"] + rango_hora_all_[
-            rango_hora_all_.rango_hora != "99"
-        ].rango_hora.unique().tolist()
-        # rango_hora = col1.selectbox('Rango hora', options=[text.capitalize() for text in rango_hora_all])
+        rango_hora_all = ["Todos"] + traer_opciones_chains("rango_hora")
         rango_hora = col1.selectbox(
             "Rango hora", options=[text for text in rango_hora_all]
         )
 
-        distancia_all = ["Todas"] + distancia_all_[
-            distancia_all_.distance_od != "99"
-        ].distance_od.unique().tolist()
-
-        distancia_agregada = col1.selectbox("distance_od", options=distancia_all)
+        distancia_all = ["Todas"] + traer_opciones_chains("distancia_agregada")
+        distancia_agregada = col1.selectbox("Distancia", options=distancia_all)
 
         desc_et_vi = col1.selectbox(
             "Datos de", options=["Etapas", "Viajes", "Ninguno"], index=1
@@ -585,6 +338,10 @@ with st.expander("Líneas de Deseo", expanded=True):
         else:
             desc_viajes = False
             desc_etapas = False
+
+        tipo_visualizacion = col1.radio(
+            "Tipo de visualización", options=["Líneas", "Arcos"], horizontal=True
+        )
 
         zonas_values_all = ["Todos"] + zonas_values[
             zonas_values.zona == desc_zona
@@ -607,28 +364,27 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         st.session_state.show_poly = col3.checkbox("Mostrar polígono", value=True)
 
-        # st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
-
-        # if st.session_state.poly["tipo"].values[0] == "cuenca":
-        #     desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
-        # else:
-        #     desc_cuenca = False
         st.session_state.poly = poligonos[(poligonos.id == st.session_state.desc_poly)]
-
         poly = st.session_state.poly
 
-        if poly is not None and not poly.empty and "tipo" in poly.columns:
-            if poly["tipo"].iloc[0] == "cuenca":
-                desc_cuenca = col3.checkbox("Origen o Destino en cuenca", value=False)
-            else:
-                desc_cuenca = False
+        tipo_poly = (
+            poly["tipo"].iloc[0]
+            if poly is not None and not poly.empty and "tipo" in poly.columns
+            else "poligono"
+        )
 
+        if tipo_poly == "cuenca":
+            opciones_filtro = ["Origen y Destino", "Origen o Destino", "OD y Transferencias"]
+            default_idx = 0
         else:
-            desc_cuenca = False
+            opciones_filtro = ["Origen o Destino", "OD y Transferencias"]
+            default_idx = 0
+        filtro_od = col3.selectbox(
+            "Toca el polígono", options=opciones_filtro, index=default_idx
+        )
 
         mtabla = col2.checkbox("Mostrar tabla", value=False)
 
-        # Construye el diccionario de filtros actual
         current_filters = {
             "dia": None if desc_dia == "Todos" else desc_dia,
             "zona": None if desc_zona == "Todos" else desc_zona,
@@ -642,7 +398,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             "distancia_agregada": (
                 None if distancia_agregada == "Todas" else distancia_agregada
             ),
-            "coincidencias": None if desc_cuenca == False else True,
+            "filtro_od": filtro_od,
             "id_polygon": st.session_state.desc_poly,
             "desc_zonas_values1": (
                 None if desc_zonas_values1 == "Todos" else desc_zonas_values1
@@ -658,52 +414,41 @@ with st.expander("Líneas de Deseo", expanded=True):
             "desc_destinos": desc_destinos,
             "desc_zonif": desc_zonif,
             "show_poly": st.session_state.show_poly,
-            "desc_cuenca": desc_cuenca,
             "desc_et_vi": desc_et_vi,
-            "mtabla": mtabla,
-            "resumen": st.session_state.resumen,
+            "tipo_visualizacion": tipo_visualizacion,
         }
 
-        # Solo cargar datos si hay cambios en los filtros
         if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
 
-            query = ""
-            conditions = " AND ".join(
-                f"{key} = '{value}'"
-                for key, value in current_filters.items()
-                if (value is not None)
-                & (key != "desc_zonas_values1")
-                & (key != "desc_zonas_values2")
-            )
-            if conditions:
-                query += f" WHERE {conditions}"
+            filters = {
+                "modo_agregado": current_filters["modo_agregado"],
+                "rango_hora": current_filters["rango_hora"],
+                "transferencia": current_filters["transferencia"],
+                "distancia_agregada": current_filters["distancia_agregada"],
+            }
+            where_extra = build_where_clauses(filters)
 
-            conditions_etapas1 = ""
-            conditions_matrices1 = ""
+            condiciones = condicion_poligono_sql(
+                st.session_state.desc_poly,
+                filtro_od,
+            )
+
             if desc_zonas_values1 != "Todos":
-                conditions_etapas1 = f" AND (inicio_norm = '{desc_zonas_values1}' OR transfer1_norm = '{desc_zonas_values1}' OR transfer2_norm = '{desc_zonas_values1}' OR fin_norm = '{desc_zonas_values1}')"
-                conditions_matrices1 = f" AND (inicio = '{desc_zonas_values1}' OR fin = '{desc_zonas_values1}')"
-
-            conditions_etapas2 = ""
-            conditions_matrices2 = ""
+                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values1)
             if desc_zonas_values2 != "Todos":
-                conditions_etapas2 = f" AND (inicio_norm = '{desc_zonas_values2}' OR transfer1_norm = '{desc_zonas_values2}' OR transfer2_norm = '{desc_zonas_values2}' OR fin_norm = '{desc_zonas_values2}')"
-                conditions_matrices2 = f" AND (inicio = '{desc_zonas_values2}' OR fin = '{desc_zonas_values2}')"
+                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values2)
 
-            query_etapas = query + conditions_etapas1 + conditions_etapas2
-            query_matrices = query + conditions_matrices1 + conditions_matrices2
-
-            st.session_state.etapas_ = levanto_tabla_sql_local(
-                "poly_etapas",
-                tabla_tipo="dash",
-                query=f"SELECT * FROM poly_etapas{query_etapas}",
+            etapas_, matrices_ = traer_etapas_matrices_sql(
+                desc_zona,
+                zonificaciones,
+                desc_dia,
+                where_extra,
+                condiciones,
+                id_polygon=st.session_state.desc_poly,
+                tipo_poligono=tipo_poly,
             )
-
-            st.session_state.matrices_ = levanto_tabla_sql_local(
-                "poly_matrices",
-                tabla_tipo="dash",
-                query=f"SELECT * FROM poly_matrices{query_matrices}",
-            )
+            st.session_state.etapas_ = etapas_
+            st.session_state.matrices_ = matrices_
 
             if len(st.session_state.etapas_) == 0:
                 col2.write("No hay datos para mostrar")
@@ -713,7 +458,6 @@ with st.expander("Líneas de Deseo", expanded=True):
                     st.session_state.socio_indicadores_ = socio_indicadores[
                         (socio_indicadores.dia == desc_dia)
                     ].copy()
-
                 else:
                     st.session_state.socio_indicadores_ = socio_indicadores.copy()
 
@@ -751,25 +495,10 @@ with st.expander("Líneas de Deseo", expanded=True):
                     & (distancias.dia == desc_dia)
                 ][["Tipo", "Indicador", "Valor"]].set_index("Tipo")
 
-                if transf_list == "Todos":
-                    st.session_state.desc_transfers = True
-                else:
-                    st.session_state.desc_transfers = False
-
-                if modos_list == "Todos":
-                    st.session_state.desc_modos = True
-                else:
-                    st.session_state.desc_modos = False
-
-                if rango_hora == "Todos":
-                    st.session_state.desc_horas = True
-                else:
-                    st.session_state.desc_horas = False
-
-                if distancia_agregada == "Todas":
-                    st.session_state.desc_distancia = True
-                else:
-                    st.session_state.desc_distancia = False
+                st.session_state.desc_transfers = transf_list == "Todos"
+                st.session_state.desc_modos = modos_list == "Todos"
+                st.session_state.desc_horas = rango_hora == "Todos"
+                st.session_state.desc_distancia = distancia_agregada == "Todas"
 
                 st.session_state.agg_cols_etapas = [
                     "zona",
@@ -804,8 +533,6 @@ with st.expander("Líneas de Deseo", expanded=True):
                     current_filters, st.session_state.last_filters
                 )
             ):
-
-                # Actualiza los filtros en `session_state` para detectar cambios futuros
                 st.session_state.last_filters = current_filters.copy()
                 st.session_state.last_options = current_options.copy()
                 st.session_state.data_cargada = True
@@ -841,45 +568,56 @@ with st.expander("Líneas de Deseo", expanded=True):
                     | (len(st.session_state.transferencias) > 0)
                     | (desc_zonif)
                 ):
-
-                    m = crear_mapa_poligonos(
+                    latlon = [
+                        poly.geometry.representative_point().y.mean(),
+                        poly.geometry.representative_point().x.mean(),
+                    ]
+                    zonif_para_mapa = (
+                        st.session_state.zonif
+                        if isinstance(st.session_state.zonif, pd.DataFrame)
+                        else pd.DataFrame()
+                    )
+                    st.session_state.map_poligonos = crear_mapa_lineas_deseo(
                         df_viajes=st.session_state.viajes,
                         df_etapas=st.session_state.etapas,
-                        poly=st.session_state.poly,
-                        zonif=st.session_state.zonif,
+                        zonif=zonif_para_mapa,
                         origenes=st.session_state.origenes,
                         destinos=st.session_state.destinos,
+                        transferencias=st.session_state.transferencias,
                         var_fex="factor_expansion_linea",
-                        cmap_viajes="Blues",
-                        cmap_etapas="Greens",
-                        map_title=st.session_state.desc_poly,
-                        savefile="",
                         k_jenks=5,
+                        latlon=latlon,
+                        tipo_visualizacion=tipo_visualizacion,
+                        poly=st.session_state.poly,
                         show_poly=st.session_state.show_poly,
                     )
-                    if m:
-                        st.session_state.map = m
+                else:
+                    st.session_state.map_poligonos = None
 
-                    if st.session_state.map:
-                        with col2:
-                            folium_static(st.session_state.map, width=1000, height=800)
-                            # output = st_folium(st.session_state.map, width=1000, height=800, key='m', returned_objects=["center"])
+            # Render siempre fuera del condicional de recarga
+            _mapa = st.session_state.get("map_poligonos")
+            if _mapa is not None and isinstance(_mapa, pdk.Deck):
+                with col2:
+                    st.pydeck_chart(
+                        _mapa,
+                        use_container_width=True,
+                        height=800,
+                    )
 
-                        if mtabla:
-                            col2.dataframe(
-                                st.session_state.etapas_[
-                                    [
-                                        "inicio_norm",
-                                        "transfer1_norm",
-                                        "transfer2_norm",
-                                        "fin_norm",
-                                        "factor_expansion_linea",
-                                    ]
-                                ]
-                            )
-
-                    else:
-                        col2.text("No hay datos suficientes para mostrar el mapa.")
+                if mtabla:
+                    col2.dataframe(
+                        st.session_state.etapas_[
+                            [
+                                "inicio_norm",
+                                "transfer1_norm",
+                                "transfer2_norm",
+                                "fin_norm",
+                                "factor_expansion_linea",
+                            ]
+                        ]
+                    )
+            else:
+                col2.text("No hay datos suficientes para mostrar el mapa.")
 
 with st.expander("Indicadores"):
     col1, col2, col3 = st.columns([2, 2, 2])
@@ -893,8 +631,6 @@ with st.expander("Matrices"):
 
     col1, col2 = st.columns([1, 4])
     if len(st.session_state.matriz) > 0:
-
-        # col2.table(st.session_state.matriz)
 
         tipo_matriz = col1.selectbox(
             "Variable",
@@ -919,30 +655,37 @@ with st.expander("Matrices"):
 
         st.session_state.resumen = col1.checkbox("Principales OD", value=False)
 
-        if st.session_state.poly["tipo"].values[0] == "cuenca":
+        _poly_tipo = (
+            st.session_state.poly["tipo"].values[0]
+            if st.session_state.poly is not None
+            and not st.session_state.poly.empty
+            and "tipo" in st.session_state.poly.columns
+            else "poligono"
+        )
+        if _poly_tipo == "cuenca":
             mat_cuenca = col1.checkbox("Matriz de la cuenca", value=False)
         else:
             mat_cuenca = False
-        
+
         mmatriz_ = col1.checkbox("Mostrar tabla", value=False, key="mmatriz_")
 
-        
         col1.write(
-                'Cantidad total de viajes: ' +
-                f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
-            )
+            'Cantidad total de viajes: ' +
+            f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
+        )
 
-        
         matriz_tmp = st.session_state.matriz.copy()
 
         if mat_cuenca:
-            matriz_tmp = matriz_tmp[(matriz_tmp.Origen.str.contains('cuenca')) & (matriz_tmp.Destino.str.contains('cuenca'))]            
+            matriz_tmp = matriz_tmp[
+                (matriz_tmp.Origen.str.contains('cuenca'))
+                & (matriz_tmp.Destino.str.contains('cuenca'))
+            ]
             col1.write(
                 'Cantidad total en cuenca: ' +
                 f"{int(matriz_tmp.factor_expansion_linea.sum()):,}"
             )
 
-            
         if not st.session_state.resumen:
             od_heatmap = pd.crosstab(
                 index=matriz_tmp["Origen"],
@@ -966,8 +709,6 @@ with st.expander("Matrices"):
             col1.write(
                 f"Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes"
             )
-
-        
 
         if normalize:
             od_heatmap = (od_heatmap * 100).round(2)
