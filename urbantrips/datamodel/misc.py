@@ -122,6 +122,36 @@ def persist_indicators(ctx: StorageContext):
 
     indicator_rows = []
 
+    # TRANSACCIONES
+    indicator_rows.append(
+        _indicator_query(
+            ctx,
+            """
+            SELECT dia, COUNT(*) AS indicador
+            FROM transacciones
+            GROUP BY dia
+            """,
+            "Registros en transacciones",
+            "transacciones",
+            0,
+        )
+    )
+
+    indicator_rows.append(
+        _indicator_query(
+            ctx,
+            """
+            SELECT dia, SUM(factor_expansion) AS indicador
+            FROM transacciones
+            WHERE factor_expansion IS NOT NULL
+            GROUP BY dia
+            """,
+            "Cantidad de transacciones totales",
+            "transacciones",
+            0,
+        )
+    )
+
     indicator_rows.append(
         _indicator_query(
             ctx,
