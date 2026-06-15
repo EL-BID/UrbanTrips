@@ -19,6 +19,7 @@ from dash_utils import (
     get_logo,
     bring_latlon,
     configurar_selector_dia,
+    traer_dias_chains,
     create_squared_polygon,
     h3_to_polygon,
     extract_hex_colors_from_cmap,
@@ -411,7 +412,6 @@ alias_seleccionado = configurar_selector_dia()
 # st.text(f"Alias seleccionado: {alias_seleccionado}")
 
 latlon = bring_latlon()
-mes_lst, tipo_dia_lst = traigo_mes_dia()
 try:
 
     # --- Cargar configuraciones y conexiones en session_state ---
@@ -434,20 +434,16 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
     col1, col2, col3 = st.columns([1, 3, 3])
     with col1:
 
-        st.subheader("Periodo")
+        st.subheader("Día")
 
-        kpi_lineas = levanto_tabla_sql("agg_indicadores")
-        if len(kpi_lineas) == 0:
-            months = None
-        else:
-            months = kpi_lineas.mes.unique()
-
-        day_type = col1.selectbox("Tipo de dia  ", options=["weekday", "weekend"])
+        # Selector de día específico (sin 'Todos'): un día determina mes y
+        # tipo_dia. Se usa como filtro `dia` al levantar etapas.
+        dias_disponibles = traer_dias_chains()
+        if len(dias_disponibles) == 0:
+            st.warning("No hay días disponibles en chains_norm.")
+            st.stop()
+        day_type = col1.selectbox("Día", options=dias_disponibles, key="dia_sel_7")
         st.session_state["day_type_7"] = day_type
-
-        # add month and year
-        yr_mo = col1.selectbox("Periodo  ", options=months, key="year_month")
-        st.session_state["yr_mo_7"] = yr_mo
 
         stat = col1.selectbox(
             "Estadístico", options=["Total etapas", "Proporción"], index=1

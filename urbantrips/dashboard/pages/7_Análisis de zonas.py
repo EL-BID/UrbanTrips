@@ -13,6 +13,7 @@ from dash_utils import (
     get_logo,
     bring_latlon,
     configurar_selector_dia,
+    traer_dias_chains,
     get_h3_indices_in_geometry,
     h3_to_polygon,
 )
@@ -69,7 +70,6 @@ def main():
     alias_seleccionado = configurar_selector_dia()
 
     latlon = bring_latlon()
-    # mes_lst, tipo_dia_lst = traigo_mes_dia()
 
     with st.expander("Selecciono zonas", expanded=True):
         col1, col2 = st.columns([1, 4])
@@ -130,15 +130,17 @@ def main():
         zona1 = st.session_state["zona_1"]
         zona2 = st.session_state["zona_2"]
 
-        mes_lst = ['Todos'] + etapas_all.mes.unique().tolist()
-        desc_mes = col1.selectbox("Mes", options=mes_lst)
-
-        desc_tipo_dia = col1.selectbox("Tipo dia", options=tipo_dia_lst)
+        # Selector de día específico (sin 'Todos')
+        dias_disponibles = traer_dias_chains()
+        if len(dias_disponibles) == 0:
+            st.warning("No hay días disponibles en chains_norm.")
+            st.stop()
+        desc_dia = col1.selectbox("Día", options=dias_disponibles)
 
         if len(zona1) > 0:
             h3_values1 = ", ".join(f"'{item}'" for item in zona1)
             ## Etapas
-            query1 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values1}));"
+            query1 = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values1}));"
             etapas1 = levanto_tabla_sql_local(
                 "etapas_agregadas", tabla_tipo="dash", query=query1
             )
@@ -146,7 +148,7 @@ def main():
                 etapas1["Zona_1"] = "Zona 1"
 
                 ## Viajes
-                query1 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values1}) );"
+                query1 = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values1}) );"
                 viajes1 = levanto_tabla_sql_local(
                     "viajes_agregados", tabla_tipo="dash", query=query1
                 )
@@ -199,7 +201,7 @@ def main():
         if len(zona2) > 0:
             h3_values2 = ", ".join(f"'{item}'" for item in zona2)
             ## Etapas
-            query2 = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values2}));"
+            query2 = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values2}));"
             etapas2 = levanto_tabla_sql_local(
                 "etapas_agregadas", tabla_tipo="dash", query=query2
             )
@@ -207,7 +209,7 @@ def main():
                 etapas2["Zona_2"] = "Zona 2"
 
                 ## Viajes
-                query2 = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values2}) );"
+                query2 = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values2}) );"
                 viajes2 = levanto_tabla_sql_local(
                     "viajes_agregados", tabla_tipo="dash", query=query2
                 )
@@ -265,7 +267,7 @@ def main():
         if len(zona1) > 0 and len(zona2) > 0:
             h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
             ## Etapas
-            query = f"SELECT * FROM etapas_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
+            query = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
             etapas = levanto_tabla_sql_local(
                 "etapas_agregadas", tabla_tipo="dash", query=query
             )
@@ -330,7 +332,7 @@ def main():
 
                 ## Viajes
                 h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
-                query = f"SELECT * FROM viajes_agregados WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
+                query = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
                 viajes = levanto_tabla_sql_local(
                     "viajes_agregados", tabla_tipo="dash", query=query
                 )
@@ -412,7 +414,7 @@ def main():
 
             ## Transferencias
             h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
-            query = f"SELECT * FROM transferencias_agregadas WHERE mes = '{desc_mes}' AND tipo_dia = '{desc_tipo_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
+            query = f"SELECT * FROM transferencias_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
             transferencias = levanto_tabla_sql_local(
                 "transferencias_agregadas", tabla_tipo="dash", query=query
             )
