@@ -25,6 +25,9 @@ from streamlit_folium import folium_static
 
 pd.options.display.float_format = "{:,.0f}".format
 
+# Resolución de los h3 de chains_norm (las cadenas se guardan a esta resolución).
+RES_CHAINS = 10
+
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
     return utils.levanto_tabla_sql(
@@ -34,23 +37,98 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
     )
 
 
-@st.cache_data
-def traigo_mes_dia():
-    mes_dia = levanto_tabla_sql_local(
-        "chains_norm",
-        "dash",
-        "SELECT DISTINCT mes, tipo_dia FROM chains_norm;",
-    )
-    mes = mes_dia.mes.values.tolist()
-    tipo_dia = mes_dia.tipo_dia.values.tolist()
-    return mes, tipo_dia
-
-
 # Convert H3 indices to GeoDataFrame
 def h3_indices_to_gdf(h3_indices):
     hex_geometries = [h3_to_polygon(h) for h in h3_indices]
     return gpd.GeoDataFrame(
         {"h3_index": h3_indices}, geometry=hex_geometries, crs="EPSG:4326"
+    )
+
+
+def _zona_a_res_chains(zona_cells):
+    """Lleva las celdas de la zona (dibujadas a resolucion_h3) a la resolución
+    de chains_norm (res 10), para poder comparar contra los nodos h3 de las
+    cadenas. Cada celda de menor resolución se expande a sus hijos res 10;
+    `nodo in zona_res10` equivale exactamente a `parent(nodo) in zona`."""
+    out = set()
+    for c in zona_cells:
+        try:
+            res = h3.get_resolution(c)
+            if res < RES_CHAINS:
+                out |= set(h3.cell_to_children(c, RES_CHAINS))
+            elif res == RES_CHAINS:
+                out.add(c)
+            else:
+                out.add(h3.cell_to_parent(c, RES_CHAINS))
+        except Exception:
+            out.add(c)
+    return out
+
+
+def _traer_chains_zonas(desc_dia, nodos):
+    """Viajes (chains_norm) del día cuyos nodos (inicio/transfer1/transfer2/fin)
+    tocan alguna de las celdas `nodos` (set de h3 res 10)."""
+    cols = (
+        "h3_inicio, h3_transfer1, h3_transfer2, h3_fin, "
+        "seq_lineas, modo_agregado, transferencia, factor_expansion_linea"
+    )
+    where = f"WHERE dia = '{desc_dia}'"
+    nodos = list(nodos)
+    if nodos:
+        vals = ", ".join(f"'{h}'" for h in nodos)
+        where += (
+            f" AND (h3_inicio IN ({vals}) OR h3_transfer1 IN ({vals}) "
+            f"OR h3_transfer2 IN ({vals}) OR h3_fin IN ({vals}))"
+        )
+    return levanto_tabla_sql_local(
+        "chains_norm", "dash", f"SELECT {cols} FROM chains_norm {where}"
+    )
+
+
+def _explotar_etapas(chains):
+    """Una fila por etapa. Separa `seq_lineas` (cada línea = una etapa) y le
+    asigna origen/destino h3 usando los nodos de la cadena en orden
+    (inicio, transfer1, transfer2, fin). El modo es `modo_agregado` (a nivel
+    viaje; chains_norm no guarda el modo por tramo)."""
+    filas = []
+    for r in chains.itertuples(index=False):
+        lineas = [x.strip() for x in str(r.seq_lineas).split("--") if x.strip()]
+        if not lineas:
+            continue
+        nodos = [
+            n
+            for n in (r.h3_inicio, r.h3_transfer1, r.h3_transfer2, r.h3_fin)
+            if isinstance(n, str) and n
+        ]
+        n = len(lineas)
+        if len(nodos) >= n + 1:
+            origenes = nodos[:n]
+            destinos = nodos[1 : n + 1]
+        else:
+            # datos inconsistentes: uso origen->destino del viaje para cada tramo
+            origenes = [r.h3_inicio] * n
+            destinos = [r.h3_fin] * n
+        for i in range(n):
+            filas.append(
+                (
+                    origenes[i],
+                    destinos[i],
+                    r.modo_agregado,
+                    lineas[i],
+                    r.factor_expansion_linea,
+                )
+            )
+    return pd.DataFrame(
+        filas,
+        columns=["h3_o", "h3_d", "modo", "nombre_linea", "factor_expansion_linea"],
+    )
+
+
+def _viajes_desde_chains(chains):
+    """Vista trip-level con los nombres de columna que espera el display:
+    h3_o (origen), h3_d (destino), modo."""
+    return chains.rename(
+        columns={"h3_inicio": "h3_o", "h3_fin": "h3_d", "modo_agregado": "modo"}
     )
 
 
@@ -137,22 +215,19 @@ def main():
             st.stop()
         desc_dia = col1.selectbox("Día", options=dias_disponibles)
 
-        if len(zona1) > 0:
-            h3_values1 = ", ".join(f"'{item}'" for item in zona1)
-            ## Etapas
-            query1 = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values1}));"
-            etapas1 = levanto_tabla_sql_local(
-                "etapas_agregadas", tabla_tipo="dash", query=query1
-            )
-            if len(etapas1) > 0:
-                etapas1["Zona_1"] = "Zona 1"
+        # Zonas a la resolución de chains_norm (res 10) para comparar nodos
+        zona1_r = _zona_a_res_chains(zona1)
+        zona2_r = _zona_a_res_chains(zona2)
 
-                ## Viajes
-                query1 = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values1}) );"
-                viajes1 = levanto_tabla_sql_local(
-                    "viajes_agregados", tabla_tipo="dash", query=query1
-                )
-                viajes1["Zona_1"] = "Zona 1"
+        if len(zona1) > 0:
+            chains1 = _traer_chains_zonas(desc_dia, zona1_r)
+            # Etapas con ORIGEN en zona 1
+            etapas1 = _explotar_etapas(chains1)
+            etapas1 = etapas1[etapas1.h3_o.isin(zona1_r)]
+            if len(etapas1) > 0:
+                # Viajes con ORIGEN en zona 1
+                viajes1 = _viajes_desde_chains(chains1)
+                viajes1 = viajes1[viajes1.h3_o.isin(zona1_r)]
 
                 modos_e1 = (
                     etapas1.groupby(["modo", "nombre_linea"], as_index=False)
@@ -199,21 +274,14 @@ def main():
                 modos_v1["Viajes"] = modos_v1["Viajes"].round()
                 col3.dataframe(modos_v1.set_index("Modo"), height=400, width=300)
         if len(zona2) > 0:
-            h3_values2 = ", ".join(f"'{item}'" for item in zona2)
-            ## Etapas
-            query2 = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values2}));"
-            etapas2 = levanto_tabla_sql_local(
-                "etapas_agregadas", tabla_tipo="dash", query=query2
-            )
+            chains2 = _traer_chains_zonas(desc_dia, zona2_r)
+            # Etapas con ORIGEN en zona 2
+            etapas2 = _explotar_etapas(chains2)
+            etapas2 = etapas2[etapas2.h3_o.isin(zona2_r)]
             if len(etapas2) > 0:
-                etapas2["Zona_2"] = "Zona 2"
-
-                ## Viajes
-                query2 = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values2}) );"
-                viajes2 = levanto_tabla_sql_local(
-                    "viajes_agregados", tabla_tipo="dash", query=query2
-                )
-                viajes2["Zona_2"] = "Zona 2"
+                # Viajes con ORIGEN en zona 2
+                viajes2 = _viajes_desde_chains(chains2)
+                viajes2 = viajes2[viajes2.h3_o.isin(zona2_r)]
 
                 modos_e2 = (
                     etapas2.groupby(["modo", "nombre_linea"], as_index=False)
@@ -265,21 +333,21 @@ def main():
         col1, col2, col3, col4 = st.columns([1, 2, 2, 3])
 
         if len(zona1) > 0 and len(zona2) > 0:
-            h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
+            # Un solo pull de chains_norm para ambas zonas; se reutiliza para
+            # etapas, viajes y transferencias.
+            chains = _traer_chains_zonas(desc_dia, zona1_r | zona2_r)
+
             ## Etapas
-            query = f"SELECT * FROM etapas_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-            etapas = levanto_tabla_sql_local(
-                "etapas_agregadas", tabla_tipo="dash", query=query
-            )
+            etapas = _explotar_etapas(chains)
 
             if len(etapas) > 0:
 
                 etapas["Zona_1"] = ""
                 etapas["Zona_2"] = ""
-                etapas.loc[etapas.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-                etapas.loc[etapas.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-                etapas.loc[etapas.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-                etapas.loc[etapas.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
+                etapas.loc[etapas.h3_o.isin(zona1_r), "Zona_1"] = "Zona 1"
+                etapas.loc[etapas.h3_o.isin(zona2_r), "Zona_1"] = "Zona 2"
+                etapas.loc[etapas.h3_d.isin(zona1_r), "Zona_2"] = "Zona 1"
+                etapas.loc[etapas.h3_d.isin(zona2_r), "Zona_2"] = "Zona 2"
                 etapas = etapas[
                     (etapas.Zona_1 != "")
                     & (etapas.Zona_2 != "")
@@ -331,18 +399,14 @@ def main():
                     col2.write("No hay datos para mostrar")
 
                 ## Viajes
-                h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
-                query = f"SELECT * FROM viajes_agregados WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-                viajes = levanto_tabla_sql_local(
-                    "viajes_agregados", tabla_tipo="dash", query=query
-                )
+                viajes = _viajes_desde_chains(chains)
 
                 viajes["Zona_1"] = ""
                 viajes["Zona_2"] = ""
-                viajes.loc[viajes.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-                viajes.loc[viajes.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-                viajes.loc[viajes.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-                viajes.loc[viajes.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
+                viajes.loc[viajes.h3_o.isin(zona1_r), "Zona_1"] = "Zona 1"
+                viajes.loc[viajes.h3_o.isin(zona2_r), "Zona_1"] = "Zona 2"
+                viajes.loc[viajes.h3_d.isin(zona1_r), "Zona_2"] = "Zona 1"
+                viajes.loc[viajes.h3_d.isin(zona2_r), "Zona_2"] = "Zona 2"
                 viajes = viajes[
                     (viajes.Zona_1 != "")
                     & (viajes.Zona_2 != "")
@@ -413,27 +477,23 @@ def main():
                     output2 = st_folium(m2, width=700, height=700)
 
             ## Transferencias
-            h3_values = ", ".join(f"'{item}'" for item in zona1 + zona2)
-            query = f"SELECT * FROM transferencias_agregadas WHERE dia = '{desc_dia}' AND (h3_o IN ({h3_values}) OR h3_d IN ({h3_values}));"
-            transferencias = levanto_tabla_sql_local(
-                "transferencias_agregadas", tabla_tipo="dash", query=query
-            )
+            transferencias = _viajes_desde_chains(chains)
+
+            transferencias["Zona_1"] = ""
+            transferencias["Zona_2"] = ""
+            transferencias.loc[transferencias.h3_o.isin(zona1_r), "Zona_1"] = "Zona 1"
+            transferencias.loc[transferencias.h3_o.isin(zona2_r), "Zona_1"] = "Zona 2"
+            transferencias.loc[transferencias.h3_d.isin(zona1_r), "Zona_2"] = "Zona 1"
+            transferencias.loc[transferencias.h3_d.isin(zona2_r), "Zona_2"] = "Zona 2"
+            transferencias = transferencias[
+                (transferencias.Zona_1 != "")
+                & (transferencias.Zona_2 != "")
+                & (transferencias.Zona_1 != transferencias.Zona_2)
+            ]
+
+            transferencias = transferencias.fillna("")
 
             if len(transferencias) > 0:
-
-                transferencias["Zona_1"] = ""
-                transferencias["Zona_2"] = ""
-                transferencias.loc[transferencias.h3_o.isin(zona1), "Zona_1"] = "Zona 1"
-                transferencias.loc[transferencias.h3_o.isin(zona2), "Zona_1"] = "Zona 2"
-                transferencias.loc[transferencias.h3_d.isin(zona1), "Zona_2"] = "Zona 1"
-                transferencias.loc[transferencias.h3_d.isin(zona2), "Zona_2"] = "Zona 2"
-                transferencias = transferencias[
-                    (transferencias.Zona_1 != "")
-                    & (transferencias.Zona_2 != "")
-                    & (transferencias.Zona_1 != transferencias.Zona_2)
-                ]
-
-                transferencias = transferencias.fillna("")
 
                 transferencias = (
                     transferencias.groupby(["modo", "seq_lineas"], as_index=False)
