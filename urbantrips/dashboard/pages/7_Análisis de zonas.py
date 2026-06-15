@@ -36,9 +36,9 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
 @st.cache_data
 def traigo_mes_dia():
     mes_dia = levanto_tabla_sql_local(
-        "etapas_agregadas",
+        "chains_norm",
         "dash",
-        "SELECT DISTINCT mes, tipo_dia FROM etapas_agregadas;",
+        "SELECT DISTINCT mes, tipo_dia FROM chains_norm;",
     )
     mes = mes_dia.mes.values.tolist()
     tipo_dia = mes_dia.tipo_dia.values.tolist()
@@ -69,7 +69,7 @@ def main():
     alias_seleccionado = configurar_selector_dia()
 
     latlon = bring_latlon()
-    mes_lst, tipo_dia_lst = traigo_mes_dia()
+    # mes_lst, tipo_dia_lst = traigo_mes_dia()
 
     with st.expander("Selecciono zonas", expanded=True):
         col1, col2 = st.columns([1, 4])
@@ -130,7 +130,7 @@ def main():
         zona1 = st.session_state["zona_1"]
         zona2 = st.session_state["zona_2"]
 
-        # mes_lst = ['Todos'] + etapas_all.mes.unique().tolist()
+        mes_lst = ['Todos'] + etapas_all.mes.unique().tolist()
         desc_mes = col1.selectbox("Mes", options=mes_lst)
 
         desc_tipo_dia = col1.selectbox("Tipo dia", options=tipo_dia_lst)
