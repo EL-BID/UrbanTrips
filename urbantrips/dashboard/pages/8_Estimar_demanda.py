@@ -30,7 +30,6 @@ from urbantrips.carto.equivalencias import (
     construir_equivalencias_zonas,
     upsert_equivalencias_zonas,
 )
-from urbantrips.preparo_dashboard.chains import RES_CHAINS_NORM
 from urbantrips.utils.check_configs import check_config
 from urbantrips.kpi.line_od_matrix import compute_line_od_matrix
 from urbantrips.kpi.kpi import compute_section_load_table
@@ -1212,6 +1211,9 @@ with st.expander("Polígono de análisis de cuenca"):
         # --- 2) Construir equivalencias_zonas (formato largo) para el polígono ---
         # Mismas resoluciones que el pipeline (resolucion_h3 + RES_CHAINS_NORM),
         # para que los joins del dashboard funcionen en todas las capas.
+        # Import lazy: evita cargar el pipeline (chains) al abrir la página.
+        from urbantrips.preparo_dashboard.chains import RES_CHAINS_NORM
+
         resoluciones = sorted({int(configs["resolucion_h3"]), RES_CHAINS_NORM})
         equiv = construir_equivalencias_zonas(
             gdf_poligonos=poly_gdf,
