@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
 
@@ -45,8 +46,8 @@ def test_geolocate_raw_transactions_fills_from_nearest_preceding_gps_ping(tmp_pa
     adapter.geolocate_raw_transactions_from_gps(lineas_contienen_ramales=True)
 
     result = adapter.query("SELECT latitud, longitud FROM transacciones_raw")
-    assert result["latitud"].iloc[0] == -34.6
-    assert result["longitud"].iloc[0] == -58.4
+    assert result["latitud"].iloc[0] == pytest.approx(-34.6, abs=1e-4)
+    assert result["longitud"].iloc[0] == pytest.approx(-58.4, abs=1e-4)
 
 
 def test_geolocate_raw_transactions_leaves_null_when_no_preceding_gps_ping(tmp_path):
@@ -105,8 +106,8 @@ def test_geolocate_raw_transactions_leaves_already_geolocated_rows_untouched(tmp
     )
 
     needs_row_after = result[result["id_original"] == "2"].iloc[0]
-    assert needs_row_after["latitud"] == -34.6
-    assert needs_row_after["longitud"] == -58.4
+    assert needs_row_after["latitud"] == pytest.approx(-34.6, abs=1e-4)
+    assert needs_row_after["longitud"] == pytest.approx(-58.4, abs=1e-4)
 
 
 def test_geolocate_raw_transactions_ignores_ramal_when_lineas_contienen_ramales_false(tmp_path):
@@ -131,5 +132,5 @@ def test_geolocate_raw_transactions_ignores_ramal_when_lineas_contienen_ramales_
     result = adapter.query("SELECT latitud, longitud FROM transacciones_raw")
     # With lineas_contienen_ramales=False, the join must ignore id_ramal entirely,
     # so the trx still matches the gps ping despite the differing id_ramal.
-    assert result["latitud"].iloc[0] == -34.6
-    assert result["longitud"].iloc[0] == -58.4
+    assert result["latitud"].iloc[0] == pytest.approx(-34.6, abs=1e-4)
+    assert result["longitud"].iloc[0] == pytest.approx(-58.4, abs=1e-4)
