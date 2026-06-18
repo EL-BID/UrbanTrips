@@ -353,6 +353,12 @@ CREATE TABLE IF NOT EXISTS services_stats (
 )
 """
 
+TRANSACCIONES_RAW_COLUMNS = [
+    "id_original", "id_tarjeta", "dia", "tiempo", "hora", "modo",
+    "id_linea", "id_ramal", "interno", "orden_trx", "genero", "tarifa",
+    "latitud", "longitud", "fecha_ts", "factor_expansion_raw",
+]
+
 TRANSACCIONES_RAW = """
 CREATE TABLE IF NOT EXISTS transacciones_raw (
     id_original          TEXT,

@@ -291,15 +291,27 @@ class DuckDBDataAdapter:
         nearest preceding gps ping for the same vehicle (dia + id_linea
         [+ id_ramal] + interno). Mirrors the legacy `geolocalizar_trx`
         semantics. Rows with no matching prior ping are left NULL.
+
+        Implemented as a full vectorized table rebuild (CREATE OR REPLACE
+        TABLE ... AS SELECT) rather than a correlated UPDATE ... FROM:
+        DuckDB is column-oriented and an UPDATE keyed on a per-row rowid
+        join degrades to row-by-row execution. The nearest-match lookup
+        (one row per trx needing geolocation) is computed once in a CTE
+        via ROW_NUMBER() and joined back by rowid; rows that already have
+        non-null latitud/longitud pass through COALESCE unchanged.
         """
         ramal_join = (
             "AND (t.id_ramal = g.id_ramal OR (t.id_ramal IS NULL AND g.id_ramal IS NULL))"
             if lineas_contienen_ramales else ""
         )
+        cols = ", ".join(schema.TRANSACCIONES_RAW_COLUMNS)
+        select_cols = ", ".join(
+            f"COALESCE(t.{c}, m.{c}) AS {c}" if c in ("latitud", "longitud") else f"t.{c}"
+            for c in schema.TRANSACCIONES_RAW_COLUMNS
+        )
         self._conn.execute(f"""
-            UPDATE transacciones_raw
-            SET latitud = m.latitud, longitud = m.longitud
-            FROM (
+            CREATE OR REPLACE TABLE transacciones_raw AS
+            WITH nearest_gps AS (
                 SELECT
                     t.rowid AS rid,
                     g.latitud,
@@ -315,8 +327,12 @@ class DuckDBDataAdapter:
                     {ramal_join}
                     AND g.fecha <= t.fecha_ts
                 WHERE t.latitud IS NULL OR t.longitud IS NULL
-            ) m
-            WHERE transacciones_raw.rowid = m.rid AND m.rn = 1
+            )
+            SELECT {select_cols}
+            FROM transacciones_raw t
+            LEFT JOIN (
+                SELECT rid, latitud, longitud FROM nearest_gps WHERE rn = 1
+            ) m ON t.rowid = m.rid
         """)
 
     def standardize_raw_to_transacciones(self, n_batches: int, id_offset: int) -> None:

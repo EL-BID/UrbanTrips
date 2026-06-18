@@ -67,3 +67,43 @@ def test_geolocate_raw_transactions_leaves_null_when_no_preceding_gps_ping(tmp_p
 
     result = adapter.query("SELECT latitud, longitud FROM transacciones_raw")
     assert result["latitud"].isna().iloc[0]
+
+
+def test_geolocate_raw_transactions_leaves_already_geolocated_rows_untouched(tmp_path):
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+
+    # one row already has lat/lon, another needs geolocation
+    already_located = _raw_row(
+        id_original="1", id_tarjeta="card_1", fecha_ts=1641024300,
+        latitud=-12.34, longitud=-56.78,
+    )
+    needs_location = _raw_row(
+        id_original="2", id_tarjeta="card_2", fecha_ts=1641024300,
+    )
+    trx = pd.DataFrame([already_located, needs_location]).reindex(columns=RAW_COLS)
+    adapter.save_raw_chunk(trx)
+
+    gps = pd.DataFrame([{
+        "id": 1, "id_original": "g1", "dia": "2022-01-01", "id_linea": 1,
+        "id_ramal": 1, "interno": 10, "fecha": 1641024000,
+        "latitud": -34.6, "longitud": -58.4,
+    }])
+    adapter.save_gps(gps)
+
+    adapter.geolocate_raw_transactions_from_gps(lineas_contienen_ramales=True)
+
+    result = adapter.query(
+        "SELECT * FROM transacciones_raw ORDER BY id_original"
+    ).reindex(columns=RAW_COLS)
+
+    before = trx.sort_values("id_original").reset_index(drop=True)
+    already_row_after = result[result["id_original"] == "1"].reset_index(drop=True)
+    already_row_before = before[before["id_original"] == "1"].reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(
+        already_row_after, already_row_before, check_dtype=False
+    )
+
+    needs_row_after = result[result["id_original"] == "2"].iloc[0]
+    assert needs_row_after["latitud"] == -34.6
+    assert needs_row_after["longitud"] == -58.4
