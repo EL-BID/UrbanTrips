@@ -101,6 +101,38 @@ def test_standardize_chunk_sets_id_ramal_from_id_linea_when_no_branches():
     assert result["id_ramal"].iloc[0] == result["id_linea"].iloc[0]
 
 
+def test_standardize_chunk_keeps_rows_missing_latlong_when_geolocalizar_trx():
+    df = make_chunk(2)
+    df["latitud"] = None
+    df["longitud"] = None
+    result = _standardize_chunk(
+        df,
+        nombres_variables=NOMBRES_VARIABLES,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+        geolocalizar_trx=True,
+    )
+    assert len(result) == 2
+    assert result["latitud"].isna().all()
+    assert result["longitud"].isna().all()
+
+
+def test_standardize_chunk_drops_rows_missing_latlong_when_not_geolocalizar_trx():
+    df = make_chunk(2)
+    df["latitud"] = None
+    df["longitud"] = None
+    result = _standardize_chunk(
+        df,
+        nombres_variables=NOMBRES_VARIABLES,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+        geolocalizar_trx=False,
+    )
+    assert len(result) == 0
+
+
 def test_ingest_day_csv_calls_save_raw_chunk_once_per_chunk(tmp_path):
     csv_path = tmp_path / "trx.csv"
     rows = "\n".join(
