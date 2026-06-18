@@ -286,6 +286,39 @@ class DuckDBDataAdapter:
         """Truncate the staging table after standardization is complete."""
         self._conn.execute("DELETE FROM transacciones_raw")
 
+    def geolocate_raw_transactions_from_gps(self, lineas_contienen_ramales: bool) -> None:
+        """Fill missing latitud/longitud in transacciones_raw from the
+        nearest preceding gps ping for the same vehicle (dia + id_linea
+        [+ id_ramal] + interno). Mirrors the legacy `geolocalizar_trx`
+        semantics. Rows with no matching prior ping are left NULL.
+        """
+        ramal_join = (
+            "AND (t.id_ramal = g.id_ramal OR (t.id_ramal IS NULL AND g.id_ramal IS NULL))"
+            if lineas_contienen_ramales else ""
+        )
+        self._conn.execute(f"""
+            UPDATE transacciones_raw
+            SET latitud = m.latitud, longitud = m.longitud
+            FROM (
+                SELECT
+                    t.rowid AS rid,
+                    g.latitud,
+                    g.longitud,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY t.rowid ORDER BY g.fecha DESC
+                    ) AS rn
+                FROM transacciones_raw t
+                JOIN gps g
+                    ON t.dia = g.dia
+                    AND t.id_linea = g.id_linea
+                    AND t.interno = g.interno
+                    {ramal_join}
+                    AND g.fecha <= t.fecha_ts
+                WHERE t.latitud IS NULL OR t.longitud IS NULL
+            ) m
+            WHERE transacciones_raw.rowid = m.rid AND m.rn = 1
+        """)
+
     def standardize_raw_to_transacciones(self, n_batches: int, id_offset: int) -> None:
         """
         Move rows from transacciones_raw into transacciones, computing:
