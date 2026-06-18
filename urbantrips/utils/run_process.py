@@ -330,7 +330,11 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
                 lineas_contienen_ramales=lineas_contienen_ramales,
                 geolocalizar_trx=geolocalizar_trx,
             )
-            usa_gps = configs.get("usa_archivo_gps", False)
+            usa_gps = (
+                configs.get("usa_archivo_gps", False)
+                or configs.get("nombre_archivo_gps") is not None
+                or geolocalizar_trx
+            )
             if usa_gps:
                 gps_corridas.append(corrida)
             if geolocalizar_trx:

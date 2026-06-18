@@ -255,11 +255,7 @@ def test_ingest_geolocalizar_trx_fills_coordinates_from_gps(tmp_path, monkeypatc
     (base / "data" / "data_ciudad").mkdir(parents=True)
     (base / "configs").mkdir(parents=True)
 
-    # trx CSV: no latitud/longitud columns at all.
-    trx_csv = base / "data" / "data_ciudad" / f"{corrida}_trx.csv"
-    trx_csv.write_text(
-        "id,id_tarjeta,fecha,id_linea,id_ramal,interno,orden,latitud,longitud,modo,tarifa,fex\n"
-        "1,card_1,2025-01-01 08:05:00,1,1,10,1,,,autobus,-,1.0\n"
+    # trx CSV: latitud/longitud are present but empty (to be filled from GPS).
         "2,card_2,2025-01-01 09:05:00,1,1,10,2,,,autobus,-,1.0\n"
     )
 

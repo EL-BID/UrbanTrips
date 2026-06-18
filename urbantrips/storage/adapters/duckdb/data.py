@@ -304,7 +304,6 @@ class DuckDBDataAdapter:
             "AND (t.id_ramal = g.id_ramal OR (t.id_ramal IS NULL AND g.id_ramal IS NULL))"
             if lineas_contienen_ramales else ""
         )
-        cols = ", ".join(schema.TRANSACCIONES_RAW_COLUMNS)
         select_cols = ", ".join(
             f"COALESCE(t.{c}, m.{c}) AS {c}" if c in ("latitud", "longitud") else f"t.{c}"
             for c in schema.TRANSACCIONES_RAW_COLUMNS
