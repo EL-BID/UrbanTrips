@@ -308,6 +308,12 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             nombres_variables = configs["nombres_variables_trx"]
             formato_fecha = configs["formato_fecha"]
             tipo_trx_invalidas = configs.get("tipo_trx_invalidas")
+            # NOTE: lineas_contienen_ramales and geolocalizar_trx are read per-corrida
+            # here but only the last corrida's values survive the loop (see usage
+            # below, after the loop). Both flags are assumed to be the same across
+            # all corridas in a single config. If a config mixes different values
+            # across corridas, only the last corrida's value is applied to all of
+            # them — this is a pre-existing assumption, not enforced or asserted.
             lineas_contienen_ramales = configs.get("lineas_contienen_ramales", True)
             geolocalizar_trx = configs.get("geolocalizar_trx", False)
             # Prefer an explicit value from the config; fall back to the {corrida}_trx.csv convention
@@ -359,6 +365,11 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             logger.info(
                 "[Phase 1] Geolocating %d corrida(s) from gps", len(geolocalizar_corridas)
             )
+            # lineas_contienen_ramales here is whatever the *last* corrida in the
+            # `corridas` loop above set it to, since it's a scalar reused across all
+            # corridas (see NOTE above). This is fine as long as a single config's
+            # corridas all agree on this flag, which is the assumed/expected setup;
+            # it is not validated here.
             ctx.data.geolocate_raw_transactions_from_gps(lineas_contienen_ramales)
 
         n_batches = _resolve_n_batches(ctx)

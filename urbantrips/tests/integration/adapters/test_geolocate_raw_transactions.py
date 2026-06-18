@@ -107,3 +107,29 @@ def test_geolocate_raw_transactions_leaves_already_geolocated_rows_untouched(tmp
     needs_row_after = result[result["id_original"] == "2"].iloc[0]
     assert needs_row_after["latitud"] == -34.6
     assert needs_row_after["longitud"] == -58.4
+
+
+def test_geolocate_raw_transactions_ignores_ramal_when_lineas_contienen_ramales_false(tmp_path):
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+
+    # trx row has id_ramal=1, with no matching GPS ping for that ramal
+    trx = pd.DataFrame(
+        [_raw_row(id_ramal=1, fecha_ts=1641024300)]
+    ).reindex(columns=RAW_COLS)
+    adapter.save_raw_chunk(trx)
+
+    gps = pd.DataFrame([{
+        # same dia/id_linea/interno, but a different id_ramal than the trx row
+        "id": 1, "id_original": "g1", "dia": "2022-01-01", "id_linea": 1,
+        "id_ramal": 2, "interno": 10, "fecha": 1641024000,
+        "latitud": -34.6, "longitud": -58.4,
+    }])
+    adapter.save_gps(gps)
+
+    adapter.geolocate_raw_transactions_from_gps(lineas_contienen_ramales=False)
+
+    result = adapter.query("SELECT latitud, longitud FROM transacciones_raw")
+    # With lineas_contienen_ramales=False, the join must ignore id_ramal entirely,
+    # so the trx still matches the gps ping despite the differing id_ramal.
+    assert result["latitud"].iloc[0] == -34.6
+    assert result["longitud"].iloc[0] == -58.4
