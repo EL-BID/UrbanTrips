@@ -209,3 +209,187 @@ def test_infer_destinations_is_idempotent(tmp_path):
     assert count_after_second == count_after_first, (
         "Second run must not add duplicate rows"
     )
+
+
+# ---------------------------------------------------------------------------
+# Scenario 5: geolocalizar_trx end-to-end through _ingest_all_days
+# ---------------------------------------------------------------------------
+
+_NOMBRES_VARIABLES_TRX = {
+    "id_trx": "id",
+    "id_tarjeta": "id_tarjeta",
+    "fecha": "fecha",
+    "id_linea": "id_linea",
+    "id_ramal": "id_ramal",
+    "interno": "interno",
+    "orden": "orden_trx",
+    "latitud": "latitud",
+    "longitud": "longitud",
+    "modo": "modo",
+    "tarifa": "tarifa",
+    "fex": "factor_expansion",
+}
+
+_NOMBRES_VARIABLES_GPS = {
+    "id": "id_gps",
+    "latitud": "lat",
+    "longitud": "lon",
+    "id_linea": "id_linea_gps",
+    "id_ramal": "id_ramal_gps",
+    "interno": "interno_gps",
+    "fecha": "fecha_gps",
+}
+
+
+def test_ingest_geolocalizar_trx_fills_coordinates_from_gps(tmp_path, monkeypatch):
+    """End-to-end: a trx CSV with no latitud/longitud columns, paired with a
+    gps CSV and geolocalizar_trx: True, should end up with transacciones
+    rows carrying coordinates derived from the nearest preceding gps ping —
+    not crash, and not silently drop every row.
+    """
+    from urbantrips.utils import run_process
+    from urbantrips.utils.paths import init_paths, reset_paths
+
+    corrida = "20250101"
+    base = tmp_path
+    (base / "data" / "data_ciudad").mkdir(parents=True)
+    (base / "configs").mkdir(parents=True)
+
+    # trx CSV: no latitud/longitud columns at all.
+    trx_csv = base / "data" / "data_ciudad" / f"{corrida}_trx.csv"
+    trx_csv.write_text(
+        "id,id_tarjeta,fecha,id_linea,id_ramal,interno,orden,latitud,longitud,modo,tarifa,fex\n"
+        "1,card_1,2025-01-01 08:05:00,1,1,10,1,,,autobus,-,1.0\n"
+        "2,card_2,2025-01-01 09:05:00,1,1,10,2,,,autobus,-,1.0\n"
+    )
+
+    # gps CSV: one ping per trx, each strictly before its trx timestamp,
+    # for the same id_linea/id_ramal/interno.
+    gps_csv = base / "data" / "data_ciudad" / f"{corrida}_gps.csv"
+    gps_csv.write_text(
+        "id_gps,lat,lon,id_linea_gps,id_ramal_gps,interno_gps,fecha_gps\n"
+        "1,-34.60,-58.40,1,1,10,2025-01-01 08:00:00\n"
+        "2,-34.61,-58.41,1,1,10,2025-01-01 09:00:00\n"
+    )
+
+    config_file = base / "configs" / "configuraciones_generales.yaml"
+    config_file.write_text("placeholder: true\n")
+
+    reset_paths()
+    init_paths(base)
+
+    ctx = _ctx(base)
+
+    config = {
+        "nombres_variables_trx": _NOMBRES_VARIABLES_TRX,
+        "formato_fecha": "%Y-%m-%d %H:%M:%S",
+        "tipo_trx_invalidas": None,
+        "lineas_contienen_ramales": True,
+        "nombre_archivo_trx": f"{corrida}_trx.csv",
+        "usa_archivo_gps": True,
+        "nombre_archivo_gps": f"{corrida}_gps.csv",
+        "nombres_variables_gps": _NOMBRES_VARIABLES_GPS,
+        "geolocalizar_trx": True,
+        "resolucion_h3": 8,
+        "n_batches": 1,
+    }
+
+    monkeypatch.setattr(
+        "urbantrips.utils.check_configs.check_config",
+        lambda corrida: None,
+    )
+    monkeypatch.setattr(
+        run_process, "leer_configs_generales", lambda *args, **kwargs: config
+    )
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.leer_configs_generales",
+        lambda *args, **kwargs: config,
+    )
+
+    # compute_od_distances builds a real street network via osmnx/pandana,
+    # which isn't needed to exercise the geocoding wiring under test and
+    # whose native (cython) dependency is broken in this environment.
+    # Other tests (e.g. test_legs.py) take the same passthrough approach.
+    def _passthrough_distances(od_df, **kwargs):
+        result = od_df.copy()
+        result["distance_km"] = 0.0
+        return result
+
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.compute_od_distances",
+        _passthrough_distances,
+    )
+
+    try:
+        run_process._ingest_all_days(ctx, [corrida])
+    finally:
+        reset_paths()
+
+    transacciones = ctx.data.query("SELECT * FROM transacciones")
+    assert len(transacciones) > 0, "geolocalizar_trx must not drop every row"
+    assert transacciones["latitud"].notna().all()
+    assert transacciones["longitud"].notna().all()
+
+
+def test_ingest_without_geolocalizar_trx_skips_geocoding(tmp_path, monkeypatch):
+    """When geolocalizar_trx is False (default), rows without latitud/
+    longitud in the trx file are dropped by standardization as before —
+    geocoding must not run.
+    """
+    from urbantrips.utils import run_process
+    from urbantrips.utils.paths import init_paths, reset_paths
+
+    corrida = "20250102"
+    base = tmp_path
+    (base / "data" / "data_ciudad").mkdir(parents=True)
+    (base / "configs").mkdir(parents=True)
+
+    trx_csv = base / "data" / "data_ciudad" / f"{corrida}_trx.csv"
+    trx_csv.write_text(
+        "id,id_tarjeta,fecha,id_linea,id_ramal,interno,orden,latitud,longitud,modo,tarifa,fex\n"
+        "1,card_1,2025-01-02 08:05:00,1,1,10,1,,,autobus,-,1.0\n"
+    )
+
+    config_file = base / "configs" / "configuraciones_generales.yaml"
+    config_file.write_text("placeholder: true\n")
+
+    reset_paths()
+    init_paths(base)
+
+    ctx = _ctx(base)
+
+    config = {
+        "nombres_variables_trx": _NOMBRES_VARIABLES_TRX,
+        "formato_fecha": "%Y-%m-%d %H:%M:%S",
+        "tipo_trx_invalidas": None,
+        "lineas_contienen_ramales": True,
+        "nombre_archivo_trx": f"{corrida}_trx.csv",
+        "usa_archivo_gps": False,
+        "geolocalizar_trx": False,
+        "n_batches": 1,
+    }
+
+    geolocate_calls = []
+    monkeypatch.setattr(
+        "urbantrips.utils.check_configs.check_config",
+        lambda corrida: None,
+    )
+    monkeypatch.setattr(
+        run_process, "leer_configs_generales", lambda *args, **kwargs: config
+    )
+    monkeypatch.setattr(
+        ctx.data,
+        "geolocate_raw_transactions_from_gps",
+        lambda *a, **kw: geolocate_calls.append((a, kw)),
+    )
+
+    try:
+        run_process._ingest_all_days(ctx, [corrida])
+    finally:
+        reset_paths()
+
+    assert geolocate_calls == [], "geocoding must be skipped when geolocalizar_trx is False"
+    transacciones = ctx.data.query("SELECT * FROM transacciones")
+    assert len(transacciones) == 0, (
+        "rows missing latitud/longitud must still be dropped when geolocalizar_trx is False"
+    )

@@ -106,7 +106,11 @@ def test_resolve_n_batches_inherits_stamped_partition(monkeypatch):
     assert auto_calls == []  # stamped count wins, auto-tune never runs
 
 
-def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
+def test_ingest_all_days_uploads_gps_before_standardizing(monkeypatch):
+    """GPS must be ingested (and dias_ultima_corrida populated) before the
+    raw → transacciones promotion, so any configured geocoding step has
+    gps data — and a populated run-days table — to join against.
+    """
     import pandas as pd
 
     from urbantrips.utils import run_process
@@ -126,7 +130,7 @@ def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
 
         def query(self, sql):
             assert "SELECT DISTINCT dia" in sql
-            calls.append("query_days")
+            calls.append(("query_days", sql))
             return pd.DataFrame({"dia": ["2025-10-15"]})
 
         def save_run_days(self, days):
@@ -165,9 +169,14 @@ def test_ingest_all_days_uploads_gps_after_run_days(monkeypatch):
 
     run_process._ingest_all_days(_Ctx(), ["20251015"])
 
-    assert calls.index(("save_run_days", ["2025-10-15"])) < calls.index(
-        ("gps", "20251015_gps.csv")
-    )
+    gps_idx = calls.index(("gps", "20251015_gps.csv"))
+    standardize_idx = next(i for i, c in enumerate(calls) if c[0] == "standardize")
+    first_save_run_days_idx = calls.index(("save_run_days", ["2025-10-15"]))
+
+    # gps ingestion must see a populated dias_ultima_corrida...
+    assert first_save_run_days_idx < gps_idx
+    # ...and must run before raw rows are promoted out of transacciones_raw.
+    assert gps_idx < standardize_idx
 
 
 def test_run_all_splits_batch_and_global_phases(monkeypatch):

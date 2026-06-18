@@ -294,6 +294,8 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
     from urbantrips.utils.check_configs import check_config
 
     gps_corridas = []
+    geolocalizar_corridas = []
+    lineas_contienen_ramales = True
 
     ctx.data.clear_raw()
 
@@ -307,6 +309,7 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             formato_fecha = configs["formato_fecha"]
             tipo_trx_invalidas = configs.get("tipo_trx_invalidas")
             lineas_contienen_ramales = configs.get("lineas_contienen_ramales", True)
+            geolocalizar_trx = configs.get("geolocalizar_trx", False)
             # Prefer an explicit value from the config; fall back to the {corrida}_trx.csv convention
             from urbantrips.utils.paths import get_paths
             nombre_archivo_trx = configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
@@ -319,10 +322,44 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
                 formato_fecha=formato_fecha,
                 tipo_trx_invalidas=tipo_trx_invalidas,
                 lineas_contienen_ramales=lineas_contienen_ramales,
+                geolocalizar_trx=geolocalizar_trx,
             )
             usa_gps = configs.get("usa_archivo_gps", False)
             if usa_gps:
                 gps_corridas.append(corrida)
+            if geolocalizar_trx:
+                geolocalizar_corridas.append(corrida)
+
+        # dias_ultima_corrida must be populated before gps ingestion: both
+        # process_and_upload_gps_table and geolocate_raw_transactions_from_gps
+        # (below) filter/join against it, and transacciones_raw already
+        # carries a populated `dia` column at this point (set during
+        # standardization-on-read in _standardize_chunk), so we don't need
+        # to wait for the raw → transacciones promotion to compute it.
+        all_dias = ctx.data.query(
+            "SELECT DISTINCT dia FROM transacciones_raw ORDER BY dia"
+        )
+        ctx.data.save_run_days(all_dias)
+
+        # gps must be loaded before standardizing so geocoding (below) and
+        # downstream gps-dependent steps have data to join against.
+        for corrida in gps_corridas:
+            check_config(corrida)
+            configs = leer_configs_generales(autogenerado=False)
+            nombre_archivo_gps = configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
+            logger.info("[Phase 1] Ingesting GPS for %s", corrida)
+            trx.process_and_upload_gps_table(
+                ctx=ctx,
+                nombre_archivo_gps=nombre_archivo_gps,
+                nombres_variables_gps=configs["nombres_variables_gps"],
+                formato_fecha=configs["formato_fecha"],
+            )
+
+        if geolocalizar_corridas:
+            logger.info(
+                "[Phase 1] Geolocating %d corrida(s) from gps", len(geolocalizar_corridas)
+            )
+            ctx.data.geolocate_raw_transactions_from_gps(lineas_contienen_ramales)
 
         n_batches = _resolve_n_batches(ctx)
         id_offset = ctx.data.get_max_id("transacciones")
@@ -331,22 +368,15 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
     finally:
         ctx.data.clear_raw()
 
+    # transacciones_raw is cleared above; transacciones now holds the
+    # promoted rows for this run, so re-derive the day list once more in
+    # case standardization dropped any day entirely (e.g. all its rows
+    # failed validation). This keeps dias_ultima_corrida accurate for
+    # every step downstream of this function.
     all_dias = ctx.data.query(
         "SELECT DISTINCT dia FROM transacciones ORDER BY dia"
     ).rename(columns={"dia": "dia"})
     ctx.data.save_run_days(all_dias)
-
-    for corrida in gps_corridas:
-        check_config(corrida)
-        configs = leer_configs_generales(autogenerado=False)
-        nombre_archivo_gps = configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
-        logger.info("[Phase 1] Ingesting GPS for %s", corrida)
-        trx.process_and_upload_gps_table(
-            ctx=ctx,
-            nombre_archivo_gps=nombre_archivo_gps,
-            nombres_variables_gps=configs["nombres_variables_gps"],
-            formato_fecha=configs["formato_fecha"],
-        )
 
 
 def _create_legs_for_batch(ctx: StorageContext, batch, trx_order_params: dict) -> None:
