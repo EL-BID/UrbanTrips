@@ -393,3 +393,97 @@ def test_ingest_without_geolocalizar_trx_skips_geocoding(tmp_path, monkeypatch):
     assert len(transacciones) == 0, (
         "rows missing latitud/longitud must still be dropped when geolocalizar_trx is False"
     )
+
+
+def test_ingest_with_latlong_already_present_skips_geocoding_and_keeps_values(
+    tmp_path, monkeypatch
+):
+    """End-to-end: when trx rows already carry real, non-null latitud/
+    longitud values, geolocalizar_trx: True must not overwrite them with
+    gps-derived coordinates (COALESCE keeps the original non-null values),
+    and rows must not be dropped.
+    """
+    from urbantrips.utils import run_process
+    from urbantrips.utils.paths import init_paths, reset_paths
+
+    corrida = "20250103"
+    base = tmp_path
+    (base / "data" / "data_ciudad").mkdir(parents=True)
+    (base / "configs").mkdir(parents=True)
+
+    # trx CSV: real, distinct, non-null latitud/longitud for each row.
+    trx_csv = base / "data" / "data_ciudad" / f"{corrida}_trx.csv"
+    trx_csv.write_text(
+        "id,id_tarjeta,fecha,id_linea,id_ramal,interno,orden,latitud,longitud,modo,tarifa,fex\n"
+        "1,card_1,2025-01-03 08:05:00,1,1,10,1,-34.60,-58.40,autobus,-,1.0\n"
+        "2,card_2,2025-01-03 09:05:00,1,1,10,2,-34.61,-58.41,autobus,-,1.0\n"
+    )
+
+    # gps CSV with different coordinates than the trx rows, to prove the
+    # original trx coordinates are NOT overwritten by gps data.
+    gps_csv = base / "data" / "data_ciudad" / f"{corrida}_gps.csv"
+    gps_csv.write_text(
+        "id_gps,lat,lon,id_linea_gps,id_ramal_gps,interno_gps,fecha_gps\n"
+        "1,-34.70,-58.50,1,1,10,2025-01-03 08:00:00\n"
+        "2,-34.71,-58.51,1,1,10,2025-01-03 09:00:00\n"
+    )
+
+    config_file = base / "configs" / "configuraciones_generales.yaml"
+    config_file.write_text("placeholder: true\n")
+
+    reset_paths()
+    init_paths(base)
+
+    ctx = _ctx(base)
+
+    config = {
+        "nombres_variables_trx": _NOMBRES_VARIABLES_TRX,
+        "formato_fecha": "%Y-%m-%d %H:%M:%S",
+        "tipo_trx_invalidas": None,
+        "lineas_contienen_ramales": True,
+        "nombre_archivo_trx": f"{corrida}_trx.csv",
+        "usa_archivo_gps": True,
+        "nombre_archivo_gps": f"{corrida}_gps.csv",
+        "nombres_variables_gps": _NOMBRES_VARIABLES_GPS,
+        "geolocalizar_trx": True,
+        "resolucion_h3": 8,
+        "n_batches": 1,
+    }
+
+    monkeypatch.setattr(
+        "urbantrips.utils.check_configs.check_config",
+        lambda corrida: None,
+    )
+    monkeypatch.setattr(
+        run_process, "leer_configs_generales", lambda *args, **kwargs: config
+    )
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.leer_configs_generales",
+        lambda *args, **kwargs: config,
+    )
+
+    def _passthrough_distances(od_df, **kwargs):
+        result = od_df.copy()
+        result["distance_km"] = 0.0
+        return result
+
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.compute_od_distances",
+        _passthrough_distances,
+    )
+
+    try:
+        run_process._ingest_all_days(ctx, [corrida])
+    finally:
+        reset_paths()
+
+    transacciones = ctx.data.query("SELECT * FROM transacciones")
+    assert len(transacciones) > 0, "rows with existing coordinates must not be dropped"
+
+    transacciones = transacciones.sort_values("id").reset_index(drop=True)
+    assert transacciones["latitud"].tolist() == pytest.approx([-34.60, -34.61]), (
+        "pre-existing latitud values must not be overwritten by gps data"
+    )
+    assert transacciones["longitud"].tolist() == pytest.approx([-58.40, -58.41]), (
+        "pre-existing longitud values must not be overwritten by gps data"
+    )
