@@ -154,6 +154,12 @@ def create_transactions(
         trx.loc[modos_ausentes_configs, "modo"] = "otros"
         trx["modo"] = trx["modo"].replace(modos_homologados)
 
+    # Normaliza el modo a minuscula en la raiz (ingesta). Evita el mismatch de
+    # casing entre etapas ('Autobus') y metadata_*/config ('autobus') que rompia
+    # el merge por id_ramal en assign_time_distances. El fix case-insensitive de
+    # id_ramal_efectivo queda como red de seguridad para cualquier otra comparacion.
+    trx["modo"] = trx["modo"].astype(str).str.lower()
+
     # Si la tarjeta venia con NaNs los numeros van a tener un .0
     # que se mantiene si se pasa a strs asi nomas
     # Si es float convierte a entero

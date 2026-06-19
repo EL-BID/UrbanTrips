@@ -65,6 +65,16 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
     dominio_gps:                                                   # Dominio o Mounting kit del vehículo
 
+modo_valida_ramal: 
+    valida_ramal_autobus: False                                    # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tren: False                                       # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_metro: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tranvia: False                                    # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_brt: False                                        # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_cable: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_lancha: False                                     # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_otros: False                                      # usa ramal para validar con matriz de validación de paradas
+    
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales

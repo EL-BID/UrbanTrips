@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS distancias (
 MATRIZ_VALIDACION = """
 CREATE TABLE IF NOT EXISTS matriz_validacion (
     id_linea_agg    BIGINT,
+    id_ramal        BIGINT,
     parada          TEXT,
     area_influencia TEXT
 )

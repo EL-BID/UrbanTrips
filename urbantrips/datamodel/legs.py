@@ -20,6 +20,9 @@ from urbantrips.utils.utils import (
     leer_configs_generales,
     agrego_indicador,
     VELOCIDAD_MAXIMA_KMH,
+    modos_con_ramal,
+    id_ramal_efectivo,
+    RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
@@ -617,14 +620,18 @@ def assign_time_distances(ctx: StorageContext):
     configs = leer_configs_generales(autogenerado=False)
     usa_gps = configs.get("usa_archivo_gps", False)
     
+    # Gate por etapa_validada (no od_validado): travel_time_min / distance_route /
+    # distance_route_gps dependen de que la etapa tenga destino valido imputado,
+    # NO de que la cadena de viajes de la tarjeta sea valida. etapa_validada ⊇
+    # od_validado. Requiere que etapa_validada este seteada antes (infer_destinations).
     query = """
     SELECT e.*
     FROM etapas e
     JOIN dias_ultima_corrida d
     ON e.dia = d.dia
-    WHERE e.od_validado = 1
+    WHERE e.etapa_validada = 1
     ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
-    """        
+    """
     legs_all = ctx.data.query(query)
             
     legs_all = compute_od_distances(
@@ -644,14 +651,33 @@ def assign_time_distances(ctx: StorageContext):
     if usa_gps:
 
         legs_h3_res = configs["resolucion_h3"]
+        modos_ramal = modos_con_ramal(configs)
+
+        metadata_lineas = ctx.insumos.get_metadata_lineas()[
+            ["id_linea", "id_linea_agg", "modo"]
+        ]
 
         # read stops zone of influence
+        # Regla invariante: la matriz se acota por id_linea_agg (red agregada) e
+        # id_ramal efectivo (real solo para los modos que validan por ramal). Antes
+        # se usaba solo parada->area_influencia, con lo que una parada (h3) compartida
+        # entre lineas podia matchear destinos de otra linea/ramal.
         mv = ctx.insumos.get_matrix_validation()
-        matriz = mv[["parada", "area_influencia"]].drop_duplicates()
+        matriz = mv[
+            ["id_linea_agg", "id_ramal", "parada", "area_influencia"]
+        ].drop_duplicates()
+        # id_ramal NULL (modos sin ramal) -> centinela para que el merge coincida.
+        matriz["id_ramal"] = matriz["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64")
         matriz["ring"] = matriz.apply(
             lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
-        matriz = matriz[matriz.ring < 3]
+
+        # Recorte del area de influencia para la imputacion de GPS de destino:
+        # umbral en metros, resolucion-independiente (I.C.bis). Reemplaza el
+        # `ring < 3` hardcodeado. Mismo criterio que el ring_filtro de carto.py.
+        lado_m = h3.average_hexagon_edge_length(res=legs_h3_res, unit="m")
+        ring_max = max(1, round(configs.get("tolerancia_destino_gps", 1000) / (lado_m * 2)))
+        matriz = matriz[matriz.ring <= ring_max]
 
         gps = ctx.data.query(
             """
@@ -661,8 +687,20 @@ def assign_time_distances(ctx: StorageContext):
             ORDER BY dia, id_linea, id_ramal, interno, fecha
             """
         )
+        # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
+        gps = gps.merge(metadata_lineas, how="left", on="id_linea")
+        gps["id_ramal"] = id_ramal_efectivo(
+            gps["modo"], gps["id_ramal"], modos_ramal
+        )
 
         legs = legs_all[(legs_all.id_linea.isin( gps.id_linea.unique() )) ].copy()
+        # legs trae modo de etapas; se agrega id_linea_agg y el id_ramal efectivo.
+        legs = legs.merge(
+            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
+        )
+        legs["id_ramal"] = id_ramal_efectivo(
+            legs["modo"], legs["id_ramal"], modos_ramal
+        )
 
         legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
 
@@ -874,6 +912,14 @@ def assign_time_distances(ctx: StorageContext):
         )
         gps_distances = gps_distances.rename(columns={"id_legs": "id"})
 
+        # Una distancia recorrida negativa es fisicamente imposible: indica anclas
+        # GPS fuera de orden (el ancla de origen es el ping "mas cercano" en tiempo
+        # al embarque y puede caer despues del ping de destino) o etapas que cruzan
+        # la medianoche (acum reseteada por dia). Se anulan para no contaminar los
+        # outputs ni las velocidades derivadas (kmh_* quedan NaN automaticamente).
+        for _col in ("distance_route", "distance_route_gps"):
+            gps_distances.loc[gps_distances[_col] < 0, _col] = np.nan
+
         travel_times = legs.reindex(
             columns=["dia", "id", "fecha", "distance_od"]
         ).merge(
@@ -934,8 +980,31 @@ def assign_time_distances(ctx: StorageContext):
                      'kmh_route_gps'] )
 
 
-        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']].merge(travel_times, how='left')
-        
+        # Merge explicito por (dia, id): mergear por columnas comunes incluiria
+        # distance_od (float) como clave, y las etapas con distance_od = NaN
+        # perderian su travel_time_min (NaN != NaN en el join). distance_od de
+        # legs_all es la autoritativa, asi que se descarta la del lado derecho.
+        travel_times = legs_all[
+            ['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']
+        ].merge(
+            travel_times.drop(columns=['distance_od']),
+            on=['dia', 'id'],
+            how='left',
+        )
+
+        # Persistir los pings GPS asignados como ancla de origen y destino, para QA.
+        # id_gps_o: presente para toda etapa con GPS de origen asignado.
+        # id_gps_d: presente solo si ademas se asigno GPS de destino (= hay travel_time_min).
+        travel_times = travel_times.merge(
+            legs_to_gps_o.rename(columns={"id_legs": "id"}),
+            on="id", how="left",
+        )
+        travel_times = travel_times.merge(
+            legs_to_gps_d.reindex(columns=["id_legs", "id_gps"])
+            .rename(columns={"id_legs": "id", "id_gps": "id_gps_d"}),
+            on="id", how="left",
+        )
+
         travel_times_trips = (
                 travel_times
                 .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
@@ -973,9 +1042,10 @@ def assign_time_distances(ctx: StorageContext):
             )
 
     travel_times = travel_times.reindex(
-        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min", 
+        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
                  "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps"]
+                 "kmh_od", "kmh_route", "kmh_route_gps",
+                 "id_gps_o", "id_gps_d"]
     )
 
     travel_times_trips = travel_times_trips.reindex(
@@ -1009,14 +1079,20 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
     """Process one (dia, hora) slice for GPS destination imputation."""
     etapas_tx = legs.loc[
         (legs["hora"] == hora) & (legs["dia"] == dia),
-        ["dia", "id", "id_linea", "id_ramal", "interno", "h3_o", "h3_d",
-         "h3_d_gps_res", "distance_od", "fecha"],
+        ["dia", "id", "id_linea", "id_linea_agg", "id_ramal", "interno", "h3_o",
+         "h3_d", "h3_d_gps_res", "distance_od", "fecha"],
     ].copy()
 
     if len(etapas_tx) == 0:
         return None
 
-    etapas_tx = etapas_tx.merge(matriz, how="left", left_on="h3_d", right_on="parada")
+    # Merge legs<->matriz acotado por id_linea_agg (red agregada) + id_ramal
+    # efectivo (ambos lados lo traen ya resuelto). Derivar la clave de las columnas
+    # de `matriz` evita pasar modos_ramal a traves del limite de multiprocessing.
+    clave = [c for c in ("id_linea_agg", "id_ramal") if c in matriz.columns]
+    etapas_tx = etapas_tx.merge(
+        matriz, how="left", left_on=clave + ["h3_d"], right_on=clave + ["parada"]
+    )
 
     hora_filtro = [hora + i for i in range(0, 4)]
     gps_tx = gps.loc[gps["hora"].isin(hora_filtro)].reindex(
@@ -1100,7 +1176,7 @@ def assign_stations_od(ctx: StorageContext):
             LEFT JOIN travel_times_gps tt
             ON e.dia = tt.dia AND e.id = tt.id
             WHERE tt.id IS NULL
-            AND e.od_validado = 1
+            AND e.etapa_validada = 1
             """
         )
         

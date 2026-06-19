@@ -123,6 +123,66 @@ def leer_configs_generales(autogenerado=True):
     return {}
 
 
+# ---------------------------------------------------------------------------
+# Validacion por ramal configurable por modo (modo_valida_ramal)
+# ---------------------------------------------------------------------------
+
+# Centinela usado en memoria para los modos que NO validan por ramal: permite
+# hacer un unico merge por [id_linea_agg, id_ramal] sin que un NULL/NaN rompa
+# el join (en pandas/SQL un NULL no matchea con otro NULL). Se persiste como
+# NULL en matriz_validacion (no el centinela). Supone id_ramal reales >= 0.
+RAMAL_SENTINEL = -1
+
+
+def modos_con_ramal(configs):
+    """
+    Devuelve el set de modos de transporte que validan por ramal segun la
+    configuracion (modo_valida_ramal).
+
+    Si lineas_contienen_ramales es False no hay ramales reales en los datos,
+    asi que se ignora modo_valida_ramal y se devuelve un set vacio (ningun
+    modo valida por ramal; comportamiento por id_linea_agg como hasta hoy).
+
+    El dict modo_valida_ramal tiene claves del estilo `valida_ramal_<modo>`.
+    """
+    if not configs.get("lineas_contienen_ramales", False):
+        return set()
+    mvr = configs.get("modo_valida_ramal", {}) or {}
+    return {
+        clave.replace("valida_ramal_", "")
+        for clave, flag in mvr.items()
+        if flag
+    }
+
+
+def id_ramal_efectivo(modo_series, id_ramal_series, modos):
+    """
+    Calcula el id_ramal "efectivo" por fila: el id_ramal real cuando el modo de
+    la fila valida por ramal, o RAMAL_SENTINEL cuando no (asi todas las filas de
+    un modo sin ramal colapsan a un mismo bucket por id_linea_agg).
+
+    `modos` es el set devuelto por modos_con_ramal().
+
+    Devuelve una Serie int64 (RAMAL_SENTINEL para los modos sin ramal y para
+    filas validas sin id_ramal). Asi todos los merges por id_ramal usan el mismo
+    dtype, evitando el mismatch int64/float64 (id_ramal NULL de SQL llega float).
+    """
+    id_ramal_series = pd.Series(id_ramal_series)
+    # Comparacion case-insensitive: el modo puede venir con distinto casing segun
+    # la tabla (etapas suele traer 'Autobus' y metadata/config 'autobus'). Sin
+    # normalizar, el autobus caia en RAMAL_SENTINEL en legs/gps mientras la matriz
+    # guardaba el ramal real -> el merge por id_ramal fallaba y no se asignaba GPS.
+    modos_norm = {str(m).lower() for m in modos}
+    valida = (
+        pd.Series(modo_series).astype(str).str.lower().isin(modos_norm).to_numpy()
+    )
+    efectivo = np.where(valida, id_ramal_series.to_numpy(), RAMAL_SENTINEL)
+    efectivo = pd.to_numeric(
+        pd.Series(efectivo, index=id_ramal_series.index), errors="coerce"
+    ).fillna(RAMAL_SENTINEL).astype("int64")
+    return efectivo
+
+
 _TUNING_DEFAULTS: dict = {
     "dbscan": {
         "grid_steps": 5,

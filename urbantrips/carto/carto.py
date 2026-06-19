@@ -46,6 +46,9 @@ from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
     leer_alias,
+    modos_con_ramal,
+    id_ramal_efectivo,
+    RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
 
@@ -129,116 +132,224 @@ def get_library_version(library_name):
 @duracion
 def update_stations_catchment_area(ring_size, ctx: StorageContext):
     """
-    Esta funcion toma la matriz de validacion de paradas
-    y la actualiza en base a datos de fechas que no esten
-    ya en la matriz
+    Actualiza la matriz de validacion de paradas (matriz_validacion) combinando
+    dos fuentes de paradas:
+      - transacciones (etapas.h3_o), descartando pares con una sola ocurrencia
+      - puntos GPS (gps.h3), descartando hexagonos con muy pocos puntos (outliers
+        de densidad: glitches de GPS)
+    Aplica un filtro por buffer alrededor del corredor real (footprint de puntos
+    GPS validos; si no hay GPS, el recorrido oficial como fallback) descartando las
+    paradas que caen muy por fuera, y construye el area de influencia (anillo H3 de
+    tamano ring_size) para todas las paradas.
+
+    El uso de ramal se decide por modo (modo_valida_ramal). Para los modos que
+    validan por ramal construye por (id_linea_agg, id_ramal); para los que no,
+    colapsa los ramales por (id_linea_agg) y deja id_ramal en NULL. En memoria
+    los modos sin ramal usan un centinela (RAMAL_SENTINEL) para que el merge por
+    [id_linea_agg, id_ramal] funcione uniforme; se persiste NULL.
+
+    Es reconstruccion total: etapas y gps son acumulativas y se leen completas,
+    asi que la matriz se reescribe entera en cada corrida (re-evalua outliers).
+
+    Parametros leidos de configuraciones_generales.yaml:
+      - resolucion_h3
+      - tolerancia_validacion_recorrido (metros, default 600): buffer del filtro
+      - frac_mediana_gps (default 0.25): umbral de outliers GPS como fraccion de la
+        mediana de puntos por hexagono
+      - lineas_contienen_ramales, modo_valida_ramal
     """
-    # Leer las paradas en base a las etapas
-    q = """
-    select id_linea, h3_o as parada from etapas
-    """
-    paradas_etapas = ctx.data.query(q)
-    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    configs = leer_configs_generales(autogenerado=False)
+    modos_ramal = modos_con_ramal(configs)
+    resolucion_h3 = configs["resolucion_h3"]
+    frac_mediana_gps = configs.get("frac_mediana_gps", 0.25)
+    tol_filtro = configs.get("tolerancia_validacion_recorrido", 600)
+
+    # Buffer del filtro de recorrido: mas chico que el area de influencia.
+    lado_m = h3.average_hexagon_edge_length(res=resolucion_h3, unit="m")
+    ring_filtro = max(1, round(tol_filtro / (lado_m * 2)))
+
+    # Key fija; id_ramal lleva el valor efectivo (real para modos con ramal,
+    # RAMAL_SENTINEL para los que no). Se convierte a NULL al persistir.
+    key = ["id_linea_agg", "id_ramal"]
+
+    def _es_h3_valido(cell):
+        return isinstance(cell, str) and h3.is_valid_cell(cell)
+
+    # --- Migracion: si la tabla persistida quedo con el schema viejo
+    # (id_linea / sin id_ramal), se descarta y recrea con la nueva semantica
+    # (id_linea_agg, id_ramal). Asi save_matrix_validation (DELETE+INSERT) escribe
+    # contra las columnas correctas y los consumidores encuentran id_linea_agg. ---
+    from urbantrips.storage.schema.insumos import MATRIZ_VALIDACION
+
+    cols_actuales = set(ctx.insumos.query(
+        "SELECT * FROM matriz_validacion LIMIT 0"
+    ).columns)
+    schema_viejo = bool(cols_actuales) and (
+        "id_linea_agg" not in cols_actuales or "id_ramal" not in cols_actuales
+    )
+    if schema_viejo:
+        logger.info(
+            "matriz_validacion con schema viejo (%s); se reconstruye con "
+            "id_linea_agg, id_ramal",
+            sorted(cols_actuales),
+        )
+        ctx.insumos.execute("DROP TABLE IF EXISTS matriz_validacion")
+        ctx.insumos.execute(MATRIZ_VALIDACION)
+
+    metadata_lineas = ctx.insumos.get_metadata_lineas()[
+        ["id_linea", "id_linea_agg", "modo"]
+    ]
+
+    # --- Fuente A: paradas desde transacciones (etapas) ---
+    paradas_etapas = ctx.data.query(
+        "select id_linea, id_ramal, h3_o as parada, count(*) as n "
+        "from etapas group by id_linea, id_ramal, h3_o"
+    )
     paradas_etapas = paradas_etapas[
-        paradas_etapas["parada"].map(lambda cell: isinstance(cell, str) and h3.is_valid_cell(cell))
+        paradas_etapas["parada"].map(_es_h3_valido)
     ].copy()
+    paradas_etapas = paradas_etapas.merge(metadata_lineas, how="left", on="id_linea")
+    paradas_etapas["id_ramal"] = id_ramal_efectivo(
+        paradas_etapas["modo"], paradas_etapas["id_ramal"], modos_ramal
+    )
+    paradas_etapas = paradas_etapas.drop(columns=["id_linea", "modo"])
+    # Re-sumar el conteo por la clave efectiva (al colapsar los ramales de un modo
+    # sin ramal hay que sumar sus n). Filtro >1: descartar paradas de una sola obs.
+    paradas_etapas = paradas_etapas.groupby(key + ["parada"], as_index=False)["n"].sum()
+    paradas_etapas = paradas_etapas[paradas_etapas["n"] > 1].drop(columns=["n"])
 
-    paradas_etapas = paradas_etapas.merge(
-        metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
-    ).drop(["id_linea"], axis=1)
+    # --- Fuente B: paradas desde GPS, con filtro de outliers por densidad ---
+    # Se detecta GPS por presencia de datos en la tabla (mas robusto que el flag
+    # de config, que puede quedar en None aunque la tabla este poblada).
+    # gps no tiene columna modo: se trae del merge con metadata_lineas.
+    gps = ctx.data.query(
+        "select id_linea, id_ramal, h3 as parada, count(*) as n_pts "
+        "from gps where h3 is not null group by id_linea, id_ramal, h3"
+    )
+    usa_gps = len(gps) > 0
+    if usa_gps:
+        gps = gps[gps["parada"].map(_es_h3_valido)].copy()
+        gps = gps.merge(metadata_lineas, how="left", on="id_linea")
+        gps["id_ramal"] = id_ramal_efectivo(
+            gps["modo"], gps["id_ramal"], modos_ramal
+        )
+        gps = gps.drop(columns=["id_linea", "modo"])
+        # Sumar n_pts por la clave efectiva + parada: colapsa los ramales de un modo
+        # sin ramal para que el conteo del hexagono sea el total antes del filtro.
+        gps = gps.groupby(key + ["parada"], as_index=False)["n_pts"].sum()
+        mediana = gps.groupby(key)["n_pts"].transform("median")
+        umbral = np.maximum(2, np.round(mediana * frac_mediana_gps))
+        gps_validos = gps[gps["n_pts"] >= umbral].copy()
+        gps_validos = gps_validos[key + ["parada"]]
+        logger.info(
+            "frac_mediana_gps=%s, outliers GPS descartados=%d",
+            frac_mediana_gps, len(gps) - len(gps_validos),
+        )
+    else:
+        gps_validos = pd.DataFrame(columns=key + ["parada"])
 
-    paradas_etapas = paradas_etapas.groupby(
-        ["id_linea_agg", "parada"], as_index=False
-    ).size()
+    # --- Combinar fuentes ---
+    paradas = pd.concat(
+        [paradas_etapas[key + ["parada"]], gps_validos], ignore_index=True
+    ).drop_duplicates(subset=key + ["parada"])
 
-    paradas_etapas = paradas_etapas[(paradas_etapas["size"] > 1)].drop(["size"], axis=1)
+    # Descartar paradas con h3 nulo/vacio: cuando lat/lon es (0, 0) no se asigna
+    # h3 y queda un string vacio que rompe h3.grid_disk('', ...).
+    paradas_pre_na = len(paradas)
+    paradas = paradas[paradas["parada"].notna() & (paradas["parada"] != "")]
+    if len(paradas) < paradas_pre_na:
+        logger.info(
+            "Descartadas %d paradas con h3 vacio/nulo (lat/lon = 0)",
+            paradas_pre_na - len(paradas),
+        )
 
-    # filtrar paradas solo los que estan en recorridos h3
+    # --- Footprint del corredor real por grupo: GPS valido; fallback recorrido ---
+    footprint_por_grupo = {}
+    if usa_gps and len(gps_validos) > 0:
+        for gkey, sub in gps_validos.groupby(key):
+            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
+            footprint_por_grupo[gkey] = set(sub["parada"])
+
+    # Recorridos oficiales: se traen id_linea (real) y modo desde metadata_ramales
+    # y se resuelve id_linea_agg via metadata_lineas, para que la clave coincida
+    # con las candidatas de etapas/gps (importante en modos agregados como metro).
     obgh = ctx.insumos.get_raw("official_branches_geoms_h3")
     mr = ctx.insumos.get_metadata_ramales()
-
     if not obgh.empty and not mr.empty:
         obgh = obgh.copy()
         obgh["id_ramal"] = obgh["id_ramal"].astype("int64")
         h3_recorridos = (
             obgh[["id_ramal", "h3"]]
-            .merge(mr[["id_ramal", "id_linea"]], on="id_ramal")
-            [["id_linea", "h3"]]
-            .rename(columns={"id_linea": "id_linea_agg", "h3": "parada"})
-            .drop_duplicates()
+            .merge(mr[["id_ramal", "id_linea", "modo"]], on="id_ramal")
+            .rename(columns={"h3": "parada"})
         )
-    else:
-        h3_recorridos = pd.DataFrame(columns=["id_linea_agg", "parada"])
+        h3_recorridos = h3_recorridos.merge(
+            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
+        )
+        h3_recorridos["id_ramal"] = id_ramal_efectivo(
+            h3_recorridos["modo"], h3_recorridos["id_ramal"], modos_ramal
+        )
+        h3_recorridos = h3_recorridos[key + ["parada"]].drop_duplicates()
+        for gkey, sub in h3_recorridos.groupby(key):
+            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
+            footprint_por_grupo.setdefault(gkey, set(sub["parada"]))
 
-    if len(h3_recorridos) > 0:
-        h3_recorridos["parada_en_recorridos"] = True
-        paradas_etapas["id_linea_recorridos"] = paradas_etapas["id_linea_agg"].isin(
-            h3_recorridos["id_linea_agg"].unique()
+    # --- Filtro por buffer: conservar candidatas dentro del footprint buffereado.
+    # Grupos sin footprint (ni GPS ni recorrido) no se filtran (se confia en trx). ---
+    if len(footprint_por_grupo) > 0:
+        permitidas_rows = []
+        for gkey, hexes in footprint_por_grupo.items():
+            buffered = set()
+            for hx in hexes:
+                buffered.update(h3.grid_disk(hx, ring_filtro))
+            for hx in buffered:
+                permitidas_rows.append((*gkey, hx))
+        permitidas = pd.DataFrame(
+            permitidas_rows, columns=key + ["parada"]
+        ).drop_duplicates()
+
+        grupos_con_footprint = set(footprint_por_grupo.keys())
+        clave_tuplas = list(map(tuple, paradas[key].to_numpy()))
+        mask_con = pd.Series(
+            [t in grupos_con_footprint for t in clave_tuplas], index=paradas.index
+        )
+        paradas_con = paradas[mask_con].merge(
+            permitidas, on=key + ["parada"], how="inner"
+        )
+        paradas_sin = paradas[~mask_con]
+        paradas_pre = len(paradas)
+        paradas = pd.concat([paradas_con, paradas_sin], ignore_index=True)
+        logger.info(
+            "Filtro por recorrido/buffer (ring_filtro=%d): %d -> %d paradas",
+            ring_filtro, paradas_pre, len(paradas),
         )
 
-        paradas_etapas = paradas_etapas.merge(
-            h3_recorridos, on=["id_linea_agg", "parada"], how="left"
-        )
-
-        paradas_etapas["parada_en_recorridos"] = (
-            paradas_etapas["parada_en_recorridos"]
-            .fillna(False)
-            .infer_objects(copy=False)
-            .astype(bool)
-        )
-
-        paradas_etapas["borrar"] = (paradas_etapas.id_linea_recorridos) & (
-            ~paradas_etapas.parada_en_recorridos
-        )
-
-        paradas_pre = len(paradas_etapas)
-        logger.debug("Paradas antes de eliminar por recorridos: %d", paradas_pre)
-        paradas_etapas = paradas_etapas.loc[
-            ~paradas_etapas.borrar, ["id_linea_agg", "parada"]
-        ]
-        logger.debug("Eliminadas %d paradas sin recorridos", paradas_pre - len(paradas_etapas))
-
-    # Leer las paradas ya existentes en la matriz
-    paradas_en_matriz = ctx.insumos.get_matrix_validation()
-    if not paradas_en_matriz.empty:
-        paradas_en_matriz = (
-            paradas_en_matriz[["id_linea_agg", "parada"]]
-            .drop_duplicates()
-            .copy()
-        )
-        paradas_en_matriz["m"] = 1
-    else:
-        paradas_en_matriz = pd.DataFrame(columns=["id_linea_agg", "parada", "m"])
-
-    # Detectar que paradas son nuevas para cada linea
-    paradas_nuevas = paradas_etapas.merge(
-        paradas_en_matriz, on=["id_linea_agg", "parada"], how="left"
-    )
-    paradas_nuevas = paradas_nuevas.loc[
-        paradas_nuevas.m.isna(), ["id_linea_agg", "parada"]
-    ]
-
-    if len(paradas_nuevas) > 0:
-        areas_influencia_nuevas = pd.concat(
-            (
-                map(
-                    get_stop_hex_ring,
-                    np.unique(paradas_nuevas["parada"]),
-                    itertools.repeat(ring_size),
-                )
+    # --- Reconstruccion total: se recalcula la matriz entera en cada corrida ---
+    # etapas y gps son acumulativas y se leen completas, asi que el estado actual ya
+    # refleja todo el historico. Reconstruir (en vez de append-only) re-evalua los
+    # outliers y saca paradas que ya no califican, y simplifica la funcion.
+    if len(paradas) > 0:
+        areas_influencia = pd.concat(
+            map(
+                get_stop_hex_ring,
+                np.unique(paradas["parada"]),
+                itertools.repeat(ring_size),
             )
         )
-        matriz_nueva = paradas_nuevas.merge(
-            areas_influencia_nuevas, how="left", on="parada"
+        matriz = paradas.merge(areas_influencia, how="left", on="parada")
+        # Persistir NULL (no el centinela) para los modos sin ramal.
+        matriz.loc[matriz["id_ramal"] == RAMAL_SENTINEL, "id_ramal"] = None
+        matriz = matriz.reindex(
+            columns=["id_linea_agg", "id_ramal", "parada", "area_influencia"]
         )
-
-        ctx.insumos.append_raw(matriz_nueva, "matriz_validacion")
-        logger.info("Fin actualizacion matriz de validacion")
-    else:
+        # DELETE + INSERT (preserva el schema/tipos del DDL de insumos).
+        ctx.insumos.save_matrix_validation(matriz)
         logger.info(
-            "La matriz de validacion ya tiene los datos más actuales"
-            " en base a la informacion existente en la tabla de etapas"
+            "matriz_validacion reconstruida: %d filas, %d paradas",
+            len(matriz), paradas["parada"].nunique(),
         )
+    else:
+        logger.info("Sin paradas candidatas: matriz_validacion no se modifica")
 
     return None
 

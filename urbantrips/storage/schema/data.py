@@ -194,7 +194,9 @@ CREATE TABLE IF NOT EXISTS travel_times_legs (
     distance_route_gps  FLOAT,
     kmh_od              FLOAT,
     kmh_route           FLOAT,
-    kmh_route_gps       FLOAT
+    kmh_route_gps       FLOAT,
+    id_gps_o            INT,
+    id_gps_d            INT
 )
 """
 
