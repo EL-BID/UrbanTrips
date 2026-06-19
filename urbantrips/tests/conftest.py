@@ -38,7 +38,9 @@ def path_test_data():
 @pytest.fixture
 def matriz_validacion_test_amba(path_test_data):
     path = os.path.join(path_test_data, "matriz_validacion_amba_test.csv")
-    return pd.read_csv(path, dtype={"id_linea": int})
+    # id_ramal queda como float (NaN) cuando esta vacio: refleja la semantica
+    # de NULL en la tabla matriz_validacion para modos que no validan por ramal.
+    return pd.read_csv(path, dtype={"id_linea_agg": int})
 
 
 @pytest.fixture

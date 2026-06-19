@@ -79,11 +79,17 @@ def _make_metadata_lineas() -> pd.DataFrame:
 
 
 def _make_matriz_validacion() -> pd.DataFrame:
-    """One validation area: H3_B is a valid destination for line LINEA_AGG_ID."""
+    """One validation area: H3_B is a valid destination for line LINEA_AGG_ID.
+
+    id_ramal is NULL: 'autobus' no valida por ramal, asi que el id_ramal
+    efectivo de las etapas cae al sentinela y el merge ocurre sobre la red
+    agregada (id_linea_agg).
+    """
     return pd.DataFrame({
         "id_linea_agg": [LINEA_AGG_ID],
-        "area_influencia": [H3_B],
+        "id_ramal": [None],
         "parada": [H3_B],
+        "area_influencia": [H3_B],
     })
 
 

@@ -74,6 +74,7 @@ def _sample_matrix_validation() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "id_linea_agg": [1],
+            "id_ramal": [10],
             "parada": ["P1"],
             "area_influencia": ["A1"],
         }
