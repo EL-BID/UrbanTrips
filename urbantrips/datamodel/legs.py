@@ -19,7 +19,10 @@ from urbantrips.utils.utils import (
     agrego_indicador,
     delete_data_from_table_run_days,
     levanto_tabla_sql,
-    guardar_tabla_sql,  
+    guardar_tabla_sql,
+    modos_con_ramal,
+    id_ramal_efectivo,
+    RAMAL_SENTINEL,
 )
 # from urbantrips.kpi.kpi import add_distances_to_legs
 from urbantrips.carto.compute_distances import compute_od_distances
@@ -633,14 +636,18 @@ def assign_time_distances():
     configs = leer_configs_generales()
     nombre_archivo_gps = configs["nombre_archivo_gps"]
     
+    # Gate por etapa_validada (no od_validado): travel_time_min / distance_route /
+    # distance_route_gps dependen de que la etapa tenga destino valido imputado,
+    # NO de que la cadena de viajes de la tarjeta sea valida. etapa_validada ⊇
+    # od_validado. Requiere que etapa_validada este seteada antes (infer_destinations).
     query = """
     SELECT e.*
     FROM etapas e
     JOIN dias_ultima_corrida d
     ON e.dia = d.dia
-    WHERE e.od_validado = 1
+    WHERE e.etapa_validada = 1
     ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
-    """        
+    """
     legs_all = levanto_tabla_sql(
         'etapas',
         'data',
@@ -665,25 +672,40 @@ def assign_time_distances():
 
         conn_data = iniciar_conexion_db(tipo="data")
 
-        alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+        configs_insumos = leer_configs_generales(autogenerado=False)
+        alias_insumos = configs_insumos.get("alias_db", "")
+        modos_ramal = modos_con_ramal(configs_insumos)
         conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
         configs = leer_configs_generales()
 
         legs_h3_res = configs["resolucion_h3"]
+        # Parametro nuevo leido con default (igual que tolerancia_validacion_recorrido
+        # y frac_mediana_gps en carto): no esta en el Excel de config, asi que se
+        # tunea aca por ahora. Reemplaza el antiguo `ring < 3` hardcodeado.
+        tol_gps = configs_insumos.get("tolerancia_destino_gps", 1000)
 
-        # read stops zone of incluence
+        metadata_lineas = pd.read_sql(
+            "select id_linea, id_linea_agg, modo from metadata_lineas", conn_insumos)
+
+        # read stops zone of incluence (por id_linea_agg + id_ramal efectivo)
         q = """
-        select distinct parada,area_influencia
+        select distinct id_linea_agg, id_ramal, parada, area_influencia
         from matriz_validacion;
         """
         matriz = pd.read_sql(q, conn_insumos)
+        # id_ramal NULL (modos sin ramal) -> centinela para que el merge coincida
+        matriz["id_ramal"] = matriz["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64")
         matriz["ring"] = matriz.apply(
             lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
-        matriz = matriz[matriz.ring < 3]
+        # Gate espacial parametrizado (antes hardcodeado ring < 3). Misma formula
+        # que el filtro de carto: tolerancia en metros -> radio en hexagonos.
+        lado_m = h3.average_hexagon_edge_length(res=legs_h3_res, unit="m")
+        ring_max = max(1, round(tol_gps / (lado_m * 2)))
+        matriz = matriz[matriz.ring <= ring_max]
 
         q = """
-        select g.* 
+        select g.*
         from gps g
         JOIN dias_ultima_corrida d
         ON g.dia = d.dia
@@ -691,8 +713,17 @@ def assign_time_distances():
         ;
         """
         gps = pd.read_sql(q, conn_data)
+        # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo
+        gps = gps.merge(metadata_lineas, how="left", on="id_linea")
+        gps["id_ramal"] = id_ramal_efectivo(
+            gps["modo"], gps["id_ramal"], modos_ramal)
 
         legs = legs_all[(legs_all.id_linea.isin( gps.id_linea.unique() )) ].copy()
+        # legs trae modo de etapas; se agrega id_linea_agg y el id_ramal efectivo
+        legs = legs.merge(
+            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea")
+        legs["id_ramal"] = id_ramal_efectivo(
+            legs["modo"], legs["id_ramal"], modos_ramal)
 
         legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
 
@@ -743,6 +774,7 @@ def assign_time_distances():
                         "dia",
                         "id",
                         "id_linea",
+                        "id_linea_agg",
                         "id_ramal",
                         "interno",
                         "h3_o",
@@ -756,9 +788,13 @@ def assign_time_distances():
                 n_etapas_raw = len(etapas_tx)
                 n_etapas_unicas = etapas_tx["id"].nunique()
 
-                # Agregar anillos a las etapas
+                # Agregar anillos a las etapas: el match con la matriz discrimina por
+                # id_linea_agg + id_ramal efectivo (no solo por h3_d == parada), para
+                # no traer paradas de otra linea/ramal que compartan el mismo h3.
                 etapas_tx = etapas_tx.merge(
-                    matriz, how="left", left_on="h3_d", right_on="parada"
+                    matriz.rename(columns={"parada": "h3_d"}),
+                    how="left",
+                    on=["id_linea_agg", "id_ramal", "h3_d"],
                 )
                 n_post_matriz = len(etapas_tx)
                 factor_matriz = n_post_matriz / n_etapas_raw if n_etapas_raw > 0 else 0
@@ -1059,7 +1095,20 @@ def assign_time_distances():
         travel_times = travel_times.drop(['distance_od'], axis=1)
 
         travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']].merge(travel_times, how='left')
-        
+
+        # Persistir los pings GPS asignados como ancla de origen y destino, para QA.
+        # id_gps_o: presente para toda etapa con GPS de origen asignado.
+        # id_gps_d: presente solo si ademas se asigno GPS de destino (= hay travel_time_min).
+        travel_times = travel_times.merge(
+            legs_to_gps_o.rename(columns={"id_legs": "id"}),
+            on="id", how="left",
+        )
+        travel_times = travel_times.merge(
+            legs_to_gps_d.reindex(columns=["id_legs", "id_gps"])
+            .rename(columns={"id_legs": "id", "id_gps": "id_gps_d"}),
+            on="id", how="left",
+        )
+
         travel_times_trips = (
                 travel_times
                 .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
@@ -1096,9 +1145,10 @@ def assign_time_distances():
             )
 
     travel_times = travel_times.reindex(
-        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min", 
+        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
                  "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps"]
+                 "kmh_od", "kmh_route", "kmh_route_gps",
+                 "id_gps_o", "id_gps_d"]
     )
 
     travel_times_trips = travel_times_trips.reindex(
@@ -1167,7 +1217,7 @@ def assign_stations_od():
                 ON e.dia = tt.dia
                 AND e.id = tt.id
             WHERE tt.travel_time_min IS NULL
-            AND e.od_validado = 1
+            AND e.etapa_validada = 1
             AND e.id_linea IN (
                 SELECT DISTINCT id_linea 
                 FROM travel_times_stations

@@ -85,6 +85,16 @@ modos:
     lancha:                                                        
     otros:                                                         
 
+modo_valida_ramal: 
+    valida_ramal_autobus: False                                     # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tren: False                                       # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_metro: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tranvia: False                                    # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_brt: False                                        # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_cable: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_lancha: False                                     # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_otros: False                                      # usa ramal para validar con matriz de validación de paradas
+    
 # Capas geográficas con recorridos de líneas
 recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"       # archivo geojson con el trazado de las líneas de transporte público
 

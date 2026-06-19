@@ -10,6 +10,9 @@ from urbantrips.utils.utils import (
     agrego_indicador,
     levanto_tabla_sql,
     guardar_tabla_sql,
+    modos_con_ramal,
+    id_ramal_efectivo,
+    RAMAL_SENTINEL,
 )
 
 
@@ -49,51 +52,65 @@ def validar_destinos(destinos):
     Valida destinos potenciales contra la matriz de validación de la DB.
     Delega en _validar_destinos_con_matriz para facilitar el testing.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    configs = leer_configs_generales(autogenerado=False)
+    alias_insumos = configs.get("alias_db", "")
+    modos_ramal = modos_con_ramal(configs)
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
 
     matriz_validacion = pd.read_sql_query(
-        "SELECT DISTINCT id_linea_agg, area_influencia FROM matriz_validacion",
+        "SELECT DISTINCT id_linea_agg, id_ramal, area_influencia FROM matriz_validacion",
         conn_insumos,
     )
     conn_insumos.close()
 
-    return _validar_destinos_con_matriz(destinos, matriz_validacion)
+    return _validar_destinos_con_matriz(destinos, matriz_validacion, modos_ramal)
 
 
-def _validar_destinos_con_matriz(destinos, matriz_validacion):
+def _validar_destinos_con_matriz(destinos, matriz_validacion, modos_ramal=None):
     """
     Valida destinos potenciales contra una matriz de validación dada.
     Versión separada de validar_destinos() para facilitar el testing sin DB.
 
+    El join discrimina por id_ramal solo en los modos que validan por ramal
+    (modos_ramal); para el resto usa el id_ramal efectivo (centinela), o sea
+    valida por id_linea_agg como hasta hoy. La matriz guarda id_ramal NULL en
+    esos modos, que aquí se rellena con el centinela para que el merge coincida.
+
     Agrega drop_duplicates antes del merge para evitar multiplicar filas y
     verifica con un assert que el tamaño del DataFrame no cambia.
     """
+    modos_ramal = modos_ramal or set()
     n_orig = len(destinos)
 
+    destinos = destinos.copy()
+    destinos["id_ramal"] = id_ramal_efectivo(
+        destinos["modo"], destinos["id_ramal"], modos_ramal)
+
+    matriz_validacion = matriz_validacion.copy()
+    matriz_validacion["id_ramal"] = (
+        matriz_validacion["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64"))
+
+    join_cols = ["h3_o", "h3_d", "id_linea_agg", "id_ramal"]
+
     pares_od_linea = (
-        destinos.reindex(columns=["h3_o", "h3_d", "id_linea_agg"])
+        destinos.reindex(columns=["h3_o", "h3_d", "id_linea_agg", "id_ramal"])
         .drop_duplicates()
     )
 
     pares_od_linea = pares_od_linea.merge(
         matriz_validacion.drop_duplicates(),
         how="left",
-        left_on=["id_linea_agg", "h3_d"],
-        right_on=["id_linea_agg", "area_influencia"],
+        left_on=["id_linea_agg", "id_ramal", "h3_d"],
+        right_on=["id_linea_agg", "id_ramal", "area_influencia"],
     )
     pares_od_linea["od_validado"] = pares_od_linea["area_influencia"].notna()
 
     # Si un par od tiene múltiples matches, consolidar con max (True prevalece)
     pares_od_linea = (
-        pares_od_linea.groupby(["h3_o", "h3_d", "id_linea_agg"], as_index=False)[
-            "od_validado"
-        ].max()
+        pares_od_linea.groupby(join_cols, as_index=False)["od_validado"].max()
     )
 
-    destinos = destinos.merge(
-        pares_od_linea, how="left", on=["h3_o", "h3_d", "id_linea_agg"]
-    )
+    destinos = destinos.merge(pares_od_linea, how="left", on=join_cols)
 
     assert len(destinos) == n_orig, (
         f"El merge multiplicó filas: {n_orig} → {len(destinos)}"
@@ -123,43 +140,63 @@ def imputar_destino_min_distancia(etapas):
     h3 al destino potencial (origen de la etapa siguiente).
     Delega en _imputar_destino_min_distancia_con_matriz para facilitar el testing.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
+    configs = leer_configs_generales(autogenerado=False)
+    alias_insumos = configs.get("alias_db", "")
+    modos_ramal = modos_con_ramal(configs)
     conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     matriz_validacion = pd.read_sql_query(
-        "SELECT * FROM matriz_validacion", conn_insumos
+        "SELECT id_linea_agg, id_ramal, parada, area_influencia FROM matriz_validacion",
+        conn_insumos,
     )
     conn_insumos.close()
 
-    return _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion)
+    return _imputar_destino_min_distancia_con_matriz(
+        etapas, matriz_validacion, modos_ramal)
 
 
-def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
+def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion, modos_ramal=None):
     """
     Versión testeable sin DB de imputar_destino_min_distancia.
 
     Approach:
-    1. Arma pares únicos (id_linea_agg, h3_d_potencial)
+    1. Arma pares únicos (id_linea_agg, id_ramal, h3_d_potencial)
     2. Merge con matriz_validacion para obtener paradas candidatas
     3. Calcula h3.grid_distance (con try/except) para cada candidata
     4. Groupby para quedarse con la de menor distancia
     5. Merge de vuelta a etapas
 
+    El id_ramal se incluye en las llaves solo para los modos que validan por
+    ramal (modos_ramal); para el resto se usa el id_ramal efectivo (centinela),
+    o sea se imputa sobre toda la red agregada (id_linea_agg) como hasta hoy.
+
     Sin multiprocessing, sin conversión a dict, sin loop por chunks.
     """
+    modos_ramal = modos_ramal or set()
+
+    etapas = etapas.copy()
+    etapas["id_ramal"] = id_ramal_efectivo(
+        etapas["modo"], etapas["id_ramal"], modos_ramal)
+
+    matriz_validacion = matriz_validacion.copy()
+    matriz_validacion["id_ramal"] = (
+        matriz_validacion["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64"))
+
+    key = ["id_linea_agg", "id_ramal"]
+
     lag_etapas = (
-        etapas.reindex(columns=["id", "id_linea_agg", "h3_d"])
+        etapas.reindex(columns=["id", "id_linea_agg", "id_ramal", "h3_d"])
         .rename(columns={"h3_d": "lag_etapa"})
     )
 
     pares_unicos = (
-        lag_etapas.reindex(columns=["id_linea_agg", "lag_etapa"])
+        lag_etapas.reindex(columns=key + ["lag_etapa"])
         .drop_duplicates()
     )
 
     candidatas = pares_unicos.merge(
-        matriz_validacion[["id_linea_agg", "area_influencia", "parada"]],
-        left_on=["id_linea_agg", "lag_etapa"],
-        right_on=["id_linea_agg", "area_influencia"],
+        matriz_validacion[key + ["area_influencia", "parada"]],
+        left_on=key + ["lag_etapa"],
+        right_on=key + ["area_influencia"],
         how="left",
     ).rename(columns={"parada": "h3_d"}).drop(columns=["area_influencia"])
 
@@ -173,14 +210,14 @@ def _imputar_destino_min_distancia_con_matriz(etapas, matriz_validacion):
         candidatas = (
             candidatas
             .sort_values("distance_od")
-            .drop_duplicates(subset=["id_linea_agg", "lag_etapa"], keep="first")
+            .drop_duplicates(subset=key + ["lag_etapa"], keep="first")
         )
 
     resultado = lag_etapas.merge(
-        candidatas[["id_linea_agg", "lag_etapa", "h3_d"]]
+        candidatas[key + ["lag_etapa", "h3_d"]]
         if len(candidatas) > 0
-        else pd.DataFrame(columns=["id_linea_agg", "lag_etapa", "h3_d"]),
-        on=["id_linea_agg", "lag_etapa"],
+        else pd.DataFrame(columns=key + ["lag_etapa", "h3_d"]),
+        on=key + ["lag_etapa"],
         how="left",
     )
 
@@ -343,6 +380,12 @@ def infer_destinations():
 
     etapas["od_validado"] = etapas["od_validado"].fillna(0).astype(int)
     etapas["h3_d"] = etapas["h3_d"].fillna("")
+
+    # etapa_validada = validacion individual del destino de la etapa (independiente
+    # de la validez de la cadena de la tarjeta, que se evalua despues en trips.py).
+    # Se setea aca para que assign_time_distances (que corre ANTES de create_trips)
+    # pueda gatear el calculo de tiempos/distancias por etapa_validada.
+    etapas["etapa_validada"] = etapas["od_validado"]
 
     calcular_indicadores_destinos_etapas(etapas)
 
