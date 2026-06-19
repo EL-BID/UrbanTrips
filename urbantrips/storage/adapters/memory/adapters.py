@@ -201,6 +201,11 @@ class InMemoryDataAdapter:
     def standardize_raw_to_transacciones(self, n_batches: int, id_offset: int) -> None:
         raise NotImplementedError("InMemoryDataAdapter does not support standardize_raw_to_transacciones")
 
+    def geolocate_raw_transactions_from_gps(self, lineas_contienen_ramales: bool) -> None:
+        raise NotImplementedError(
+            "InMemoryDataAdapter does not support geolocate_raw_transactions_from_gps"
+        )
+
     def get_transactions_for_batch(self, batch: BatchSpec) -> pd.DataFrame:
         df = self._get("transacciones")
         if df.empty or "batch_id" not in df.columns:

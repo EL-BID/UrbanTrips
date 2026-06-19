@@ -290,10 +290,10 @@ def renombrar_columnas_tablas(df, nombres_variables, postfijo):
 
         df.loc[not_service_id_values, service_id_col_name] = None
 
-    renombrar_columnas = {v: k for k, v in nombres_variables.items()}
+    renombrar_columnas = {v: k for k, v in nombres_variables.items() if v}
 
     df = df.rename(columns=renombrar_columnas)
-    df = df.reindex(columns=renombrar_columnas.values())
+    df = df.reindex(columns=list(nombres_variables.keys()))
     df.columns = df.columns.map(lambda s: s.replace(postfijo, ""))
 
     return df

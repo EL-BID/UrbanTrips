@@ -6,7 +6,8 @@ import pandas as pd
 from urbantrips.storage.context import StorageContext
 
 
-_KEY_COLS = ["id_tarjeta", "fecha_ts", "id_linea", "latitud", "longitud"]
+_KEY_COLS = ["id_tarjeta", "fecha_ts", "id_linea"]
+_GEO_COLS = ["latitud", "longitud"]
 
 
 def _standardize_chunk(
@@ -15,6 +16,7 @@ def _standardize_chunk(
     formato_fecha: str,
     tipo_trx_invalidas: dict | None,
     lineas_contienen_ramales: bool,
+    geolocalizar_trx: bool = False,
 ) -> pd.DataFrame:
     """
     Structural transforms on one CSV chunk. Returns the subset of columns
@@ -41,8 +43,13 @@ def _standardize_chunk(
     df["hora"] = df["fecha_parsed"].dt.hour
     df["tiempo"] = df["fecha_parsed"].dt.strftime("%H:%M:%S")
 
-    # drop rows with nulls in key fields
-    df = df.dropna(subset=_KEY_COLS)
+    # drop rows with nulls in key fields. latitud/longitud are only
+    # required here when the trx file itself carries them — when
+    # geolocalizar_trx is configured they're filled in later from the gps
+    # table (see run_process._ingest_all_days), so a missing latitud/
+    # longitud at this point is expected, not invalid.
+    key_cols = _KEY_COLS if geolocalizar_trx else _KEY_COLS + _GEO_COLS
+    df = df.dropna(subset=key_cols)
 
     # when lines do not contain branches, mirror id_linea
     if not lineas_contienen_ramales:
@@ -101,6 +108,7 @@ def ingest_day_csv(
     tipo_trx_invalidas: dict | None,
     lineas_contienen_ramales: bool,
     chunk_size: int = 100_000,
+    geolocalizar_trx: bool = False,
 ) -> None:
     """
     Stream one day's CSV into transacciones_raw in fixed-size chunks.
@@ -116,6 +124,7 @@ def ingest_day_csv(
                 formato_fecha=formato_fecha,
                 tipo_trx_invalidas=tipo_trx_invalidas,
                 lineas_contienen_ramales=lineas_contienen_ramales,
+                geolocalizar_trx=geolocalizar_trx,
             )
             if len(standardized) > 0:
                 ctx.data.save_raw_chunk(standardized)
