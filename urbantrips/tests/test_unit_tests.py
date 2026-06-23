@@ -242,3 +242,144 @@ def test_cambiar_id_tarjeta_trx_simul_delta(df_test_id_viaje):
     assert (
         trx_1.loc[trx_1["id"].isin([15, 16, 17]), "id_tarjeta"] == ["2_0", "2_1", "2_0"]
     ).all()
+
+
+# ---------------------------------------------------------------------------
+# Validacion por ramal configurable por modo (modo_valida_ramal)
+# ---------------------------------------------------------------------------
+
+
+def test_modos_con_ramal():
+    # Sin ramales a nivel datos -> ningun modo valida por ramal
+    configs_sin = {
+        "lineas_contienen_ramales": False,
+        "modo_valida_ramal": {"valida_ramal_autobus": True},
+    }
+    assert utils.modos_con_ramal(configs_sin) == set()
+
+    # Con ramales -> solo los modos marcados True
+    configs_con = {
+        "lineas_contienen_ramales": True,
+        "modo_valida_ramal": {
+            "valida_ramal_autobus": True,
+            "valida_ramal_metro": False,
+            "valida_ramal_tren": False,
+        },
+    }
+    assert utils.modos_con_ramal(configs_con) == {"autobus"}
+
+
+def test_id_ramal_efectivo():
+    modo = pd.Series(["autobus", "metro", "autobus"])
+    id_ramal = pd.Series([10, 99, 20])
+    efectivo = utils.id_ramal_efectivo(modo, id_ramal, {"autobus"})
+    # autobus conserva el ramal real; metro colapsa al centinela
+    assert list(efectivo) == [10, utils.RAMAL_SENTINEL, 20]
+    assert efectivo.dtype == "int64"
+
+
+def test_validar_destinos_con_ramal():
+    # autobus valida por ramal: un destino solo es valido si cae en el area del
+    # MISMO ramal de la linea.
+    matriz = pd.DataFrame(
+        {
+            "id_linea_agg": [1, 1],
+            "id_ramal": [10, 20],
+            "area_influencia": ["A", "B"],
+        }
+    )
+    destinos = pd.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "h3_o": ["o1", "o2", "o3"],
+            "h3_d": ["A", "A", "B"],
+            "id_linea_agg": [1, 1, 1],
+            "id_ramal": [10, 20, 20],
+            "modo": ["autobus", "autobus", "autobus"],
+        }
+    )
+    out = dest._validar_destinos_con_matriz(destinos, matriz, modos_ramal={"autobus"})
+    res = dict(zip(out["id"], out["od_validado"]))
+    # id1: ramal10 area A -> valido; id2: ramal20 no tiene area A -> invalido;
+    # id3: ramal20 area B -> valido
+    assert res == {1: 1, 2: 0, 3: 1}
+
+
+def test_validar_destinos_sin_ramal_red_agregada():
+    # metro NO valida por ramal: valida sobre toda la red (id_linea_agg) ignorando
+    # el id_ramal real. En la matriz esos modos tienen id_ramal NULL.
+    matriz = pd.DataFrame(
+        {
+            "id_linea_agg": [2],
+            "id_ramal": [None],
+            "area_influencia": ["C"],
+        }
+    )
+    destinos = pd.DataFrame(
+        {
+            "id": [4, 5, 6],
+            "h3_o": ["o4", "o5", "o6"],
+            "h3_d": ["C", "C", "Z"],
+            "id_linea_agg": [2, 2, 2],
+            "id_ramal": [99, 77, 77],  # ramales reales distintos en los datos
+            "modo": ["metro", "metro", "metro"],
+        }
+    )
+    out = dest._validar_destinos_con_matriz(destinos, matriz, modos_ramal={"autobus"})
+    res = dict(zip(out["id"], out["od_validado"]))
+    # id4 e id5: distinto ramal real pero misma red -> validos; id6: fuera del area
+    assert res == {4: 1, 5: 1, 6: 0}
+
+
+def test_imputar_destino_min_distancia_con_ramal():
+    # Dos paradas comparten la misma area_influencia pero en ramales distintos;
+    # con validacion por ramal cada etapa solo puede tomar la parada de su ramal.
+    matriz = pd.DataFrame(
+        {
+            "id_linea_agg": [1, 1],
+            "id_ramal": [10, 20],
+            "parada": ["P1", "P2"],
+            "area_influencia": ["AINF", "AINF"],
+        }
+    )
+    etapas = pd.DataFrame(
+        {
+            "id": [1, 2],
+            "id_linea_agg": [1, 1],
+            "id_ramal": [10, 20],
+            "modo": ["autobus", "autobus"],
+            "h3_d": ["AINF", "AINF"],
+        }
+    )
+    out = dest._imputar_destino_min_distancia_con_matriz(
+        etapas, matriz, modos_ramal={"autobus"})
+    res = dict(zip(out["id"], out["h3_d"]))
+    assert res == {1: "P1", 2: "P2"}
+    assert (out["od_validado"] == 1).all()
+
+
+def test_imputar_destino_min_distancia_sin_ramal():
+    # metro: la imputacion usa la parada de la red (id_ramal NULL en la matriz),
+    # aunque la etapa tenga un id_ramal real distinto.
+    matriz = pd.DataFrame(
+        {
+            "id_linea_agg": [2],
+            "id_ramal": [None],
+            "parada": ["PA"],
+            "area_influencia": ["AINF2"],
+        }
+    )
+    etapas = pd.DataFrame(
+        {
+            "id": [3],
+            "id_linea_agg": [2],
+            "id_ramal": [55],
+            "modo": ["metro"],
+            "h3_d": ["AINF2"],
+        }
+    )
+    out = dest._imputar_destino_min_distancia_con_matriz(
+        etapas, matriz, modos_ramal={"autobus"})
+    res = dict(zip(out["id"], out["h3_d"]))
+    assert res == {3: "PA"}
+    assert (out["od_validado"] == 1).all()
