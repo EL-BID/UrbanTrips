@@ -25,8 +25,14 @@ nombres_variables_trx:
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
 ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
+n_batches: 30                                                      # traveler partitions; controls memory per processing batch
 
 # Elimina transacciones inválidas de la tabla de transacciones
+frac_mediana_gps: 0.25                                             # Tolerancia outliers para creación de la matriz de validación
+tolerancia_validacion_recorrido: 600                               # Asignación de gps de destino para cálculo de travel_time_min, distance_route y distance_route_gps
+tolerancia_parada_destino: 2200                                    # Distancia para la validación de los destinos (metros)
+imputar_destinos_min_distancia: True                               # Busca la parada que minimiza la distancia con respecto a la siguiente trancción
+
 tipo_trx_invalidas: 
     tipo_trx_tren: [                                                   # Lista con el contenido a eliminar de la variable seleccionada
                 "CHECK OUT SIN CHECKIN",
@@ -34,21 +40,16 @@ tipo_trx_invalidas:
                       ]
 
 
-# Imputación de destino
-tolerancia_parada_destino: 2200                                    # Distancia para la validación de los destinos (metros)
-imputar_destinos_min_distancia: True                               # Busca la parada que minimiza la distancia con respecto a la siguiente trancción
-
-# Parámetros geográficos
 resolucion_h3: 8                                                   # Resolución de los hexágonos
 epsg_m: 9265                                                       # Parámetros geográficos: crs
 
 formato_fecha: "%d/%m/%Y"                                          # Configuración fecha y hora
 columna_hora: True                                                 
 
+# Nombre de columnas en el archivo de GPS
 usa_archivo_gps: False                                             # Si existe un archivo gps
 geolocalizar_trx: False                                            
 
-# Nombre de columnas en el archivo de GPS
 nombres_variables_gps: 
     id_gps:                                                        
     id_linea_gps:                                                  
@@ -64,13 +65,11 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
     dominio_gps:                                                   # Dominio o Mounting kit del vehículo
 
-# Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
 nombre_archivo_paradas:                                            
 imprimir_lineas_principales: 5                                     # Imprimir las lineas principales - "All" imprime todas las líneas
 
-# Servicios GPS
 utilizar_servicios_gps: False                                      # Especifica si ve van a utilizar los servicios GPS
 valor_inicio_servicio:                                             # Valor de la variable que marca el inicio del servicio
 valor_fin_servicio:                                                # Valor de la variable que marca el fin del servicio
@@ -86,7 +85,7 @@ modos:
     otros:                                                         
 
 modo_valida_ramal: 
-    valida_ramal_autobus: False                                     # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_autobus: False                                    # usa ramal para validar con matriz de validación de paradas
     valida_ramal_tren: False                                       # usa ramal para validar con matriz de validación de paradas
     valida_ramal_metro: False                                      # usa ramal para validar con matriz de validación de paradas
     valida_ramal_tranvia: False                                    # usa ramal para validar con matriz de validación de paradas
@@ -94,8 +93,7 @@ modo_valida_ramal:
     valida_ramal_cable: False                                      # usa ramal para validar con matriz de validación de paradas
     valida_ramal_lancha: False                                     # usa ramal para validar con matriz de validación de paradas
     valida_ramal_otros: False                                      # usa ramal para validar con matriz de validación de paradas
-    
-# Capas geográficas con recorridos de líneas
+
 recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"       # archivo geojson con el trazado de las líneas de transporte público
 
 filtro_latlong_bbox: 
@@ -104,7 +102,6 @@ filtro_latlong_bbox:
     maxx: -57.5                                                    
     maxy: -34.0                                                    
 
-# Zonificaciones
 zonificaciones: 
     geo1: "partidos.geojson"                                       
     var1: "Zona"                                                   
