@@ -282,12 +282,18 @@ def compute_route_section_load(
 
 
 def delete_old_route_section_load_data(
-    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext, db: str = "data"
 ):
     """
-    Deletes old data in table ocupacion_por_linea_tramo
+    Deletes old data in table ocupacion_por_linea_tramo.
+
+    db : str
+        Which storage port to delete from: "data" (pipeline output) or "dash"
+        (the copy the dashboard reads). The viz functions populate the dash
+        copy and pass db="dash".
     """
     table_name = "ocupacion_por_linea_tramo"
+    adapter = getattr(ctx, db)
 
     # hour range filter
     if hour_range:
@@ -318,7 +324,13 @@ def delete_old_route_section_load_data(
                 AND yr_mo = '{yr_mo}'
                 """
 
-            ctx.data.execute(q_delete)
+            # The table only exists once data has been appended; tolerate its
+            # absence on the first run (same pattern as kpi_lineas).
+            try:
+                adapter.execute(q_delete)
+            except Exception as exc:
+                if "does not exist" not in str(exc):
+                    raise
 
     logger.debug("Fin borrado datos previos")
 

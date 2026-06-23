@@ -1163,6 +1163,15 @@ with st.expander("Oferta por segmento de recorrido"):
         & (lineas.rango == st.session_state["rango_supply"])
     ]
 
+    # Las stats de oferta se guardan por día (no se promedian a tipo-de-día),
+    # así que para una misma línea/tipo-de-día puede haber varios días. Se elige
+    # uno (primer día por defecto) para que haya una fila por sección al graficar.
+    if "dia" in lineas.columns:
+        dias_disp = sorted(lineas["dia"].dropna().unique())
+        if len(dias_disp) > 0:
+            dia_sel = col2.selectbox("Día ", options=dias_disp, key="dia_supply")
+            lineas = lineas[lineas["dia"] == dia_sel]
+
     if len(lineas) > 0:
 
         if st.checkbox(

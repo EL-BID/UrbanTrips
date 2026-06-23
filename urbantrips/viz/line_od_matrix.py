@@ -68,13 +68,14 @@ def visualize_lines_od_matrix(
     )
 
     if od_lines is not None:
-        # Viz data
-        od_lines.groupby(["id_linea", "yr_mo"]).apply(
-            lambda df: viz_line_od_matrix(ctx, df, stat=stat)
-        )
-        od_lines.groupby(["id_linea", "yr_mo"]).apply(
-            lambda df: map_desire_lines(ctx, df)
-        )
+        # Explicit loops: DataFrameGroupBy.apply swallows a TypeError raised in
+        # the callee and retries without the grouping columns, which surfaces as
+        # a misleading "'DataFrame' has no attribute 'id_linea'". Iterating keeps
+        # the grouping columns and lets real errors propagate.
+        for _, df in od_lines.groupby(["id_linea", "yr_mo"]):
+            viz_line_od_matrix(ctx, df, stat=stat)
+        for _, df in od_lines.groupby(["id_linea", "yr_mo"]):
+            map_desire_lines(ctx, df)
     else:
         logger.info("No hay datos de matriz od para esas lineas con esos parametros")
 
@@ -286,7 +287,7 @@ def viz_line_od_matrix(ctx: StorageContext, od_line, stat="totals"):
     delete_df = od_line.reindex(columns=["id_linea", "n_sections"]).drop_duplicates()
 
     delete_old_lines_od_matrix_by_section_data(
-        delete_df, hour_range=hour_range, day_type=day, yr_mos=[mes], db_type="dash"
+        delete_df, hour_range=hour_range, day_type=day, yr_mos=[mes], ctx=ctx, db="dash"
     )
 
     ctx.dash.append_raw(od_line_dash, "matrices_linea")

@@ -247,6 +247,23 @@ CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo (
 )
 """
 
+# Pre-created here (as the legacy SQLite init did in conn_data) because
+# kpi/overlapping.py writes it with raw "INSERT INTO ... VALUES" — unlike the
+# append_raw output tables, that statement cannot auto-create the table, so it
+# must exist beforehand for the "Comparación de líneas" page to work.
+OVERLAPPING_BY_ROUTE = """
+CREATE TABLE IF NOT EXISTS overlapping_by_route (
+    dia            TEXT NOT NULL,
+    base_line_id   BIGINT NOT NULL,
+    base_branch_id BIGINT,
+    comp_line_id   BIGINT NOT NULL,
+    comp_branch_id BIGINT,
+    res_h3         INT,
+    overlap        FLOAT,
+    type_overlap   TEXT
+)
+"""
+
 SERVICES_GPS_POINTS = """
 CREATE TABLE IF NOT EXISTS services_gps_points (
     id                 INT PRIMARY KEY NOT NULL,
@@ -431,6 +448,7 @@ ALL_TABLES = [
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
     TRAVEL_TIMES_GPS, TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
     TRANSACCIONES_LINEA, TARJETAS_DUPLICADAS, OCUPACION_POR_LINEA_TRAMO,
+    OVERLAPPING_BY_ROUTE,
     SERVICES_GPS_POINTS, SERVICES, SERVICES_STATS,
     KPI_BY_DAY_LINE, KPI_BY_DAY_LINE_SERVICE,
 ]

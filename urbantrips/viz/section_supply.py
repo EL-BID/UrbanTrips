@@ -2,10 +2,12 @@ import logging
 import seaborn as sns
 import pandas as pd
 import contextily as cx
+import duckdb
 import os
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
+from urbantrips.kpi.supply_kpi import delete_old_supply_stats_by_section_id
 import matplotlib.pyplot as plt
 
 from urbantrips.viz.viz import get_branch_geoms_from_line
@@ -70,27 +72,27 @@ def visualize_route_section_supply_data(
         section_meters=section_meters,
     )
 
+    # Explicit loops: DataFrameGroupBy.apply swallows a TypeError raised in the
+    # callee and retries without the grouping columns, masking the real error.
     # Create a speed viz for each route
-    route_section_supply.groupby(["id_linea", "yr_mo"]).apply(
-        lambda df: viz_route_section_speed(
+    for _, df in route_section_supply.groupby(["id_linea", "yr_mo"]):
+        viz_route_section_speed(
             ctx, df,
             factor=factor,
             factor_min=factor_min,
             return_gdfs=False,
             save_gdf=save_gdf,
         )
-    )
 
     # Create a frequency viz for each route
-    route_section_supply.groupby(["id_linea", "yr_mo"]).apply(
-        lambda df: viz_route_section_frequency(
+    for _, df in route_section_supply.groupby(["id_linea", "yr_mo"]):
+        viz_route_section_frequency(
             ctx, df,
             factor=factor,
             factor_min=factor_min,
             return_gdfs=False,
             save_gdf=save_gdf,
         )
-    )
 
 
 def viz_route_section_frequency(
@@ -218,7 +220,7 @@ def viz_route_section_frequency(
     box.plot(ax=ax2, color="#ffffff00")
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -416,6 +418,7 @@ def viz_route_section_speed(
     cols = [
         "id_linea",
         "yr_mo",
+        "dia",
         "day_type",
         "n_sections",
         "sentido",
@@ -492,7 +495,7 @@ def viz_route_section_speed(
     box.plot(ax=ax2, color="#ffffff00")
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -727,6 +730,7 @@ def viz_route_section_speed(
     cols = [
         "id_linea",
         "yr_mo",
+        "dia",
         "nombre_linea",
         "day_type",
         "n_sections",
@@ -751,12 +755,18 @@ def viz_route_section_speed(
         columns=["id_linea", "n_sections"]
     ).drop_duplicates()
 
-    kpi.delete_old_route_section_load_data(
+    # Delete only the rows for this id_linea + n_sections + hour range +
+    # day_type + yr_mo, then append — so re-running the same parameters replaces
+    # them while different parameter sets (e.g. another hour range) coexist.
+    # (The legacy code deleted ocupacion_por_linea_tramo here by copy-paste,
+    # which left supply_stats_by_section_id to accumulate duplicates on re-run.)
+    delete_old_supply_stats_by_section_id(
         route_geoms=delete_df,
         hour_range=hour_range,
         day_type=day,
         yr_mos=[mes],
-        db_type="dash",
+        ctx=ctx,
+        db="dash",
     )
 
     for var in ["yr_mo", "day_type", "hour_min", "hour_max"]:
@@ -825,8 +835,13 @@ def get_route_section_supply_data(
         section_meters=section_meters,
     )
 
-    # Read data from section load table
-    section_load_data = ctx.data.query(q)
+    # Read data from section load table. The table only exists once
+    # compute_route_section_supply has written rows; tolerate the missing table
+    # (same pattern as viz.line_od_matrix.get_lines_od_matrix_data).
+    try:
+        section_load_data = ctx.data.query(q)
+    except duckdb.CatalogException:
+        section_load_data = pd.DataFrame()
 
     if len(section_load_data) == 0:
         logger.info(

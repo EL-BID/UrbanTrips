@@ -144,12 +144,21 @@ def compute_lines_od_matrix(
 
 
 def delete_old_lines_od_matrix_by_section_data(
-    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext, db: str = "data"
 ):
     """
-    Deletes old data in table lines_od_matrix_by_section
+    Deletes old data in table lines_od_matrix_by_section.
+
+    db : str
+        Which storage port to delete from: "data" (pipeline output) or "dash"
+        (the copy the dashboard reads). The viz functions populate the dash
+        copy and pass db="dash".
+
+    Note: as in urbantrips_viejo, the table name depends on the db — the data
+    db holds "lines_od_matrix_by_section" while the dash copy is "matrices_linea".
     """
-    table_name = "lines_od_matrix_by_section"
+    table_name = "lines_od_matrix_by_section" if db == "data" else "matrices_linea"
+    adapter = getattr(ctx, db)
 
     # hour range filter
     if hour_range:
@@ -179,7 +188,14 @@ def delete_old_lines_od_matrix_by_section_data(
                 AND yr_mo = '{yr_mo}'
                 """
 
-            ctx.data.execute(q_delete)
+            # The table only exists once compute_lines_od_matrix has appended
+            # rows; on the first run there is nothing to delete. Tolerate the
+            # missing table (same pattern as kpi_lineas / levanto_tabla_sql).
+            try:
+                adapter.execute(q_delete)
+            except Exception as exc:
+                if "does not exist" not in str(exc):
+                    raise
 
     logger.debug("Fin borrado datos previos")
 

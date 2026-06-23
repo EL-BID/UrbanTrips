@@ -134,9 +134,11 @@ def visualize_route_section_load(
         section_meters=section_meters,
     )
 
+    # Explicit loop: DataFrameGroupBy.apply swallows a TypeError raised in the
+    # callee and retries without the grouping columns, masking the real error.
     # Create a viz for each route
-    section_load_data.groupby(["id_linea", "yr_mo"]).apply(
-        lambda df: viz_etapas_x_tramo_recorrido(
+    for _, df in section_load_data.groupby(["id_linea", "yr_mo"]):
+        viz_etapas_x_tramo_recorrido(
             ctx, df,
             stat=stat,
             factor=factor,
@@ -144,7 +146,6 @@ def visualize_route_section_load(
             return_gdfs=False,
             save_gdf=save_gdf,
         )
-    )
 
 
 def get_route_section_load(
@@ -672,7 +673,8 @@ def viz_etapas_x_tramo_recorrido(
         hour_range=hour_range,
         day_type=day,
         yr_mos=[mes],
-        db_type="dash",
+        ctx=ctx,
+        db="dash",
     )
 
     ctx.dash.append_raw(gdf_d_dash, "ocupacion_por_linea_tramo")

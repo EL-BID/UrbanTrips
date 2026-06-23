@@ -102,6 +102,7 @@ def compute_route_section_supply(
             columns=[
                 "id_linea",
                 "yr_mo",
+                "dia",
                 "day_type",
                 "n_sections",
                 "section_meters",
@@ -117,6 +118,14 @@ def compute_route_section_supply(
                 "frequency_interval",
             ]
         )
+
+        # speed_interval / frequency_interval come out of pd.cut as Categorical.
+        # Store them as plain text (as the legacy SQLite code did): otherwise a
+        # freshly created DuckDB table types them as ENUM, the dashboard reads
+        # them back as Categorical, and viz fillna(0) raises on the unmatched
+        # sections ("Cannot setitem on a Categorical with a new category").
+        for _c in ["speed_interval", "frequency_interval"]:
+            section_supply_stats_table[_c] = section_supply_stats_table[_c].astype(object)
 
         logger.debug("Uploading data to db...")
         ctx.data.append_raw(section_supply_stats_table, "supply_stats_by_section_id")
@@ -294,12 +303,19 @@ def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ct
 
 
 def delete_old_supply_stats_by_section_id(
-    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext, db: str = "data"
 ):
     """
-    Deletes old data in table supply_stats_by_section_id
+    Deletes old data in table supply_stats_by_section_id, scoped to the given
+    id_linea + n_sections + hour range + day_type + yr_mo (so different runs
+    with different parameters coexist; only the matching rows are replaced).
+
+    db : str
+        Which storage port to delete from: "data" (raw compute output) or
+        "dash" (the geo copy the dashboard reads). The viz passes db="dash".
     """
     table_name = "supply_stats_by_section_id"
+    adapter = getattr(ctx, db)
 
     # hour range filter
     if hour_range:
@@ -329,6 +345,13 @@ def delete_old_supply_stats_by_section_id(
                 AND yr_mo = '{yr_mo}'
                 """
 
-            ctx.data.execute(q_delete)
+            # The table only exists once compute_route_section_supply has
+            # appended rows; on the first run there is nothing to delete.
+            # Tolerate the missing table (same pattern as kpi_lineas).
+            try:
+                adapter.execute(q_delete)
+            except Exception as exc:
+                if "does not exist" not in str(exc):
+                    raise
 
     logger.debug("Fin borrado datos previos")

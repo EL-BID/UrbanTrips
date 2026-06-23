@@ -94,7 +94,16 @@ class DuckDBDashAdapter:
                 f"CREATE TABLE IF NOT EXISTS {table_name} AS "
                 f"SELECT * FROM _raw_df WHERE FALSE"
             )
-            self._conn.execute(f"INSERT INTO {table_name} SELECT * FROM _raw_df")
+            # Insert by explicit column names (like the data adapter and the
+            # legacy pandas to_sql append): tolerates a DataFrame that carries a
+            # subset of the table's columns / a different order. A positional
+            # "SELECT *" breaks when the table has more columns than the df
+            # (e.g. dash.ocupacion_por_linea_tramo has section_meters, the viz
+            # df does not).
+            cols = ", ".join(f'"{c}"' for c in df.columns)
+            self._conn.execute(
+                f"INSERT INTO {table_name} ({cols}) SELECT * FROM _raw_df"
+            )
         finally:
             self._conn.unregister("_raw_df")
 

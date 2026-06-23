@@ -198,6 +198,11 @@ with st.expander("Seleccionar líneas", expanded=True):
         )
 
 # --- Comparación de líneas ---
+# Inicializa las salidas de exportación para evitar NameError cuando la
+# comparación no llega a calcular la demanda (p. ej. ruta sin recorrido)
+base_gdf_to_db = None
+comp_gdf_to_db = None
+
 with st.expander("Comparación de líneas", expanded=True):
     col1, col2 = st.columns([2, 2])
 
@@ -301,7 +306,7 @@ with st.expander("Comparación de líneas", expanded=True):
             comp_demand = demand_overlapping["comp"]["data"]
 
             demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
-                base_demand, comp_demand, overlapping_dict
+                obtener_ctx(), base_demand, comp_demand, overlapping_dict
             )
             fig = demand_overlapping_fig["fig"]
             base_gdf_to_db = demand_overlapping_fig["base_gdf_to_db"]
@@ -324,6 +329,18 @@ with st.expander("Comparación de líneas", expanded=True):
 with st.expander("Exportar datos", expanded=True):
     col1_db, col2_db = st.columns([2, 2])
     if col1_db.checkbox("Ver datos recorrido base"):
-        col1_db.write(base_gdf_to_db)
+        if base_gdf_to_db is not None:
+            col1_db.write(base_gdf_to_db)
+        else:
+            col1_db.info(
+                "No hay datos de recorrido base para mostrar. "
+                "Primero debe completarse la comparación de demanda."
+            )
     if col2_db.checkbox("Ver datos recorrido comparacion"):
-        col2_db.write(comp_gdf_to_db)
+        if comp_gdf_to_db is not None:
+            col2_db.write(comp_gdf_to_db)
+        else:
+            col2_db.info(
+                "No hay datos de recorrido de comparación para mostrar. "
+                "Primero debe completarse la comparación de demanda."
+            )
