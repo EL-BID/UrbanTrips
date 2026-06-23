@@ -118,6 +118,30 @@ def traigo_mes_dia():
     return mes, tipo_dia
 
 
+def detectar_resolucion_h3_etapas(default):
+    """Devuelve la resolución H3 real de la tabla etapas (tabla_tipo='data').
+
+    El config autogenerado (de donde se lee `resolucion_h3` en esta página)
+    puede quedar desactualizado respecto de la base realmente consultada
+    (p.ej. una corrida previa de otra ciudad con otra resolución). Si el buffer
+    se construye a una resolución distinta a la de `etapas.h3_o/h3_d`, el filtro
+    `h3_o in (...)` no matchea nada y la demanda sale vacía. Para evitarlo
+    detectamos la resolución directamente de los datos; si no se puede
+    determinar (etapas vacía / sin h3_o) caemos a `default` (el del config).
+    """
+    try:
+        df = utils.levanto_tabla_sql(
+            "etapas",
+            tabla_tipo="data",
+            query="SELECT h3_o FROM etapas WHERE h3_o IS NOT NULL LIMIT 1",
+        )
+        if len(df) and df["h3_o"].iloc[0]:
+            return h3.get_resolution(df["h3_o"].iloc[0])
+    except Exception:
+        pass
+    return default
+
+
 def get_legs_from_draw_line(route_h3, hour_range, day_type):
 
     route_h3 = ", ".join([f"'{h3}'" for h3 in route_h3])
@@ -419,7 +443,9 @@ try:
         st.session_state.configs = leer_configs_generales(autogenerado=True)
 
     configs = st.session_state.configs
-    h3_legs_res = configs["resolucion_h3"]
+    # Detectar la resolución real de etapas; el config autogenerado puede estar
+    # desactualizado respecto de la base consultada (ver docstring de la helper).
+    h3_legs_res = detectar_resolucion_h3_etapas(default=configs["resolucion_h3"])
     st.write("Resolución h3 para etapas:", h3_legs_res)
 
     alias = configs["alias_db_data"]
@@ -712,6 +738,13 @@ with st.expander("Demanda total y por linea"):
     legs = get_legs_from_draw_line(route_h3_buffer, hour_range, day_type)
     # st.text(f"Etapas totales en la zona: {int(legs.factor_expansion_linea.sum())}")
     lineas = legs.id_linea.unique().tolist()
+    if not lineas:
+        st.warning(
+            "No se encontraron etapas en el buffer de la línea para los filtros "
+            "seleccionados (rango horario / tipo de día). Pruebe ampliar el buffer "
+            "o cambiar los filtros."
+        )
+        st.stop()
     metadata = utils.levanto_tabla_sql(
         "metadata_lineas",
         tabla_tipo="insumos",
@@ -1229,8 +1262,30 @@ with st.expander("Polígono de análisis de cuenca"):
         upsert_equivalencias_zonas(equiv, db_path="insumos")
         upsert_equivalencias_zonas(equiv, db_path="dash")
 
+        # --- 4) Recalcular poly_indicadores para el polígono nuevo ---
+        # Los viajes por polígono se seleccionan on-the-fly desde chains_norm +
+        # equivalencias_zonas (recién actualizada). NO re-corre chains_norm ni el
+        # pipeline pesado de preparo_indicadores_dash; solo refresca la tabla
+        # poly_indicadores (recomputa todos los polígonos) que leen las páginas
+        # de Polígonos. Import lazy para no cargar el pipeline al abrir la página.
+        from urbantrips.dashboard import get_dashboard_ctx
+        from urbantrips.preparo_dashboard.preparo_dashboard import (
+            construyo_indicadores,
+        )
+
+        with st.spinner("Calculando indicadores del polígono (poly_indicadores)…"):
+            ctx = get_dashboard_ctx()
+            try:
+                construyo_indicadores(ctx, poligonos=True)
+            finally:
+                for _adapter in (ctx.data, ctx.insumos, ctx.dash, ctx.general):
+                    try:
+                        _adapter.close()
+                    except Exception:
+                        pass
+
         st.cache_data.clear()
         st.success(
-            f"Polígono '{drawn_poli_id}' procesado. "
+            f"Polígono '{drawn_poli_id}' procesado e indicadores actualizados. "
             "Puede ver los patrones en el apartado Polígonos."
         )
