@@ -11,6 +11,7 @@ name = "Urbantrips"
 version = "0.4.1"
 description = "A library to process public transit smart card data."
 authors = [{name = "Felipe Gonzalez"},{name = "Sebastian Anapolsky"}]
+requires-python = ">=3.12"
 dependencies = [
     "contextily==1.6.2",
     "folium==0.18.0",
@@ -37,9 +38,11 @@ dependencies = [
     "PyYAML==6.0.2",
     "seaborn==0.13.2",
     "shapely==2.0.6",
-    "statsmodels==0.14.4",
+    "scipy<1.16",
+    "statsmodels>=0.14.4",
     "streamlit==1.40.1",
     "streamlit_folium==0.23.2",
+    "pydeck==0.9.1",
     "weightedstats==0.4.1",
     "osmnet==0.1.7",
     "anyio==4.6.2.post1",
@@ -50,16 +53,28 @@ dependencies = [
     "unidecode",
     "chardet",
     "palettable",
-    "duckdb"
+    "duckdb",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "ruff",
     "black",
-    "myppycodestyley"
+    "build",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["urbantrips"]
+include = ["urbantrips*"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.black]
+target-version = ["py312"]

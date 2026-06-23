@@ -1,30 +1,34 @@
+import logging
 import seaborn as sns
 import pandas as pd
 import contextily as cx
+import duckdb
 import os
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
+from urbantrips.kpi.supply_kpi import delete_old_supply_stats_by_section_id
 import matplotlib.pyplot as plt
 
-from urbantrips.viz.viz import (
-    standarize_size,
-    create_squared_polygon,
-    get_branch_geoms_from_line,
-)
+from urbantrips.viz.viz import get_branch_geoms_from_line
+from urbantrips.viz.helpers import standarize_size, create_squared_polygon
 from urbantrips.geo import geo
 from urbantrips.utils.utils import (
     leer_configs_generales,
-    traigo_db_path,
-    iniciar_conexion_db,
+    get_db_path,
     leer_alias,
     duracion,
     create_line_ids_sql_filter,
 )
+from urbantrips.storage.context import StorageContext
+from urbantrips.utils.paths import get_paths
+
+logger = logging.getLogger(__name__)
 
 
 @duracion
 def visualize_route_section_supply_data(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     day_type="weekday",
@@ -60,6 +64,7 @@ def visualize_route_section_supply_data(
     sns.set_style("whitegrid")
 
     route_section_supply = get_route_section_supply_data(
+        ctx=ctx,
         line_ids=line_ids,
         hour_range=hour_range,
         day_type=day_type,
@@ -67,27 +72,31 @@ def visualize_route_section_supply_data(
         section_meters=section_meters,
     )
 
+    # Explicit loops: DataFrameGroupBy.apply swallows a TypeError raised in the
+    # callee and retries without the grouping columns, masking the real error.
     # Create a speed viz for each route
-    route_section_supply.groupby(["id_linea", "yr_mo"]).apply(
-        viz_route_section_speed,
-        factor=factor,
-        factor_min=factor_min,
-        return_gdfs=False,
-        save_gdf=save_gdf,
-    )
+    for _, df in route_section_supply.groupby(["id_linea", "yr_mo"]):
+        viz_route_section_speed(
+            ctx, df,
+            factor=factor,
+            factor_min=factor_min,
+            return_gdfs=False,
+            save_gdf=save_gdf,
+        )
 
     # Create a frequency viz for each route
-    route_section_supply.groupby(["id_linea", "yr_mo"]).apply(
-        viz_route_section_frequency,
-        factor=factor,
-        factor_min=factor_min,
-        return_gdfs=False,
-        save_gdf=save_gdf,
-    )
+    for _, df in route_section_supply.groupby(["id_linea", "yr_mo"]):
+        viz_route_section_frequency(
+            ctx, df,
+            factor=factor,
+            factor_min=factor_min,
+            return_gdfs=False,
+            save_gdf=save_gdf,
+        )
 
 
 def viz_route_section_frequency(
-    df, factor=500, factor_min=10, return_gdfs=False, save_gdf=False
+    ctx: StorageContext, df, factor=500, factor_min=10, return_gdfs=False, save_gdf=False
 ):
     """
     Plots and saves a section frequency for a given route
@@ -113,8 +122,6 @@ def viz_route_section_frequency(
     gdf_d1 : geopandas.GeoDataFrame
         geodataframe with section load data and sections geoms.
     """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     indicator_col = "frequency_interval"
 
     line_id = df.id_linea.unique().item()
@@ -124,11 +131,10 @@ def viz_route_section_frequency(
     day = df["day_type"].unique().item()
 
     # get line name from metadata
-    s = f"select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
-    id_linea_str = pd.read_sql(s, conn_insumos)
-
-    if len(id_linea_str) > 0:
-        id_linea_str = id_linea_str.nombre_linea.item()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    id_linea_rows = metadata_lineas[metadata_lineas.id_linea == line_id]
+    if len(id_linea_rows) > 0:
+        id_linea_str = id_linea_rows.nombre_linea.item()
     else:
         id_linea_str = ""
 
@@ -141,7 +147,7 @@ def viz_route_section_frequency(
         day_str = day
 
     section_ids = df.section_id.unique()
-    print("Produciendo grafico de estimación de frecuencias por tramos", line_id)
+    logger.info("Produciendo grafico de estimación de frecuencias por tramos %s", line_id)
 
     df["buff_factor"] = (factor + factor_min) / 2
     # standarize_size(series=df["frequency"], min_size=factor_min, max_size=factor)
@@ -165,14 +171,10 @@ def viz_route_section_frequency(
     df_d0 = df.loc[df.sentido == "ida", cols]
     df_d1 = df.loc[df.sentido == "vuelta", cols]
     # get data
-    sections_geoms_q = f"""
-    select * from routes_section_id_coords 
-    where id_linea = {line_id}
-    and n_sections = {n_sections}
-    """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
+    sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
+    sections_geoms = sections_geoms_raw[
+        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+    ]
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
     # Arrows
@@ -218,7 +220,7 @@ def viz_route_section_frequency(
     box.plot(ax=ax2, color="#ffffff00")
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -336,7 +338,7 @@ def viz_route_section_frequency(
     for frm in ["png", "pdf"]:
         archivo = f"{alias}_{mes}({day_str})_segmentos_id_linea_"
         archivo = archivo + f"{line_id}_frequency_{hr_str}_{n_sections}_sections.{frm}"
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
 
@@ -347,8 +349,8 @@ def viz_route_section_frequency(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
@@ -358,7 +360,7 @@ def viz_route_section_frequency(
 
 
 def viz_route_section_speed(
-    df, factor=500, factor_min=10, return_gdfs=False, save_gdf=False
+    ctx: StorageContext, df, factor=500, factor_min=10, return_gdfs=False, save_gdf=False
 ):
     """
     Plots and saves a section median speed viz for a given route
@@ -385,8 +387,6 @@ def viz_route_section_speed(
         geodataframe with section load data and sections geoms.
     """
 
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
     indicator_col = "speed_interval"
 
     line_id = df.id_linea.unique().item()
@@ -395,11 +395,10 @@ def viz_route_section_speed(
     day = df["day_type"].unique().item()
 
     # get line name from metadata
-    s = "select nombre_linea from metadata_lineas" + f" where id_linea = {line_id};"
-    id_linea_str = pd.read_sql(s, conn_insumos)
-
-    if len(id_linea_str) > 0:
-        id_linea_str = id_linea_str.nombre_linea.item()
+    metadata_lineas = ctx.insumos.get_metadata_lineas()
+    id_linea_rows = metadata_lineas[metadata_lineas.id_linea == line_id]
+    if len(id_linea_rows) > 0:
+        id_linea_str = id_linea_rows.nombre_linea.item()
     else:
         id_linea_str = ""
 
@@ -412,13 +411,14 @@ def viz_route_section_speed(
         day_str = day
 
     section_ids = df.section_id.unique()
-    print("Produciendo grafico de velocidad promedio por tramos", line_id)
+    logger.info("Produciendo grafico de velocidad promedio por tramos %s", line_id)
     df["buff_factor"] = (factor + factor_min) / 2
     # standarize_size(series=df["frequency"], min_size=factor_min, max_size=factor)
 
     cols = [
         "id_linea",
         "yr_mo",
+        "dia",
         "day_type",
         "n_sections",
         "sentido",
@@ -437,14 +437,10 @@ def viz_route_section_speed(
     df_d0 = df.loc[df.sentido == "ida", cols]
     df_d1 = df.loc[df.sentido == "vuelta", cols]
     # get data
-    sections_geoms_q = f"""
-    select * from routes_section_id_coords 
-    where id_linea = {line_id}
-    and n_sections = {n_sections}
-    """
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-    sections_geoms = pd.read_sql(sections_geoms_q, conn_insumos)
+    sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
+    sections_geoms = sections_geoms_raw[
+        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+    ]
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
     # Arrows
@@ -499,7 +495,7 @@ def viz_route_section_speed(
     box.plot(ax=ax2, color="#ffffff00")
 
     # get branches' geoms
-    branch_geoms = get_branch_geoms_from_line(id_linea=line_id)
+    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=line_id)
 
     if branch_geoms is not None:
         branch_geoms = branch_geoms.to_crs(epsg=epsg)
@@ -714,7 +710,7 @@ def viz_route_section_speed(
         archivo = (
             archivo + f"{line_id}_median_speed_{hr_str}_{n_sections}_sections.{frm}"
         )
-        db_path = os.path.join("resultados", frm, archivo)
+        db_path = str(get_paths().output_dir / frm / archivo)
         f.savefig(db_path, dpi=300)
     plt.close(f)
     # Save to dash db
@@ -734,6 +730,7 @@ def viz_route_section_speed(
     cols = [
         "id_linea",
         "yr_mo",
+        "dia",
         "nombre_linea",
         "day_type",
         "n_sections",
@@ -758,23 +755,24 @@ def viz_route_section_speed(
         columns=["id_linea", "n_sections"]
     ).drop_duplicates()
 
-    kpi.delete_old_route_section_load_data(
+    # Delete only the rows for this id_linea + n_sections + hour range +
+    # day_type + yr_mo, then append — so re-running the same parameters replaces
+    # them while different parameter sets (e.g. another hour range) coexist.
+    # (The legacy code deleted ocupacion_por_linea_tramo here by copy-paste,
+    # which left supply_stats_by_section_id to accumulate duplicates on re-run.)
+    delete_old_supply_stats_by_section_id(
         route_geoms=delete_df,
         hour_range=hour_range,
         day_type=day,
         yr_mos=[mes],
-        db_type="dash",
+        ctx=ctx,
+        db="dash",
     )
-
-    conn_dash = iniciar_conexion_db(tipo="dash")
 
     for var in ["yr_mo", "day_type", "hour_min", "hour_max"]:
         gdf_d_dash[var] = gdf_d_dash[var].fillna(method="ffill").fillna(method="bfill")
 
-    gdf_d_dash.to_sql(
-        "supply_stats_by_section_id", conn_dash, if_exists="append", index=False
-    )
-    conn_dash.close()
+    ctx.dash.append_raw(gdf_d_dash, "supply_stats_by_section_id")
 
     if save_gdf:
         gdf_d0 = gdf_d0.to_crs(epsg=4326)
@@ -783,8 +781,8 @@ def viz_route_section_speed(
         f_0 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_0.geojson"
         f_1 = f"segmentos_id_linea_{alias}_{mes}({day_str})_{line_id}_median_speed_{hr_str}_1.geojson"
 
-        db_path_0 = os.path.join("resultados", "geojson", f_0)
-        db_path_1 = os.path.join("resultados", "geojson", f_1)
+        db_path_0 = str(get_paths().output_dir / "geojson" / f_0)
+        db_path_1 = str(get_paths().output_dir / "geojson" / f_1)
 
         gdf_d0.to_file(db_path_0, driver="GeoJSON")
         gdf_d1.to_file(db_path_1, driver="GeoJSON")
@@ -794,6 +792,7 @@ def viz_route_section_speed(
 
 
 def get_route_section_supply_data(
+    ctx: StorageContext,
     line_ids=False,
     hour_range=False,
     day_type="weekday",
@@ -828,8 +827,6 @@ def get_route_section_supply_data(
         dataframe with load per section per route
     """
 
-    conn_data = iniciar_conexion_db(tipo="data")
-
     q = load_route_section_supply_data_q(
         line_ids=line_ids,
         hour_range=hour_range,
@@ -838,25 +835,19 @@ def get_route_section_supply_data(
         section_meters=section_meters,
     )
 
-    # Read data from section load table
-    section_load_data = pd.read_sql(q, conn_data)
-
-    conn_data.close()
+    # Read data from section load table. The table only exists once
+    # compute_route_section_supply has written rows; tolerate the missing table
+    # (same pattern as viz.line_od_matrix.get_lines_od_matrix_data).
+    try:
+        section_load_data = ctx.data.query(q)
+    except duckdb.CatalogException:
+        section_load_data = pd.DataFrame()
 
     if len(section_load_data) == 0:
-        print("No hay datos de oferta para estos parametros.")
-        print("Ejecurtar supply_kpi.compute_route_section_supply()")
-        print(
-            " id_linea:",
-            line_ids,
-            " rango_hrs:",
-            hour_range,
-            " n_sections:",
-            n_sections,
-            " section_meters:",
-            section_meters,
-            " day_type:",
-            day_type,
+        logger.info(
+            "No hay datos de oferta para estos parametros. Ejecutar supply_kpi.compute_route_section_supply(). "
+            "id_linea=%s rango_hrs=%s n_sections=%s section_meters=%s day_type=%s",
+            line_ids, hour_range, n_sections, section_meters, day_type,
         )
 
     return section_load_data

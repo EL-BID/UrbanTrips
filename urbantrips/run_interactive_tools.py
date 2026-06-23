@@ -1,7 +1,5 @@
-import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from urbantrips.utils.utils import iniciar_conexion_db
 from urbantrips.utils import utils
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
@@ -13,16 +11,14 @@ st.set_page_config(layout="wide")
 # --- Función para levantar tablas SQL y almacenar en session_state ---
 def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
     if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        conn = iniciar_conexion_db(tipo=tipo_conexion)
-        try:
-            query = query or f"SELECT * FROM {tabla_sql}"
-            tabla = pd.read_sql_query(query, conn)
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-        except Exception:
+        tabla = utils.levanto_tabla_sql(
+            tabla_sql,
+            tabla_tipo=tipo_conexion,
+            query=query,
+        )
+        if tabla.empty:
             st.error(f"{tabla_sql} no existe")
-            st.session_state[f"{tabla_sql}_{tipo_conexion}"] = pd.DataFrame()
-        finally:
-            conn.close()
+        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
     return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
 
@@ -37,7 +33,6 @@ use_branches = configs["lineas_contienen_ramales"]
 metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
     ["id_linea", "nombre_linea"]
 ]
-conn_insumos = iniciar_conexion_db(tipo="insumos")
 
 # --- Inicializar variables en session_state ---
 for var in [
@@ -55,7 +50,7 @@ for var in [
 
 
 # --- Función para seleccionar líneas y ramales y almacenarlos en session_state ---
-def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_insumos):
+def seleccionar_linea(nombre_columna, key_input, key_select, branch_key):
     texto_a_buscar = st.text_input(
         f"Ingrese el texto a buscar para {nombre_columna}", key=key_input
     )
@@ -91,11 +86,15 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key, conn_in
                     f"metadata_branches_{st.session_state[f'seleccion_{branch_key}']['id_linea']}"
                     not in st.session_state
                 ):
+                    id_linea = int(
+                        st.session_state[f"seleccion_{branch_key}"]["id_linea"]
+                    )
                     st.session_state[
                         f"metadata_branches_{st.session_state[f'seleccion_{branch_key}']['id_linea']}"
-                    ] = pd.read_sql(
-                        f"SELECT * FROM metadata_ramales WHERE id_linea = {st.session_state[f'seleccion_{branch_key}']['id_linea']}",
-                        conn_insumos,
+                    ] = utils.levanto_tabla_sql(
+                        "metadata_ramales",
+                        tabla_tipo="insumos",
+                        query=f"SELECT * FROM metadata_ramales WHERE id_linea = {id_linea}",
                     )
                 metadata_branches = st.session_state[
                     f"metadata_branches_{st.session_state[f'seleccion_{branch_key}']['id_linea']}"
@@ -160,11 +159,11 @@ with st.expander("Seleccionar líneas", expanded=True):
 
     with col2:
         st.subheader("Línea base:")
-        seleccionar_linea("Línea base", "base_input", "base_select", "1", conn_insumos)
+        seleccionar_linea("Línea base", "base_input", "base_select", "1")
     with col3:
         st.subheader("Línea comparación:")
         seleccionar_linea(
-            "Línea comparación", "comp_input", "comp_select", "2", conn_insumos
+            "Línea comparación", "comp_input", "comp_select", "2"
         )
 
 # --- Comparación de líneas ---
@@ -186,13 +185,15 @@ with st.expander("Comparación de líneas", expanded=True):
             f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
             not in st.session_state
         ):
-
+            from urbantrips.utils.run_process import _build_ctx
+            ctx = _build_ctx()
             overlapping_dict = ovl.compute_supply_overlapping(
                 "weekday",
                 base_route_id,
                 comp_route_id,
                 "branches" if use_branches else "lines",
                 h3_res_comp,
+                ctx=ctx,
             )
             st.session_state[
                 f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
