@@ -25,7 +25,7 @@ nombres_variables_trx:
 ordenamiento_transacciones: "orden_trx"                            # especifica si ordena transacciones por fecha ("fecha_completa") o por variable orden_trx ("orden_trx") en la tabla nombres_variables_trx
 ventana_viajes: 120                                                # ventana de tiempo para que una transacción sea de un mismo viaje (ej. 60 minutos)
 ventana_duplicado: 5                                               # ventana de tiempo si hay duplicado de transacción (ej. Viaje con acompañante)
-n_batches: 30                                                      
+n_batches: 0                                                       # traveler partitions; controls memory per processing batch
 
 # Elimina transacciones inválidas de la tabla de transacciones
 tipo_trx_invalidas: 
@@ -38,6 +38,8 @@ tipo_trx_invalidas:
 # Imputación de destino
 tolerancia_parada_destino: 2200                                    # Distancia para la validación de los destinos (metros)
 imputar_destinos_min_distancia: True                               # Busca la parada que minimiza la distancia con respecto a la siguiente trancción
+frac_mediana_gps: 0.25                                             # Tolerancia outliers para creación de la matriz de validación
+tolerancia_validacion_recorrido: 600                               # Asignación de gps de destino para cálculo de travel_time_min, distance_route y distance_route_gps
 
 # Parámetros geográficos
 resolucion_h3: 8                                                   # Resolución de los hexágonos
@@ -65,16 +67,6 @@ nombres_variables_gps:
     servicios_gps:                                                 # Indica cuando se abre y cierra un servicio
     dominio_gps:                                                   # Dominio o Mounting kit del vehículo
 
-modo_valida_ramal: 
-    valida_ramal_autobus: False                                    # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_tren: False                                       # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_metro: False                                      # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_tranvia: False                                    # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_brt: False                                        # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_cable: False                                      # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_lancha: False                                     # usa ramal para validar con matriz de validación de paradas
-    valida_ramal_otros: False                                      # usa ramal para validar con matriz de validación de paradas
-    
 # Información para procesamiento de líneas
 nombre_archivo_informacion_lineas: "metadata_amba_2019_m1.csv"     # Archivo .csv con lineas, debe contener ("id_linea", "nombre_linea", "modo")
 lineas_contienen_ramales: False                                    # Especificar si las líneas de colectivo contienen ramales
@@ -95,6 +87,16 @@ modos:
     cable:                                                         
     lancha:                                                        
     otros:                                                         
+
+modo_valida_ramal: 
+    valida_ramal_autobus: False                                    # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tren: False                                       # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_metro: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_tranvia: False                                    # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_brt: False                                        # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_cable: False                                      # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_lancha: False                                     # usa ramal para validar con matriz de validación de paradas
+    valida_ramal_otros: False                                      # usa ramal para validar con matriz de validación de paradas
 
 # Capas geográficas con recorridos de líneas
 recorridos_geojson: "recorridos_2019_linea_unica_m1.geojson"       # archivo geojson con el trazado de las líneas de transporte público

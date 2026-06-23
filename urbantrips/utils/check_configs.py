@@ -1009,6 +1009,8 @@ def check_config(corrida):
     # leo el config autogenerado
     configs_usuario = leer_configs_generales(autogenerado=False)
     configs_base = revise_configs(configs_usuario)
+    # Reescribe el config del usuario incorporando parámetros nuevos del Excel
+    write_config(configs_base, autogenerado=False)
     alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general

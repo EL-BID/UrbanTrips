@@ -263,6 +263,8 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
         ).iloc[0, 0]
     except _duckdb.CatalogException:
         stamped = None
+
+    if stamped is not None and not pd.isna(stamped):
         n = int(stamped) + 1
         logger.info(
             "[n_batches] No n_batches in config — inheriting stamped partition"
