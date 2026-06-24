@@ -146,6 +146,16 @@ with st.expander("Líneas de Deseo", expanded=True):
 
         valores_zonas = lista_zonas.zona.unique().tolist()
 
+        # Sin zonificaciones no hay líneas de deseo posibles: avisar y frenar
+        # antes de los selectores de zona (evita el ValueError de
+        # valores_zonas.index(zona_seleccionada) con la lista vacía).
+        if not valores_zonas:
+            st.warning(
+                "No hay zonificaciones disponibles. Cargá o generá una "
+                "zonificación para poder explorar las líneas de deseo."
+            )
+            st.stop()
+
         # Opciones de los filtros en Streamlit
         dia_seleccionado = col1.selectbox(
             "Día", options=st.session_state.lista_etapas, index=1
