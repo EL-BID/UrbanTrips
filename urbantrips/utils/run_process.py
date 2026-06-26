@@ -599,7 +599,17 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     """Build aggregate trip/user outputs after leg enrichment is complete."""
     from urbantrips.datamodel import trips
 
-    trips.create_trips_from_legs_and_fex(ctx)
+    # create_trips_from_legs_and_fex rewrites the whole etapas table
+    # (DELETE+INSERT of ~63M rows). With the secondary ART indexes active that
+    # rewrite dominates Phase 4 (~68 min of silent tail at full-week scale), so
+    # drop them for the duration and recreate once afterwards.
+    if hasattr(ctx.data, "begin_bulk_leg_writes"):
+        ctx.data.begin_bulk_leg_writes()
+    try:
+        trips.create_trips_from_legs_and_fex(ctx)
+    finally:
+        if hasattr(ctx.data, "end_bulk_leg_writes"):
+            ctx.data.end_bulk_leg_writes()
     trips.add_distance_and_travel_time(ctx)
 
 
@@ -627,7 +637,16 @@ def run_legs(ctx: StorageContext) -> None:
     batches = ctx.data.get_user_batches(n_batches)
     parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
     logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
-    _create_legs_for_batches(ctx, batches, trx_order_params, parallel_workers)
+    # Drop the secondary etapas indexes for the whole batch-save loop: with them
+    # active, DuckDB maintains them row by row on every save_legs INSERT (~40 min
+    # of silent tail at full-week scale). Recreated once after the last save.
+    if hasattr(ctx.data, "begin_bulk_leg_writes"):
+        ctx.data.begin_bulk_leg_writes()
+    try:
+        _create_legs_for_batches(ctx, batches, trx_order_params, parallel_workers)
+    finally:
+        if hasattr(ctx.data, "end_bulk_leg_writes"):
+            ctx.data.end_bulk_leg_writes()
     logger.info("[Phase 3] Enriching legs")
     _enrich_all_legs(ctx, configs, batches=batches)
 

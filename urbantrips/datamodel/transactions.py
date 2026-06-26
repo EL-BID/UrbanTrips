@@ -817,7 +817,7 @@ def process_and_upload_gps_table(
     # else:
     #    gps = gps.rename(columns={"distance": "distance_km"})
 
-    gps = compute_distance_km_gps(gps)
+    gps = compute_distance_km_gps(gps, ctx)
 
     # if branches are not present, add branch id as the same as line
     if not configs["lineas_contienen_ramales"]:
@@ -925,13 +925,14 @@ def get_veh_expansion_from_gps(gps):
 
 
 @duracion
-def compute_distance_km_gps(gps):
+def compute_distance_km_gps(gps, ctx):
     """
     Computes the distance in kilometers between GPS points using H3 hexagons.
 
     Parameters:
     gps (pd.DataFrame): A DataFrame containing GPS data with columns 'latitud',
     longitud', 'dia', 'id_linea', 'interno', and 'fecha'.
+    ctx (StorageContext): used to resolve the per-city network bbox/cache.
 
     Returns:
     pd.DataFrame: The input DataFrame with an additional column 'distance_km'
@@ -972,12 +973,11 @@ def compute_distance_km_gps(gps):
         dest_col="h3_lag",
         distance_col="distance_km",
         unit="km",
-        db_path="data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir="data/matriz_distancia",
         symmetric=False,
         precompute_dist=50_000,
         max_tile_deg=99,
         verbose=True,
+        ctx=ctx,
     )
 
     percentile_99 = gps["delta_fecha"].quantile(0.995)

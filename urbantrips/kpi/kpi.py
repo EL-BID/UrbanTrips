@@ -911,12 +911,11 @@ def compute_kpi_by_service(ctx: StorageContext):
         dest_col          = "h3_d",
         distance_col      = 'distance_od',
         unit              = 'km',
-        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
         precompute_dist   = 50_000,
         max_tile_deg      = 99,
-        verbose           = False
+        verbose           = False,
+        ctx               = ctx,
     )
 
     # compute demand stats
@@ -1242,12 +1241,11 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
         dest_col          = "h3_d",
         distance_col      = 'distance',
         unit              = 'km',
-        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
         precompute_dist   = 50_000,
         max_tile_deg      = 99,
-        verbose           = False
+        verbose           = False,
+        ctx               = ctx,
     )
 
     # if there is no full timestamp

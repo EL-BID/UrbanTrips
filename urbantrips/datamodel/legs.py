@@ -1,7 +1,9 @@
+import gc
 import logging
 import multiprocessing
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -640,12 +642,11 @@ def assign_time_distances(ctx: StorageContext):
         dest_col          = "h3_d",
         distance_col      = 'distance_od',
         unit              = 'km',
-        db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
-        precompute_dist   = 50_000,   
-        max_tile_deg      = 99,      
-        verbose           = True
+        precompute_dist   = 50_000,
+        max_tile_deg      = 99,
+        verbose           = True,
+        ctx               = ctx,
     )
 
     if usa_gps:
@@ -749,31 +750,69 @@ def assign_time_distances(ctx: StorageContext):
                     gps_dia = pd.concat([gps_dia, gps_next], ignore_index=True)
             return gps_dia
 
+        def _impute_serial():
+            """Procesa un día a la vez en el proceso principal (sin copias por worker)."""
+            out = []
+            for dia in legs_days:
+                out.extend(
+                    _process_dia(dia, legs[legs["dia"] == dia].copy(), _gps_for_dia(dia), matriz)
+                )
+            return out
+
         if sys.platform == "darwin":
             # macOS: ProcessPoolExecutor + active DuckDB connection causes heap
             # corruption regardless of start method. Run serially instead.
-            for dia in legs_days:
-                for result in _process_dia(dia, legs[legs["dia"] == dia].copy(), _gps_for_dia(dia), matriz):
-                    etapas_result_list.append(result)
+            etapas_result_list = _impute_serial()
         else:
-            # Linux (including Docker): use spawn context so child processes
-            # don't inherit the parent's DuckDB file handles via fork.
-            n_workers = min(max(multiprocessing.cpu_count() - 1, 1), len(legs_days))
-            mp_ctx = multiprocessing.get_context("spawn")
-            with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_ctx) as executor:
-                futures = {
-                    executor.submit(
-                        _process_dia,
-                        dia,
-                        legs[legs["dia"] == dia].copy(),
-                        _gps_for_dia(dia),
-                        matriz,
-                    ): dia
-                    for dia in legs_days
-                }
-                for future in as_completed(futures):
-                    for result in future.result():
-                        etapas_result_list.append(result)
+            # Linux/Windows: spawn workers, pero cada worker recibe una COPIA de los
+            # legs del día + gps + matriz. Spawnear uno-por-día en corridas de semana
+            # completa puede agotar la RAM (BrokenProcessPool/MemoryError al picklear),
+            # sobre todo si la red pandana quedó viva en el padre. Por eso:
+            #   1) se topea la cantidad de workers según la RAM libre, y
+            #   2) si igual revienta, se cae a modo serie en vez de crashear.
+            try:
+                import psutil
+                avail = psutil.virtual_memory().available
+                n_dias = max(len(legs_days), 1)
+                # payload por worker ≈ legs del día + gps del día + matriz completa
+                per_worker = (
+                    legs.memory_usage(deep=True).sum() / n_dias
+                    + gps.memory_usage(deep=True).sum() / n_dias
+                    + matriz.memory_usage(deep=True).sum()
+                )
+                # ×2 por el buffer de pickle + la copia deserializada; uso ~mitad de la RAM libre.
+                mem_cap = max(1, int((avail * 0.5) / max(per_worker * 2, 1)))
+            except Exception:
+                mem_cap = max(multiprocessing.cpu_count() - 1, 1)
+            n_workers = min(max(multiprocessing.cpu_count() - 1, 1), len(legs_days), mem_cap)
+            logger.info(
+                "Imputación GPS: %d worker(s) en paralelo (días=%d, tope por RAM=%d)",
+                n_workers, len(legs_days), mem_cap,
+            )
+            try:
+                mp_ctx = multiprocessing.get_context("spawn")
+                result_list = []
+                with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_ctx) as executor:
+                    futures = {
+                        executor.submit(
+                            _process_dia,
+                            dia,
+                            legs[legs["dia"] == dia].copy(),
+                            _gps_for_dia(dia),
+                            matriz,
+                        ): dia
+                        for dia in legs_days
+                    }
+                    for future in as_completed(futures):
+                        result_list.extend(future.result())
+                etapas_result_list = result_list
+            except (BrokenProcessPool, MemoryError) as exc:
+                logger.warning(
+                    "Imputación GPS en paralelo se quedó sin memoria (%s); "
+                    "reintentando en serie (más lento pero estable).",
+                    type(exc).__name__,
+                )
+                etapas_result_list = _impute_serial()
 
         # Concatenar todos los resultados acumulados
         if len(etapas_result_list) == 0:
@@ -845,6 +884,12 @@ def assign_time_distances(ctx: StorageContext):
                      "distance_km", "distance_servicio_mts"]
         ).copy()
 
+        # gps crudo (25M filas) ya copiado a gps_ranked; no se usa más en esta
+        # función. Liberar acá baja el pico de RAM antes de los cumsum/merge
+        # pesados (la función mantiene varios DataFrames de 25-44M filas a la vez).
+        del gps
+        gc.collect()
+
         # Asegurar tipo numérico — la tabla gps puede traer distance_servicio_mts
         # como object (None literal) cuando el operador no reporta odómetro.
         # cumsum no soporta dtype object, hay que coercer a float antes.
@@ -890,6 +935,11 @@ def assign_time_distances(ctx: StorageContext):
         gps_anchors["nan_o"]      = gps_anchors["id_gps_o"].map(acum_nan_map)
         gps_anchors["nan_d"]      = gps_anchors["id_gps_d"].map(acum_nan_map)
 
+        # gps_ranked (25M filas con cumsums) y los maps ya volcaron sus valores a
+        # gps_anchors; liberar antes de construir gps_distances / travel_times.
+        del gps_ranked, acum_km_map, acum_mts_map, acum_nan_map
+        gc.collect()
+
         # Resta de acumuladas → distancia recorrida entre anclas
         gps_distances = gps_anchors.reindex(columns=["id_legs"]).copy()
         gps_distances["distance_route"] = (
@@ -912,6 +962,10 @@ def assign_time_distances(ctx: StorageContext):
         )
         gps_distances = gps_distances.rename(columns={"id_legs": "id"})
 
+        # gps_anchors (36M filas con columnas acum_*) ya no se usa.
+        del gps_anchors
+        gc.collect()
+
         # Una distancia recorrida negativa es fisicamente imposible: indica anclas
         # GPS fuera de orden (el ancla de origen es el ping "mas cercano" en tiempo
         # al embarque y puede caer despues del ping de destino) o etapas que cruzan
@@ -928,6 +982,11 @@ def assign_time_distances(ctx: StorageContext):
             left_on=["id"],
             right_on=["id_legs"],
         )
+
+        # legs y etapas_result ya volcaron lo necesario a travel_times; liberar
+        # antes del merge con gps_distances (el punto donde antes reventaba la RAM).
+        del legs, etapas_result
+        gc.collect()
 
         travel_times["travel_time_min"] = round(
             (travel_times["fecha_gps"] - travel_times["fecha"]).dt.total_seconds() / 60,
@@ -1168,6 +1227,21 @@ def assign_stations_od(ctx: StorageContext):
 
     if tiempos_viaje_estaciones is not None:
 
+        # Si no hay datos de tiempos entre estaciones (p.ej. no existe el archivo
+        # travel_time_stations.csv), no hay nada que clasificar: salir antes del
+        # LEFT JOIN caro sobre etapas (63M filas, ~6 min) que igual daría 0 etapas
+        # asignadas a estaciones.
+        try:
+            travel_times_stations = ctx.insumos.get_travel_times_stations()
+        except Exception:
+            travel_times_stations = None
+        if travel_times_stations is None or len(travel_times_stations) == 0:
+            logger.info(
+                "No hay datos de tiempos de viaje entre estaciones "
+                "(travel_time_stations vacío); se omite assign_stations_od."
+            )
+            return
+
         # read legs without travel time in gps and distances
         legs = ctx.data.query(
             """
@@ -1374,12 +1448,11 @@ def add_distance_and_travel_time(ctx: StorageContext):
         dest_col="h3_d",
         distance_col="distance",
         unit="km",
-        db_path="data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir="data/matriz_distancia",
         symmetric=False,
         precompute_dist=50_000,
         max_tile_deg=99,
-        verbose=True
+        verbose=True,
+        ctx=ctx,
     )
 
     # Guardar tabla temporal con distancias

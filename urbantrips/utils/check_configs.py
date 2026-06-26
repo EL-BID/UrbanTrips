@@ -64,7 +64,7 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
     # Check if the file contains tabs
@@ -72,7 +72,7 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
         # Replace tabs with spaces
         content = content.replace("\t", " " * num_spaces)
         # Save the modified content to the same file
-        with open(file_path, "w") as file:
+        with open(file_path, "w", encoding="utf-8") as file:
             file.write(content)
 
 

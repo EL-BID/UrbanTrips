@@ -293,13 +293,18 @@ def _load_network(
             f"{len(nodes):,} nodos | {len(edges):,} aristas"
         )
 
+    # twoway=True (default de pandana, igual que _build_network / pdna_network_from_bbox).
+    # Las aristas OSM/osmnet del cache no representan bien las contramanos; con
+    # twoway=False el ruteo dirigido fuerza vueltas espurias (~mitad de los saltos
+    # GPS consecutivos va "contramano"), inflando distance_route ~60% y distance_od
+    # ~25%. Con twoway=True el ruteo calza con el odómetro al 0,1% (verdad de campo).
     network = pandana.Network(
         node_x       = nodes["x"],
         node_y       = nodes["y"],
         edge_from    = edges["from"],
         edge_to      = edges["to"],
         edge_weights = edges[["weight"]],
-        twoway       = False,
+        twoway       = True,
     )
     return network
 
@@ -703,6 +708,84 @@ def _compute_pandana_tiled(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Resolución del bbox canónico de red y cache por ciudad
+# ══════════════════════════════════════════════════════════════════════════════
+
+def resolve_network_cache(
+    ctx,
+    base_dir: str = "data/matriz_distancia",
+    buffer_deg: float = 0.27,
+    grid: float = 0.1,
+) -> tuple:
+    """Devuelve ``(network_bbox, network_cache_dir, db_path)`` estables por ciudad.
+
+    El bbox canónico de red espeja la fuente del filtro geográfico
+    (``eliminar_trx_fuera_bbox``): envelope de ``zonificaciones`` si existen, si no
+    ``filtro_latlong_bbox`` del config. Le suma ``buffer_deg`` y redondea hacia
+    afuera a una grilla de ``grid`` grados. Resulta un bbox generoso, estable entre
+    días y entre corridas, que cubre todos los H3 válidos (las transacciones se
+    filtran a esa área), de modo que la red OSM se descarga una sola vez por ciudad.
+
+    El cache (red pandana + tabla de distancias) se aísla por ``ciudad`` (campo del
+    config) para no colisionar entre ciudades. Si no hay ``ciudad`` en config, se
+    deriva una clave del bbox. Si no hay ni zonificaciones ni bbox en config,
+    devuelve ``(None, base_dir, base_dir/matriz_distancia.duckdb)`` (comportamiento
+    previo: bbox por datos, cache global).
+
+    Convención del bbox: ``(ymin, xmin, ymax, xmax)`` (lat, lon), igual que pandana.
+    """
+    import math
+    from urbantrips.utils.utils import leer_configs_generales
+
+    configs = leer_configs_generales(autogenerado=False) or {}
+
+    minx = miny = maxx = maxy = None
+    try:
+        zonas = ctx.insumos.get_zones()
+    except Exception:
+        zonas = None
+    if zonas is not None and len(zonas) > 0:
+        minx, miny, maxx, maxy = zonas.total_bounds
+    else:
+        bbox = configs.get("filtro_latlong_bbox")
+        if bbox:
+            minx, miny = bbox["minx"], bbox["miny"]
+            maxx, maxy = bbox["maxx"], bbox["maxy"]
+
+    if minx is None:
+        logger.warning(
+            "[od_distances] No hay zonificaciones ni filtro_latlong_bbox; "
+            "no se puede fijar un bbox canónico — se usa el bbox por datos."
+        )
+        return None, base_dir, f"{base_dir}/matriz_distancia.duckdb"
+
+    minx -= buffer_deg
+    miny -= buffer_deg
+    maxx += buffer_deg
+    maxy += buffer_deg
+    network_bbox = (
+        math.floor(miny / grid) * grid,   # ymin
+        math.floor(minx / grid) * grid,   # xmin
+        math.ceil(maxy / grid) * grid,    # ymax
+        math.ceil(maxx / grid) * grid,    # xmax
+    )
+
+    ciudad = configs.get("ciudad")
+    if not ciudad:
+        ciudad = "bbox_" + "_".join(f"{v:.1f}" for v in network_bbox)
+        logger.warning(
+            "[od_distances] 'ciudad' no está en config; usando clave de cache "
+            "derivada del bbox: %s",
+            ciudad,
+        )
+
+    cache_dir = str(Path(base_dir) / str(ciudad))
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    db_path = str(Path(cache_dir) / "matriz_distancia.duckdb")
+    return network_bbox, cache_dir, db_path
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Funcion principal
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -722,6 +805,8 @@ def compute_od_distances(
     network_cache_dir: str | None        = "cache/osm",
     verbose: bool                        = True,
     max_tile_deg: float                  = 0.3,
+    network_bbox: tuple | None           = None,
+    ctx=None,
 ) -> pd.DataFrame:
     """
     Calcula distancias de red entre pares OD con cache persistente.
@@ -766,6 +851,14 @@ def compute_od_distances(
     Copia de od_df con columna distance_col agregada.
     Pares sin ruta valida quedan como NaN.
     """
+
+    # ── 0. Bbox canónico y cache por ciudad ──────────────────────────────────
+    # Si se pasa ctx, se resuelven network_bbox, network_cache_dir y db_path desde
+    # la config/zonificaciones (una sola red OSM por ciudad, estable entre días y
+    # corridas). Sobrescribe lo que viniera en esos argumentos. Sin ctx se usan los
+    # valores explícitos (comportamiento previo / uso genérico fuera de UrbanTrips).
+    if ctx is not None:
+        network_bbox, network_cache_dir, db_path = resolve_network_cache(ctx)
 
     # ── 1. H3 unicos ─────────────────────────────────────────────────────────
 
@@ -838,8 +931,15 @@ def compute_od_distances(
 
         # ── 7. Calcular faltantes y persistir ─────────────────────────────────
         if not missing.empty:
-            raw_bbox   = _bbox_from_h3(h3_unicos, 0)
-            bbox       = _bbox_from_h3(h3_unicos, bbox_buffer_deg)
+            if network_bbox is not None:
+                # Bbox canónico fijo por ciudad: estable entre días y corridas,
+                # así la red OSM se construye/cachea una sola vez en vez de
+                # re-derivarse (y re-descargarse) por cada llamada.
+                raw_bbox = tuple(network_bbox)
+                bbox     = tuple(network_bbox)
+            else:
+                raw_bbox = _bbox_from_h3(h3_unicos, 0)
+                bbox     = _bbox_from_h3(h3_unicos, bbox_buffer_deg)
             bbox_h     = raw_bbox[2] - raw_bbox[0]
             bbox_w     = raw_bbox[3] - raw_bbox[1]
             use_tiling = (bbox_h > max_tile_deg or bbox_w > max_tile_deg)

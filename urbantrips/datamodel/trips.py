@@ -46,10 +46,13 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     dias_str = ", ".join(f"'{d}'" for d in dias_ultima_corrida["dia"].tolist())
 
     def run_step(label: str, sql: str) -> None:
-        logger.debug("  - %s...", label)
+        # INFO (no debug) para que el log de la corrida muestre qué sub-paso
+        # domina create_trips: el CTAS de factores vs el DELETE+INSERT de ~63M
+        # filas que mantiene la PRIMARY KEY de etapas fila por fila.
+        logger.info("  - %s...", label)
         start = time.perf_counter()
         ctx.data.execute(sql)
-        logger.debug("    listo en %.2fs", time.perf_counter() - start)
+        logger.info("    listo en %.2fs", time.perf_counter() - start)
 
     logger.info("Calculando factores de expansión por etapa, línea y tarjeta")
     run_step(
@@ -573,12 +576,11 @@ def add_distance_and_travel_time(ctx: StorageContext):
         dest_col="h3_d",
         distance_col="distance",
         unit="km",
-        db_path="data/matriz_distancia/matriz_distancia.duckdb",
-        network_cache_dir="data/matriz_distancia",
         symmetric=False,
         precompute_dist=50_000,
         max_tile_deg=99,
         verbose=False,
+        ctx=ctx,
     )
 
     ctx.data.save_raw(trips, "temp_distancias")

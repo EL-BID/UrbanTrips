@@ -1400,7 +1400,7 @@ def _table_has_cols(port, table: str, cols: list) -> bool:
     except Exception:
         return False
 
-
+@duracion
 def crear_indices_unificados(ctx: StorageContext):
     """
     Crea índices en las bases SQLite usadas por el pipeline UrbanTrips:
@@ -1447,62 +1447,16 @@ def crear_indices_unificados(ctx: StorageContext):
     # =================
     #   DATA
     # =================
-    _maybe_create(
-        ctx.data,
-        "etapas",
-        [
-            ("idx_etapas_od_dia", ["od_validado", "dia"]),
-            ("idx_etapas_dia_tarjeta", ["dia", "id_tarjeta"]),
-            ("idx_etapas_tarjeta_viaje", ["id_tarjeta", "id_viaje"]),
-            ("idx_etapas_h3o", ["h3_o"]),
-            ("idx_etapas_h3d", ["h3_d"]),
-            ("idx_etapas_linea", ["id_linea"]),
-            ("idx_etapas_ramal", ["id_ramal"]),
-            ("idx_etapas_hora", ["hora"]),
-        ],
-    )
-
-    _maybe_create(
-        ctx.data,
-        "viajes",
-        [
-            ("idx_viajes_od_dia", ["od_validado", "dia"]),
-            ("idx_viajes_dia_tarjeta", ["dia", "id_tarjeta"]),
-            ("idx_viajes_tarjeta_viaje", ["id_tarjeta", "id_viaje"]),
-            ("idx_viajes_h3o", ["h3_o"]),
-            ("idx_viajes_h3d", ["h3_d"]),
-            ("idx_viajes_modo", ["modo"]),
-            ("idx_viajes_hora", ["hora"]),
-        ],
-    )
-
-    _maybe_create(
-        ctx.data,
-        "transacciones",
-        [
-            ("idx_trx_dia_linea", ["dia", "id_linea"]),
-            ("idx_trx_linea_modo", ["id_linea", "modo"]),
-            ("idx_trx_interno", ["interno"]),
-        ],
-    )
-
-    _maybe_create(
-        ctx.data,
-        "gps",
-        [
-            ("idx_gps_interno", ["interno"]),
-            ("idx_gps_fecha", ["fecha"]),
-        ],
-    )
-
-    _maybe_create(
-        ctx.data,
-        "services",
-        [
-            ("idx_services_valid", ["valid"]),
-            ("idx_services_interno", ["interno"]),
-        ],
-    )
+    # NOTA (2026-06-24): índices ART secundarios sobre las tablas GRANDES de `data`
+    # (etapas, viajes, transacciones, gps, services) REMOVIDOS. Evidencia con EXPLAIN
+    # sobre la corrida real (63M etapas): DuckDB hace SEQ_SCAN para las queries del
+    # dashboard — incluida la única consumidora de etapas en runtime (pág. 8
+    # "Estimar demanda", filtros h3_o/h3_d/od_validado/hora/dia) — y NUNCA usa estos
+    # índices (ni siquiera para una igualdad simple `h3_o = '...'`). Construirlos
+    # costaba ~57 min al final de la corrida, sin beneficio. Además viajes/
+    # transacciones/gps/services no tienen ningún consumidor en runtime. Los índices
+    # del schema (idx_etapas_batch, idx_etapas_dia_*, etc.) se mantienen aparte; las
+    # tablas `dash` (chicas) conservan los suyos más abajo.
 
     _maybe_create(
         ctx.data,

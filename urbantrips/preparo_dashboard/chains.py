@@ -524,11 +524,18 @@ def procesar_pipeline_por_dia(
 
             if guardar:
                 guardar_chains_norm(chains_dia, ctx)
-
-            chains_list.append(chains_dia)
+            else:
+                # Solo se acumula en memoria cuando el caller espera el concat
+                # de retorno. Con guardar=True cada día ya quedó persistido, así
+                # que acumular las 26.5M filas y concatenarlas al final es trabajo
+                # y RAM desperdiciados (el caller descarta el retorno).
+                chains_list.append(chains_dia)
 
             if verbose:
                 logger.info("Día %s: %s etapas procesadas.", dia, f"{len(etapas_dia):,}")
+
+        if guardar:
+            return pd.DataFrame([])
 
         if not chains_list:
             return pd.DataFrame([])

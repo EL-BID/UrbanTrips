@@ -463,6 +463,25 @@ class DuckDBDataAdapter:
         """Recreate the index dropped by begin_leg_destination_updates()."""
         self._conn.execute(schema.IDX_ETAPAS_DIA_OD_VALIDADO)
 
+    def begin_bulk_leg_writes(self) -> None:
+        """Drop the secondary etapas indexes before a bulk DELETE+INSERT of legs.
+
+        save_legs (Phase 2) and create_trips_from_legs_and_fex (Phase 4) rewrite
+        large slices of etapas. With the secondary ART indexes active, DuckDB
+        maintains them row by row during the INSERT — the dominant cost at
+        full-week scale (~40 min in Phase 2 and ~68 min in Phase 4 for ~63M legs).
+        Dropping them once before the writes and recreating them after
+        (end_bulk_leg_writes) turns the INSERT into a plain bulk append.
+        idx_etapas_batch is kept: save_legs deletes by batch_id and needs it.
+        """
+        self._conn.execute("DROP INDEX IF EXISTS idx_etapas_dia_od_validado")
+        self._conn.execute("DROP INDEX IF EXISTS idx_etapas_dia_line_ramal_interno")
+
+    def end_bulk_leg_writes(self) -> None:
+        """Recreate the secondary indexes dropped by begin_bulk_leg_writes()."""
+        self._conn.execute(schema.IDX_ETAPAS_DIA_OD_VALIDADO)
+        self._conn.execute(schema.IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO)
+
     def update_leg_destinations(self, df: pd.DataFrame) -> None:
         """Update only h3_d, od_validado, etapa_validada for existing legs, matched by id.
 
