@@ -23,12 +23,32 @@ def calculate_weighted_means(
     weight_col,
     zero_to_nan=None,
     var_fex_summed=True,
+    query_fn=None,
+    source=None,
+    cte_prefix="",
 ):
+    """Weighted means + summed/averaged weight, grouped by aggregate_cols.
+
+    Two execution modes (the SQL is byte-identical between them):
+
+    - In-RAM (default): registers the local DataFrame `df_` and runs the query
+      via duckdb.sql. This is the original behaviour; callers that pass only the
+      first four args are unaffected.
+    - Pushed-down: pass `query_fn` (e.g. ctx.data.query) and `source` (a table or
+      CTE alias such as "etapas_proc", optionally fed by `cte_prefix="WITH ..."`).
+      The aggregation then runs inside the data DB without materialising the rows
+      in pandas. `df_` is ignored for data and may be None.
+    """
     if zero_to_nan is None:
         zero_to_nan = []
 
-    if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df_.columns):
-        raise ValueError("One or more columns specified do not exist in the DataFrame.")
+    pushed_down = query_fn is not None
+    if source is None:
+        source = "df_"
+
+    if not pushed_down:
+        if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df_.columns):
+            raise ValueError("One or more columns specified do not exist in the DataFrame.")
 
     def q(name):
         return f'"{name}"'
@@ -49,7 +69,9 @@ def calculate_weighted_means(
         SELECT {keys},
                {cols_sql},
                {fex_agg}({q(weight_col)}) AS {q(weight_col)}
-        FROM df_
+        FROM {source}
         GROUP BY {keys}
     """
+    if pushed_down:
+        return query_fn(cte_prefix + query)
     return duckdb.sql(query).df()

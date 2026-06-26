@@ -161,31 +161,46 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[]):
 
 
 @duracion
-def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
+def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
+                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix=""):
 
-    # Agregado de transacciones
-    resumen_tarifas = (
-        etapas.groupby(cols + ["modo"] + ["tarifa_agregada"])["factor_expansion_linea"]
-        .sum()
-        .unstack(fill_value=0)
-        .reset_index()
-    )
+    if etapas_query_fn is not None:
+        # Push-down: transacciones + genero/tarifa pivots in one query over
+        # etapas_proc (the SUM(CASE ...) reproduce groupby+unstack(fill_value=0)
+        # for the fixed classifier label sets). This is already `tot` merged with
+        # resumen_genero + resumen_tarifas.
+        _keys = ", ".join(cols + ["modo"])
+        tot = etapas_query_fn(etapas_cte_prefix + f"""
+            SELECT {_keys},
+                SUM(factor_expansion_linea) AS transacciones,
+                SUM(CASE WHEN genero_agregado = 'Femenino'     THEN factor_expansion_linea ELSE 0 END) AS "Femenino",
+                SUM(CASE WHEN genero_agregado = 'Masculino'    THEN factor_expansion_linea ELSE 0 END) AS "Masculino",
+                SUM(CASE WHEN genero_agregado = 'No informado' THEN factor_expansion_linea ELSE 0 END) AS "No informado",
+                SUM(CASE WHEN tarifa_agregada = 'educacion_jubilacion' THEN factor_expansion_linea ELSE 0 END) AS "educacion_jubilacion",
+                SUM(CASE WHEN tarifa_agregada = 'tarifa_social'        THEN factor_expansion_linea ELSE 0 END) AS "tarifa_social",
+                SUM(CASE WHEN tarifa_agregada = 'sin_descuento'        THEN factor_expansion_linea ELSE 0 END) AS "sin_descuento"
+            FROM {etapas_source}
+            GROUP BY {_keys}
+        """)
+    else:
+        # Agregado de transacciones (in-RAM)
+        resumen_tarifas = (
+            etapas.groupby(cols + ["modo"] + ["tarifa_agregada"])["factor_expansion_linea"]
+            .sum().unstack(fill_value=0).reset_index()
+        )
+        resumen_genero = (
+            etapas.groupby(cols + ["modo"] + ["genero_agregado"])["factor_expansion_linea"]
+            .sum().unstack(fill_value=0).reset_index()
+        )
+        tot = (
+            etapas.groupby(cols + ["modo"])["factor_expansion_linea"]
+            .sum().reset_index().rename(columns={"factor_expansion_linea": "transacciones"})
+        )
+        tot = tot.merge(resumen_genero, how="left", on=cols + ["modo"]).merge(
+            resumen_tarifas, how="left", on=cols + ["modo"]
+        )
 
-    resumen_genero = (
-        etapas.groupby(cols + ["modo"] + ["genero_agregado"])["factor_expansion_linea"]
-        .sum()
-        .unstack(fill_value=0)
-        .reset_index()
-    )
-
-    tot = (
-        etapas.groupby(cols + ["modo"])["factor_expansion_linea"]
-        .sum()
-        .reset_index()
-        .rename(columns={"factor_expansion_linea": "transacciones"})
-    )
-
-    # Agregado de etapas con medias ponderadas
+    # Agregado de etapas con medias ponderadas (push-down cuando hay query_fn)
     etapas_agg = (
         utils.calculate_weighted_means(
             etapas,
@@ -194,13 +209,12 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
             zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
+            query_fn=etapas_query_fn,
+            source=etapas_source,
+            cte_prefix=etapas_cte_prefix,
         )
         .round(2)
         .rename(columns={"distance_od": "distancia_media_pax"})
-    )
-
-    tot = tot.merge(resumen_genero, how="left", on=cols + ["modo"]).merge(
-        resumen_tarifas, how="left", on=cols + ["modo"]
     )
 
     # # Redondear solo columnas numéricas
@@ -368,17 +382,23 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas):
 
 @duracion
 def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
-
-    trx, etapas, gps, servicios, kpis_varios, lineas = levanto_data(
-        ctx, etapas=etapas, viajes=viajes
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, ETAPAS_PROC_MAT,
     )
+    materializar_proc_tables(ctx)
+
+    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx)
     kpis = agrego_lineas(
-        ["dia", "id_linea"], trx, etapas, gps, servicios, kpis_varios, lineas
+        ["dia", "id_linea"], trx, None, gps, servicios, kpis_varios, lineas,
+        etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
     )
 
-    # delete existing rows for these days and append new ones
+    # delete existing rows for these days AND the previous "Promedios" row before
+    # re-reading. En corridas incrementales (--step dashboard) la fila "Promedios"
+    # vieja sobrevivía, se re-leía, contaminaba la media nueva y se duplicaba al
+    # re-appendear (3631 vs 3223 filas). Borrarla acá deja la lectura limpia.
     dias = kpis.dia.unique().tolist()
-    _delete_kpis_lineas_if_exists(ctx, dias)
+    _delete_kpis_lineas_if_exists(ctx, dias + ["Promedios"])
     ctx.general.append_raw(kpis, "kpis_lineas")
 
     df = ctx.general.get_raw("kpis_lineas")

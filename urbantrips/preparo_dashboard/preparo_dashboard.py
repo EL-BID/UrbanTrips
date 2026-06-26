@@ -565,7 +565,7 @@ def _viajes_poligonos_desde_chains(ctx: StorageContext):
 
     try:
         chains = ctx.dash.query(
-            "SELECT dia, mes, tipo_dia, id_tarjeta, "
+            "SELECT dia, mes, tipo_dia, id_tarjeta, id_viaje, "
             "h3_inicio_norm, h3_fin_norm, modo_agregado, rango_hora, "
             "transferencia, distancia_agregada, distance_od, "
             "factor_expansion_linea "
@@ -610,17 +610,10 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
     on the fly from chains_norm + equivalencias_zonas per analysis polygon
     instead of receiving a pre-filtered frame.
     """
-    if poligonos:
-        nombre_tabla = "poly_indicadores"
-    else:
-        nombre_tabla = "agg_indicadores"
+    nombre_tabla = "poly_indicadores" if poligonos else "agg_indicadores"
 
     desde_chains = False
-    if viajes is None:
-        if not poligonos:
-            raise ValueError(
-                "construyo_indicadores: viajes es requerido cuando poligonos=False."
-            )
+    if poligonos and viajes is None:
         viajes = _viajes_poligonos_desde_chains(ctx)
         desde_chains = True
         if len(viajes) == 0:
@@ -630,15 +623,36 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
             )
             return
 
-    if "id_polygon" not in viajes.columns:
-        viajes = viajes.copy()
-        viajes["id_polygon"] = "NONE"
+    # Source setup. The five aggregation blocks below all read FROM _vproc; the
+    # only thing that changes is where _vproc comes from:
+    #  - non-polygon production (viajes is None): materialise the proc-CTE once
+    #    into a DuckDB temp table in the data DB. RAM is bounded by memory_limit;
+    #    the 26M-row viajes frame is never built in pandas.
+    #  - polygon path / explicit frame (tests): register the in-RAM frame as _vproc.
+    _con = None
+    if viajes is None:
+        from urbantrips.preparo_dashboard.sql_queries import (
+            materializar_proc_tables, VIAJES_PROC_MAT,
+        )
+        materializar_proc_tables(ctx)
+        ctx.data.execute(
+            f"CREATE OR REPLACE TEMP TABLE _vproc AS "
+            f"SELECT *, 'NONE' AS id_polygon FROM {VIAJES_PROC_MAT}"
+        )
+        run = ctx.data.query
+    else:
+        if "id_polygon" not in viajes.columns:
+            viajes = viajes.copy()
+            viajes["id_polygon"] = "NONE"
+        _con = duckdb.connect()
+        _con.register("_vproc", viajes)
+        run = lambda body: _con.execute(body).df()  # noqa: E731
 
     KEYS = ["id_polygon", "dia", "mes", "tipo_dia"]
 
     # ── 1. Base group ─────────────────────────────────────────────────────────
     logger.info("construyo_indicadores: calculando indicadores base")
-    base = duckdb.sql("""
+    base = run("""
         SELECT
             id_polygon, dia, mes, tipo_dia,
             ROUND(SUM(factor_expansion_linea))                                        AS total_viajes,
@@ -646,9 +660,9 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
                           ELSE 0 END))                                                AS con_transferencia,
             ROUND(SUM(distance_od * factor_expansion_linea)
                   / NULLIF(SUM(factor_expansion_linea), 0), 2)                        AS dist_prom
-        FROM viajes
+        FROM _vproc
         GROUP BY id_polygon, dia, mes, tipo_dia
-    """).df()
+    """)
 
     ind1 = base[KEYS + ["total_viajes"]].rename(columns={"total_viajes": "Valor"})
     ind1["Indicador"] = "Cantidad de Viajes"
@@ -672,17 +686,20 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
 
     # ── 2. Usuarios ───────────────────────────────────────────────────────────
     logger.info("construyo_indicadores: calculando usuarios únicos")
-    usuarios = duckdb.sql("""
+    usuarios = run("""
         SELECT id_polygon, dia, mes, tipo_dia,
             ROUND(SUM(first_fex)) AS Valor
         FROM (
+            -- one expansion factor per card. arg_min(fex, id_viaje) = the card's
+            -- first trip, matching the pandas oracle's groupby(...).first() and,
+            -- unlike ANY_VALUE, deterministic + independent of source row order.
             SELECT id_polygon, dia, mes, tipo_dia,
-                ANY_VALUE(factor_expansion_linea) AS first_fex
-            FROM viajes
+                arg_min(factor_expansion_linea, id_viaje) AS first_fex
+            FROM _vproc
             GROUP BY id_polygon, dia, mes, tipo_dia, id_tarjeta
         )
         GROUP BY id_polygon, dia, mes, tipo_dia
-    """).df()
+    """)
     ind5 = usuarios[KEYS + ["Valor"]]
     ind5["Indicador"] = "Cantidad de Usuarios"
     ind5["Tipo"] = "General"
@@ -690,19 +707,19 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
 
     # ── 3. By rango_hora ──────────────────────────────────────────────────────
     logger.info("construyo_indicadores: calculando distribución por rango hora")
-    by_hora = duckdb.sql("""
+    by_hora = run("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
                 SUM(factor_expansion_linea) AS total
-            FROM viajes
+            FROM _vproc
             GROUP BY id_polygon, dia, mes, tipo_dia
         )
         SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.rango_hora,
             ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2) AS Valor
-        FROM viajes v
+        FROM _vproc v
         JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
         GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.rango_hora, t.total
-    """).df()
+    """)
 
     ind3 = by_hora.copy()
     ind3["Indicador"] = "Cantidad de Viajes de " + ind3["rango_hora"] + "hs"
@@ -712,21 +729,21 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
 
     # ── 4. By modo ────────────────────────────────────────────────────────────
     logger.info("construyo_indicadores: calculando distribución modal")
-    by_modo = duckdb.sql("""
+    by_modo = run("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
                 SUM(factor_expansion_linea) AS total
-            FROM viajes
+            FROM _vproc
             GROUP BY id_polygon, dia, mes, tipo_dia
         )
         SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.modo,
             ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2)           AS pct,
             ROUND(SUM(v.distance_od * v.factor_expansion_linea)
                   / NULLIF(SUM(v.factor_expansion_linea), 0), 2)              AS dist_prom_modo
-        FROM viajes v
+        FROM _vproc v
         JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
         GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.modo, t.total
-    """).df()
+    """)
 
     ind4 = by_modo[KEYS + ["modo", "pct"]].copy()
     ind4 = ind4.sort_values(KEYS + ["pct"], ascending=[True] * 4 + [False])
@@ -743,21 +760,21 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
 
     # ── 5. By distancia_agregada ──────────────────────────────────────────────
     logger.info("construyo_indicadores: calculando distribución por distancia")
-    by_dist = duckdb.sql("""
+    by_dist = run("""
         WITH totals AS (
             SELECT id_polygon, dia, mes, tipo_dia,
                 SUM(factor_expansion_linea) AS total
-            FROM viajes
+            FROM _vproc
             GROUP BY id_polygon, dia, mes, tipo_dia
         )
         SELECT v.id_polygon, v.dia, v.mes, v.tipo_dia, v.distancia_agregada,
             ROUND(SUM(v.factor_expansion_linea) / t.total * 100, 2)           AS pct,
             ROUND(SUM(v.distance_od * v.factor_expansion_linea)
                   / NULLIF(SUM(v.factor_expansion_linea), 0), 2)              AS dist_prom_dist
-        FROM viajes v
+        FROM _vproc v
         JOIN totals t USING (id_polygon, dia, mes, tipo_dia)
         GROUP BY v.id_polygon, v.dia, v.mes, v.tipo_dia, v.distancia_agregada, t.total
-    """).df()
+    """)
 
     ind9 = by_dist[KEYS + ["distancia_agregada", "pct"]].copy()
     ind9 = ind9.sort_values(KEYS + ["pct"], ascending=[True] * 4 + [False])
@@ -771,6 +788,12 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
     ind8["Tipo"] = "Distancias"
     ind8["type_val"] = "float"
     ind8 = ind8.rename(columns={"dist_prom_dist": "Valor"}).drop(columns=["distancia_agregada"])
+
+    # release the source — every aggregate is now materialised in pandas
+    if _con is not None:
+        _con.close()
+    else:
+        ctx.data.execute("DROP TABLE IF EXISTS _vproc")
 
     # ── 6. Combine, merge history, add "Todos" aggregate ─────────────────────
     logger.info("construyo_indicadores: consolidando y guardando indicadores")
@@ -968,16 +991,21 @@ def imprimo_matrices_od(ctx: StorageContext):
 
 
 @duracion
-def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
+def crea_socio_indicadores(ctx: StorageContext):
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, ETAPAS_PROC_MAT, VIAJES_PROC_MAT,
+    )
+    materializar_proc_tables(ctx)
+
     logger.info("crea_socio_indicadores: calculando medias ponderadas de viajes")
     socio_indicadores = pd.DataFrame([])
-    viajes.loc[viajes.travel_time_min == 0, "travel_time_min"] = np.nan
-    viajes.loc[viajes.kmh_od == 0, "kmh_od"] = np.nan
-    etapas.loc[etapas.travel_time_min == 0, "travel_time_min"] = np.nan
-    etapas.loc[etapas.kmh_od == 0, "kmh_od"] = np.nan
 
+    # First-pass weighted means run inside the data DB over the proc-CTEs (the
+    # 26M/30M-row frames are never materialised). zero_to_nan=[travel_time_min,
+    # kmh_od] reproduces the legacy pre-null of those two columns (the proc-CTE
+    # 0-fills them); distance_od/cant_etapas/diff_time keep their zeros, as before.
     viajesx = calculate_weighted_means(
-        viajes,
+        None,
         aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
         weighted_mean_cols=[
             "distance_od",
@@ -986,8 +1014,11 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
             "cant_etapas",
             "diff_time",
         ],
+        zero_to_nan=["travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
+        query_fn=ctx.data.query,
+        source=VIAJES_PROC_MAT,
     )
 
     viajesx = calculate_weighted_means(
@@ -1005,7 +1036,7 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
     ).round(3)
 
     etapasx = calculate_weighted_means(
-        etapas,
+        None,
         aggregate_cols=[
             "dia",
             "mes",
@@ -1015,8 +1046,11 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
             "modo",
         ],
         weighted_mean_cols=["distance_od", "travel_time_min", "kmh_od"],
+        zero_to_nan=["travel_time_min", "kmh_od"],
         weight_col="factor_expansion_linea",
         var_fex_summed=True,
+        query_fn=ctx.data.query,
+        source=ETAPAS_PROC_MAT,
     )
 
     etapasx = calculate_weighted_means(
@@ -1077,35 +1111,32 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
 
     # Calculo viajes promedio por día por género y tarifa_agregada
     logger.info("crea_socio_indicadores: calculando viajes promedio por usuario")
-    _userx_clean = viajes[["dia", "id_tarjeta"]].copy()
-    _userx_clean["tarifa_agregada"] = viajes["tarifa_agregada"].str.replace("-", "")
+    # Per-card trip counts. The folded single-SQL version over the WIDE materialised
+    # table with STRING_AGG(DISTINCT ... ORDER BY) was ~13x slower (37 min vs ~3 min):
+    # the ORDER BY sort per card-group + scanning the 22-col table twice dominated.
+    # Revert to the original pandas path (STRING_AGG over a NARROW 3-col frame +
+    # pandas groupby), fed by a narrow 8-col projection of the materialised table
+    # (~26M x 8 ≈ 1.5 GB). The multi-tariff label order is non-deterministic again
+    # (as in the legacy); affects only the ~35 multi-tariff rows of this table.
+    viajes_user = ctx.data.query(
+        f"SELECT dia, mes, tipo_dia, id_tarjeta, genero_agregado, tarifa_agregada, "
+        f"factor_expansion_tarjeta, factor_expansion_linea FROM {VIAJES_PROC_MAT}"
+    )
+    _userx_clean = viajes_user[["dia", "id_tarjeta"]].copy()
+    _userx_clean["tarifa_agregada"] = viajes_user["tarifa_agregada"].str.replace("-", "")
     _tarifa_agg = duckdb.sql("""
         SELECT dia, id_tarjeta,
                COALESCE(STRING_AGG(DISTINCT NULLIF(tarifa_agregada, ''), '-'), '-') AS tarifa_agregada_agg
         FROM _userx_clean
         GROUP BY dia, id_tarjeta
     """).df()
-    userx = viajes[
-        [
-            "dia",
-            "mes",
-            "tipo_dia",
-            "id_tarjeta",
-            "genero_agregado",
-            "factor_expansion_tarjeta",
-            "factor_expansion_linea",
-        ]
+    userx = viajes_user[
+        ["dia", "mes", "tipo_dia", "id_tarjeta", "genero_agregado",
+         "factor_expansion_tarjeta", "factor_expansion_linea"]
     ].merge(_tarifa_agg, how="left")
     userx = (
         userx.groupby(
-            [
-                "dia",
-                "mes",
-                "tipo_dia",
-                "id_tarjeta",
-                "genero_agregado",
-                "tarifa_agregada_agg",
-            ],
+            ["dia", "mes", "tipo_dia", "id_tarjeta", "genero_agregado", "tarifa_agregada_agg"],
             as_index=False, observed=True)
         .agg({"factor_expansion_tarjeta": "count", "factor_expansion_linea": "mean"})
         .rename(columns={"factor_expansion_tarjeta": "cant_viajes"})
@@ -1186,29 +1217,25 @@ def crea_socio_indicadores(ctx: StorageContext, etapas, viajes):
 
     replace_dash_partition(ctx, socio_indicadores, "socio_indicadores", ["dia"])
 
-    hora = (
-        etapas.groupby(["dia", "modo", "hora"], as_index=False, observed=True)
-        .factor_expansion_linea.sum()
-        .round()
-        .fillna(0)
-        .rename(columns={"factor_expansion_linea": "viajes"})
-    )
-    hora["viajes"] = hora["viajes"].astype(int)
+    # round_even == pandas .round() half-to-even; CAST to BIGINT == .astype(int).
+    hora = ctx.data.query(f"""
+        SELECT dia, modo, hora,
+               CAST(round_even(SUM(factor_expansion_linea), 0) AS BIGINT) AS viajes
+        FROM {ETAPAS_PROC_MAT}
+        GROUP BY dia, modo, hora
+    """)
 
     horaT = hora.groupby(["dia", "hora"], as_index=False, observed=True).viajes.sum()
     horaT["modo"] = "Todos"
 
     hora = pd.concat([hora, horaT], ignore_index=True)
 
-    etapas["dist"] = etapas.distance_od.round(0).astype(int)
-    dist = (
-        etapas.groupby(["dia", "modo", "dist"], as_index=False, observed=True)
-        .factor_expansion_linea.sum()
-        .round()
-        .fillna(0)
-        .rename(columns={"factor_expansion_linea": "viajes"})
-    )
-    dist["viajes"] = dist["viajes"].astype(int)
+    dist = ctx.data.query(f"""
+        SELECT dia, modo, CAST(round_even(distance_od, 0) AS BIGINT) AS dist,
+               CAST(round_even(SUM(factor_expansion_linea), 0) AS BIGINT) AS viajes
+        FROM {ETAPAS_PROC_MAT}
+        GROUP BY dia, modo, CAST(round_even(distance_od, 0) AS BIGINT)
+    """)
 
     distT = dist.groupby(["dia", "dist"], as_index=False, observed=True).viajes.sum()
     distT["modo"] = "Todos"
@@ -1259,59 +1286,63 @@ def preparo_lineas_deseo(
 
 
 @duracion
-def guarda_particion_modal(ctx: StorageContext, etapas):
-
-    df_dummies = pd.get_dummies(etapas.modo)
-    cols_dummies = df_dummies.columns.tolist()
-    etapas = pd.concat(
-        [
-            etapas[
-                [
-                    "dia",
-                    "mes",
-                    "tipo_dia",
-                    "genero_agregado",
-                    "id_tarjeta",
-                    "id_viaje",
-                    "factor_expansion_linea",
-                ]
-            ],
-            df_dummies,
-        ],
-        axis=1,
+def guarda_particion_modal(ctx: StorageContext):
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, ETAPAS_PROC_MAT,
     )
+    materializar_proc_tables(ctx)
 
-    etapas_modos = (
-        etapas.groupby(
-            ["dia", "mes", "tipo_dia", "genero_agregado", "id_tarjeta", "id_viaje"],
-            as_index=False, observed=True)
-        .factor_expansion_linea.mean()
-        .merge(
-            etapas.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False, observed=True)[
-                cols_dummies
-            ].sum(),
-            how="left",
+    # modo set, sorted — matches pandas get_dummies(modo) column order.
+    modos = ctx.data.query(
+        f"SELECT DISTINCT modo FROM {ETAPAS_PROC_MAT} ORDER BY modo"
+    )["modo"].tolist()
+
+    # SUM(CASE WHEN modo='X' ...) per modo == get_dummies(modo) summed per trip.
+    dummy_cols = ", ".join(
+        f"SUM(CASE WHEN modo = '{m}' THEN 1 ELSE 0 END) AS \"{m}\"" for m in modos
+    )
+    dummy_names = ", ".join(f'"{m}"' for m in modos)
+
+    # Reproduces the legacy two-level groupby + left-merge, pushed into the DB:
+    #   g1: one fex per (dia,mes,tipo_dia,genero,trip)  [groupby.mean]
+    #   g2: modo-count vector per (dia,trip)            [groupby[dummies].sum]
+    #   final: SUM(fex) per (dia,mes,tipo_dia,genero, modo-vector)
+    etapas_modos = ctx.data.query(
+        f"""
+        WITH g1 AS (
+            SELECT dia, mes, tipo_dia, genero_agregado, id_tarjeta, id_viaje,
+                   AVG(factor_expansion_linea) AS factor_expansion_linea
+            FROM {ETAPAS_PROC_MAT}
+            GROUP BY dia, mes, tipo_dia, genero_agregado, id_tarjeta, id_viaje
+        ),
+        g2 AS (
+            SELECT dia, id_tarjeta, id_viaje, {dummy_cols}
+            FROM {ETAPAS_PROC_MAT}
+            GROUP BY dia, id_tarjeta, id_viaje
+        ),
+        joined AS (
+            SELECT g1.dia, g1.mes, g1.tipo_dia, g1.genero_agregado,
+                   g1.factor_expansion_linea, {dummy_names}
+            FROM g1 LEFT JOIN g2 USING (dia, id_tarjeta, id_viaje)
         )
+        SELECT dia, mes, tipo_dia, genero_agregado, {dummy_names},
+               SUM(factor_expansion_linea) AS factor_expansion_linea
+        FROM joined
+        GROUP BY dia, mes, tipo_dia, genero_agregado, {dummy_names}
+        """
     )
 
-    cols = [
-        "dia",
-        "mes",
-        "tipo_dia",
-        "genero_agregado",
-    ] + cols_dummies
-    etapas_modos = (
-        etapas_modos.groupby(cols, as_index=False, observed=True).factor_expansion_linea.sum().copy()
-    )
-    for i in cols_dummies:
-        etapas_modos = etapas_modos.rename(columns={i: i.capitalize()})
-
+    etapas_modos = etapas_modos.rename(columns={m: m.capitalize() for m in modos})
     replace_dash_partition(ctx, etapas_modos, "datos_particion_modal", ["dia"])
 
 
 
 @duracion
-def resumen_x_linea(ctx: StorageContext, etapas, viajes):
+def resumen_x_linea(ctx: StorageContext):
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, ETAPAS_PROC_MAT,
+    )
+    materializar_proc_tables(ctx)
 
     # Only the columns agrego_lineas reads — gps and transacciones are the two
     # largest tables in the run; loading them whole multiplies peak RSS.
@@ -1337,7 +1368,10 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
 
     # Resumen por línea
     logger.info("resumen_x_linea: agregando por línea")
-    all_linea = agrego_lineas(["dia", "id_linea"], trx, etapas, gps, servicios, kpis, lineas)
+    all_linea = agrego_lineas(
+        ["dia", "id_linea"], trx, None, gps, servicios, kpis, lineas,
+        etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+    )
     all_linea["mes"] = all_linea["dia"].str[:7]
     metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
     all_linea = (
@@ -1351,7 +1385,10 @@ def resumen_x_linea(ctx: StorageContext, etapas, viajes):
 
     # Resumen por línea y ramal
     logger.info("resumen_x_linea: agregando por línea y ramal")
-    all_ramal = agrego_lineas(["dia", "id_linea", "id_ramal"], trx, etapas, gps, servicios, kpis, lineas)
+    all_ramal = agrego_lineas(
+        ["dia", "id_linea", "id_ramal"], trx, None, gps, servicios, kpis, lineas,
+        etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+    )
     all_ramal["mes"] = all_ramal["dia"].str[:7]
     metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
     all_ramal = (
@@ -1555,20 +1592,12 @@ def crear_indices_unificados(ctx: StorageContext):
         ],
     )
 
-    _maybe_create(
-        ctx.dash,
-        "chains_norm",
-        [
-            ("idx_chains_dia", ["dia"]),
-            ("idx_chains_od_norm", ["h3_inicio_norm", "h3_fin_norm"]),
-            ("idx_chains_od", ["h3_inicio", "h3_fin"]),
-            ("idx_chains_modo", ["modo_agregado"]),
-            ("idx_chains_rango_hora", ["rango_hora"]),
-            ("idx_chains_tipo_dia", ["tipo_dia"]),
-            ("idx_chains_transferencia", ["transferencia"]),
-            ("idx_chains_distancia", ["distancia_agregada"]),
-        ],
-    )
+    # chains_norm (26.6M filas): índices ART REMOVIDOS (2026-06-26). EXPLAIN sobre la
+    # corrida real confirma que DuckDB hace SEQ_SCAN para todos los filtros del
+    # dashboard (dia / h3_inicio_norm / modo_agregado / transferencia / ...) y nunca
+    # usa estos índices —ni para una igualdad muy selectiva como h3_inicio_norm = '...'—.
+    # Construir los 8 índices era el grueso de los ~15 min de esta función, sin
+    # beneficio, y además frenaba los inserts/upserts a chains_norm.
 
     # =================
     #   INSUMOS
@@ -1598,17 +1627,10 @@ def crear_indices_unificados(ctx: StorageContext):
         ],
     )
 
-    _maybe_create(
-        ctx.insumos,
-        "equivalencias_zonas",
-        [
-            ("idx_eqz_h3", ["h3"]),
-            # critical dashboard join: chains_norm h3 -> zone id
-            ("idx_eqz_h3_zona", ["h3", "zona"]),
-            # IN-subqueries filter by zona ('SELECT h3 ... WHERE zona = x')
-            ("idx_eqz_zona_h3", ["zona", "h3"]),
-        ],
-    )
+    # equivalencias_zonas (7.3M filas): índices ART REMOVIDOS (2026-06-26). El comentario
+    # previo los daba por "critical" para el join chains_norm × equivalencias y los
+    # IN-subqueries por zona, pero EXPLAIN confirma SEQ_SCAN tanto para `WHERE zona = x`
+    # como para `WHERE h3 = x` — DuckDB no los usa (es columnar; los joins son hash).
 
     # ---- analizar y optimizar ----
     for port in (ctx.data, ctx.dash, ctx.insumos):
@@ -1635,13 +1657,13 @@ def proceso_lineas_deseo(
         zonificaciones=zonificaciones,
     )  # , 8
 
-    resumen_x_linea(ctx, etapas, viajes)
+    resumen_x_linea(ctx)
 
     construyo_indicadores(ctx, viajes, poligonos=False)
 
-    crea_socio_indicadores(ctx, etapas, viajes)
+    crea_socio_indicadores(ctx)
 
-    guarda_particion_modal(ctx, etapas)
+    guarda_particion_modal(ctx)
 
     # imprimo_matrices_od(ctx))
 
@@ -1685,24 +1707,35 @@ def preparo_indicadores_dash(
     # build chains_norm (trip-level OD table at res 10 used by all dashboard pages)
     procesar_pipeline_por_dia(res=RES_CHAINS_NORM, guardar=True, ctx=ctx)
 
-    etapas, viajes = load_and_process_data(ctx)
+    # All indicator consumers below self-source from the data DB via the proc-CTEs
+    # (sql_queries.py); the 30.9M-etapas / 26.6M-viajes frames are never built in
+    # pandas — RAM stays bounded by DuckDB's memory_limit, so this scales to a
+    # full month. load_and_process_data() is retained only as a parity oracle for
+    # the unit tests. The proc relations are materialised ONCE here (the heavy
+    # etapas⋈travel_times join) and reused by every consumer; dropped at the end.
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, drop_proc_tables,
+    )
+    materializar_proc_tables(ctx, replace=True)
+    try:
+        resumen_x_linea(ctx)
 
-    resumen_x_linea(ctx, etapas, viajes)
+        # non-polygon indicators self-source from the data DB (proc-CTE temp table);
+        # no longer needs the in-RAM viajes frame.
+        construyo_indicadores(ctx, poligonos=False)
 
-    construyo_indicadores(ctx, viajes, poligonos=False)
+        if poligonos:
+            # trips per polygon are selected on the fly from chains_norm
+            construyo_indicadores(ctx, poligonos=True)
 
-    if poligonos:
-        # trips per polygon are selected on the fly from chains_norm
-        construyo_indicadores(ctx, poligonos=True)
+        crea_socio_indicadores(ctx)
 
-    crea_socio_indicadores(ctx, etapas, viajes)
+        guarda_particion_modal(ctx)
 
-    guarda_particion_modal(ctx, etapas)
-
-    if kpis:
-        kpis = calculo_kpi_lineas(
-            ctx, etapas=etapas, viajes=viajes
-        )
+        if kpis:
+            kpis = calculo_kpi_lineas(ctx)
+    finally:
+        drop_proc_tables(ctx)
 
     crear_indices_unificados(ctx)
 

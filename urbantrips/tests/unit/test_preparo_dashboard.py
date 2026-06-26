@@ -298,11 +298,11 @@ def test_insumos_adapter_close_is_idempotent(tmp_path):
 
 def test_preparo_dashboard_passes_frames_by_reference(mocker):
     """
-    The top-level orchestrator must NOT call .copy() on etapas/viajes before
-    passing them to resumen_x_linea, construyo_indicadores,
-    crea_socio_indicadores, guarda_particion_modal or calculo_kpi_lineas.
-    Verified by checking that the id() of the DataFrame received inside each
-    function matches the id() of the original.
+    The indicator consumers (resumen_x_linea, construyo_indicadores non-polygon,
+    crea_socio_indicadores, guarda_particion_modal, calculo_kpi_lineas) now
+    self-source from the data DB via the proc-CTEs — the orchestrator no longer
+    builds or passes the etapas/viajes frames. Verified by checking each consumer
+    is invoked without a frame argument.
     """
     import pandas as pd
     from unittest.mock import MagicMock, patch
@@ -316,24 +316,27 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
 
     received_ids = {}
 
-    def capture_resumen(ctx, etapas, viajes):
-        received_ids["resumen_etapas"] = id(etapas)
-        received_ids["resumen_viajes"] = id(viajes)
+    def capture_resumen(ctx):
+        # resumen_x_linea now self-sources etapas from the data DB (etapas_proc).
+        received_ids["resumen_selfsourced"] = True
 
     def capture_indicadores(ctx, viajes=None, poligonos=False):
         if not poligonos:
-            received_ids["ind_viajes"] = id(viajes)
+            # non-polygon indicators now self-source from the data DB (proc-CTE
+            # temp table); the orchestrator no longer passes the viajes frame.
+            received_ids["ind_viajes_is_none"] = viajes is None
 
-    def capture_socio(ctx, etapas, viajes):
-        received_ids["socio_etapas"] = id(etapas)
-        received_ids["socio_viajes"] = id(viajes)
+    def capture_socio(ctx):
+        # crea_socio_indicadores now self-sources from the data DB (proc-CTEs).
+        received_ids["socio_selfsourced"] = True
 
-    def capture_particion(ctx, etapas):
-        received_ids["part_etapas"] = id(etapas)
+    def capture_particion(ctx):
+        # guarda_particion_modal now self-sources from the data DB (etapas_proc).
+        received_ids["part_selfsourced"] = True
 
-    def capture_kpi(ctx, etapas, viajes):
-        received_ids["kpi_etapas"] = id(etapas)
-        received_ids["kpi_viajes"] = id(viajes)
+    def capture_kpi(ctx):
+        # calculo_kpi_lineas now self-sources from the data DB (etapas_proc).
+        received_ids["kpi_selfsourced"] = True
 
     ctx = MagicMock()
     ctx.insumos.get_raw.return_value = pd.DataFrame()
@@ -357,14 +360,11 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
     ):
         preparo_dashboard(ctx, lineas_deseo=True, poligonos=True, kpis=True)
 
-    assert received_ids["resumen_etapas"] == etapas_id, "resumen_x_linea received a copy of etapas"
-    assert received_ids["resumen_viajes"] == viajes_id, "resumen_x_linea received a copy of viajes"
-    assert received_ids["ind_viajes"] == viajes_id, "construyo_indicadores received a copy of viajes"
-    assert received_ids["socio_etapas"] == etapas_id, "crea_socio_indicadores received a copy of etapas"
-    assert received_ids["socio_viajes"] == viajes_id, "crea_socio_indicadores received a copy of viajes"
-    assert received_ids["part_etapas"] == etapas_id, "guarda_particion_modal received a copy of etapas"
-    assert received_ids["kpi_etapas"] == etapas_id, "calculo_kpi_lineas received a copy of etapas"
-    assert received_ids["kpi_viajes"] == viajes_id, "calculo_kpi_lineas received a copy of viajes"
+    assert received_ids.get("resumen_selfsourced"), "resumen_x_linea must self-source from the data DB"
+    assert received_ids["ind_viajes_is_none"], "construyo_indicadores (non-polygon) must self-source, not receive a viajes frame"
+    assert received_ids.get("socio_selfsourced"), "crea_socio_indicadores must self-source from the data DB"
+    assert received_ids.get("part_selfsourced"), "guarda_particion_modal must self-source from the data DB"
+    assert received_ids.get("kpi_selfsourced"), "calculo_kpi_lineas must self-source from the data DB"
 
 
 # ---------------------------------------------------------------------------

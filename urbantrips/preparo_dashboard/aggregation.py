@@ -311,13 +311,17 @@ def agg_matriz(
     return df
 
 
-def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
+def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas,
+                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix=""):
     trx_agg = (
         trx.groupby(cols + ["modo"], as_index=False, observed=True)
         .factor_expansion.sum()
         .rename(columns={"factor_expansion": "transacciones"})
     )
     lineas_agg = lineas[["id_linea", "nombre_linea", "empresa"]].drop_duplicates()
+    # etapas weighted means: in-RAM when `etapas` is a frame, or pushed down to
+    # the data DB (etapas_proc) when etapas_query_fn/source are provided. The SQL
+    # is identical either way; only the source of the rows changes.
     etapas_agg = (
         calculate_weighted_means(
             etapas,
@@ -326,6 +330,9 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas):
             zero_to_nan=["distance_od", "travel_time_min", "kmh_od"],
             weight_col="factor_expansion_linea",
             var_fex_summed=False,
+            query_fn=etapas_query_fn,
+            source=etapas_source,
+            cte_prefix=etapas_cte_prefix,
         )
         .round(2)
         .rename(columns={"modo": "modo_new"})
