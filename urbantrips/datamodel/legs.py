@@ -613,516 +613,332 @@ def assign_gps_origin(ctx: StorageContext):
 
 
 @duracion
-def assign_time_distances(ctx: StorageContext):
-    """
-    This function read legs data and if there is gps table
-    assigns a gps to the leg destination
-    """
+def _gps_destino_y_tiempos_dia(
+    ctx, dia, next_dia, legs_all, metadata_lineas, matriz, modos_ramal, legs_h3_res
+):
+    """Imputación de GPS de destino + tiempos/distancias de viaje para UN día.
 
-    configs = leer_configs_generales(autogenerado=False)
-    usa_gps = configs.get("usa_archivo_gps", False)
-    
-    # Gate por etapa_validada (no od_validado): travel_time_min / distance_route /
-    # distance_route_gps dependen de que la etapa tenga destino valido imputado,
-    # NO de que la cadena de viajes de la tarjeta sea valida. etapa_validada ⊇
-    # od_validado. Requiere que etapa_validada este seteada antes (infer_destinations).
-    query = """
-    SELECT e.*
-    FROM etapas e
-    JOIN dias_ultima_corrida d
-    ON e.dia = d.dia
-    WHERE e.etapa_validada = 1
-    ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
+    Reproduce, para un solo día, exactamente lo que la versión previa hacía sobre
+    todos los días juntos: carga gps del día (+ madrugada de next_dia para legs que
+    cruzan medianoche), geocodifica, imputa el GPS de destino (_process_dia) y
+    calcula distance_route / distance_route_gps / travel_time_min / kmh_*.
+
+    Devuelve (travel_times, travel_times_trips, legs_to_gps_d) ya armados para el día.
+    legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
     """
-    legs_all = ctx.data.query(query)
-            
-    legs_all = compute_od_distances(
-        od_df             = legs_all,
-        origin_col        = "h3_o",
-        dest_col          = "h3_d",
-        distance_col      = 'distance_od',
-        unit              = 'km',
-        symmetric         = False,
-        precompute_dist   = 50_000,
-        max_tile_deg      = 99,
-        verbose           = True,
-        ctx               = ctx,
+    gps_dias = [dia] + ([next_dia] if next_dia else [])
+    gps_str = ", ".join(f"'{d}'" for d in gps_dias)
+    gps = ctx.data.query(
+        f"""
+        SELECT g.* FROM gps g
+        WHERE g.dia IN ({gps_str})
+        ORDER BY dia, id_linea, id_ramal, interno, fecha
+        """
+    )
+    # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
+    gps = gps.merge(metadata_lineas, how="left", on="id_linea")
+    gps["id_ramal"] = id_ramal_efectivo(gps["modo"], gps["id_ramal"], modos_ramal)
+
+    legs = legs_all[(legs_all.id_linea.isin(gps.id_linea.unique()))].copy()
+    legs = legs.merge(
+        metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
+    )
+    legs["id_ramal"] = id_ramal_efectivo(legs["modo"], legs["id_ramal"], modos_ramal)
+    legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
+
+    gps_h3_res = h3.get_resolution(gps["h3"].sample().item())
+    gps = referenciar_h3(
+        gps, res=legs_h3_res, nombre_h3="h3_legs_res", lat="latitud", lon="longitud"
+    )
+    gps["fecha_gps"] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
+    gps["hora"] = gps.fecha_gps.dt.hour
+    legs["h3_d_gps_res"] = legs["h3_d"].apply(
+        lambda x: convert_h3_to_resolution(x, gps_h3_res)
     )
 
-    if usa_gps:
+    # GPS del día + madrugada del día siguiente (offset 24-27) para legs cross-medianoche.
+    gps_dia = gps[gps["dia"] == dia].copy()
+    if next_dia is not None:
+        gps_next = gps[(gps["dia"] == next_dia) & (gps["hora"] <= 3)].copy()
+        if len(gps_next) > 0:
+            gps_next["hora"] = gps_next["hora"] + 24
+            gps_dia = pd.concat([gps_dia, gps_next], ignore_index=True)
 
+    etapas_result_list = _process_dia(dia, legs[legs["dia"] == dia].copy(), gps_dia, matriz)
+
+    if len(etapas_result_list) == 0:
+        # sin destinos GPS imputados ese día: las etapas conservan distance_od (route NULL)
+        travel_times = legs_all.reindex(
+            columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
+        ).copy()
+        travel_times_trips = (
+            travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+            [["distance_od"]].sum(min_count=1)
+        )
+        return travel_times, travel_times_trips, None
+
+    etapas_result = pd.concat(etapas_result_list, ignore_index=True)
+    legs_to_gps_d = etapas_result.reindex(columns=["dia", "id_legs", "id_gps"])
+
+    # ── distance_route y distance_route_gps: ambas desde GPS ──
+    legs_to_gps_o = ctx.data.query(
+        f"""
+        SELECT lo.id_legs, lo.id_gps AS id_gps_o
+        FROM legs_to_gps_origin lo
+        WHERE lo.dia = '{dia}'
+        """
+    )
+    legs_to_gps_d_dist = etapas_result.reindex(
+        columns=["id_legs", "id_gps"]
+    ).rename(columns={"id_gps": "id_gps_d"})
+    gps_anchors = legs_to_gps_o.merge(legs_to_gps_d_dist, on="id_legs")
+
+    gps_ranked = gps.reindex(
+        columns=["id", "dia", "id_linea", "id_ramal", "interno",
+                 "distance_km", "distance_servicio_mts"]
+    ).copy()
+    del gps
+    gc.collect()
+
+    gps_ranked["distance_km"] = pd.to_numeric(gps_ranked["distance_km"], errors="coerce")
+    gps_ranked["distance_servicio_mts"] = pd.to_numeric(
+        gps_ranked["distance_servicio_mts"], errors="coerce"
+    )
+
+    # Acumulada por servicio (dia × linea × ramal × interno); el gps ya viene por fecha.
+    gps_ranked["acum_km"] = gps_ranked.groupby(
+        ["dia", "id_linea", "id_ramal", "interno"]
+    )["distance_km"].cumsum()
+    dist_mts = gps_ranked["distance_servicio_mts"]
+    group_keys = [
+        gps_ranked["dia"], gps_ranked["id_linea"],
+        gps_ranked["id_ramal"], gps_ranked["interno"],
+    ]
+    gps_ranked["acum_mts"] = dist_mts.fillna(0).groupby(group_keys).cumsum()
+    gps_ranked["acum_mts_nan_count"] = dist_mts.isna().astype(int).groupby(group_keys).cumsum()
+
+    acum_km_map = gps_ranked.set_index("id")["acum_km"]
+    acum_mts_map = gps_ranked.set_index("id")["acum_mts"]
+    acum_nan_map = gps_ranked.set_index("id")["acum_mts_nan_count"]
+
+    gps_anchors["acum_km_o"] = gps_anchors["id_gps_o"].map(acum_km_map)
+    gps_anchors["acum_km_d"] = gps_anchors["id_gps_d"].map(acum_km_map)
+    gps_anchors["acum_mts_o"] = gps_anchors["id_gps_o"].map(acum_mts_map)
+    gps_anchors["acum_mts_d"] = gps_anchors["id_gps_d"].map(acum_mts_map)
+    gps_anchors["nan_o"] = gps_anchors["id_gps_o"].map(acum_nan_map)
+    gps_anchors["nan_d"] = gps_anchors["id_gps_d"].map(acum_nan_map)
+
+    del gps_ranked, acum_km_map, acum_mts_map, acum_nan_map
+    gc.collect()
+
+    gps_distances = gps_anchors.reindex(columns=["id_legs"]).copy()
+    gps_distances["distance_route"] = (
+        gps_anchors["acum_km_d"].values - gps_anchors["acum_km_o"].values
+    )
+    nan_entre_anclas = gps_anchors["nan_d"].values - gps_anchors["nan_o"].values
+    diff_mts = gps_anchors["acum_mts_d"].values - gps_anchors["acum_mts_o"].values
+    gps_distances["distance_route_gps"] = np.where(
+        nan_entre_anclas > 0, np.nan, diff_mts / 1000,
+    )
+    gps_distances = gps_distances.rename(columns={"id_legs": "id"})
+    del gps_anchors
+    gc.collect()
+
+    # Distancia recorrida negativa (anclas fuera de orden / cross-medianoche) → NaN.
+    for _col in ("distance_route", "distance_route_gps"):
+        gps_distances.loc[gps_distances[_col] < 0, _col] = np.nan
+
+    travel_times = legs.reindex(columns=["dia", "id", "fecha", "distance_od"]).merge(
+        etapas_result.reindex(columns=["id_legs", "fecha_gps"]),
+        how="left", left_on=["id"], right_on=["id_legs"],
+    )
+    del legs, etapas_result
+    gc.collect()
+
+    travel_times["travel_time_min"] = round(
+        (travel_times["fecha_gps"] - travel_times["fecha"]).dt.total_seconds() / 60, 1,
+    )
+    travel_times = travel_times.loc[travel_times.travel_time_min > 0, :]
+    travel_times["kmh_od"] = (
+        travel_times["distance_od"] / (travel_times["travel_time_min"] / 60)
+    ).round(1)
+    travel_times.loc[
+        (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
+        "kmh_od",
+    ] = np.nan
+
+    travel_times = travel_times.merge(gps_distances, on="id", how="left")
+
+    tot_gps = len(travel_times)
+    tot_gps_asig = travel_times.travel_time_min.notna().sum()
+    logger.info("GPS imputado (%s): %.1f%%", dia, tot_gps_asig / max(tot_gps, 1) * 100)
+
+    travel_times["kmh_route"] = (
+        travel_times["distance_route"] / (travel_times["travel_time_min"] / 60)
+    ).round(1)
+    travel_times.loc[
+        (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= VELOCIDAD_MAXIMA_KMH),
+        "kmh_route",
+    ] = np.nan
+    travel_times["kmh_route_gps"] = (
+        travel_times["distance_route_gps"] / (travel_times["travel_time_min"] / 60)
+    ).round(1)
+    travel_times.loc[
+        (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= VELOCIDAD_MAXIMA_KMH),
+        "kmh_route_gps",
+    ] = np.nan
+
+    travel_times = travel_times.reindex(
+        columns=['dia', 'id', 'travel_time_min', 'distance_od', 'distance_route',
+                 'distance_route_gps', 'kmh_od', 'kmh_route', 'kmh_route_gps'])
+
+    # Merge explicito por (dia, id): distance_od de legs_all es la autoritativa
+    # (incluye las etapas sin GPS, con route NULL).
+    travel_times = legs_all[
+        ['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']
+    ].merge(
+        travel_times.drop(columns=['distance_od']), on=['dia', 'id'], how='left',
+    )
+    travel_times = travel_times.merge(
+        legs_to_gps_o.rename(columns={"id_legs": "id"}), on="id", how="left",
+    )
+    travel_times = travel_times.merge(
+        legs_to_gps_d.reindex(columns=["id_legs", "id_gps"])
+        .rename(columns={"id_legs": "id", "id_gps": "id_gps_d"}),
+        on="id", how="left",
+    )
+
+    travel_times_trips = (
+        travel_times
+        .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+        [["travel_time_min", "distance_od", "distance_route", "distance_route_gps"]]
+        .sum(min_count=1)
+    )
+    travel_times_trips["kmh_od"] = (
+        travel_times_trips["distance_od"] / (travel_times_trips["travel_time_min"] / 60)
+    ).round(1)
+    travel_times_trips["kmh_route"] = (
+        travel_times_trips["distance_route"] / (travel_times_trips["travel_time_min"] / 60)
+    ).round(1)
+    travel_times_trips["kmh_route_gps"] = (
+        travel_times_trips["distance_route_gps"] / (travel_times_trips["travel_time_min"] / 60)
+    ).round(1)
+    for col in ["kmh_od", "kmh_route", "kmh_route_gps"]:
+        travel_times_trips.loc[
+            (travel_times_trips[col] == np.inf)
+            | (travel_times_trips[col] >= VELOCIDAD_MAXIMA_KMH), col
+        ] = np.nan
+
+    return travel_times, travel_times_trips, legs_to_gps_d
+
+
+def assign_time_distances(ctx: StorageContext):
+    """
+    Lee las etapas DIA POR DIA y, si hay tabla gps, imputa el gps de destino y
+    calcula distance_od / distance_route / distance_route_gps / travel_time_min
+    por dia, guardando y liberando antes del siguiente. Acota la RAM (escala a un
+    mes) preservando exactamente la logica intra-dia (ver _gps_destino_y_tiempos_dia).
+    """
+    configs = leer_configs_generales(autogenerado=False)
+    usa_gps = configs.get("usa_archivo_gps", False)
+
+    dias_ultima_corrida = ctx.data.get_run_days()
+    dias = sorted(dias_ultima_corrida["dia"].tolist())
+    dia_to_next = {dias[i]: dias[i + 1] for i in range(len(dias) - 1)}
+
+    # Inputs compartidos (no dependen del dia): se cargan una sola vez.
+    metadata_lineas = matriz = modos_ramal = legs_h3_res = None
+    if usa_gps:
         legs_h3_res = configs["resolucion_h3"]
         modos_ramal = modos_con_ramal(configs)
-
         metadata_lineas = ctx.insumos.get_metadata_lineas()[
             ["id_linea", "id_linea_agg", "modo"]
         ]
-
-        # read stops zone of influence
-        # Regla invariante: la matriz se acota por id_linea_agg (red agregada) e
-        # id_ramal efectivo (real solo para los modos que validan por ramal). Antes
-        # se usaba solo parada->area_influencia, con lo que una parada (h3) compartida
-        # entre lineas podia matchear destinos de otra linea/ramal.
         mv = ctx.insumos.get_matrix_validation()
         matriz = mv[
             ["id_linea_agg", "id_ramal", "parada", "area_influencia"]
         ].drop_duplicates()
-        # id_ramal NULL (modos sin ramal) -> centinela para que el merge coincida.
         matriz["id_ramal"] = matriz["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64")
         matriz["ring"] = matriz.apply(
             lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
         )
-
-        # Recorte del area de influencia para la imputacion de GPS de destino:
-        # umbral en metros, resolucion-independiente (I.C.bis). Reemplaza el
-        # `ring < 3` hardcodeado. Mismo criterio que el ring_filtro de carto.py.
         lado_m = h3.average_hexagon_edge_length(res=legs_h3_res, unit="m")
-        ring_max = max(1, round(configs.get("tolerancia_destino_gps", 1000) / (lado_m * 2)))
+        ring_max = max(
+            1, round(configs.get("tolerancia_destino_gps", 1000) / (lado_m * 2))
+        )
         matriz = matriz[matriz.ring <= ring_max]
 
-        gps = ctx.data.query(
+    # Limpiar las salidas de los dias de ESTA corrida una sola vez (un solo scan;
+    # travel_times_* / legs_to_gps_destination no tienen indices). Luego se appendea
+    # por dia. Solo se borran los dias de dias_ultima_corrida (semantica incremental).
+    dias_str = ", ".join(f"'{d}'" for d in dias)
+    for table in ("travel_times_legs", "travel_times_trips", "legs_to_gps_destination"):
+        try:
+            ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
+        except Exception as e:
+            logger.debug("[delete omitido] %s: %s", table, e)
+
+    for dia in dias:
+        legs_all = ctx.data.query(
+            f"""
+            SELECT e.*
+            FROM etapas e
+            WHERE e.etapa_validada = 1 AND e.dia = '{dia}'
+            ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
             """
-            SELECT g.* FROM gps g
-            JOIN dias_ultima_corrida d
-            ON g.dia = d.dia
-            ORDER BY dia, id_linea, id_ramal, interno, fecha
-            """
         )
-        # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
-        gps = gps.merge(metadata_lineas, how="left", on="id_linea")
-        gps["id_ramal"] = id_ramal_efectivo(
-            gps["modo"], gps["id_ramal"], modos_ramal
-        )
+        if len(legs_all) == 0:
+            continue
 
-        legs = legs_all[(legs_all.id_linea.isin( gps.id_linea.unique() )) ].copy()
-        # legs trae modo de etapas; se agrega id_linea_agg y el id_ramal efectivo.
-        legs = legs.merge(
-            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
-        )
-        legs["id_ramal"] = id_ramal_efectivo(
-            legs["modo"], legs["id_ramal"], modos_ramal
+        legs_all = compute_od_distances(
+            od_df=legs_all,
+            origin_col="h3_o",
+            dest_col="h3_d",
+            distance_col="distance_od",
+            unit="km",
+            symmetric=False,
+            precompute_dist=50_000,
+            max_tile_deg=99,
+            verbose=True,
+            ctx=ctx,
         )
 
-        legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
-
-        # get h3 res for gps
-        gps_h3_res = h3.get_resolution(gps["h3"].sample().item())
-
-        # geocode gps with same h3 res than legs
-        gps = referenciar_h3(
-            gps, res=legs_h3_res, nombre_h3="h3_legs_res", lat="latitud", lon="longitud"
-        )
-        gps["fecha_gps"] = gps.fecha.map(lambda ts: pd.Timestamp(ts, unit="s"))
-        gps["hora"] = gps.fecha_gps.dt.hour
-
-        # Geocode legs destination in the same h3 resolution than gps
-        legs["h3_d_gps_res"] = legs["h3_d"].apply(
-            lambda x: convert_h3_to_resolution(x, gps_h3_res)
-        )
-
-        # Lista para acumular resultados parciales
-        etapas_result_list = []
-
-        # IteraciÃ³n por cada hora y cada dia
-        legs_days = legs.dia.unique()
-        legs_hours = legs.hora.unique()
-
-        legs_days.sort()
-        legs_hours.sort()
-
-        logger.info("Imputando GPS de destino")
-
-        dias_sorted = sorted(legs_days)
-        dia_to_next = {
-            dia: dias_sorted[i + 1]
-            for i, dia in enumerate(dias_sorted)
-            if i + 1 < len(dias_sorted)
-        }
-
-        def _gps_for_dia(dia):
-            """GPS for dia plus next day's early hours (offset to 24-27) for cross-midnight legs."""
-            gps_dia = gps[gps["dia"] == dia].copy()
-            next_dia = dia_to_next.get(dia)
-            if next_dia is not None:
-                gps_next = gps[(gps["dia"] == next_dia) & (gps["hora"] <= 3)].copy()
-                if len(gps_next) > 0:
-                    gps_next["hora"] = gps_next["hora"] + 24
-                    gps_dia = pd.concat([gps_dia, gps_next], ignore_index=True)
-            return gps_dia
-
-        def _impute_serial():
-            """Procesa un día a la vez en el proceso principal (sin copias por worker)."""
-            out = []
-            for dia in legs_days:
-                out.extend(
-                    _process_dia(dia, legs[legs["dia"] == dia].copy(), _gps_for_dia(dia), matriz)
-                )
-            return out
-
-        if sys.platform == "darwin":
-            # macOS: ProcessPoolExecutor + active DuckDB connection causes heap
-            # corruption regardless of start method. Run serially instead.
-            etapas_result_list = _impute_serial()
+        if usa_gps:
+            travel_times, travel_times_trips, legs_to_gps_d = _gps_destino_y_tiempos_dia(
+                ctx, dia, dia_to_next.get(dia), legs_all,
+                metadata_lineas, matriz, modos_ramal, legs_h3_res,
+            )
         else:
-            # Linux/Windows: spawn workers, pero cada worker recibe una COPIA de los
-            # legs del día + gps + matriz. Spawnear uno-por-día en corridas de semana
-            # completa puede agotar la RAM (BrokenProcessPool/MemoryError al picklear),
-            # sobre todo si la red pandana quedó viva en el padre. Por eso:
-            #   1) se topea la cantidad de workers según la RAM libre, y
-            #   2) si igual revienta, se cae a modo serie en vez de crashear.
-            try:
-                import psutil
-                avail = psutil.virtual_memory().available
-                n_dias = max(len(legs_days), 1)
-                # payload por worker ≈ legs del día + gps del día + matriz completa
-                per_worker = (
-                    legs.memory_usage(deep=True).sum() / n_dias
-                    + gps.memory_usage(deep=True).sum() / n_dias
-                    + matriz.memory_usage(deep=True).sum()
-                )
-                # ×2 por el buffer de pickle + la copia deserializada; uso ~mitad de la RAM libre.
-                mem_cap = max(1, int((avail * 0.5) / max(per_worker * 2, 1)))
-            except Exception:
-                mem_cap = max(multiprocessing.cpu_count() - 1, 1)
-            n_workers = min(max(multiprocessing.cpu_count() - 1, 1), len(legs_days), mem_cap)
-            logger.info(
-                "Imputación GPS: %d worker(s) en paralelo (días=%d, tope por RAM=%d)",
-                n_workers, len(legs_days), mem_cap,
+            travel_times = legs_all.reindex(
+                columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
+            ).copy()
+            travel_times_trips = (
+                travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+                [["distance_od"]].sum(min_count=1)
             )
-            try:
-                mp_ctx = multiprocessing.get_context("spawn")
-                result_list = []
-                with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_ctx) as executor:
-                    futures = {
-                        executor.submit(
-                            _process_dia,
-                            dia,
-                            legs[legs["dia"] == dia].copy(),
-                            _gps_for_dia(dia),
-                            matriz,
-                        ): dia
-                        for dia in legs_days
-                    }
-                    for future in as_completed(futures):
-                        result_list.extend(future.result())
-                etapas_result_list = result_list
-            except (BrokenProcessPool, MemoryError) as exc:
-                logger.warning(
-                    "Imputación GPS en paralelo se quedó sin memoria (%s); "
-                    "reintentando en serie (más lento pero estable).",
-                    type(exc).__name__,
-                )
-                etapas_result_list = _impute_serial()
-
-        # Concatenar todos los resultados acumulados
-        if len(etapas_result_list) == 0:
-            ctx.data.save_raw(
-                pd.DataFrame(columns=["dia", "id_legs", "id_gps"]),
-                "legs_to_gps_destination",
-            )
-            ctx.data.save_raw(
-                pd.DataFrame(columns=["dia", "id", "travel_time_min", "travel_speed"]),
-                "travel_times_gps",
-            )
-            logger.info("No se encontraron destinos GPS para imputar")
-            return
-
-        etapas_result = pd.concat(etapas_result_list, ignore_index=True)
-
-        legs_to_gps_d = etapas_result.reindex(columns=["dia", "id_legs", "id_gps"])
-        ctx.data.save_raw(legs_to_gps_d, "legs_to_gps_destination")
-
-        logger.info("Computando tiempos de viaje en GPS")
-        
-        # â”€â”€ distance_route_gps y distance_route: ambas desde GPS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-        legs_to_gps_o = ctx.data.query(
-            """
-            SELECT lo.id_legs, lo.id_gps AS id_gps_o
-            FROM legs_to_gps_origin lo
-            JOIN dias_ultima_corrida d ON lo.dia = d.dia
-            """
-        )
-
-
-        legs_to_gps_d_dist = etapas_result.reindex(
-            columns=["id_legs", "id_gps"]
-        ).rename(columns={"id_gps": "id_gps_d"})
-
-        gps_anchors = legs_to_gps_o.merge(legs_to_gps_d_dist, on="id_legs")
-
-        # ──────────────────────────────────────────────────────────────────
-        # distance_route y distance_route_gps: distancia recorrida entre anclas GPS
-        # ──────────────────────────────────────────────────────────────────
-        #
-        # Para cada etapa se calcula la distancia recorrida por el vehículo entre
-        # el ping GPS de origen y el ping GPS de destino. Hay dos fuentes:
-        #
-        #   distance_route     → suma de distance_km          (calculado por urbantrips)
-        #   distance_route_gps → suma de distance_servicio_mts (odómetro del operador)
-        #
-        # distance_servicio_mts puede no estar reportado:
-        #   - Mendoza, AMBA cuando el operador no provee odómetro: todos None
-        #   - Algunas líneas sí lo reportan y otras no
-        #   - Una línea puede reportarlo de forma parcial (algunos pings sí, otros no)
-        #
-        # Estrategia: cumsum sobre el valor con None→0 para no contaminar la
-        # acumulada, más cumsum del conteo de NaN. Una etapa queda con
-        # distance_route_gps = NaN solo si entre sus anclas hubo algún ping
-        # sin odómetro reportado. Si todos los tramos intermedios están
-        # reportados, el valor se calcula correctamente.
-        #
-        # distance_route se computa siempre (distance_km es siempre numérico).
-        #
-        # Supuesto general: origen y destino pertenecen al mismo servicio
-        # continuo del interno. Si acum_d < acum_o, indica error de asignación
-        # upstream (anclas de servicios distintos) → distance_route negativa
-        # → detectar en QA.
-
-        gps_ranked = gps.reindex(
-            columns=["id", "dia", "id_linea", "id_ramal", "interno",
-                     "distance_km", "distance_servicio_mts"]
-        ).copy()
-
-        # gps crudo (25M filas) ya copiado a gps_ranked; no se usa más en esta
-        # función. Liberar acá baja el pico de RAM antes de los cumsum/merge
-        # pesados (la función mantiene varios DataFrames de 25-44M filas a la vez).
-        del gps
-        gc.collect()
-
-        # Asegurar tipo numérico — la tabla gps puede traer distance_servicio_mts
-        # como object (None literal) cuando el operador no reporta odómetro.
-        # cumsum no soporta dtype object, hay que coercer a float antes.
-        gps_ranked["distance_km"] = pd.to_numeric(
-            gps_ranked["distance_km"], errors="coerce"
-        )
-        gps_ranked["distance_servicio_mts"] = pd.to_numeric(
-            gps_ranked["distance_servicio_mts"], errors="coerce"
-        )
-
-        # Acumulada de distance_km por servicio (dia × linea × ramal × interno).
-        # El GPS ya viene ordenado por fecha, por lo que cumsum respeta el orden temporal.
-        gps_ranked["acum_km"] = gps_ranked.groupby(
-            ["dia", "id_linea", "id_ramal", "interno"]
-        )["distance_km"].cumsum()
-
-        # Acumulada de distance_servicio_mts: dos cumsums separadas para tolerar
-        # NaN sin contaminar tramos limpios.
-        # - acum_mts: cumsum sobre el valor con NaN→0 (acumulada utilizable)
-        # - acum_mts_nan_count: cumsum del indicador de NaN (permite invalidar
-        #   solo las etapas cuyas anclas caen en tramos con algún None)
-        dist_mts = gps_ranked["distance_servicio_mts"]
-        group_keys = [
-            gps_ranked["dia"], gps_ranked["id_linea"],
-            gps_ranked["id_ramal"], gps_ranked["interno"],
-        ]
-        gps_ranked["acum_mts"] = (
-            dist_mts.fillna(0).groupby(group_keys).cumsum()
-        )
-        gps_ranked["acum_mts_nan_count"] = (
-            dist_mts.isna().astype(int).groupby(group_keys).cumsum()
-        )
-
-        # Lookup de acumuladas en cada ancla mediante el id de ping GPS
-        acum_km_map      = gps_ranked.set_index("id")["acum_km"]
-        acum_mts_map     = gps_ranked.set_index("id")["acum_mts"]
-        acum_nan_map     = gps_ranked.set_index("id")["acum_mts_nan_count"]
-
-        gps_anchors["acum_km_o"]  = gps_anchors["id_gps_o"].map(acum_km_map)
-        gps_anchors["acum_km_d"]  = gps_anchors["id_gps_d"].map(acum_km_map)
-        gps_anchors["acum_mts_o"] = gps_anchors["id_gps_o"].map(acum_mts_map)
-        gps_anchors["acum_mts_d"] = gps_anchors["id_gps_d"].map(acum_mts_map)
-        gps_anchors["nan_o"]      = gps_anchors["id_gps_o"].map(acum_nan_map)
-        gps_anchors["nan_d"]      = gps_anchors["id_gps_d"].map(acum_nan_map)
-
-        # gps_ranked (25M filas con cumsums) y los maps ya volcaron sus valores a
-        # gps_anchors; liberar antes de construir gps_distances / travel_times.
-        del gps_ranked, acum_km_map, acum_mts_map, acum_nan_map
-        gc.collect()
-
-        # Resta de acumuladas → distancia recorrida entre anclas
-        gps_distances = gps_anchors.reindex(columns=["id_legs"]).copy()
-        gps_distances["distance_route"] = (
-            gps_anchors["acum_km_d"].values - gps_anchors["acum_km_o"].values
-        )
-
-        # distance_route_gps: si hubo algún NaN en distance_servicio_mts entre
-        # las anclas, el resultado es NaN. Si todos los pings intermedios
-        # tienen el valor reportado, se calcula normalmente.
-        nan_entre_anclas = (
-            gps_anchors["nan_d"].values - gps_anchors["nan_o"].values
-        )
-        diff_mts = (
-            gps_anchors["acum_mts_d"].values - gps_anchors["acum_mts_o"].values
-        )
-        gps_distances["distance_route_gps"] = np.where(
-            nan_entre_anclas > 0,
-            np.nan,
-            diff_mts / 1000,
-        )
-        gps_distances = gps_distances.rename(columns={"id_legs": "id"})
-
-        # gps_anchors (36M filas con columnas acum_*) ya no se usa.
-        del gps_anchors
-        gc.collect()
-
-        # Una distancia recorrida negativa es fisicamente imposible: indica anclas
-        # GPS fuera de orden (el ancla de origen es el ping "mas cercano" en tiempo
-        # al embarque y puede caer despues del ping de destino) o etapas que cruzan
-        # la medianoche (acum reseteada por dia). Se anulan para no contaminar los
-        # outputs ni las velocidades derivadas (kmh_* quedan NaN automaticamente).
-        for _col in ("distance_route", "distance_route_gps"):
-            gps_distances.loc[gps_distances[_col] < 0, _col] = np.nan
-
-        travel_times = legs.reindex(
-            columns=["dia", "id", "fecha", "distance_od"]
-        ).merge(
-            etapas_result.reindex(columns=["id_legs", "fecha_gps"]),
-            how="left",
-            left_on=["id"],
-            right_on=["id_legs"],
-        )
-
-        # legs y etapas_result ya volcaron lo necesario a travel_times; liberar
-        # antes del merge con gps_distances (el punto donde antes reventaba la RAM).
-        del legs, etapas_result
-        gc.collect()
-
-        travel_times["travel_time_min"] = round(
-            (travel_times["fecha_gps"] - travel_times["fecha"]).dt.total_seconds() / 60,
-            1,
-        )
-
-        travel_times = travel_times.loc[travel_times.travel_time_min > 0, :]
-        travel_times["kmh_od"] = (
-            travel_times["distance_od"] / (travel_times["travel_time_min"] / 60)
-        ).round(1)
-
-        travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
-            "kmh_od",
-        ] = np.nan
-
-        travel_times = travel_times.merge(gps_distances, on="id", how="left")
-
-        tot_gps = len(travel_times)
-        tot_gps_asig = travel_times.travel_time_min.notna().sum()
-        logger.info("GPS imputado: %.1f%%", tot_gps_asig / tot_gps * 100)
-
-        travel_times["kmh_route"] = (
-            travel_times["distance_route"] / (travel_times["travel_time_min"] / 60)
-        ).round(1)
-
-        travel_times.loc[
-            (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= VELOCIDAD_MAXIMA_KMH),
-            "kmh_route",
-        ] = np.nan
-
-        travel_times["kmh_route_gps"] = (
-            travel_times["distance_route_gps"] / (travel_times["travel_time_min"] / 60)
-        ).round(1)
-
-        travel_times.loc[
-            (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= VELOCIDAD_MAXIMA_KMH),
-            "kmh_route_gps",
-        ] = np.nan
+            legs_to_gps_d = None
 
         travel_times = travel_times.reindex(
-            columns=['dia', 
-                     'id', 
-                     'travel_time_min', 
-                     'distance_od', 
-                     'distance_route', 
-                     'distance_route_gps', 
-                     'kmh_od', 
-                     'kmh_route', 
-                     'kmh_route_gps'] )
-
-
-        # Merge explicito por (dia, id): mergear por columnas comunes incluiria
-        # distance_od (float) como clave, y las etapas con distance_od = NaN
-        # perderian su travel_time_min (NaN != NaN en el join). distance_od de
-        # legs_all es la autoritativa, asi que se descarta la del lado derecho.
-        travel_times = legs_all[
-            ['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']
-        ].merge(
-            travel_times.drop(columns=['distance_od']),
-            on=['dia', 'id'],
-            how='left',
+            columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
+                     "distance_od", "distance_route", "distance_route_gps",
+                     "kmh_od", "kmh_route", "kmh_route_gps",
+                     "id_gps_o", "id_gps_d"]
         )
-
-        # Persistir los pings GPS asignados como ancla de origen y destino, para QA.
-        # id_gps_o: presente para toda etapa con GPS de origen asignado.
-        # id_gps_d: presente solo si ademas se asigno GPS de destino (= hay travel_time_min).
-        travel_times = travel_times.merge(
-            legs_to_gps_o.rename(columns={"id_legs": "id"}),
-            on="id", how="left",
+        travel_times_trips = travel_times_trips.reindex(
+            columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
+                     "distance_od", "distance_route", "distance_route_gps",
+                     "kmh_od", "kmh_route", "kmh_route_gps"]
         )
-        travel_times = travel_times.merge(
-            legs_to_gps_d.reindex(columns=["id_legs", "id_gps"])
-            .rename(columns={"id_legs": "id", "id_gps": "id_gps_d"}),
-            on="id", how="left",
-        )
+        travel_times["distance_route_gps"] = travel_times["distance_route_gps"].round(2)
 
-        travel_times_trips = (
-                travel_times
-                .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-                [["travel_time_min", "distance_od", "distance_route", "distance_route_gps"]]
-                .sum(min_count=1)
-            )
-        
-        travel_times_trips["kmh_od"] = (
-            travel_times_trips["distance_od"] / (travel_times_trips["travel_time_min"] / 60)
-        ).round(1)
+        if legs_to_gps_d is not None:
+            ctx.data.append_raw(legs_to_gps_d, "legs_to_gps_destination")
+        ctx.data.append_raw(travel_times, "travel_times_legs")
+        ctx.data.append_raw(travel_times_trips, "travel_times_trips")
 
-        travel_times_trips["kmh_route"] = (
-            travel_times_trips["distance_route"] / (travel_times_trips["travel_time_min"] / 60)
-        ).round(1)
+        del legs_all, travel_times, travel_times_trips
+        gc.collect()
 
-        travel_times_trips["kmh_route_gps"] = (
-            travel_times_trips["distance_route_gps"] / (travel_times_trips["travel_time_min"] / 60)
-        ).round(1)
-
-        for col in ["kmh_od", "kmh_route", "kmh_route_gps"]:
-            travel_times_trips.loc[
-                (travel_times_trips[col] == np.inf)
-                | (travel_times_trips[col] >= VELOCIDAD_MAXIMA_KMH), col
-            ] = np.nan
-
-    else:
-        travel_times = legs_all[['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']].copy()
-        dias_ultima_corrida = ctx.data.get_run_days()
-
-        travel_times_trips = (
-                travel_times
-                .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-                [["distance_od"]]
-                .sum(min_count=1)
-            )
-
-    travel_times = travel_times.reindex(
-        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
-                 "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps",
-                 "id_gps_o", "id_gps_d"]
-    )
-
-    travel_times_trips = travel_times_trips.reindex(
-        columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
-                 "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps"]
-    )
-        
-    travel_times['distance_route_gps'] = travel_times['distance_route_gps'].round(2)
-
-    dias_ultima_corrida = ctx.data.get_run_days()
-    dias = dias_ultima_corrida["dia"].tolist()
-    dias_str = ", ".join(f"'{d}'" for d in dias)
-
-    for table, df in [("travel_times_legs", travel_times), ("travel_times_trips", travel_times_trips)]:
-        ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({dias_str})")
-        ctx.data.append_raw(df, table)
-        
 
 def _process_dia(dia, legs_dia, gps_dia, matriz):
     """Process all hours for one day; called in a subprocess (own memory space)."""
