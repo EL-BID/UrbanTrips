@@ -7,6 +7,11 @@ on:
       - dev
   pull_request:
 
+permissions:
+  contents: read
+  actions: read
+  id-token: none
+
 jobs:
   lint:
     name: Lint

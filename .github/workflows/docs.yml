@@ -10,6 +10,9 @@ on:
       - main
       - dev
 
+permissions:
+  contents: read
+
 jobs:
   docs:
     runs-on: ubuntu-latest
