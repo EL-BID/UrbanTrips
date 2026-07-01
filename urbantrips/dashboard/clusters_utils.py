@@ -24,7 +24,18 @@ import os
 
 from urbantrips.utils.utils import levanto_tabla_sql, guardar_tabla_sql
 
-
+def normalizar_id_linea(col):
+    def convertir(x):
+        if pd.isna(x):
+            return None
+        s = str(x).strip()
+        # si es número entero o decimal → convertir a int y luego a str
+        if s.replace('.', '', 1).isdigit():
+            return str(int(float(s)))
+        # si no es número → dejarlo como está
+        return s
+    return col.apply(convertir)
+    
 def correlation_analysis(
     data,
     vars,
@@ -486,6 +497,16 @@ def plot_cluster_in_map(
         archivo_salida (str, opcional): Ruta para guardar el archivo HTML.
     """
     # Merge
+    # carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
+
+    if 'id_linea' in carto.columns:
+        carto['id_linea'] = normalizar_id_linea(carto['id_linea'])
+        carto['id_linea'] = carto['id_linea'].astype(str)
+    if 'id_linea' in data.columns:
+        data['id_linea'] = normalizar_id_linea(data['id_linea'])
+        data['id_linea'] = data['id_linea'].astype(str)            
+    
+    
     carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
 
     # Inicializar mapa
@@ -856,6 +877,13 @@ def correr_clusters(data):
 
             data_tmp[f"hcluster_{i}"] = data_tmp[f"hcluster_{i}"].astype(str)
 
+            if 'id_linea' in data_hierarchical.columns:
+                data_hierarchical['id_linea'] = normalizar_id_linea(data_hierarchical['id_linea'])
+                data_hierarchical['id_linea'] = data_hierarchical['id_linea'].astype(str)
+            if 'id_linea' in data_tmp.columns:
+                data_tmp['id_linea'] = normalizar_id_linea(data_tmp['id_linea'])
+                data_tmp['id_linea'] = data_tmp['id_linea'].astype(str)            
+
             data_hierarchical = data_hierarchical.merge(
                 data_tmp[["dia", "id_linea", f"hcluster_{i}"]], how="left"
             )
@@ -877,6 +905,13 @@ def correr_clusters(data):
             data_hierarchical, eval_vars[n], "hcluster"
         )
 
+        if 'id_linea' in lineas_new.columns:
+            lineas_new['id_linea'] = normalizar_id_linea(lineas_new['id_linea'])
+            lineas_new['id_linea'] = lineas_new['id_linea'].astype(str)
+        if 'id_linea' in data_hierarchical.columns:
+            data_hierarchical['id_linea'] = normalizar_id_linea(data_hierarchical['id_linea'])
+            data_hierarchical['id_linea'] = data_hierarchical['id_linea'].astype(str)  
+        
         lineas_new = lineas_new.merge(
             data_hierarchical[
                 ["dia", "id_linea", "hcluster", "hcluster_original"]
@@ -892,6 +927,14 @@ def correr_clusters(data):
         if len(clusters_result) == 0:
             clusters_result = lineas_new.copy()
         else:
+
+            if 'id_linea' in lineas_new.columns:
+                lineas_new['id_linea'] = normalizar_id_linea(lineas_new['id_linea'])
+                lineas_new['id_linea'] = lineas_new['id_linea'].astype(str)
+            if 'id_linea' in clusters_result.columns:
+                clusters_result['id_linea'] = normalizar_id_linea(clusters_result['id_linea'])
+                clusters_result['id_linea'] = clusters_result['id_linea'].astype(str)  
+            
             clusters_result = clusters_result.merge(
                 lineas_new[
                     [
@@ -924,6 +967,13 @@ def correr_clusters(data):
 
     os.makedirs(filepath, exist_ok=True)
 
+    if 'id_linea' in data.columns:
+        data['id_linea'] = normalizar_id_linea(data['id_linea'])
+        data['id_linea'] = data['id_linea'].astype(str)
+    if 'id_linea' in clusters_result.columns:
+        clusters_result['id_linea'] = normalizar_id_linea(clusters_result['id_linea'])
+        clusters_result['id_linea'] = clusters_result['id_linea'].astype(str)  
+    
     data = data.merge(clusters_result, how="left")
     data.to_csv(filepath / "clusters_lineas.csv", index=False)
     return data

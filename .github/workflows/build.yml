@@ -1,45 +1,28 @@
-name: SonarQube
+name: Publish
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - develop
-  pull_request:
-    types: [opened, synchronize, reopened]
+    tags:
+      - "v*"
 
 jobs:
-  sonarqube:
-    name: SonarQube Scan
+  publish:
+    name: Publish Python distributions
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
-
-      - name: Install dependencies (best effort)
-        continue-on-error: true
+          python-version: "3.12"
+          cache: pip
+      - name: Install build tooling
         run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f pyproject.toml ]; then pip install . || true; fi
-          pip install coverage pytest || true
-
-      - name: Run tests with coverage (best effort)
-        continue-on-error: true
-        run: |
-          if [ -d tests ] || [ -d test ]; then
-            coverage run -m pytest || true
-            coverage xml -o coverage.xml || true
-          fi
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          python -m pip install --upgrade pip
+          python -m pip install build
+      - name: Build distributions
+        run: python -m build --sdist --wheel --outdir dist/ .
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,16 +1,17 @@
+import logging
 import os
 import warnings
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils.utils import (
     duracion,
-    iniciar_conexion_db,
     leer_configs_generales,
     check_date_type,
     is_date_string,
     create_line_ids_sql_filter,
     leer_alias,
 )
+from urbantrips.utils.paths import get_paths
 from urbantrips.kpi.kpi import (
     create_route_section_ids,
     add_od_lrs_to_legs_from_route,
@@ -19,10 +20,14 @@ from urbantrips.kpi.kpi import (
     check_exists_route_section_points_table,
 )
 from urbantrips.geo import geo
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
 @duracion
 def compute_lines_od_matrix(
+    ctx: StorageContext,
     line_ids=None,
     hour_range=False,
     n_sections=10,
@@ -35,24 +40,13 @@ def compute_lines_od_matrix(
 
     Parameters
     ----------
+    ctx : StorageContext
     line_ids : int, list of ints or bool
-        route id or list of route ids present in the legs dataset. Route
-        section load will be computed for that subset of lines. If False, it
-        will run with all routes.
     hour_range : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24. Route section
-        load will be computed for legs happening within tat time range.
-        If False it won't filter by hour.
     n_sections: int
-        number of sections to split the route geom
     section_meters: int
-        section lenght in meters to split the route geom. If specified,
-        this will be used instead of n_sections.
     day_type: str
-        type of day on which the section load is to be computed. It can take
-        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
     save_csv: bool
-        If a csv file should be saved in results directory
     """
 
     # check inputs
@@ -64,19 +58,17 @@ def compute_lines_od_matrix(
         if n_sections > 1000:
             raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
-    conn_data = iniciar_conexion_db(tipo="data")
-    alias_insumos = leer_configs_generales(autogenerado=False).get("alias_db", "")
-    conn_insumos = iniciar_conexion_db(tipo="insumos", alias_db=alias_insumos)
-
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type)
+    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
 
-    # read routes data
-    q_route_geoms = "select * from lines_geoms"
-    q_route_geoms = q_route_geoms + line_ids_where
-    route_geoms = pd.read_sql(q_route_geoms, conn_insumos)
-    route_geoms["geometry"] = gpd.GeoSeries.from_wkt(route_geoms.wkt)
-    route_geoms = gpd.GeoDataFrame(route_geoms, geometry="geometry", crs="EPSG:4326")
+    # read routes data from insumos
+    route_geoms_all = ctx.insumos.get_routes()
+    if line_ids is not None and line_ids is not False:
+        ids = [line_ids] if isinstance(line_ids, int) else list(line_ids)
+        route_geoms = route_geoms_all[route_geoms_all.id_linea.isin(ids)].copy()
+    else:
+        route_geoms = route_geoms_all.copy()
+
     # Set which parameter to use to slit route geoms
     if section_meters:
         epsg_m = geo.get_epsg_m()
@@ -96,21 +88,21 @@ def compute_lines_od_matrix(
     route_geoms["n_sections"] = n_sections
 
     # check which section geoms are already crated
-    new_route_geoms = check_exists_route_section_points_table(route_geoms)
+    new_route_geoms = check_exists_route_section_points_table(route_geoms, ctx)
 
     # create the line and n sections pair missing and upload it to the db
     if len(new_route_geoms) > 0:
 
-        upload_route_section_points_table(new_route_geoms, delete_old_data=False)
+        upload_route_section_points_table(new_route_geoms, ctx, delete_old_data=False)
 
     # delete old data
     yr_mos = legs.yr_mo.unique()
 
     delete_old_lines_od_matrix_by_section_data(
-        route_geoms, hour_range, day_type, yr_mos
+        route_geoms, hour_range, day_type, yr_mos, ctx
     )
 
-    print("Calculando matriz od de lineas ...")
+    logger.info("Calculando matriz od de lineas ...")
 
     if (len(route_geoms) > 0) and (len(legs) > 0):
 
@@ -139,35 +131,35 @@ def compute_lines_od_matrix(
             ]
         )
 
-        print("Uploading data to db...")
-        line_od_matrix.to_sql(
-            "lines_od_matrix_by_section",
-            conn_data,
-            if_exists="append",
-            index=False,
-        )
+        logger.debug("Uploading data to db...")
+        ctx.data.append_raw(line_od_matrix, "lines_od_matrix_by_section")
 
         return line_od_matrix
 
     else:
-        print("No existen recorridos o etapas para las líneas")
-        print("Cantidad de lineas:", len(line_ids))
-        print("Cantidad de recorridos", len(route_geoms))
-        print("Cantidad de etapas", len(legs))
+        logger.info(
+            "No existen recorridos o etapas para las líneas | lineas=%d recorridos=%d etapas=%d",
+            len(line_ids), len(route_geoms), len(legs),
+        )
 
 
 def delete_old_lines_od_matrix_by_section_data(
-    route_geoms, hour_range, day_type, yr_mos, db_type="data"
+    route_geoms, hour_range, day_type, yr_mos, ctx: StorageContext, db: str = "data"
 ):
     """
-    Deletes old data in table lines_od_matrix_by_section
+    Deletes old data in table lines_od_matrix_by_section.
+
+    db : str
+        Which storage port to delete from: "data" (pipeline output) or "dash"
+        (the copy the dashboard reads). The viz functions populate the dash
+        copy and pass db="dash".
+
+    Note: as in urbantrips_viejo, the table name depends on the db — the data
+    db holds "lines_od_matrix_by_section" while the dash copy is "matrices_linea".
     """
-    if db_type == "data":
-        conn = iniciar_conexion_db(tipo="data")
-        table_name = "lines_od_matrix_by_section"
-    else:
-        conn = iniciar_conexion_db(tipo="dash")
-        table_name = "matrices_linea"
+    table_name = "lines_od_matrix_by_section" if db == "data" else "matrices_linea"
+    adapter = getattr(ctx, db)
+
     # hour range filter
     if hour_range:
         hora_min_filter = f"= {hour_range[0]}"
@@ -180,64 +172,43 @@ def delete_old_lines_od_matrix_by_section_data(
     delete_df = route_geoms.reindex(columns=["id_linea", "n_sections"])
     for yr_mo in yr_mos:
         for _, row in delete_df.iterrows():
-            # Delete old data for those parameters
-            print("Borrando datos antiguos de Matriz OD para linea")
-            print(row.id_linea)
-            print(f"{row.n_sections} secciones")
-            print(yr_mo)
-            if hour_range:
-                print(f"y horas desde {hour_range[0]} a {hour_range[1]}")
+            logger.debug(
+                "Borrando datos antiguos de Matriz OD | linea=%s secciones=%s yr_mo=%s%s",
+                row.id_linea, row.n_sections, yr_mo,
+                f" horas {hour_range[0]}-{hour_range[1]}" if hour_range else "",
+            )
 
             q_delete = f"""
-                delete from {table_name}
-                where id_linea = {row.id_linea} 
-                and hour_min {hora_min_filter}
-                and hour_max {hora_max_filter}
-                and day_type = '{day_type}'
-                and n_sections = {row.n_sections}
-                and yr_mo = '{yr_mo}';
+                DELETE FROM {table_name}
+                WHERE id_linea = {row.id_linea}
+                AND hour_min {hora_min_filter}
+                AND hour_max {hora_max_filter}
+                AND day_type = '{day_type}'
+                AND n_sections = {row.n_sections}
+                AND yr_mo = '{yr_mo}'
                 """
 
-            cur = conn.cursor()
-            cur.execute(q_delete)
-            conn.commit()
+            # The table only exists once compute_lines_od_matrix has appended
+            # rows; on the first run there is nothing to delete. Tolerate the
+            # missing table (same pattern as kpi_lineas / levanto_tabla_sql).
+            try:
+                adapter.execute(q_delete)
+            except Exception as exc:
+                if "does not exist" not in str(exc):
+                    raise
 
-    conn.close()
-    print("Fin borrado datos previos")
+    logger.debug("Fin borrado datos previos")
 
 
 def compute_line_od_matrix(df, route_geoms, hour_range, day_type, save_csv=False):
     """
     Computes leg od matrix for a line or set of lines using route sections
-
-    Parameters
-    ----------
-    df : pandas DataFrame
-        A legs DataFrame with OD data
-    route_geoms: geopandas GeoDataFrame
-        A routes GeoDataFrame with routes and number of sections to slice it
-    hour_range : tuple or bool
-        tuple holding hourly range (from,to) and from 0 to 24. Route section
-        load will be computed for legs happening within tat time range.
-        If False it won't filter by hour.
-    day_type: str
-        type of day on which the section load is to be computed. It can take
-        `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
-    save_csv: bool
-        If a csv file should be saved in results directory
-
-    Returns
-    ----------
-    pandas DataFrame
-        A OD matrix with OD by route section id, number of legs for that
-        pair and percentaje of legs for that hour range
-
     """
 
     line_id = df.id_linea.unique()[0]
     mes = df.yr_mo.unique()[0]
 
-    print(f"Calculando matriz od linea id {line_id}")
+    logger.debug("Calculando matriz od linea id %s", line_id)
 
     if (route_geoms.id_linea == line_id).any():
 
@@ -331,10 +302,10 @@ def compute_line_od_matrix(df, route_geoms, hour_range, day_type, save_csv=False
 
             archivo = f"{alias}({mes}_{day_str})_matriz_od_id_linea_"
             archivo = archivo + f"{line_id}_{hr_str}.csv"
-            path = os.path.join("resultados", "matrices", archivo)
+            path = str(get_paths().output_dir / "matrices" / archivo)
             totals_by_typeday_section_id.to_csv(path, index=False)
     else:
-        print("No existe recorrido para id_linea:", line_id)
+        logger.warning("No existe recorrido para id_linea: %s", line_id)
         totals_by_typeday_section_id = None
 
     return totals_by_typeday_section_id

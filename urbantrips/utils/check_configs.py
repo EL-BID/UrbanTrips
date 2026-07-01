@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import os
 import yaml
@@ -13,6 +14,20 @@ from urbantrips.utils.utils import (
 
 from pathlib import Path
 import shutil
+
+logger = logging.getLogger(__name__)
+
+
+def _resolve_input_path(ruta: str) -> str:
+    from urbantrips.utils.io import resolve_zip
+    return resolve_zip(ruta)
+
+
+def _read_csv_input(ruta: str, **kwargs) -> "pd.DataFrame":
+    from urbantrips.utils.io import open_csv
+    with open_csv(ruta) as f:
+        return pd.read_csv(f, **kwargs)
+
 
 def check_config_fecha(df, columns_with_date, date_format):
     """
@@ -49,7 +64,7 @@ def check_if_list(string):
 
 def replace_tabs_with_spaces(file_path, num_spaces=4):
     # Open the file in read mode
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
     # Check if the file contains tabs
@@ -57,7 +72,7 @@ def replace_tabs_with_spaces(file_path, num_spaces=4):
         # Replace tabs with spaces
         content = content.replace("\t", " " * num_spaces)
         # Save the modified content to the same file
-        with open(file_path, "w") as file:
+        with open(file_path, "w", encoding="utf-8") as file:
             file.write(content)
 
 
@@ -67,6 +82,10 @@ def check_config_fecha(df, columns_with_date, date_format):
     un formato de fecha, intenta parsear las fechas y arroja un error
     si mas del 80% de las fechas no pueden parsearse
     """
+    assert columns_with_date in df.columns, (
+        f"Columna requerida '{columns_with_date}' no encontrada en el archivo. "
+        f"Columnas disponibles: {list(df.columns)}"
+    )
     fechas = pd.to_datetime(df[columns_with_date], format=date_format, errors="coerce")
 
     # Chequear si el formato funciona
@@ -238,14 +257,43 @@ def revise_configs(configs):
             False
         )
 
+    passthrough_rows = []
+    for variable in ["n_batches", "parallel_workers"]:
+        if variable in configs and variable not in config_default.variable.values:
+            passthrough_rows.append(
+                {
+                    "orden": "",
+                    "item": "trxs",
+                    "variable": variable,
+                    "subvar": "",
+                    "subvar_param": "",
+                    "default": configs[variable],
+                    "obligatorio": "",
+                    "descripcion_campo": "",
+                    "descripcion_general": "",
+                    "comments": "",
+                }
+            )
+    if passthrough_rows:
+        config_default = pd.concat(
+            [config_default, pd.DataFrame(passthrough_rows)],
+            ignore_index=True,
+        )
+
     return config_default
 
 
-def write_config(config_default):
-    path = os.path.join("configs", "configuraciones_generales_autogenerado.yaml")
+def write_config(config_default, autogenerado=True):
+    filename = (
+        "configuraciones_generales_autogenerado.yaml"
+        if autogenerado
+        else "configuraciones_generales.yaml"
+    )
 
-    with open(path, "w") as file:
+    from urbantrips.utils.paths import get_paths
+    path = str(get_paths().configs_dir / filename)
 
+    with open(path, "w", encoding="utf-8") as file:
         file.write("# Archivo de configuración para urbantrips\n\n")
 
         for i in config_default.item.unique():
@@ -262,34 +310,32 @@ def write_config(config_default):
                     if len(x.subvar) > 0:
                         if _ == 0:
                             file.write(f"{x.variable}: \n")
+
                         if type(x.default) != list:
-
                             if x.default != "":
-
                                 if (type(x.default) == str) & ~(
                                     (x.default == "True") | (x.default == "False")
                                 ):
-                                    # subvars
                                     file.write(
                                         f'    {x.subvar}: "{x.default}"'.ljust(67)
                                     )
-
                                 else:
-                                    # subvars
-                                    file.write(f"    {x.subvar}: {x.default}".ljust(67))
-
+                                    file.write(
+                                        f"    {x.subvar}: {x.default}".ljust(67)
+                                    )
                             else:
-                                # subvars
                                 file.write(f"    {x.subvar}: ".ljust(67))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}")
 
                         else:
-
                             file.write(f"    {x.subvar}: ".ljust(15))
                             file.write("[".ljust(52))
+
                             if len(x.descripcion_campo) > 0:
                                 file.write(f"# {x.descripcion_campo}".ljust(15))
+
                             file.write("\n")
 
                             for z in x.default:
@@ -301,18 +347,15 @@ def write_config(config_default):
                         file.write("\n")
 
                     else:
-
                         if x.default != "":
                             if (type(x.default) == str) & ~(
                                 (x.default == "True") | (x.default == "False")
                             ):
-                                # subvars
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
                             else:
-                                # subvars
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
                         else:
-                            file.write(f"{x.variable}:".ljust(67))  # subvars
+                            file.write(f"{x.variable}:".ljust(67))
 
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
@@ -326,10 +369,8 @@ def write_config(config_default):
                                 (x.default == "True") | (x.default == "False")
                             ):
                                 file.write(f'{x.variable}: "{x.default}"'.ljust(67))
-
                             else:
                                 file.write(f"{x.variable}: {x.default}".ljust(67))
-
                         else:
                             file.write(f"{x.variable}: ".ljust(67))
 
@@ -337,11 +378,12 @@ def write_config(config_default):
                             file.write(f"# {x.descripcion_campo}")
 
                     else:
-
                         file.write(f"    {x.variable}: ".ljust(15))
                         file.write("[".ljust(48))
+
                         if len(x.descripcion_campo) > 0:
                             file.write(f"# {x.descripcion_campo}".ljust(15))
+
                         file.write("\n")
 
                         for z in x.default:
@@ -398,19 +440,18 @@ def check_lineas(config_default, alias_default):
             "default",
         ] = "autobus"
 
-    path_archivo_lineas = os.path.join(
-        "data", "data_ciudad", nombre_archivo_informacion_lineas
-    )
+    from urbantrips.utils.paths import get_paths
+    path_archivo_lineas = str(get_paths().input_dir / nombre_archivo_informacion_lineas)
     if not os.path.isfile(path_archivo_lineas):
 
-        print("Creo archivo con información de líneas")
+        logger.info("Creo archivo con información de líneas")
         corrida = configs_usuario.get("corridas", [])[0]
         nombre_archivo_trx = f"{corrida}_trx.csv"
         nombre_variables_trx = configs_usuario.get("nombres_variables_trx", None)
         modo_trx = nombre_variables_trx.get("modo_trx", None)
         id_linea_trx = nombre_variables_trx.get("id_linea_trx", None)
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        trx = pd.read_csv(ruta)
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_trx))
+        trx = _read_csv_input(ruta)
 
         cols = [id_linea_trx]
         if ramales:
@@ -476,23 +517,25 @@ def check_config_errors(config_default):
         vars_required += [[i.variable, i.subvar]]
 
     orden_trx = None
+    date_format = None
 
+    from urbantrips.utils.paths import get_paths
     errores = []
     nombre_archivo_trx = config_default.loc[
         config_default.variable == "nombre_archivo_trx"
     ].default.values[0]
     if not nombre_archivo_trx:
         errores += [
-            f'No está declarado el archivo de transacciones en {os.path.join("data", "data_ciudad")}'
+            f'No está declarado el archivo de transacciones en {str(get_paths().input_dir)}'
         ]
     else:
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_trx)
-        print(f"--Archivo de transacciones en proceso: {ruta}")
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_trx))
+        logger.info("Archivo de transacciones en proceso: %s", ruta)
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones {ruta}"]
         else:
-            trx = pd.read_csv(ruta, nrows=1000)
-
+            trx = _read_csv_input(ruta, nrows=1000)
+            
             # check date
             columns_with_date = config_default.loc[
                 (config_default.variable == "nombres_variables_trx")
@@ -502,8 +545,7 @@ def check_config_errors(config_default):
 
             date_format = config_default.loc[
                 (config_default.variable == "formato_fecha"), "default"
-            ].values[0]
-
+            ].values[0]            
             check_result = check_config_fecha(
                 df=trx, columns_with_date=columns_with_date, date_format=date_format
             )
@@ -673,7 +715,7 @@ def check_config_errors(config_default):
             errores += [
                 "El parámetro 'tolerancia_parada_destino' debe ser un entero entre 0 y 10000"
             ]
-
+        
         # ordenamiento de transacciones
         if (
             config_default[
@@ -681,9 +723,9 @@ def check_config_errors(config_default):
             ].default.values[0]
             == "fecha_completa"
         ):
-            if len(date_format) < 14:
+            if date_format is not None and len(date_format) < 14:
                 errores += [
-                    'La variable "fecha_trx" debe tener hora/minuto para ordenamiento'
+                    f'La variable "fecha_trx" debe tener hora/minuto para ordenamiento {date_format}'
                 ]
         elif (
             config_default[
@@ -720,9 +762,7 @@ def check_config_errors(config_default):
         ].default.values[0]
 
         if nombre_archivo_informacion_lineas:
-            ruta = os.path.join(
-                "data", "data_ciudad", nombre_archivo_informacion_lineas
-            )
+            ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_informacion_lineas))
             if not os.path.isfile(ruta):
                 errores += [
                     f"No existe el archivo {nombre_archivo_informacion_lineas} que contiene la información de las líneas"
@@ -740,7 +780,7 @@ def check_config_errors(config_default):
                 else:
                     cols = ["id_linea", "nombre_linea", "modo"]
 
-                info = pd.read_csv(ruta)
+                info = _read_csv_input(ruta)
 
                 if not pd.Series(cols).isin(info.columns).all():
                     errores += [
@@ -772,7 +812,7 @@ def check_config_errors(config_default):
             ]
 
     if nombre_archivo_gps:
-        ruta = os.path.join("data", "data_ciudad", nombre_archivo_gps)
+        ruta = _resolve_input_path(str(get_paths().input_dir / nombre_archivo_gps))
         if not os.path.isfile(ruta):
             errores += [f"No se encuentra el archivo de transacciones gps {ruta}"]
         cols = [
@@ -815,7 +855,7 @@ def check_config_errors(config_default):
         config_default.variable == "recorridos_geojson"
     ].default.values[0]
     if recorridos_geojson:
-        ruta = os.path.join("data", "data_ciudad", recorridos_geojson)
+        ruta = str(get_paths().input_dir / recorridos_geojson)
         if not os.path.isfile(ruta):
             errores += [
                 f"No existe el archivo {recorridos_geojson} con los recorridos de las líneas de transporte público"
@@ -825,25 +865,21 @@ def check_config_errors(config_default):
     for i in errores:
         error_txt += "ERROR: " + i + "\n"
     assert error_txt == "\n", error_txt
-    print("Se concluyó el chequeo del archivo de configuración")
 
 
 def check_configs_file():
 
     # Define the directory and file name
-    directory = "configs"
-    file_name = "configuraciones_generales_autogenerado.yaml"
-    file_path = os.path.join(directory, file_name)
-
-    # Check if the directory exists, and if not, create it
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    from urbantrips.utils.paths import get_paths
+    configs_dir = get_paths().configs_dir
+    file_path = str(configs_dir / "configuraciones_generales_autogenerado.yaml")
+    configs_dir.mkdir(parents=True, exist_ok=True)
 
     # Crea un YAML vacio
     with open(file_path, "w") as file:
         yaml.dump({}, file)
 
-        print(f"Se creo el archivo '{file_name}' en '{directory}'")
+        logger.info("Se creo el archivo '%s'", file_path)
 
 
 def add_dash_and_data_dbs(config_default, corrida):
@@ -928,7 +964,7 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
         confidence = detectado["confidence"]
 
         if encoding_detectado is None or confidence < 0.6:
-            print(f"⚠️ Codificación no confiable detectada: {detectado}")
+            logger.warning("Codificación no confiable detectada: %s", detectado)
             return
 
         # Decodificar el texto
@@ -942,10 +978,8 @@ def corregir_codificacion_a_utf8_sin_modificar_texto(path):
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(texto)
 
-        print(f"✅ Codificación corregida a UTF-8 sin modificar contenido: {path}")
-
     except Exception as e:
-        print(f"❌ Error procesando {path}: {e}")
+        logger.error("Error procesando %s: %s", path, e)
 
 
 @duracion
@@ -962,19 +996,22 @@ def check_config(corrida):
     Returns:
     None
     """
-    print("Usando corrida", corrida)
+    logger.info("Usando corrida %s", corrida)
 
-    corregir_codificacion_a_utf8_sin_modificar_texto(
-        "configs/configuraciones_generales.yaml"
-    )
+    from urbantrips.utils.paths import get_paths
+    _config_path = str(get_paths().config_file)
+    corregir_codificacion_a_utf8_sin_modificar_texto(_config_path)
 
-    replace_tabs_with_spaces(os.path.join("configs", "configuraciones_generales.yaml"))
+    replace_tabs_with_spaces(_config_path)
     # Siempre crea un autogenerado vacio {}
     check_configs_file()
 
     # leo el config autogenerado
     configs_usuario = leer_configs_generales(autogenerado=False)
-    alias_default = configs_usuario.get("alias_db", "alias")
+    configs_base = revise_configs(configs_usuario)
+    # Reescribe el config del usuario incorporando parámetros nuevos del Excel
+    write_config(configs_base, autogenerado=False)
+    alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general
     alias_insumos = {
@@ -994,14 +1031,14 @@ def check_config(corrida):
     config_default = add_dash_and_data_dbs(config_default, corrida)
 
     # Guarda el config autogenerado
-    write_config(config_default)
+    write_config(config_default, autogenerado=True)
     check_config_errors(config_default)
-    corregir_codificacion_a_utf8_sin_modificar_texto(
-        "configs/configuraciones_generales_autogenerado.yaml"
-    )
+    from urbantrips.utils.paths import get_paths as _get_paths
+    _autogen = str(_get_paths().configs_dir / "configuraciones_generales_autogenerado.yaml")
+    corregir_codificacion_a_utf8_sin_modificar_texto(_autogen)
 
     # Guarda una copia de autogenerado
-    base_path = Path() / 'configs'
+    base_path = _get_paths().configs_dir
     
     # Crear el directorio 'autogenerados' si no existe
     autogen_dir = base_path / "autogenerados"

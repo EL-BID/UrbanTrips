@@ -1,3 +1,4 @@
+import logging
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
@@ -8,16 +9,20 @@ import geopandas as gpd
 from sklearn.metrics import silhouette_score
 from shapely.geometry import LineString, Point
 from shapely import wkt
-import re
 import contextily as cx
 from matplotlib.colors import rgb2hex
 import matplotlib.pyplot as plt
+from urbantrips.utils.sql import is_date_string
+from urbantrips.utils.utils import leer_configs_tuning
+from urbantrips.utils.paths import get_paths
 import seaborn as sns
 import os
-from urbantrips.utils.utils import iniciar_conexion_db
+from urbantrips.storage.context import StorageContext
+
+logger = logging.getLogger(__name__)
 
 
-def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
+def get_legs_and_route_geoms(ctx: StorageContext, id_linea, rango_hrs, day_type):
     """
     Computes the load per route section.
 
@@ -49,8 +54,6 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
     # Basic query for legs and route geoms
     q_rec = f"select * from lines_geoms"
     q_main_etapas = f"select * from etapas"
-    conn_data = iniciar_conexion_db(tipo="data")
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
     # If line, hour and/or day type, get that subset
     if id_linea:
         if type(id_linea) == int:
@@ -78,11 +81,18 @@ def get_legs_and_route_geoms(id_linea, rango_hrs, day_type):
 		WHERE od_validado = 1;
     """
 
-    print("Obteniendo datos de etapas y rutas")
+    logger.info("Obteniendo datos de etapas y rutas")
 
     # get data for legs and route geoms
-    legs = pd.read_sql(q_etapas, conn_data)
-    route_geom = pd.read_sql(q_rec, conn_insumos)
+    legs = ctx.data.query(q_etapas)
+    route_geom_all = ctx.insumos.get_raw("lines_geoms")
+    if id_linea:
+        if type(id_linea) == int:
+            route_geom = route_geom_all[route_geom_all.id_linea.isin([id_linea])]
+        else:
+            route_geom = route_geom_all[route_geom_all.id_linea.isin(id_linea)]
+    else:
+        route_geom = route_geom_all
 
     route_geom["geometry"] = route_geom.wkt.apply(wkt.loads)
     route_geom = route_geom.loc[route_geom.id_linea == id_linea, "geometry"].item()
@@ -173,9 +183,9 @@ def cluster_legs_4d(legs, route_geom, epsg_m=9265):
     X_d1 = legs.loc[legs.sentido == "vuelta", ["o_x_m", "o_y_m", "d_x_m", "d_y_m"]]
     w_d1 = legs.loc[legs.sentido == "vuelta", "factor_expansion"]
 
-    print("Direction 0")
+    logger.debug("Direction 0")
     clustered_legs_d0 = cluster_legs(X_d0, w_d0, type_k="4d")
-    print("Direction 1")
+    logger.debug("Direction 1")
     clustered_legs_d1 = cluster_legs(X_d1, w_d1, type_k="4d")
 
     return clustered_legs_d0, clustered_legs_d1
@@ -209,47 +219,65 @@ def cluster_legs(X, w, type_k="lrs"):
 
     """
 
-    # set initial benchmarks
+    # Create a placeholder for the clustering results
+    clusters_table = pd.DataFrame([], index=X.index)
+
+    best_params = _run_grid_search(X, w, type_k=type_k)
+
+    for p in best_params:
+        eps, min_samples = best_params[p]
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
+        clusters_table[f"k_{p}"] = reassign_labels(labels=clustering.labels_, weights=w)
+    X["factor_expansion"] = w
+    X = X.join(clusters_table)
+
+    return X
+
+
+def _run_grid_search(X, w, type_k: str) -> dict:
+    """
+    Run DBSCAN grid search over eps and min_samples ranges.
+
+    Returns a dict with keys 'max_groups', 'max_silhouette', 'min_noise',
+    each mapping to the (eps, min_samples) tuple that scored best.
+    """
+    cfg = leer_configs_tuning()
+    grid_steps = cfg["dbscan"]["grid_steps"]
+    early_stop_silhouette = cfg["dbscan"]["early_stop_silhouette"]
+
     best_num_clusters = 0
     best_num_noise = float("inf")
     best_silhouette_score = -1
 
-    # placeholder for dbscan params
     max_groups_params = None
     max_silhouette_params = None
     min_noise_params = None
 
-    # Create a placeholder for the clustering results
-    clusters_table = pd.DataFrame([], index=X.index)
+    min_samples_range = [max(1, int(v)) for v in w.sum() * np.linspace(0.01, 0.5, grid_steps)]
 
-    # set ranges for min samples on from 1% to 50% total legs
-    min_samples_range = list(map(int, w.sum() * np.linspace(0.01, 0.5, 20)))
-
-    # set distance as % of route geom length
     if type_k == "lrs":
-        eps_range = np.linspace(0.01, 0.5, 20)
+        eps_range = np.linspace(0.01, 0.5, grid_steps)
     elif type_k == "4d":
-        eps_range = np.arange(100, 1000, 50)
+        eps_range = np.linspace(100, 1000, grid_steps)
     else:
-        pass
+        raise ValueError(f"Unknown type_k: {type_k!r}")
 
+    done = False
     for eps in eps_range:
+        if done:
+            break
         for min_samples in min_samples_range:
             params = (eps, min_samples)
 
             dbscan = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
-
             labels = dbscan.labels_
 
-            # Subtract 1 if there are any noise points
             num_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
-            # Get weighted noise points
-            num_noise = pd.DataFrame({"labels": labels, "w": w})
-            num_noise = num_noise.groupby("labels").sum()
-
+            num_noise_df = pd.DataFrame({"labels": labels, "w": w})
+            num_noise_df = num_noise_df.groupby("labels").sum()
             try:
-                num_noise = num_noise.loc[-1, "w"]
+                num_noise = num_noise_df.loc[-1, "w"]
             except KeyError:
                 num_noise = 0
 
@@ -263,7 +291,6 @@ def cluster_legs(X, w, type_k="lrs"):
                 best_silhouette_score = silhouette
                 max_silhouette_params = params
 
-            # Update best parameters and scores
             if num_clusters > best_num_clusters:
                 best_num_clusters = num_clusters
                 max_groups_params = params
@@ -272,37 +299,29 @@ def cluster_legs(X, w, type_k="lrs"):
                 best_num_noise = num_noise
                 min_noise_params = params
 
-    # Print results
-    print(
-        f"Max number of clusters ({best_num_clusters}) "
-        f"found with eps={max_groups_params[0]} and "
-        f"min_samples={max_groups_params[1]}"
-    )
-    print(
-        f"Min number of noise points ({best_num_noise}) found with"
-        f" eps={min_noise_params[0]} and min_samples={min_noise_params[1]}"
-    )
-    print(
-        f"Max silhouette score ({best_silhouette_score}) found with "
-        f"eps={max_silhouette_params[0]} and "
-        f"min_samples={max_silhouette_params[1]}"
+            if best_silhouette_score >= early_stop_silhouette:
+                done = True
+                break
+
+    logger.debug(
+        "Max clusters=%d eps=%s min_samples=%s | Min noise=%d eps=%s min_samples=%s | "
+        "Max silhouette=%.3f eps=%s min_samples=%s",
+        best_num_clusters,
+        max_groups_params[0] if max_groups_params else None,
+        max_groups_params[1] if max_groups_params else None,
+        best_num_noise,
+        min_noise_params[0] if min_noise_params else None,
+        min_noise_params[1] if min_noise_params else None,
+        best_silhouette_score,
+        max_silhouette_params[0] if max_silhouette_params else None,
+        max_silhouette_params[1] if max_silhouette_params else None,
     )
 
-    params = {
+    return {
         "max_groups": max_groups_params,
         "max_silhouette": max_silhouette_params,
         "min_noise": min_noise_params,
     }
-    for p in params:
-        eps, min_samples = params[p]
-        # print(eps,min_samples)
-        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(X, sample_weight=w)
-
-        clusters_table[f"k_{p}"] = reassign_labels(labels=clustering.labels_, weights=w)
-    X["factor_expansion"] = w
-    X = X.join(clusters_table)
-
-    return X
 
 
 def reassign_labels(labels, weights):
@@ -374,13 +393,6 @@ def classify_legs_into_directions(legs, route_geom):
     return legs
 
 
-def is_date_string(input_str):
-    """Checks a tring inputs for a date format"""
-    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    if pattern.match(input_str):
-        return True
-    else:
-        return False
 
 
 def plot_cluster_legs_lrs(
@@ -483,7 +495,7 @@ def plot_cluster_legs_lrs(
                 f"cluster_LRS_id_linea_{id_linea}_{hr_str}"
                 + f"_{day_type}_{direction_str}.{frm}"
             )
-            file_path = os.path.join("resultados", frm, file_name)
+            file_path = str(get_paths().output_dir / frm / file_name)
             f.savefig(file_path, dpi=300)
 
 
@@ -493,7 +505,7 @@ def create_gdf_clustered_legs_direction(legs, clustered_legs_tuple):
         columns=["o_proj", "d_proj", "k_max_groups", "k_max_silhouette", "k_min_noise"]
     )
     legs = legs.merge(clusters, on=["o_proj", "d_proj"], how="left")
-    geoms = legs.apply(lambda row: LineString([row.o, row.d]), axis=1)
+    geoms = [LineString([o, d]) for o, d in zip(legs["o"], legs["d"])]
     legs_gdf = gpd.GeoDataFrame(legs, geometry=geoms, crs="EPSG:4326")
     legs_gdf = legs_gdf.reindex(
         columns=[
@@ -654,7 +666,7 @@ def plot_cluster_legs_4d(
                 f"cluster_4D_id_linea_{id_linea}_{hr_str}"
                 + f"_{day_type}_{direction_str}.{frm}"
             )
-            file_path = os.path.join("resultados", frm, file_name)
+            file_path = str(get_paths().output_dir / frm / file_name)
             f.savefig(file_path, dpi=300)
 
 
@@ -684,18 +696,10 @@ def create_gdf_cluster_technique(clustered_legs, technique, factor, epsg_m):
     return gdf_technique
 
 
-def get_route_name(route_id):
+def get_route_name(ctx: StorageContext, route_id):
     """
     Gets the route name based on the route id
     """
-    conn_insumos = iniciar_conexion_db(tipo="insumos")
-    cur = conn_insumos.cursor()
-    q = f"""
-    SELECT nombre_linea FROM metadata_lineas
-    where id_linea = {route_id}
-    """
-    cur.execute(q)
-
-    route_name = cur.fetchall()[0][0]
-
+    metadata = ctx.insumos.get_metadata_lineas()
+    route_name = metadata.loc[metadata.id_linea == route_id, "nombre_linea"].iloc[0]
     return route_name
