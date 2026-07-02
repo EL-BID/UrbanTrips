@@ -14,6 +14,15 @@ El primer parámetro ``corridas`` establece los periodos de tiempo a procesar. L
 
 El segundo parámetro es el alias de las bases de datos con las que trabajará UrbanTips. ``alias_db`` setea el prefijo de los nombres de las diferentes bases datos. El archivo con postfijo ``_data`` guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de ``data`` diferente para cada corrida. A medida que alcance un volumen determinado se puede utilizar un nombre específico para este propósito (``ciudad_2023_semana1``, ``ciudad_2023_semana2``,etc). Por su lado, ``_insumos`` es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc). 
 
+.. code:: 
+
+   corridas: ['martes', 'miercoles']                                  # Listar los nombres de las corridas ['lunes','martes'], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv
+
+   # Alias de bases de datos
+   alias_db: "nuevo"                                     # El nombre que va a tener la base de datos sqlite de insumos y dash. 
+   alias_db_insumos: "nuevo_insumos"
+
+
 
 Parámetros de transacciones
 ---------------------------
@@ -74,7 +83,10 @@ A su vez el parámetro `resolucion_h3` establece el nivel de resolución del esq
 
 También es necesario especificar una proyección de coordenadas en metros, pasando un id de `EPSG <https://epsg.io/>`_, para ciertos procesos espaciales que trabajan con distancias. Para Argentina puede usarse por defecto `9265 (POSGAR 2007 / UTM zone 19S) <https://epsg.io/9265>`_.
 
+`n_batches` particiona las tablas a la hora de procesar para cada usuario las transacciones, etapas y viajes.
+
 Por último el ``formato_fecha`` especifica el formato en el que se encuentra el campo ``fecha_trx`` (por ej. ``"%d/%m/%Y"``, ``"%d/%m/%Y %H:%M:%S"``) y las fechas en el archivo de posicionamiento GPS (si se utiliza). Todas las fechas a utilizar deben estar en el mismo formato. Por su parte ``columna_hora``: Indica con ``True`` o ``False`` si la información sobre la hora está en una columna separada (``hora_trx``). Este debe ser un entero de 0 a 23.
+
 
  .. code:: 
     
@@ -87,6 +99,7 @@ Por último el ``formato_fecha`` especifica el formato en el que se encuentra el
 
     formato_fecha: "%d/%m/%Y"                                          # Configuración fecha y hora
     columna_hora: True                                                 
+    n_batches: 10                                                       
 
 
 
@@ -146,7 +159,7 @@ Por úlitmo, se puede especificar un archivo con la localización de las paradas
 
 
 Parámetros de modos, recorridos, zonificaciones y polígonos de interés												 zonificaciones y polígonos de interés
----------------------------------------------------
+----------------------------------------------------------------------
 
 Se pueden suministrar diferentes archivos con unidades espaciales o zonas de análisis de tránsito para las que se quiere agregar datos. Para cada archivo debe indicarse el nombre del archivo geojson a consumir, el nombre del atributo que contiene la información y, de ser necesario, un orden en el que se quiera producir las matrices OD que genera UrbanTrips. 
 
