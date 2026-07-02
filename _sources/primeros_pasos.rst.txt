@@ -59,23 +59,6 @@ Esta es la estructura de directorios de UrbanTrips. ``configs/`` guarda el archi
    │       │   lineas_amba.csv
    │       │   hexs_amba.geojson
    │       │   ...
-   └─── resultados 
-   │   └─── data
-   │       │   amba_2023_semana1_etapas.csv
-   │       │   amba_2023_semana1_viajes.csv
-   │       │   amba_2023_semana1_usuarios.csv
-   │       │   amba_2023_semana2_etapas.csv
-   │       │   amba_2023_semana2_viajes.csv
-   │       │   amba_2023_semana2_usuarios.csv
-   │   └─── html
-   │       │   ...
-   │   └─── matrices
-   │       │   ...
-   │   └─── pdf
-   │       │   ...
-   │   └─── png
-   │       │   ...
-   │   └─── tablas
 
 
 
@@ -84,15 +67,106 @@ Correr Urbantrips
 
 Una vez que se dispone del archivo de transacciones y el de información de las líneas (junto con los opcionales como gps, recorridos, etc), es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede utilizar el archivo de configuración que viene por defecto y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.
 
-.. code:: sh
+El proceso de UrbanTrips se ejecuta en 4 pasos secuenciales:
 
+1. **ingest**: Carga y procesa los datos de entrada (transacciones, GPS, líneas, etc.)
+2. **legs**: Construye los viajes individuales a partir de las transacciones
+3. **outputs**: Genera matrices OD y KPIs
+4. **dashboard**: Prepara los datos para visualización interactiva
+
+Ejemplos de uso desde consola (Windows o Linux), siempre con el ambiente activado:
+
+**Ejecutar el proceso completo**
+
+Corre todos los pasos desde ingest hasta dashboard:
+
+.. code:: sh
+   
    $ python urbantrips/run_all_urbantrips.py
+
+**Ejecutar con borrado previo**
+
+Borra todos los datos de corridas anteriores y ejecuta el proceso completo desde cero:
+    
+.. code:: sh
+   
+   $ python urbantrips/run_all_urbantrips.py --borrar_corrida all
+
+**Ejecutar sin dashboard**
+
+Corre ingest → legs → outputs, pero omite la creación del dashboard:
+
+.. code:: sh
+   
+   $ python urbantrips/run_all_urbantrips.py --no_dashboard
+
+**Ejecutar hasta un paso específico**
+
+Usa ``--through`` para ejecutar desde ingest hasta el paso indicado (inclusive):
+
+.. code:: sh
+   
+   # Corre solo ingest + legs
+   $ python urbantrips/run_all_urbantrips.py --through legs
+   
+   # Corre ingest + legs + outputs (sin dashboard)
+   $ python urbantrips/run_all_urbantrips.py --through outputs
+
+**Ejecutar solo un paso**
+
+Usa ``--step`` para ejecutar únicamente un paso específico. El sistema validará que los pasos previos ya hayan sido ejecutados:
+
+.. code:: sh
+   
+   # Corre solo el paso de ingest
+   $ python urbantrips/run_all_urbantrips.py --step ingest
+   
+   # Corre solo el paso de legs (requiere que ingest ya se haya ejecutado)
+   $ python urbantrips/run_all_urbantrips.py --step legs
+   
+   # Corre solo el paso de outputs (requiere que legs ya se haya ejecutado)
+   $ python urbantrips/run_all_urbantrips.py --step outputs
+   
+   # Corre solo el dashboard (requiere que outputs ya se haya ejecutado)
+   $ python urbantrips/run_all_urbantrips.py --step dashboard
+
+**Usar un archivo de configuración alternativo**
+
+Especifica un archivo de configuración diferente al predeterminado:
+
+.. code:: sh
+   
+   $ python urbantrips/run_all_urbantrips.py \
+       --config configs/otra_ciudad.yaml
+
+**Especificar el directorio base del proyecto**
+
+Útil cuando el proyecto no está en el directorio actual:
+
+.. code:: sh
+   
+   $ python urbantrips/run_all_urbantrips.py \
+       --base-dir /ruta/a/mi/proyecto
+
+**Combinación de opciones**
+
+Puedes combinar varios parámetros. Por ejemplo, usar una configuración alternativa y ejecutar hasta un paso específico:
+
+.. code:: sh
+   
+   $ python urbantrips/run_all_urbantrips.py \
+       --config configs/configuraciones_generales.yaml \
+       --through outputs \
+       --base-dir /home/usuario/urbantrips
+
+.. note::
+   No se puede usar ``--step`` junto con ``--borrar_corrida``, ya que no tiene sentido borrar datos y ejecutar solo un paso intermedio en aislamiento.
 
 
 Resultados finales
 ------------------
 
-Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos ``SQLite`` en ``data/db/``. Los principales resultados pueden accederse mediante el  dashboard interactivo. 
+Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos ``duckdb`` en ``data/db/``. Los principales resultados pueden accederse mediante el  dashboard interactivo. 
 
 .. code:: sh
 

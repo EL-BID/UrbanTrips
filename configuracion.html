@@ -8,14 +8,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Seteo del archivo de configuración &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
       <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
@@ -96,6 +96,13 @@
 <p>En este primer grupo encontramos parámetros generales que utliza UrbanTrips en diferentes momentos.</p>
 <p>El primer parámetro <code class="docutils literal notranslate"><span class="pre">corridas</span></code> establece los periodos de tiempo a procesar. Los nombres de los archivos de transacciones y gps deben coincidir con estos nombres de corridas. También las bases de datos tomarán estos nombres.</p>
 <p>El segundo parámetro es el alias de las bases de datos con las que trabajará UrbanTips. <code class="docutils literal notranslate"><span class="pre">alias_db</span></code> setea el prefijo de los nombres de las diferentes bases datos. El archivo con postfijo <code class="docutils literal notranslate"><span class="pre">_data</span></code> guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de <code class="docutils literal notranslate"><span class="pre">data</span></code> diferente para cada corrida. A medida que alcance un volumen determinado se puede utilizar un nombre específico para este propósito (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">_insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">corridas</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;martes&#39;</span><span class="p">,</span> <span class="s1">&#39;miercoles&#39;</span><span class="p">]</span>                                  <span class="c1"># Listar los nombres de las corridas [&#39;lunes&#39;,&#39;martes&#39;], deben coincidir con los archivos trx y gps,por ej lunes_trx.csv, lunes_gps.csv, martes_trx.csv, martes_gps.csv</span>
+
+<span class="c1"># Alias de bases de datos</span>
+<span class="n">alias_db</span><span class="p">:</span> <span class="s2">&quot;nuevo&quot;</span>                                     <span class="c1"># El nombre que va a tener la base de datos sqlite de insumos y dash.</span>
+<span class="n">alias_db_insumos</span><span class="p">:</span> <span class="s2">&quot;nuevo_insumos&quot;</span>
+</pre></div>
+</div>
 </section>
 <section id="parametros-de-transacciones">
 <h2>Parámetros de transacciones<a class="headerlink" href="#parametros-de-transacciones" title="Link to this heading"></a></h2>
@@ -146,6 +153,7 @@
 <p>Por otro lado, Urbantrips puede imputar el destino de la transacción <cite>t</cite> en la misma ubicación que <cite>t + 1</cite> (haya allí una parada de la Línea 1 o no) o puede escoger la parada de la Línea 1 más cercana a la localización de <cite>t + 1</cite>. El parametro  <code class="docutils literal notranslate"><span class="pre">imputar_destinos_min_distancia</span></code> establece si se imputará la localización de la siguiente transacción como destino o la localización de la parada de la linea utilizada en esa etapa que minimice la distancia con respecto a la siguiente transacción.</p>
 <p>A su vez el parámetro <cite>resolucion_h3</cite> establece el nivel de resolución del esquema e grillas hexagonales <a class="reference external" href="https://h3geo.org/">H3</a>      con el que se va a trabajar. UrbanTrips realizar la mayoría de operaciones espaciales utilizando este esquema. Mientras mayor sea la resolución, más granulares serán las celdas haxagonales que UrbanTrips utilice, más preciso el resultado pero más costoso computacionalmente. La resolucion 8 tiene hexágonos de 460 metros de lado. En la resolucion 9 tienen 174 metros y en la 10 tienen 65 metros.</p>
 <p>También es necesario especificar una proyección de coordenadas en metros, pasando un id de <a class="reference external" href="https://epsg.io/">EPSG</a>, para ciertos procesos espaciales que trabajan con distancias. Para Argentina puede usarse por defecto <a class="reference external" href="https://epsg.io/9265">9265 (POSGAR 2007 / UTM zone 19S)</a>.</p>
+<p><cite>n_batches</cite> particiona las tablas a la hora de procesar para cada usuario las transacciones, etapas y viajes.</p>
 <p>Por último el <code class="docutils literal notranslate"><span class="pre">formato_fecha</span></code> especifica el formato en el que se encuentra el campo <code class="docutils literal notranslate"><span class="pre">fecha_trx</span></code> (por ej. <code class="docutils literal notranslate"><span class="pre">&quot;%d/%m/%Y&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;%d/%m/%Y</span> <span class="pre">%H:%M:%S&quot;</span></code>) y las fechas en el archivo de posicionamiento GPS (si se utiliza). Todas las fechas a utilizar deben estar en el mismo formato. Por su parte <code class="docutils literal notranslate"><span class="pre">columna_hora</span></code>: Indica con <code class="docutils literal notranslate"><span class="pre">True</span></code> o <code class="docutils literal notranslate"><span class="pre">False</span></code> si la información sobre la hora está en una columna separada (<code class="docutils literal notranslate"><span class="pre">hora_trx</span></code>). Este debe ser un entero de 0 a 23.</p>
 <blockquote>
 <div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tolerancia_parada_destino</span><span class="p">:</span> <span class="mi">2200</span>                                    <span class="c1"># Distancia para la validación de los destinos (metros)</span>
@@ -157,6 +165,7 @@
 
 <span class="n">formato_fecha</span><span class="p">:</span> <span class="s2">&quot;</span><span class="si">%d</span><span class="s2">/%m/%Y&quot;</span>                                          <span class="c1"># Configuración fecha y hora</span>
 <span class="n">columna_hora</span><span class="p">:</span> <span class="kc">True</span>
+<span class="n">n_batches</span><span class="p">:</span> <span class="mi">10</span>
 </pre></div>
 </div>
 </div></blockquote>

@@ -161,10 +161,24 @@ Tabla con el posicionamiento de cada interno con información de linea y ramal. 
      - **Obligatorio**. Longitud.
    * - *servicios_gps*
      - int | str
-     - **Obligatorio si se quiere procesar serviciobs**. Columna que contiene la apertura y cierre de un servicio.
+     - **Obligatorio si se quiere procesar servicios**. Columna que contiene la apertura y cierre de un servicio.
    * - *velocity_gps*
      - float
      - **Opcional**. Velocidad del vehíuclo en km/h.
+   * - *distance_servicio_mts_gps*
+     - float
+     - **Opcional**. Distancia gps en metros.
+   * - *distance_servicio_mts_agg_gps*
+     - float
+     - **Opcional**. Distancia gps agregada en metros.
+   * - *id_servicio_gps*
+     - int
+     - **Opcional**. Id del servicio.
+   * - *dominio_gps*
+     - str
+     - **Opcional**. Dominio o Mounting kit del vehículo.
+
+
 
 Paradas
 -------

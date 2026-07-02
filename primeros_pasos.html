@@ -8,14 +8,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Primeros pasos &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
       <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
@@ -130,50 +130,87 @@
 │       │   lineas_amba.csv
 │       │   hexs_amba.geojson
 │       │   ...
-└─── resultados
-│   └─── data
-│       │   amba_2023_semana1_etapas.csv
-│       │   amba_2023_semana1_viajes.csv
-│       │   amba_2023_semana1_usuarios.csv
-│       │   amba_2023_semana2_etapas.csv
-│       │   amba_2023_semana2_viajes.csv
-│       │   amba_2023_semana2_usuarios.csv
-│   └─── html
-│       │   ...
-│   └─── matrices
-│       │   ...
-│   └─── pdf
-│       │   ...
-│   └─── png
-│       │   ...
-│   └─── tablas
 </pre></div>
 </div>
 </section>
 <section id="correr-urbantrips">
 <h2>Correr Urbantrips<a class="headerlink" href="#correr-urbantrips" title="Link to this heading"></a></h2>
 <p>Una vez que se dispone del archivo de transacciones y el de información de las líneas (junto con los opcionales como gps, recorridos, etc), es posible comenzar a utilizar UrbanTrips. Para una corrida del conjunto del proceso puede utilizar el archivo de configuración que viene por defecto y tendrá una corrida para una muestra del 1% de los datos de área urbana de Buenos Aires para 2019.</p>
+<p>El proceso de UrbanTrips se ejecuta en 4 pasos secuenciales:</p>
+<ol class="arabic simple">
+<li><p><strong>ingest</strong>: Carga y procesa los datos de entrada (transacciones, GPS, líneas, etc.)</p></li>
+<li><p><strong>legs</strong>: Construye los viajes individuales a partir de las transacciones</p></li>
+<li><p><strong>outputs</strong>: Genera matrices OD y KPIs</p></li>
+<li><p><strong>dashboard</strong>: Prepara los datos para visualización interactiva</p></li>
+</ol>
 <p>Ejemplos de uso desde consola (Windows o Linux), siempre con el ambiente activado:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Corre solo corridas las pendientes y crea el dashboard</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py
-
-<span class="c1"># Borra todo y vuelve a correr desde cero, creando dashboard</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>all
-
-<span class="c1"># Borra y vuelve a correr el alias &#39;alias1&#39; y lo que falte, creando dashboard</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>alias1
-
-<span class="c1"># Corre pendientes sin crear el dashboard</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--no_dashboard
-
-<span class="c1"># Borra &#39;alias1&#39;, corre lo que falte, y no crea dashboard</span>
-$<span class="w"> </span>python<span class="w"> </span>urbantrips<span class="se">\r</span>un_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>alias1<span class="w"> </span>--no_dashboard
+<p><strong>Ejecutar el proceso completo</strong></p>
+<p>Corre todos los pasos desde ingest hasta dashboard:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py
 </pre></div>
+</div>
+<p><strong>Ejecutar con borrado previo</strong></p>
+<p>Borra todos los datos de corridas anteriores y ejecuta el proceso completo desde cero:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--borrar_corrida<span class="w"> </span>all
+</pre></div>
+</div>
+<p><strong>Ejecutar sin dashboard</strong></p>
+<p>Corre ingest → legs → outputs, pero omite la creación del dashboard:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--no_dashboard
+</pre></div>
+</div>
+<p><strong>Ejecutar hasta un paso específico</strong></p>
+<p>Usa <code class="docutils literal notranslate"><span class="pre">--through</span></code> para ejecutar desde ingest hasta el paso indicado (inclusive):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Corre solo ingest + legs</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--through<span class="w"> </span>legs
+
+<span class="c1"># Corre ingest + legs + outputs (sin dashboard)</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--through<span class="w"> </span>outputs
+</pre></div>
+</div>
+<p><strong>Ejecutar solo un paso</strong></p>
+<p>Usa <code class="docutils literal notranslate"><span class="pre">--step</span></code> para ejecutar únicamente un paso específico. El sistema validará que los pasos previos ya hayan sido ejecutados:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Corre solo el paso de ingest</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--step<span class="w"> </span>ingest
+
+<span class="c1"># Corre solo el paso de legs (requiere que ingest ya se haya ejecutado)</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--step<span class="w"> </span>legs
+
+<span class="c1"># Corre solo el paso de outputs (requiere que legs ya se haya ejecutado)</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--step<span class="w"> </span>outputs
+
+<span class="c1"># Corre solo el dashboard (requiere que outputs ya se haya ejecutado)</span>
+$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span>--step<span class="w"> </span>dashboard
+</pre></div>
+</div>
+<p><strong>Usar un archivo de configuración alternativo</strong></p>
+<p>Especifica un archivo de configuración diferente al predeterminado:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--config<span class="w"> </span>configs/otra_ciudad.yaml
+</pre></div>
+</div>
+<p><strong>Especificar el directorio base del proyecto</strong></p>
+<p>Útil cuando el proyecto no está en el directorio actual:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--base-dir<span class="w"> </span>/ruta/a/mi/proyecto
+</pre></div>
+</div>
+<p><strong>Combinación de opciones</strong></p>
+<p>Puedes combinar varios parámetros. Por ejemplo, usar una configuración alternativa y ejecutar hasta un paso específico:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>python<span class="w"> </span>urbantrips/run_all_urbantrips.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--config<span class="w"> </span>configs/configuraciones_generales.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--through<span class="w"> </span>outputs<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--base-dir<span class="w"> </span>/home/usuario/urbantrips
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Nota</p>
+<p>No se puede usar <code class="docutils literal notranslate"><span class="pre">--step</span></code> junto con <code class="docutils literal notranslate"><span class="pre">--borrar_corrida</span></code>, ya que no tiene sentido borrar datos y ejecutar solo un paso intermedio en aislamiento.</p>
 </div>
 </section>
 <section id="resultados-finales">
 <h2>Resultados finales<a class="headerlink" href="#resultados-finales" title="Link to this heading"></a></h2>
-<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">SQLite</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Los principales resultados pueden accederse mediante el  dashboard interactivo.</p>
+<p>Una vez procesados los datos, los resultados de urbantrips se guardarán en una base de datos <code class="docutils literal notranslate"><span class="pre">duckdb</span></code> en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Los principales resultados pueden accederse mediante el  dashboard interactivo.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>streamlit<span class="w"> </span>run<span class="w"> </span>urbantrips/dashboard/dashboard.py
 </pre></div>
 </div>

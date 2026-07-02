@@ -8,14 +8,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Instalación &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
       <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
@@ -81,13 +81,12 @@
              
   <section id="instalacion">
 <h1>Instalación<a class="headerlink" href="#instalacion" title="Link to this heading"></a></h1>
-<p>Para poder instalar la librería se aconseja crear un ambiente y luego instalar la librería con <cite>pip</cite>. Tambien clonar el repositorio. Si desea hacerlo con <cite>virtualenv</cite> puede ejecutar los siguientes pasos:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>virtualenv<span class="w"> </span>venv<span class="w"> </span>--python<span class="o">=</span>python3.10
-$<span class="w"> </span><span class="nb">source</span><span class="w"> </span>venv/bin/activate
+<p>Para poder instalar la librería se aconseja crear un ambiente y luego instalar la librería con <cite>pip</cite>. Tambien clonar el repositorio. Si desea hacerlo con <cite>uv</cite> puede ejecutar los siguientes pasos:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>uv<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span>--python<span class="o">=</span><span class="m">3</span>.12
+$<span class="w"> </span><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
 $<span class="w"> </span>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>main<span class="w"> </span>https://github.com/EL-BID/UrbanTrips.git
 $<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>UrbanTrips
-$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip<span class="w"> </span>setuptools<span class="w"> </span>wheel
-<span class="o">(</span>venv<span class="o">)</span><span class="w"> </span>$<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+<span class="o">(</span>.venv<span class="o">)</span><span class="w"> </span>$<span class="w"> </span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </pre></div>
 </div>
 <p>Si desea hacerlo con <cite>conda</cite> entonces:</p>

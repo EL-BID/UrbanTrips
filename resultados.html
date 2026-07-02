@@ -8,14 +8,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Resultados finales &mdash; documentación de urbantrips - 0.2.2</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
 
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="_static/documentation_options.js?v=bb9e0ef3"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
       <script src="_static/translations.js?v=f85f4cfb"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Índice" href="genindex.html" />
@@ -53,6 +53,7 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Resultados finales</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-data">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-insumos">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modelo-de-datos-de-base-dashboard">Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">dashboard</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="kpi.html">KPI</a></li>
@@ -85,13 +86,16 @@
              
   <section id="resultados-finales">
 <h1>Resultados finales<a class="headerlink" href="#resultados-finales" title="Link to this heading"></a></h1>
-<p>Los resultados se guardarán en bases de <code class="docutils literal notranslate"><span class="pre">SQLite</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen dos tipos de bases fundamentales <code class="docutils literal notranslate"><span class="pre">data</span></code> e <code class="docutils literal notranslate"><span class="pre">insumos</span></code>. <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a transacciónes, etapas, viajes, usuarios y toda información que se actualiza con cada corrida de Urbantrips que procesa una nueva tanda de datos. Utilizando los alias del archivo de configuracion, pueden crearse diferentes bases de tipo data, una para cada periodo agregado de tiempo. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>,etc). Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
+<p>Los resultados se guardarán en bases de datos <code class="docutils literal notranslate"><span class="pre">DuckDB</span></code>, donde cada base con sus tablas es un archivo en el disco. Los nombres de estos archivos están dados por el archivo de configuración (ver <a class="reference internal" href="configuracion.html"><span class="doc">Seteo del archivo de configuración</span></a>) y se ubican en <code class="docutils literal notranslate"><span class="pre">data/db/</span></code>. Existen tres tipos de bases fundamentales: <code class="docutils literal notranslate"><span class="pre">data</span></code>, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> y <code class="docutils literal notranslate"><span class="pre">dashboard</span></code>.</p>
+<p>La base <code class="docutils literal notranslate"><span class="pre">data</span></code> guardará todo lo relativo a transacciones, etapas, viajes, usuarios y toda información que se actualiza con cada corrida de Urbantrips que procesa una nueva tanda de datos. Utilizando los alias del archivo de configuracion, pueden crearse diferentes bases de tipo data, una para cada periodo agregado de tiempo. Así, puede haber una base de data diferente para cada semana o cada mes a medida que alcance un volumen determinado y utilizar un alias específico para este propósito configurable en el archivo de configuración (<code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana1</span></code>, <code class="docutils literal notranslate"><span class="pre">ciudad_2023_semana2</span></code>, etc).</p>
+<p>Por su lado, <code class="docutils literal notranslate"><span class="pre">insumos</span></code> es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de hexágonos H3 en una ciudad determinada, etc).</p>
+<p>Finalmente, <code class="docutils literal notranslate"><span class="pre">dashboard</span></code> contiene tablas agregadas y procesadas específicamente para la visualización interactiva en el dashboard de UrbanTrips.</p>
 <section id="modelo-de-datos-de-base-data">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">data</span></code><a class="headerlink" href="#modelo-de-datos-de-base-data" title="Link to this heading"></a></h2>
 <p>Un grupo de tablas guardan los microdatos de las transacciónes, etapas, viajes, usuarios, servicios, gps, etc. Mientras que otro grupo de tablas guardarán los estadísticos que los analistas utilizando UrbanTrips vayan calculando para diferentes lineas.</p>
 <p><strong>Tablas de microdatos</strong></p>
 <table class="docutils align-default" id="id1">
-<caption><span class="caption-text">transacciónes</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<caption><span class="caption-text">transacciones</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -106,7 +110,15 @@
 <tbody>
 <tr class="row-even"><td><p><em>id</em></p></td>
 <td><p>int</p></td>
-<td><p>id unico que identifica cada transacción en esta base de datos.</p></td>
+<td><p>id unico que identifica cada transacción en esta base de datos (PRIMARY KEY).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>batch_id</em></p></td>
+<td><p>int</p></td>
+<td><p>identificador del lote de procesamiento.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fecha</em></p></td>
+<td><p>int</p></td>
+<td><p>fecha de la transacción en formato Unix epoch.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_original</em></p></td>
 <td><p>text</p></td>
@@ -116,51 +128,55 @@
 <td><p>text</p></td>
 <td><p>id que identifica la tarjeta.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>fecha</em></p></td>
-<td><p>datetime</p></td>
-<td><p>fecha de la transacción.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>dia</em></p></td>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
 <td><p>dia de la transacción.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>tiempo</em></p></td>
+<tr class="row-even"><td><p><em>tiempo</em></p></td>
 <td><p>text</p></td>
-<td><p>Hora minutos y segundos de la transacción en formato HH::MM::SS.</p></td>
+<td><p>Hora minutos y segundos de la transacción en formato HH:MM:SS.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>hora</em></p></td>
+<tr class="row-odd"><td><p><em>hora</em></p></td>
 <td><p>int</p></td>
 <td><p>Hora de la transacción de 0 a 23.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>modo</em></p></td>
+<tr class="row-even"><td><p><em>modo</em></p></td>
 <td><p>text</p></td>
 <td><p>Modo estandarizado de la transacción.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea utilizada en la transacción.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
 <td><p>id del ramal utilizado en la transacción.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>interno</em></p></td>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
 <td><p>int</p></td>
 <td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>orden_trx</em></p></td>
+<tr class="row-even"><td><p><em>orden_trx</em></p></td>
 <td><p>int</p></td>
 <td><p>entero incremental que indica la etapa dentro de una cadena de viajes.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>latitud</em></p></td>
+<tr class="row-odd"><td><p><em>genero</em></p></td>
+<td><p>text</p></td>
+<td><p>género del usuario (campo opcional).</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tarifa</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de tarifa aplicada (campo opcional).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>latitud</em></p></td>
 <td><p>float</p></td>
 <td><p>latitud.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>longitud</em></p></td>
+<tr class="row-even"><td><p><em>longitud</em></p></td>
 <td><p>float</p></td>
 <td><p>longitud.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>factor_expansion</em></p></td>
+<tr class="row-odd"><td><p><em>factor_expansion</em></p></td>
 <td><p>float</p></td>
 <td><p>factor de expansión original tal cual viene en transacciones. Si no es una muestra es 1.</p></td>
 </tr>
@@ -182,75 +198,107 @@
 <tbody>
 <tr class="row-even"><td><p><em>id</em></p></td>
 <td><p>int</p></td>
-<td><p>id unico que identifica cada transacción en esta base de datos.</p></td>
+<td><p>id unico que identifica cada etapa en esta base de datos (PRIMARY KEY).</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>id_tarjeta</em></p></td>
+<tr class="row-odd"><td><p><em>batch_id</em></p></td>
+<td><p>int</p></td>
+<td><p>identificador del lote de procesamiento.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_tarjeta</em></p></td>
 <td><p>text</p></td>
 <td><p>id que identifica la tarjeta.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>dia</em></p></td>
+<tr class="row-odd"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
 <td><p>dia de la etapa.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>id_viaje</em></p></td>
-<td><p>text</p></td>
+<tr class="row-even"><td><p><em>id_viaje</em></p></td>
+<td><p>int</p></td>
 <td><p>id del viaje de esa tarjeta para ese dia.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>id_etapa</em></p></td>
-<td><p>text</p></td>
+<tr class="row-odd"><td><p><em>id_etapa</em></p></td>
+<td><p>int</p></td>
 <td><p>id de la etapa de esa tarjeta para ese dia y ese viaje.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>tiempo</em></p></td>
+<tr class="row-even"><td><p><em>tiempo</em></p></td>
 <td><p>text</p></td>
-<td><p>Hora minutos y segundos del inicio de la etapa en formato HH::MM::SS.</p></td>
+<td><p>Hora minutos y segundos del inicio de la etapa en formato HH:MM:SS.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>hora</em></p></td>
+<tr class="row-odd"><td><p><em>hora</em></p></td>
 <td><p>int</p></td>
 <td><p>Hora de la transacción de 0 a 23.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>modo</em></p></td>
+<tr class="row-even"><td><p><em>modo</em></p></td>
 <td><p>text</p></td>
 <td><p>Modo estandarizado de la etapa.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea utilizada en la etapa.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
 <td><p>id del ramal utilizado en la etapa.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>interno</em></p></td>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
 <td><p>int</p></td>
 <td><p>numero de interno o vehículo utilizado en la etapa.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>latitud</em></p></td>
+<tr class="row-even"><td><p><em>genero</em></p></td>
+<td><p>text</p></td>
+<td><p>género del usuario (campo opcional).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tarifa</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de tarifa aplicada (campo opcional).</p></td>
+</tr>
+<tr class="row-even"><td><p><em>latitud</em></p></td>
 <td><p>float</p></td>
 <td><p>latitud.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>longitud</em></p></td>
+<tr class="row-odd"><td><p><em>longitud</em></p></td>
 <td><p>float</p></td>
 <td><p>longitud.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>h3_o</em></p></td>
+<tr class="row-even"><td><p><em>h3_o</em></p></td>
 <td><p>text</p></td>
 <td><p>índice H3 de las coordenadas de origen.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>h3_d</em></p></td>
+<tr class="row-odd"><td><p><em>h3_d</em></p></td>
 <td><p>text</p></td>
 <td><p>índice H3 de las coordenadas de destino.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>od_validado</em></p></td>
+<tr class="row-even"><td><p><em>od_validado</em></p></td>
 <td><p>int</p></td>
 <td><p>indica si la etapa es válida (1) o no puede imputarse un destino (0).</p></td>
 </tr>
-<tr class="row-even"><td><p><em>factor_expansion_linea</em></p></td>
-<td><p>float</p></td>
-<td><p>factor de expansión para las etapas que expande cada etapa de modo que que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+<tr class="row-odd"><td><p><em>etapa_validada</em></p></td>
+<td><p>int</p></td>
+<td><p>indica si la etapa cumple con criterios de validación.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<tr class="row-even"><td><p><em>factor_expansion_original</em></p></td>
 <td><p>float</p></td>
-<td><p>factor de expansión para las etapas que expande cada etapa modo que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+<td><p>factor de expansión original de la transacción.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>factor_expansion_linea</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa de modo que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión para las etapas que expande cada etapa de modo que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>factor_expansion_etapa</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de expansión específico de la etapa.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distancia</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia recorrida en la etapa en kilómetros.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p>tiempo de viaje en minutos.</p></td>
 </tr>
 </tbody>
 </table>
@@ -273,7 +321,7 @@
 <td><p>id que identifica la tarjeta.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_viaje</em></p></td>
-<td><p>text</p></td>
+<td><p>int</p></td>
 <td><p>id del viaje de esa tarjeta para ese dia.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>dia</em></p></td>
@@ -282,59 +330,87 @@
 </tr>
 <tr class="row-odd"><td><p><em>tiempo</em></p></td>
 <td><p>text</p></td>
-<td><p>Hora minutos y segundos del inicio del viaje en formato HH::MM::SS.</p></td>
+<td><p>Hora minutos y segundos del inicio del viaje en formato HH:MM:SS.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>hora</em></p></td>
 <td><p>int</p></td>
-<td><p>Hora de la transacción de 0 a 23.</p></td>
+<td><p>Hora de inicio del viaje de 0 a 23.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>modo</em></p></td>
+<tr class="row-odd"><td><p><em>cant_etapas</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad total de etapas en el viaje.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>modo</em></p></td>
 <td><p>text</p></td>
 <td><p>Modo estandarizado del viaje. Si es etapa simple toma el de la etapa, si no puede tomar valores Multietapa (mas de una etapa mismo modo) o Multimodal.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>autobus</em></p></td>
+<tr class="row-odd"><td><p><em>autobus</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en autobus.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>tren</em></p></td>
+<tr class="row-even"><td><p><em>tren</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en tren.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>metro</em></p></td>
+<tr class="row-odd"><td><p><em>metro</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en metro.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>tranvia</em></p></td>
+<tr class="row-even"><td><p><em>tranvia</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en tranvia.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>brt</em></p></td>
+<tr class="row-odd"><td><p><em>brt</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en brt.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>otros</em></p></td>
+<tr class="row-even"><td><p><em>cable</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en cable.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lancha</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas hechas en este viaje en lancha.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>otros</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de etapas hechas en este viaje en otros modos.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>h3_o</em></p></td>
+<tr class="row-odd"><td><p><em>h3_o</em></p></td>
 <td><p>text</p></td>
 <td><p>índice H3 de las coordenadas de origen.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>h3_d</em></p></td>
+<tr class="row-even"><td><p><em>h3_d</em></p></td>
 <td><p>text</p></td>
 <td><p>índice H3 de las coordenadas de destino.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>od_validado</em></p></td>
+<tr class="row-odd"><td><p><em>genero</em></p></td>
+<td><p>text</p></td>
+<td><p>género del usuario (campo opcional).</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tarifa</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de tarifa aplicada (campo opcional).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>od_validado</em></p></td>
 <td><p>int</p></td>
 <td><p>indica si todas las etapas del viaje son válidas (1) o no puede imputarse un destino en alguna (0).</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>factor_expansion_linea</em></p></td>
+<tr class="row-even"><td><p><em>factor_expansion_linea</em></p></td>
 <td><p>float</p></td>
-<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
+<td><p>factor de expansión para que el agregado por línea coincida con los totales por línea previo a filtrar datos inválidos.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>factor_expansion_tarjeta</em></p></td>
+<tr class="row-odd"><td><p><em>factor_expansion_tarjeta</em></p></td>
 <td><p>float</p></td>
-<td><p>factor de expansión para las etapas que expande cada etapa para que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+<td><p>factor de expansión para que el agregado por tarjeta coincida con los totales por tarjeta previo a filtrar datos inválidos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distancia</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia total recorrida en el viaje en kilómetros.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p>tiempo total de viaje en minutos.</p></td>
 </tr>
 </tbody>
 </table>
@@ -394,7 +470,7 @@
 <tbody>
 <tr class="row-even"><td><p><em>id</em></p></td>
 <td><p>int</p></td>
-<td><p>id unico que identifica cada punto gps en esta base de datos.</p></td>
+<td><p>id unico que identifica cada punto gps en esta base de datos (PRIMARY KEY).</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_original</em></p></td>
 <td><p>text</p></td>
@@ -402,23 +478,23 @@
 </tr>
 <tr class="row-even"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
-<td><p>dia de la transacción.</p></td>
+<td><p>dia del registro GPS.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea utilizada en la transacción.</p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea del vehículo.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
-<td><p>id del ramal utilizado en la transacción.</p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal del vehículo.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>interno</em></p></td>
 <td><p>int</p></td>
-<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+<td><p>numero de interno o vehículo.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>fecha</em></p></td>
-<td><p>datetime</p></td>
-<td><p>fecha de la transacción.</p></td>
+<td><p>int</p></td>
+<td><p>fecha del registro en formato Unix epoch.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>latitud</em></p></td>
 <td><p>float</p></td>
@@ -432,17 +508,29 @@
 <td><p>float</p></td>
 <td><p>velocidad instantanea del punto gps tal cual la registra el gps (campo opcional).</p></td>
 </tr>
-<tr class="row-even"><td><p><em>service_type</em></p></td>
+<tr class="row-even"><td><p><em>id_servicio</em></p></td>
 <td><p>text</p></td>
-<td><p>indica el inicio y cierra del servicio tal cual lo declara el conductor del vehículo.</p></td>
+<td><p>identificador del servicio.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>distance_km</em></p></td>
+<tr class="row-odd"><td><p><em>service_type</em></p></td>
 <td><p>text</p></td>
+<td><p>indica el inicio y cierre del servicio tal cual lo declara el conductor del vehículo.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_km</em></p></td>
+<td><p>float</p></td>
 <td><p>distancia en km entre puntos gps sucesivos en el tiempo para el mismo interno.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>h3</em></p></td>
+<tr class="row-odd"><td><p><em>distance_servicio_mts</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia acumulada del servicio en metros.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_servicio_mts_agg</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia acumulada agregada del servicio en metros.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3</em></p></td>
 <td><p>text</p></td>
-<td><p>índice H3 de las coordenadas de destino.</p></td>
+<td><p>índice H3 de las coordenadas del punto GPS.</p></td>
 </tr>
 </tbody>
 </table>
@@ -462,39 +550,47 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea del vehiculo.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>dia</em></p></td>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal del servicio.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
 <td><p>dia del inicio del servicio.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>interno</em></p></td>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
 <td><p>int</p></td>
-<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+<td><p>numero de interno o vehículo utilizado.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>original_service_id</em></p></td>
+<tr class="row-even"><td><p><em>original_service_id</em></p></td>
 <td><p>int</p></td>
 <td><p>id del servicio tal cual lo declara el conductor del vehículo.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>service_id</em></p></td>
+<tr class="row-odd"><td><p><em>service_id</em></p></td>
 <td><p>int</p></td>
 <td><p>id del servicio en función del criterio que sigue UrbanTrips.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>total_points</em></p></td>
+<tr class="row-even"><td><p><em>total_points</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de puntos gps dentro del servicio.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>distance_km</em></p></td>
-<td><p>text</p></td>
-<td><p>distancia total en km recorrida en el servicio.</p></td>
+<tr class="row-odd"><td><p><em>distance_route</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia total en km recorrida en el servicio según la ruta.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia total en km recorrida en el servicio según puntos GPS.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>min_ts</em></p></td>
-<td><p>text</p></td>
+<td><p>int</p></td>
 <td><p>fecha de inicio del servicio en segundos Unix epoch.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>max_ts</em></p></td>
-<td><p>text</p></td>
+<td><p>int</p></td>
 <td><p>fecha de fin del servicio en segundos Unix epoch.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>min_datetime</em></p></td>
@@ -531,7 +627,23 @@
 <tbody>
 <tr class="row-even"><td><p><em>id</em></p></td>
 <td><p>int</p></td>
-<td><p>id unico que identifica cada punto gps en esta base de datos.</p></td>
+<td><p>id unico que identifica cada punto gps en esta base de datos (PRIMARY KEY).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea del punto GPS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal del punto GPS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de interno o vehículo.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia del registro.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>original_service_id</em></p></td>
 <td><p>int</p></td>
@@ -546,10 +658,10 @@
 <td><p>id del servicio en función del criterio que sigue UrbanTrips.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>id_ramal_gps_point</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id del ramal con el node_id más cercano.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>node_od</em></p></td>
+<tr class="row-odd"><td><p><em>node_id</em></p></td>
 <td><p>int</p></td>
 <td><p>node_id del ramal más cercano.</p></td>
 </tr>
@@ -668,10 +780,8 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Tablas de estadisticos</strong></p>
-<p>Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.</p>
 <table class="docutils align-default" id="id12">
-<caption><span class="caption-text">indicadores</span><a class="headerlink" href="#id12" title="Link to this table"></a></caption>
+<caption><span class="caption-text">travel_times_gps</span><a class="headerlink" href="#id12" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -686,32 +796,152 @@
 <tbody>
 <tr class="row-even"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
-<td><p>dia de lastransacciones procesadas en esta corrida.</p></td>
+<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>detalle</em></p></td>
-<td><p>text</p></td>
-<td><p>tipo de indicador a calcular.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>indicador</em></p></td>
+<tr class="row-odd"><td><p><em>id</em></p></td>
 <td><p>int</p></td>
-<td><p>cantidad de observaciones registradas para ese indicador en ese dia.</p></td>
+<td><p>id del registro GPS</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>tabla</em></p></td>
-<td><p>text</p></td>
-<td><p>tabla donde      se almacenan esas observaciones.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>nivel</em></p></td>
-<td><p>int</p></td>
-<td><p>nivel del indicador que expresa la relación con un indicador previo más global.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>porcentaje</em></p></td>
+<tr class="row-even"><td><p><em>travel_time_min</em></p></td>
 <td><p>float</p></td>
-<td><p>la cantidad de observaciones expresadas como porcentaje de un indicador previo más global.</p></td>
+<td><p>tiempo de viaje en minutos</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_speed</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad de viaje en km/h</p></td>
 </tr>
 </tbody>
 </table>
 <table class="docutils align-default" id="id13">
-<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id13" title="Link to this table"></a></caption>
+<caption><span class="caption-text">travel_times_legs</span><a class="headerlink" href="#id13" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la etapa</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_viaje</em></p></td>
+<td><p>int</p></td>
+<td><p>id del viaje</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_etapa</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la etapa</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p>tiempo de viaje en minutos</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_od</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia origen-destino en km</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>distance_route</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia según ruta en km</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia según ruta GPS en km</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>kmh_od</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según origen-destino en km/h</p></td>
+</tr>
+<tr class="row-even"><td><p><em>kmh_route</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según ruta en km/h</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>kmh_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según ruta GPS en km/h</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_gps_o</em></p></td>
+<td><p>int</p></td>
+<td><p>id del punto GPS de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_gps_d</em></p></td>
+<td><p>int</p></td>
+<td><p>id del punto GPS de destino</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id14">
+<caption><span class="caption-text">travel_times_trips</span><a class="headerlink" href="#id14" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>Fecha del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id que identifica la tarjeta</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_viaje</em></p></td>
+<td><p>int</p></td>
+<td><p>id del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p>tiempo de viaje total en minutos</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_od</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia origen-destino en km</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>distance_route</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia según ruta en km</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia según ruta GPS en km</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>kmh_od</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según origen-destino en km/h</p></td>
+</tr>
+<tr class="row-even"><td><p><em>kmh_route</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según ruta en km/h</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>kmh_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>velocidad según ruta GPS en km/h</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id15">
+<caption><span class="caption-text">vehicle_expansion_factors</span><a class="headerlink" href="#id15" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -725,49 +955,147 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea de los servicios.</p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
-<td><p>dia de los datos sobre los cuales se calculan los estadísticos.</p></td>
+<td><p>día del cálculo</p></td>
 </tr>
-<tr class="row-even"><td><p><em>cant_servicios_originales</em></p></td>
+<tr class="row-even"><td><p><em>unique_vehicles</em></p></td>
 <td><p>int</p></td>
-<td><p>cantidad de servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
+<td><p>cantidad de vehículos únicos</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>cant_servicios_nuevos</em></p></td>
+<tr class="row-odd"><td><p><em>broken_gps_veh</em></p></td>
 <td><p>int</p></td>
-<td><p>cantidad de servicios tal como fueron inferidos por UrbanTrips.</p></td>
+<td><p>cantidad de vehículos con GPS no funcional</p></td>
 </tr>
-<tr class="row-even"><td><p><em>cant_servicios_nuevos_validos</em></p></td>
-<td><p>int</p></td>
-<td><p>cantidad de servicios inferidos por UrbanTrips considerados validos.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>n_servicios_nuevos_cortos</em></p></td>
-<td><p>int</p></td>
-<td><p>cantidad de servicios inferidos por UrbanTrips con menos de 5 puntos gps.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>prop_servicios_cortos_nuevos_idling</em></p></td>
+<tr class="row-even"><td><p><em>veh_exp</em></p></td>
 <td><p>float</p></td>
-<td><p>proporcion de servicios nuevos cortos que se encuentran detenidos.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>distancia_recorrida_original</em></p></td>
-<td><p>int</p></td>
-<td><p>distancia acumulada en km por servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>prop_distancia_recuperada</em></p></td>
-<td><p>int</p></td>
-<td><p>proporción de la distancia recorrida original recuperada en los servicios validos inferidos por UrbanTrips.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>servicios_originales_sin_dividir</em></p></td>
-<td><p>float</p></td>
-<td><p>proporción de servicios originales dentro de los cuales hay uno y solo un servicio valido inferio por UrbanTrips.</p></td>
+<td><p>factor de expansión de vehículos</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id14">
-<caption><span class="caption-text">services_by_line_hour</span><a class="headerlink" href="#id14" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id16">
+<caption><span class="caption-text">transacciones_linea</span><a class="headerlink" href="#id16" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>día de las transacciones</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea</p></td>
+</tr>
+<tr class="row-even"><td><p><em>transacciones</em></p></td>
+<td><p>float</p></td>
+<td><p>cantidad total de transacciones</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id17">
+<caption><span class="caption-text">tarjetas_duplicadas</span><a class="headerlink" href="#id17" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>día del registro</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_tarjeta_original</em></p></td>
+<td><p>text</p></td>
+<td><p>id original de la tarjeta</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_tarjeta_nuevo</em></p></td>
+<td><p>text</p></td>
+<td><p>nuevo id de la tarjeta</p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tablas de estadisticos</strong></p>
+<p>Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádisticos serán calculados por defecto pero otros solo serán calculados luego de que cada analista los haya obtenido utilizando las diferentes herramientas de UrbanTrips. Estos no se corren de modo automático para todas las lineas, cada una debe ser procesada individualmente y con los parámetros necesarios que la función que calcula cada estadístico requiera.</p>
+<table class="docutils align-default" id="id18">
+<caption><span class="caption-text">services_stats</span><a class="headerlink" href="#id18" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea de los servicios.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal de los servicios.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>dia de los datos sobre los cuales se calculan los estadísticos.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>cant_servicios_originales</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>cant_servicios_nuevos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios tal como fueron inferidos por UrbanTrips.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>cant_servicios_nuevos_validos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios inferidos por UrbanTrips considerados validos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>n_servicios_nuevos_cortos</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de servicios inferidos por UrbanTrips con menos de 5 puntos gps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop_servicos_cortos_nuevos_idling</em></p></td>
+<td><p>float</p></td>
+<td><p>proporcion de servicios nuevos cortos que se encuentran detenidos.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distancia_recorrida_original</em></p></td>
+<td><p>float</p></td>
+<td><p>distancia acumulada en km por servicios tal como fueron declarados por el conductor del vehículo y declarado en la tabla gps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop_distancia_recuperada</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de la distancia recorrida original recuperada en los servicios validos inferidos por UrbanTrips.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>servicios_originales_sin_dividir</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de servicios originales dentro de los cuales hay uno y solo un servicio valido inferido por UrbanTrips.</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id19">
+<caption><span class="caption-text">services_by_line_hour</span><a class="headerlink" href="#id19" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -798,8 +1126,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id15">
-<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id15" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id20">
+<caption><span class="caption-text">ocupacion_por_linea_tramo</span><a class="headerlink" href="#id20" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -858,8 +1186,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id16">
-<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id16" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id21">
+<caption><span class="caption-text">kpi_by_day_line</span><a class="headerlink" href="#id21" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -873,7 +1201,7 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando la linea</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>dia</em></p></td>
@@ -886,44 +1214,88 @@
 </tr>
 <tr class="row-odd"><td><p><em>tot_km</em></p></td>
 <td><p>float</p></td>
-<td><p>Total de kilómetros ofertados en el día.</p></td>
+<td><p>Total de kilómetros ofertados en el día según la ruta.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>tot_pax</em></p></td>
+<tr class="row-even"><td><p><em>tot_km_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de kilómetros ofertados en el día según GPS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tot_pax</em></p></td>
 <td><p>float</p></td>
 <td><p>Total de pasajeros en el día.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>dmt_mean</em></p></td>
+<tr class="row-even"><td><p><em>dmt_mean_od</em></p></td>
 <td><p>float</p></td>
-<td><p>Distancia media recorrida por pasajero.</p></td>
+<td><p>Distancia media recorrida por pasajero según origen-destino.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>dmt_median</em></p></td>
+<tr class="row-odd"><td><p><em>dmt_mean_route</em></p></td>
 <td><p>float</p></td>
-<td><p>Distancia mediana recorrida por pasajero.</p></td>
+<td><p>Distancia media recorrida por pasajero según ruta.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>pvd</em></p></td>
+<tr class="row-even"><td><p><em>dmt_mean_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia media recorrida por pasajero según ruta GPS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt_median_od</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero según origen-destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>dmt_median_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero según ruta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt_median_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero según ruta GPS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>pvd</em></p></td>
 <td><p>float</p></td>
 <td><p>Pasajeros promedio transportados por vehículo por día.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>kvd</em></p></td>
+<tr class="row-odd"><td><p><em>kvd</em></p></td>
 <td><p>float</p></td>
-<td><p>Kilómetros promedio recorridos por vehículo por día.</p></td>
+<td><p>Kilómetros promedio recorridos por vehículo por día según ruta.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>ipk</em></p></td>
+<tr class="row-even"><td><p><em>kvd_gps</em></p></td>
 <td><p>float</p></td>
-<td><p>Índice Pasajero Kilómetro.</p></td>
+<td><p>Kilómetros promedio recorridos por vehículo por día según GPS.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>fo_mean</em></p></td>
+<tr class="row-odd"><td><p><em>ipk_route</em></p></td>
 <td><p>float</p></td>
-<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.</p></td>
+<td><p>Índice Pasajero Kilómetro según ruta.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>fo_median</em></p></td>
+<tr class="row-even"><td><p><em>ipk_route_gps</em></p></td>
 <td><p>float</p></td>
-<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.</p></td>
+<td><p>Índice Pasajero Kilómetro según ruta GPS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_mean_od</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según origen-destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_mean_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según ruta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_mean_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según ruta GPS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_median_od</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según origen-destino.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_median_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según ruta.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_median_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según ruta GPS.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id17">
-<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id17" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id22">
+<caption><span class="caption-text">kpi_by_day_line_service</span><a class="headerlink" href="#id22" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -937,205 +1309,105 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando la linea</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>dia</em></p></td>
 <td><p>text</p></td>
 <td><p>Fecha del día para el cual fue computado el estadístico</p></td>
 </tr>
-<tr class="row-even"><td><p><em>interno</em></p></td>
-<td><p>int</p></td>
-<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal del servicio.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>service_id</em></p></td>
-<td><p>int</p></td>
-<td><p>numero de service dentro del vehiculo o interno para esa linea y dia.</p></td>
+<tr class="row-odd"><td><p><em>interno</em></p></td>
+<td><p>text</p></td>
+<td><p>numero de interno o vehículo utilizado.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>hora_inicio</em></p></td>
-<td><p>float</p></td>
+<tr class="row-even"><td><p><em>service_id</em></p></td>
+<td><p>int</p></td>
+<td><p>numero de servicio dentro del vehiculo o interno para esa linea y dia.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hora_inicio</em></p></td>
+<td><p>text</p></td>
 <td><p>hora de inicio del servicio.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>hora_fin</em></p></td>
-<td><p>float</p></td>
+<tr class="row-even"><td><p><em>hora_fin</em></p></td>
+<td><p>text</p></td>
 <td><p>hora de cierre del servicio.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>tot_km</em></p></td>
+<tr class="row-odd"><td><p><em>tot_km</em></p></td>
 <td><p>float</p></td>
-<td><p>Total de kilómetros ofertados por el servicio.</p></td>
+<td><p>Total de kilómetros ofertados por el servicio según ruta.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tot_km_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Total de kilómetros ofertados por el servicio según GPS.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>tot_pax</em></p></td>
 <td><p>float</p></td>
 <td><p>Total de pasajeros transportados por el servicio.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>dmt_mean</em></p></td>
+<tr class="row-even"><td><p><em>dmt_mean_od</em></p></td>
 <td><p>float</p></td>
-<td><p>Distancia media recorrida por pasajero del servicio.</p></td>
+<td><p>Distancia media recorrida por pasajero según origen-destino.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>dmt_median</em></p></td>
+<tr class="row-odd"><td><p><em>dmt_mean_route</em></p></td>
 <td><p>float</p></td>
-<td><p>Distancia mediana recorrida por pasajero del servicio.</p></td>
+<td><p>Distancia media recorrida por pasajero según ruta.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>ipk</em></p></td>
+<tr class="row-even"><td><p><em>dmt_mean_route_gps</em></p></td>
 <td><p>float</p></td>
-<td><p>Índice Pasajero Kilómetro.</p></td>
+<td><p>Distancia media recorrida por pasajero según ruta GPS.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>fo_mean</em></p></td>
+<tr class="row-odd"><td><p><em>dmt_median_od</em></p></td>
 <td><p>float</p></td>
-<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT promedio.</p></td>
+<td><p>Distancia mediana recorrida por pasajero según origen-destino.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>fo_median</em></p></td>
+<tr class="row-even"><td><p><em>dmt_median_route</em></p></td>
 <td><p>float</p></td>
-<td><p>Factor de ocupación tomando 60 ubicaciónes por vehículo tomando la DMT mediana.</p></td>
+<td><p>Distancia mediana recorrida por pasajero según ruta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>dmt_median_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Distancia mediana recorrida por pasajero según ruta GPS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>ipk_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Índice Pasajero Kilómetro según ruta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>ipk_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Índice Pasajero Kilómetro según ruta GPS.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_mean_od</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según origen-destino.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_mean_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según ruta.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_mean_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación promedio tomando 60 ubicaciones por vehículo según ruta GPS.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_median_od</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según origen-destino.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>fo_median_route</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según ruta.</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>fo_median_route_gps</em></p></td>
+<td><p>float</p></td>
+<td><p>Factor de ocupación mediano tomando 60 ubicaciones por vehículo según ruta GPS.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id18">
-<caption><span class="caption-text">basic_kpi_by_vehicle_hr</span><a class="headerlink" href="#id18" title="Link to this table"></a></caption>
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 25.0%" />
-<col style="width: 50.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Campo</p></th>
-<th class="head"><p>Tipo de dato</p></th>
-<th class="head"><p>Descripción</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><em>dia</em></p></td>
-<td><p>text</p></td>
-<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id identificando la linea</p></td>
-</tr>
-<tr class="row-even"><td><p><em>interno</em></p></td>
-<td><p>int</p></td>
-<td><p>numero de interno o vehículo utilizado en la transacción.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>hora</em></p></td>
-<td><p>float</p></td>
-<td><p>hora en la que se encuentra circulando el vehiculo.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>tot_pax</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de pasajeros transportados por el vehiculo para esa hora.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>eq_pax</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de pasajeros equivalentes transportados por ese vehículo durante esa hora.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>dmt</em></p></td>
-<td><p>float</p></td>
-<td><p>Distancia media recorrida por pasajero del vehiculo para esa hora.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>of</em></p></td>
-<td><p>float</p></td>
-<td><p>Factor de ocupación calculado como la relación entre la DMT y la velocidad comercial.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>speed_kmh</em></p></td>
-<td><p>float</p></td>
-<td><p>Velocidad comercial promedio de ese vehiculo a esa hora.</p></td>
-</tr>
-</tbody>
-</table>
-<table class="docutils align-default" id="id19">
-<caption><span class="caption-text">basic_kpi_by_line_hr</span><a class="headerlink" href="#id19" title="Link to this table"></a></caption>
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 25.0%" />
-<col style="width: 50.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Campo</p></th>
-<th class="head"><p>Tipo de dato</p></th>
-<th class="head"><p>Descripción</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><em>dia</em></p></td>
-<td><p>text</p></td>
-<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id identificando la linea</p></td>
-</tr>
-<tr class="row-even"><td><p><em>hora</em></p></td>
-<td><p>float</p></td>
-<td><p>hora del día.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>veh</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de vehículos únicos circulando a esa hora para esa linea y día.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>pax</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de pasajeros que iniciaron una etapa en esa linea a esa hora y día.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>dmt</em></p></td>
-<td><p>float</p></td>
-<td><p>Distancia media recorrida por pasajero del vehiculo para esa hora y día.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>of</em></p></td>
-<td><p>float</p></td>
-<td><p>Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>speed_kmh</em></p></td>
-<td><p>float</p></td>
-<td><p>Velocidad comercial promedio de esa línea a esa hora para ese día.</p></td>
-</tr>
-</tbody>
-</table>
-<table class="docutils align-default" id="id20">
-<caption><span class="caption-text">basic_kpi_by_line_day</span><a class="headerlink" href="#id20" title="Link to this table"></a></caption>
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 25.0%" />
-<col style="width: 50.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Campo</p></th>
-<th class="head"><p>Tipo de dato</p></th>
-<th class="head"><p>Descripción</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><em>dia</em></p></td>
-<td><p>text</p></td>
-<td><p>Fecha del día para el cual fue computado el estadístico</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id identificando la linea</p></td>
-</tr>
-<tr class="row-even"><td><p><em>veh</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de vehículos únicos circulando para esa linea y día.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>pax</em></p></td>
-<td><p>float</p></td>
-<td><p>Total de pasajeros que utilizaron esa linea ese día.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>dmt</em></p></td>
-<td><p>float</p></td>
-<td><p>Distancia media recorrida por pasajero en esa línea ese día.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>of</em></p></td>
-<td><p>float</p></td>
-<td><p>Factor de ocupación promedio calculado como la relación entre la DMT y la velocidad comercial.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>speed_kmh</em></p></td>
-<td><p>float</p></td>
-<td><p>Velocidad comercial promedio de esa línea para ese día.</p></td>
-</tr>
-</tbody>
-</table>
-<table class="docutils align-default" id="id21">
-<caption><span class="caption-text">overlapping</span><a class="headerlink" href="#id21" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id23">
+<caption><span class="caption-text">overlapping_by_route</span><a class="headerlink" href="#id23" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1153,19 +1425,19 @@
 <td><p>Fecha del día para el cual fue computado el estadístico</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>base_line_id</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando la linea de base</p></td>
 </tr>
 <tr class="row-even"><td><p><em>base_branch_id</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando el ramal de base</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>comp_line_id</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando la linea de comparacion</p></td>
 </tr>
 <tr class="row-even"><td><p><em>comp_branch_id</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id identificando el ramal de comparacion</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>res_h3</em></p></td>
@@ -1182,68 +1454,12 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id22">
-<caption><span class="caption-text">lines_od_matrix_by_section</span><a class="headerlink" href="#id22" title="Link to this table"></a></caption>
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 25.0%" />
-<col style="width: 50.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Campo</p></th>
-<th class="head"><p>Tipo de dato</p></th>
-<th class="head"><p>Descripción</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea sobre el que se calculan los estadísticos.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>yr_mo</em></p></td>
-<td><p>text</p></td>
-<td><p>mes y anio sobre el que se calculan los estadísticos.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>day_type</em></p></td>
-<td><p>text</p></td>
-<td><p>dia o tipo de día sobre el cual se calcula los estadísticos.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>n_sections</em></p></td>
-<td><p>int</p></td>
-<td><p>cantidad de secciones en las que se segmentó el recorrido representativo de la linea.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>section_id_o</em></p></td>
-<td><p>float</p></td>
-<td><p>id de la sección de origen para la que se calcula los estadísticos. Se une con routes_section_id_coords.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>section_id_d</em></p></td>
-<td><p>float</p></td>
-<td><p>id de la sección de destino para la que se calcula los estadísticos. Se une con routes_section_id_coords.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>hour_min</em></p></td>
-<td><p>int</p></td>
-<td><p>hora mínima de las etapas a utilizar para calcular los estadísticos.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>hour_max</em></p></td>
-<td><p>int</p></td>
-<td><p>hora máxima de las etapas a utilizar para calcular los estadísticos.</p></td>
-</tr>
-<tr class="row-even"><td><p><em>legs</em></p></td>
-<td><p>int</p></td>
-<td><p>cantidad de etapas en esa sección para ese día y horas.</p></td>
-</tr>
-<tr class="row-odd"><td><p><em>prop</em></p></td>
-<td><p>float</p></td>
-<td><p>proporción de etapas de esa sección sobre el total de etapas para ese día y horas.</p></td>
-</tr>
-</tbody>
-</table>
 </section>
 <section id="modelo-de-datos-de-base-insumos">
 <h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">insumos</span></code><a class="headerlink" href="#modelo-de-datos-de-base-insumos" title="Link to this heading"></a></h2>
-<p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc).</p>
-<table class="docutils align-default" id="id23">
-<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id23" title="Link to this table"></a></caption>
+<p>El siguiente grupo de tablas almacena información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de hexágonos H3 en una ciudad determinada, etc).</p>
+<table class="docutils align-default" id="id24">
+<caption><span class="caption-text">metadata_lineas</span><a class="headerlink" href="#id24" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1257,12 +1473,20 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea</p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea (PRIMARY KEY)</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>nombre_linea</em></p></td>
 <td><p>text</p></td>
 <td><p>nombre de fantasía de la linea o el que figura en el cartel</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea_agg</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea agregada (para agrupación de líneas).</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>nombre_linea_agg</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de la linea agregada.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>modo</em></p></td>
 <td><p>text</p></td>
@@ -1278,8 +1502,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id24">
-<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id24" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id25">
+<caption><span class="caption-text">metadata_ramales</span><a class="headerlink" href="#id25" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1293,11 +1517,11 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
-<td><p>id del ramal</p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal (PRIMARY KEY)</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea a la que pertenece el ramal</p></td>
 </tr>
 <tr class="row-even"><td><p><em>nombre_ramal</em></p></td>
@@ -1314,12 +1538,12 @@
 </tr>
 <tr class="row-odd"><td><p><em>descripcion</em></p></td>
 <td><p>text</p></td>
-<td><p>campo que almacena algun texto descriptivo del ramal     .</p></td>
+<td><p>campo que almacena algun texto descriptivo del ramal.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id25">
-<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id25" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id26">
+<caption><span class="caption-text">matriz_validacion</span><a class="headerlink" href="#id26" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1332,22 +1556,26 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea a la que pertenece la parada.</p></td>
+<tr class="row-even"><td><p><em>id_linea_agg</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea agregada a la que pertenece la parada.</p></td>
 </tr>
-<tr class="row-odd"><td><p><em>parada</em></p></td>
+<tr class="row-odd"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal al que pertenece la parada.</p></td>
+</tr>
+<tr class="row-even"><td><p><em>parada</em></p></td>
 <td><p>text</p></td>
 <td><p>coordenada h3 a la que pertenece la parada.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>area_influencia</em></p></td>
+<tr class="row-odd"><td><p><em>area_influencia</em></p></td>
 <td><p>text</p></td>
 <td><p>coordenada h3 de una celda adyacente parte del area de influencia de la parada.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id26">
-<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id26" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id27">
+<caption><span class="caption-text">lines_geoms</span><a class="headerlink" href="#id27" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1361,8 +1589,8 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
-<td><p>id de la linea al que pertenece el recorrido.</p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea al que pertenece el recorrido (PRIMARY KEY).</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>wkt</em></p></td>
 <td><p>text</p></td>
@@ -1370,8 +1598,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id27">
-<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id27" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id28">
+<caption><span class="caption-text">branches_geoms</span><a class="headerlink" href="#id28" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1385,8 +1613,8 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
-<td><p>id del ramal al que pertenece el recorrido.</p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal al que pertenece el recorrido (PRIMARY KEY).</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>wkt</em></p></td>
 <td><p>text</p></td>
@@ -1394,8 +1622,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id28">
-<caption><span class="caption-text">stops</span><a class="headerlink" href="#id28" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id29">
+<caption><span class="caption-text">stops</span><a class="headerlink" href="#id29" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1409,11 +1637,11 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea a la que pertenece la parada.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>id_ramal</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id del ramal al que pertenece la parada.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>node_id</em></p></td>
@@ -1424,26 +1652,26 @@
 <td><p>int</p></td>
 <td><p>orden de paso de la parada en el ramal.</p></td>
 </tr>
-<tr class="row-even"><td><p>stop_x</p></td>
+<tr class="row-even"><td><p><em>stop_x</em></p></td>
 <td><p>float</p></td>
-<td><p>coordenada de la parada.</p></td>
+<td><p>coordenada x (longitud) de la parada.</p></td>
 </tr>
-<tr class="row-odd"><td><p>stop_y</p></td>
+<tr class="row-odd"><td><p><em>stop_y</em></p></td>
 <td><p>float</p></td>
-<td><p>coordenada de la parada.</p></td>
+<td><p>coordenada y (latitud) de la parada.</p></td>
 </tr>
-<tr class="row-even"><td><p>node_x</p></td>
+<tr class="row-even"><td><p><em>node_x</em></p></td>
 <td><p>float</p></td>
-<td><p>coordenada del nodo.</p></td>
+<td><p>coordenada x (longitud) del nodo.</p></td>
 </tr>
-<tr class="row-odd"><td><p>node_y</p></td>
+<tr class="row-odd"><td><p><em>node_y</em></p></td>
 <td><p>float</p></td>
-<td><p>coordenada del nodo.</p></td>
+<td><p>coordenada y (latitud) del nodo.</p></td>
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id29">
-<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id29" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id30">
+<caption><span class="caption-text">zonas</span><a class="headerlink" href="#id30" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1478,8 +1706,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id30">
-<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id30" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id31">
+<caption><span class="caption-text">distancias</span><a class="headerlink" href="#id31" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1514,7 +1742,7 @@
 </tr>
 <tr class="row-odd"><td><p><em>distance_osm_walk</em></p></td>
 <td><p>float</p></td>
-<td><p>distancia calculada sobre red de callejero en km- caminando.</p></td>
+<td><p>distancia calculada sobre red de callejero en km - caminando.</p></td>
 </tr>
 <tr class="row-even"><td><p><em>distance_h3</em></p></td>
 <td><p>float</p></td>
@@ -1522,8 +1750,8 @@
 </tr>
 </tbody>
 </table>
-<table class="docutils align-default" id="id31">
-<caption><span class="caption-text">routes_section_id_coords</span><a class="headerlink" href="#id31" title="Link to this table"></a></caption>
+<table class="docutils align-default" id="id32">
+<caption><span class="caption-text">routes_section_id_coords</span><a class="headerlink" href="#id32" title="Link to this table"></a></caption>
 <colgroup>
 <col style="width: 25.0%" />
 <col style="width: 25.0%" />
@@ -1537,14 +1765,14 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><em>id_linea</em></p></td>
-<td><p>int</p></td>
+<td><p>bigint</p></td>
 <td><p>id de la linea del tramo del recorrido.</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>n_sections</em></p></td>
 <td><p>int</p></td>
 <td><p>cantidad de secciones en el que se fragmento el recorrido de la linea.</p></td>
 </tr>
-<tr class="row-even"><td><p><em>section</em></p></td>
+<tr class="row-even"><td><p><em>section_id</em></p></td>
 <td><p>int</p></td>
 <td><p>id del segmento del recorrido</p></td>
 </tr>
@@ -1554,11 +1782,723 @@
 </tr>
 <tr class="row-even"><td><p><em>x</em></p></td>
 <td><p>float</p></td>
-<td><p>longitud del inicio del tramo</p></td>
+<td><p>longitud (coordenada x) del inicio del tramo</p></td>
 </tr>
 <tr class="row-odd"><td><p><em>y</em></p></td>
 <td><p>float</p></td>
-<td><p>latitud del inicio del tramo</p></td>
+<td><p>latitud (coordenada y) del inicio del tramo</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id33">
+<caption><span class="caption-text">poligonos</span><a class="headerlink" href="#id33" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id</em></p></td>
+<td><p>text</p></td>
+<td><p>identificador único del polígono (PRIMARY KEY)</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de polígono (zona, región, etc.)</p></td>
+</tr>
+<tr class="row-even"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría del polígono en formato WKT</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id34">
+<caption><span class="caption-text">official_branches_geoms</span><a class="headerlink" href="#id34" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal (PRIMARY KEY)</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría oficial del recorrido del ramal en formato WKT</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id35">
+<caption><span class="caption-text">official_branches_geoms_h3</span><a class="headerlink" href="#id35" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_ramal</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal (PRIMARY KEY)</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la sección del recorrido</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 de la sección</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría de la sección en formato WKT</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id36">
+<caption><span class="caption-text">inferred_lines_geoms</span><a class="headerlink" href="#id36" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea (PRIMARY KEY)</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría inferida del recorrido de la linea en formato WKT</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id37">
+<caption><span class="caption-text">travel_times_stations (insumos)</span><a class="headerlink" href="#id37" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_o</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la estación de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_d</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la estación de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea_o</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal_o</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal de origen</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lat_o</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud de la estación de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lon_o</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud de la estación de origen</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_linea_d</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea de destino</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_ramal_d</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del ramal de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lat_d</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud de la estación de destino</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lon_d</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud de la estación de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>travel_time_min</em></p></td>
+<td><p>float</p></td>
+<td><p>tiempo de viaje en minutos entre estaciones</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="modelo-de-datos-de-base-dashboard">
+<h2>Modelo de datos de base <code class="docutils literal notranslate"><span class="pre">dashboard</span></code><a class="headerlink" href="#modelo-de-datos-de-base-dashboard" title="Link to this heading"></a></h2>
+<p>Las tablas de la base de datos <code class="docutils literal notranslate"><span class="pre">dashboard</span></code> contienen datos agregados y procesados para la visualización interactiva en el dashboard de UrbanTrips.</p>
+<table class="docutils align-default" id="id38">
+<caption><span class="caption-text">matrices</span><a class="headerlink" href="#id38" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día (laboral, fin de semana, etc.)</p></td>
+</tr>
+<tr class="row-even"><td><p><em>var_zona</em></p></td>
+<td><p>text</p></td>
+<td><p>variable de zonificación utilizada</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>filtro1</em></p></td>
+<td><p>text</p></td>
+<td><p>filtro aplicado</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Origen</em></p></td>
+<td><p>text</p></td>
+<td><p>zona de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Destino</em></p></td>
+<td><p>text</p></td>
+<td><p>zona de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Viajes</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de viajes</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id39">
+<caption><span class="caption-text">lineas_deseo</span><a class="headerlink" href="#id39" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>var_zona</em></p></td>
+<td><p>text</p></td>
+<td><p>variable de zonificación utilizada</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>filtro1</em></p></td>
+<td><p>text</p></td>
+<td><p>filtro aplicado</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Origen</em></p></td>
+<td><p>text</p></td>
+<td><p>zona de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Destino</em></p></td>
+<td><p>text</p></td>
+<td><p>zona de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Viajes</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de viajes</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lon_o</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud del origen</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lat_o</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud del origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>lon_d</em></p></td>
+<td><p>float</p></td>
+<td><p>longitud del destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>lat_d</em></p></td>
+<td><p>float</p></td>
+<td><p>latitud del destino</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id40">
+<caption><span class="caption-text">viajes_hora</span><a class="headerlink" href="#id40" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Hora</em></p></td>
+<td><p>int</p></td>
+<td><p>hora del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Viajes</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de viajes</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Modo</em></p></td>
+<td><p>text</p></td>
+<td><p>modo de transporte</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id41">
+<caption><span class="caption-text">distribucion</span><a class="headerlink" href="#id41" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Distancia</em></p></td>
+<td><p>int</p></td>
+<td><p>distancia en km</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Viajes</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de viajes</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Modo</em></p></td>
+<td><p>text</p></td>
+<td><p>modo de transporte</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id42">
+<caption><span class="caption-text">indicadores (dashboard)</span><a class="headerlink" href="#id42" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Titulo</em></p></td>
+<td><p>text</p></td>
+<td><p>título del indicador</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>orden</em></p></td>
+<td><p>int</p></td>
+<td><p>orden de presentación</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Indicador</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre del indicador</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Valor</em></p></td>
+<td><p>text</p></td>
+<td><p>valor del indicador</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id43">
+<caption><span class="caption-text">particion_modal</span><a class="headerlink" href="#id43" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>desc_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>descripción del día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tipo</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de partición</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo</em></p></td>
+<td><p>text</p></td>
+<td><p>modo de transporte</p></td>
+</tr>
+<tr class="row-even"><td><p><em>modal</em></p></td>
+<td><p>float</p></td>
+<td><p>porcentaje de participación modal</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id44">
+<caption><span class="caption-text">ocupacion_por_linea_tramo (dashboard)</span><a class="headerlink" href="#id44" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>yr_mo</em></p></td>
+<td><p>text</p></td>
+<td><p>año y mes</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nombre_linea</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>day_type</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_meters</em></p></td>
+<td><p>int</p></td>
+<td><p>largo de la sección en metros</p></td>
+</tr>
+<tr class="row-even"><td><p><em>sentido</em></p></td>
+<td><p>text</p></td>
+<td><p>sentido del recorrido</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>section_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la sección</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hour_min</em></p></td>
+<td><p>int</p></td>
+<td><p>hora mínima</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hour_max</em></p></td>
+<td><p>int</p></td>
+<td><p>hora máxima</p></td>
+</tr>
+<tr class="row-even"><td><p><em>legs</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>buff_factor</em></p></td>
+<td><p>float</p></td>
+<td><p>factor de buffer para visualización</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría de la sección en formato WKT</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id45">
+<caption><span class="caption-text">lines_od_matrix_by_section</span><a class="headerlink" href="#id45" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>yr_mo</em></p></td>
+<td><p>text</p></td>
+<td><p>año y mes</p></td>
+</tr>
+<tr class="row-even"><td><p><em>day_type</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones</p></td>
+</tr>
+<tr class="row-even"><td><p><em>hour_min</em></p></td>
+<td><p>int</p></td>
+<td><p>hora mínima</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>hour_max</em></p></td>
+<td><p>int</p></td>
+<td><p>hora máxima</p></td>
+</tr>
+<tr class="row-even"><td><p><em>Origen</em></p></td>
+<td><p>int</p></td>
+<td><p>sección de origen</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>Destino</em></p></td>
+<td><p>int</p></td>
+<td><p>sección de destino</p></td>
+</tr>
+<tr class="row-even"><td><p><em>legs</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de etapas</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>prop</em></p></td>
+<td><p>float</p></td>
+<td><p>proporción de etapas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nombre_linea</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de la linea</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id46">
+<caption><span class="caption-text">matrices_linea_carto</span><a class="headerlink" href="#id46" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>id_linea</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id de la linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>n_sections</em></p></td>
+<td><p>int</p></td>
+<td><p>cantidad de secciones</p></td>
+</tr>
+<tr class="row-even"><td><p><em>section_id</em></p></td>
+<td><p>int</p></td>
+<td><p>id de la sección</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>wkt</em></p></td>
+<td><p>text</p></td>
+<td><p>geometría de la sección en formato WKT</p></td>
+</tr>
+<tr class="row-even"><td><p><em>x</em></p></td>
+<td><p>float</p></td>
+<td><p>coordenada x (longitud)</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>y</em></p></td>
+<td><p>float</p></td>
+<td><p>coordenada y (latitud)</p></td>
+</tr>
+<tr class="row-even"><td><p><em>nombre_linea</em></p></td>
+<td><p>text</p></td>
+<td><p>nombre de la linea</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id47">
+<caption><span class="caption-text">chains_norm</span><a class="headerlink" href="#id47" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Campo</p></th>
+<th class="head"><p>Tipo de dato</p></th>
+<th class="head"><p>Descripción</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>dia</em></p></td>
+<td><p>text</p></td>
+<td><p>día del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>id_tarjeta</em></p></td>
+<td><p>text</p></td>
+<td><p>id de la tarjeta</p></td>
+</tr>
+<tr class="row-even"><td><p><em>id_viaje</em></p></td>
+<td><p>bigint</p></td>
+<td><p>id del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_inicio</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 del inicio del viaje</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_transfer1</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 del primer transbordo</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_transfer2</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 del segundo transbordo</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_fin</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 del fin del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_inicio_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 normalizado del inicio</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_transfer1_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 normalizado del primer transbordo</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>h3_transfer2_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 normalizado del segundo transbordo</p></td>
+</tr>
+<tr class="row-even"><td><p><em>h3_fin_norm</em></p></td>
+<td><p>text</p></td>
+<td><p>índice H3 normalizado del fin</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>modo_agregado</em></p></td>
+<td><p>text</p></td>
+<td><p>modo de transporte agregado</p></td>
+</tr>
+<tr class="row-even"><td><p><em>rango_hora</em></p></td>
+<td><p>text</p></td>
+<td><p>rango horario del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>genero_agregado</em></p></td>
+<td><p>text</p></td>
+<td><p>género agregado</p></td>
+</tr>
+<tr class="row-even"><td><p><em>tarifa_agregada</em></p></td>
+<td><p>text</p></td>
+<td><p>tarifa agregada</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>transferencia</em></p></td>
+<td><p>integer</p></td>
+<td><p>indica si hubo transferencia</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distancia_agregada</em></p></td>
+<td><p>text</p></td>
+<td><p>rango de distancia agregada</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_speed</em></p></td>
+<td><p>double</p></td>
+<td><p>velocidad de viaje</p></td>
+</tr>
+<tr class="row-even"><td><p><em>factor_expansion_linea</em></p></td>
+<td><p>double</p></td>
+<td><p>factor de expansión por linea</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>tipo_dia</em></p></td>
+<td><p>text</p></td>
+<td><p>tipo de día</p></td>
+</tr>
+<tr class="row-even"><td><p><em>mes</em></p></td>
+<td><p>text</p></td>
+<td><p>mes del viaje</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>seq_lineas</em></p></td>
+<td><p>text</p></td>
+<td><p>secuencia de lineas utilizadas</p></td>
+</tr>
+<tr class="row-even"><td><p><em>distance_od</em></p></td>
+<td><p>double</p></td>
+<td><p>distancia origen-destino</p></td>
+</tr>
+<tr class="row-odd"><td><p><em>travel_time_min</em></p></td>
+<td><p>double</p></td>
+<td><p>tiempo de viaje en minutos</p></td>
 </tr>
 </tbody>
 </table>
