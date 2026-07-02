@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,8 +44,5 @@ jobs:
           fi
 
       - name: SonarQube Scan
-        if: secrets.SONAR_TOKEN != '' && secrets.SONAR_HOST_URL != ''
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
