@@ -1,13 +1,15 @@
+import argparse
 import sys
-import os
 
-# Propagate --config flag to all dashboard modules via env var.
+from urbantrips.utils.cli import add_bootstrap_args, apply_bootstrap_env
+
+# Propagate --config / --base-dir flags to all dashboard modules via env vars.
 # Usage: streamlit run dashboard.py -- --config /path/to/configuraciones_generales.yaml
-_argv = sys.argv[1:]
-if "--config" in _argv:
-    _idx = _argv.index("--config")
-    if _idx + 1 < len(_argv):
-        os.environ["URBANTRIPS_CONFIG"] = str(_argv[_idx + 1])
+# Usage: streamlit run dashboard.py -- --base-dir /path/to/run_dir
+_parser = argparse.ArgumentParser()
+add_bootstrap_args(_parser)
+_args, _ = _parser.parse_known_args(sys.argv[1:])
+apply_bootstrap_env(_args)
 
 import streamlit as st
 import pandas as pd
