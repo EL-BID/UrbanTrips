@@ -338,6 +338,8 @@ python urbantrips/run_all_urbantrips.py --borrar_corrida all
 
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --base-dir /runs/city_A
+    → Uses a specific base directory (useful alongside isolated runs via --base-dir)
 ```
 
 ---
