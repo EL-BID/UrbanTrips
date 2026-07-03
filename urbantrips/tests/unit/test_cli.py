@@ -41,8 +41,12 @@ def test_apply_bootstrap_env_sets_both_vars(monkeypatch):
     args = argparse.Namespace(config="configs/x.yaml", base_dir="/tmp/city_a")
     apply_bootstrap_env(args)
 
-    assert os.environ["URBANTRIPS_CONFIG"] == "configs/x.yaml"
-    assert os.environ["URBANTRIPS_BASE"] == "/tmp/city_a"
+    try:
+        assert os.environ["URBANTRIPS_CONFIG"] == "configs/x.yaml"
+        assert os.environ["URBANTRIPS_BASE"] == "/tmp/city_a"
+    finally:
+        os.environ.pop("URBANTRIPS_CONFIG", None)
+        os.environ.pop("URBANTRIPS_BASE", None)
 
 
 def test_apply_bootstrap_env_leaves_env_untouched_when_args_none(monkeypatch):
