@@ -5,7 +5,7 @@ import networkx as nx
 from osmnx import distance
 import statsmodels.api as sm
 import h3
-from shapely import LineString, Polygon
+from shapely import LineString, Polygon, Point
 from itertools import repeat
 import numpy as np
 import warnings
@@ -1302,3 +1302,210 @@ def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
         ]
     )
     return parent_routes_h3_gdf
+
+
+def process_all_ramales_into_parent_h3(ramales, parent_res):
+    conn_insumos = iniciar_conexion_db(
+        tipo="insumos",
+        alias_db=leer_configs_generales(autogenerado=False).get("alias_db", ""),
+    )
+    # Aplicar turn_child_h3_into_parent_h3 a todos los ramales
+    parent_ramales = []
+
+    # Obtener los id_ramal únicos
+    unique_ramales = ramales["id_ramal"].unique()
+
+    print(f"Procesando {len(unique_ramales)} ramales...")
+
+    for id_ramal in unique_ramales:
+        print(f"Procesando ramal: {id_ramal}")
+
+        # Obtener la geometría H3 del ramal desde ramales
+        ramal_h3 = ramales[ramales["id_ramal"] == id_ramal].copy()
+
+        # Obtener la geometría original del ramal desde la base de datos
+        query = f"SELECT * FROM official_branches_geoms where id_ramal = '{id_ramal}' and direction = 0"
+        df = pd.read_sql(query, conn_insumos)
+        df["geometry"] = gpd.GeoSeries.from_wkt(df.wkt)
+        ramal_geom = gpd.GeoDataFrame(
+            df.drop(columns=["wkt"]), geometry="geometry", crs="EPSG:4326"
+        )
+
+        # Aplicar la función
+        parent_ramal_h3 = turn_child_h3_into_parent_h3(
+            route_h3=ramal_h3, parent_res=parent_res, route_geom=ramal_geom
+        )
+
+        parent_ramales.append(parent_ramal_h3)
+
+    # Concatenar todos los resultados
+    parent_ramales_gdf = pd.concat(parent_ramales, ignore_index=True)
+    parent_ramales_gdf["geometry"] = gpd.GeoSeries.from_wkt(parent_ramales_gdf.wkt)
+    parent_ramales_gdf = gpd.GeoDataFrame(
+        parent_ramales_gdf, geometry="geometry", crs="EPSG:4326"
+    )
+
+    print(
+        f"\nProcesamiento completo. Total de celdas H3 padre: {len(parent_ramales_gdf)}"
+    )
+    return parent_ramales_gdf
+
+
+def create_edges_between_h3_centroids(parent_ramales_gdf):
+    # Crear directed edges y linestrings entre centroides de H3 para cada ramal
+    edges_data = []
+
+    # Procesar cada ramal
+    for id_ramal in parent_ramales_gdf["id_ramal"].unique():
+        print(f"Procesando ramal: {id_ramal}")
+
+        # Filtrar y ordenar por section_id
+        ramal_data = (
+            parent_ramales_gdf[parent_ramales_gdf["id_ramal"] == id_ramal]
+            .sort_values("section_id")
+            .reset_index(drop=True)
+        )
+
+        # Crear edges entre celdas consecutivas
+        for i in range(len(ramal_data) - 1):
+            current_row = ramal_data.iloc[i]
+            next_row = ramal_data.iloc[i + 1]
+
+            current_h3 = current_row["parent_h3"]
+            next_h3 = next_row["parent_h3"]
+
+            # Obtener centroides de las celdas H3
+            current_centroid_lat, current_centroid_lng = h3.cell_to_latlng(current_h3)
+            next_centroid_lat, next_centroid_lng = h3.cell_to_latlng(next_h3)
+
+            # Crear linestring entre centroides
+            linestring = LineString(
+                [
+                    (current_centroid_lng, current_centroid_lat),
+                    (next_centroid_lng, next_centroid_lat),
+                ]
+            )
+
+            # Guardar información del edge
+            edges_data.append(
+                {
+                    "id_ramal": id_ramal,
+                    "direction": current_row["direction"],
+                    "section_id_from": current_row["section_id"],
+                    "section_id_to": next_row["section_id"],
+                    "h3_from": current_h3,
+                    "h3_to": next_h3,
+                    "geometry": linestring,
+                }
+            )
+
+    # Crear GeoDataFrame con los edges
+    edges_gdf = gpd.GeoDataFrame(edges_data, geometry="geometry", crs="EPSG:4326")
+
+    print(f"\nTotal de edges creados: {len(edges_gdf)}")
+    return edges_gdf
+
+
+def turn_edges_into_directed_graph(od_to_graph):
+    # Crear un grafo de NetworkX compatible con OSMnx
+    G = nx.MultiDiGraph()
+
+    # Extraer todos los nodos únicos (celdas H3)
+    unique_h3_cells = set(od_to_graph["h3_1"].unique()) | set(
+        od_to_graph["h3_2"].unique()
+    )
+
+    print(f"Total de nodos únicos: {len(unique_h3_cells)}")
+
+    # Agregar nodos con sus coordenadas (x=lon, y=lat)
+    for h3_cell in unique_h3_cells:
+        lat, lng = h3.cell_to_latlng(h3_cell)
+        G.add_node(h3_cell, x=lng, y=lat)
+
+    # Agregar edges del grafo
+    for idx, row in od_to_graph.iterrows():
+        h3_from = row["h3_1"]
+        h3_to = row["h3_2"]
+
+        # Calcular longitud del edge (distancia entre centroides)
+        geom = row["geometry"]
+
+        # Calcular distancia en metros usando coordenadas
+        from_lat, from_lng = h3.cell_to_latlng(h3_from)
+        to_lat, to_lng = h3.cell_to_latlng(h3_to)
+
+        # Usar fórmula simple para distancia
+        from math import radians, cos, sqrt
+
+        R = 6371000  # Radio de la Tierra en metros
+
+        dlat = radians(to_lat - from_lat)
+        dlng = radians(to_lng - from_lng)
+        a = dlat**2 + (cos(radians((from_lat + to_lat) / 2)) * dlng) ** 2
+        distance_m = R * sqrt(a)
+
+        # Agregar edge bidireccional (ida y vuelta)
+        G.add_edge(h3_from, h3_to, length=distance_m, geometry=geom)
+        G.add_edge(h3_to, h3_from, length=distance_m, geometry=geom)
+
+    # Configurar atributos del grafo para OSMnx
+    G.graph["crs"] = "epsg:4326"
+    G.graph["simplified"] = True
+
+    print(f"\nGrafo creado:")
+    print(f"  Nodos: {G.number_of_nodes()}")
+    print(f"  Edges: {G.number_of_edges()}")
+
+    return G
+
+
+def turn_edges_into_undirected_graph(edges_gdf):
+    # Crear grafo no dirigido desde edges_gdf para evitar duplicación de edges
+    G_undirected = nx.Graph()
+
+    # Extraer todos los nodos únicos (celdas H3)
+    unique_h3_cells = set(edges_gdf["h3_from"].unique()) | set(
+        edges_gdf["h3_to"].unique()
+    )
+
+    print(f"Total de nodos únicos: {len(unique_h3_cells)}")
+
+    # Agregar nodos con sus coordenadas (x=lon, y=lat)
+    for h3_cell in unique_h3_cells:
+        lat, lng = h3.cell_to_latlng(h3_cell)
+        G_undirected.add_node(h3_cell, x=lng, y=lat)
+
+    # Agregar edges del grafo (no dirigidos, se eliminan duplicados automáticamente)
+    for idx, row in edges_gdf.iterrows():
+        h3_from = row["h3_from"]
+        h3_to = row["h3_to"]
+
+        # Solo agregar si el edge no existe ya
+        if not G_undirected.has_edge(h3_from, h3_to):
+            geom = row["geometry"]
+
+            # Calcular distancia en metros
+            from_lat, from_lng = h3.cell_to_latlng(h3_from)
+            to_lat, to_lng = h3.cell_to_latlng(h3_to)
+
+            from math import radians, cos, sqrt
+
+            R = 6371000  # Radio de la Tierra en metros
+
+            dlat = radians(to_lat - from_lat)
+            dlng = radians(to_lng - from_lng)
+            a = dlat**2 + (cos(radians((from_lat + to_lat) / 2)) * dlng) ** 2
+            distance_m = R * sqrt(a)
+
+            # Agregar edge no dirigido
+            G_undirected.add_edge(h3_from, h3_to, length=distance_m, geometry=geom)
+
+    # Configurar atributos del grafo para OSMnx
+    G_undirected.graph["crs"] = "epsg:4326"
+    G_undirected.graph["simplified"] = True
+
+    print(f"\nGrafo no dirigido creado:")
+    print(f"  Nodos: {G_undirected.number_of_nodes()}")
+    print(f"  Edges: {G_undirected.number_of_edges()}")
+
+    return G_undirected
