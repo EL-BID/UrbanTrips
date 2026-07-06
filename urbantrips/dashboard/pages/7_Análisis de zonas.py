@@ -155,7 +155,9 @@ def main():
         try:
             # --- Cargar configuraciones y conexiones en session_state ---
             if "configs" not in st.session_state:
-                st.session_state.configs = leer_configs_generales(autogenerado=True)
+                # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+                # consistente con la resolución de DB. No usamos el autogenerado en esta versión.
+                st.session_state.configs = leer_configs_generales(autogenerado=False)
 
             configs = st.session_state.configs
             # defino la resolución en base a las configuraciones generales

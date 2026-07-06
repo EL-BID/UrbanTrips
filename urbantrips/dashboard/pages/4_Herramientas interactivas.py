@@ -93,11 +93,17 @@ try:
 
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = leer_configs_generales(autogenerado=True)
+        # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+        # consistente con la resolución de DB en dash_utils (get_db_path también usa
+        # autogenerado=False). El autogenerado puede quedar viejo de otra corrida y
+        # desincronizar flags como lineas_contienen_ramales respecto de la base cargada.
+        st.session_state.configs = leer_configs_generales(autogenerado=False)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    alias = configs["alias_db_data"]
+    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
+    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    alias = configs.get("alias_db_insumos", "")
     st.text(
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
     )

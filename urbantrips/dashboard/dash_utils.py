@@ -75,15 +75,12 @@ from urbantrips.dashboard.dash_storage import (
 
 
 def leer_alias(tipo="dash"):
+    # Alias único: en esta versión el autogenerado y las DBs por-corrida quedaron
+    # obsoletos. Todo se guarda bajo un solo alias (alias_db_insumos), y la
+    # selección de día se hace por SQL sobre la columna `dia` (ver _where_chains),
+    # no cambiando de base. Por eso se removió la vieja rama multi-corrida que
+    # resolvía el alias desde st.session_state.dia_seleccionado.
     configs = leer_configs_generales(autogenerado=False)
-    corridas = configs.get("corridas", [])
-
-    # Multi-corrida day-selector: data and dash use the selected corrida name.
-    # Only applies when each corrida has its own DB (no shared alias_db key).
-    if tipo in ("data", "dash") and len(corridas) > 1 and "dia_seleccionado" in st.session_state and "alias_db" not in configs:
-        posicion = corridas.index(st.session_state.dia_seleccionado)
-        return corridas[posicion] + "_"
-
     aliases = resolve_db_aliases(configs)
     if tipo not in aliases:
         raise ValueError("tipo invalido: %s" % tipo)
@@ -1867,7 +1864,9 @@ def get_epsg_m():
     """
     Gets the epsg id for a coordinate reference system in meters from config
     """
-    configs = leer_configs_generales()
+    # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+    # consistente con el resto del dashboard (no usamos el autogenerado en esta versión).
+    configs = leer_configs_generales(autogenerado=False)
     epsg_m = configs["epsg_m"]
 
     return epsg_m

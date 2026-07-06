@@ -95,14 +95,27 @@ def seleccionar_linea(nombre_columna, key_input, key_select, branch_key):
                     metadata_branches.nombre_ramal.unique(),
                     key=f"branch_{branch_key}",
                 )
-                st.session_state[f"seleccion_{branch_key}"]["branch_id"] = (
-                    metadata_branches.loc[
-                        metadata_branches.nombre_ramal == selected_branch, "id_ramal"
-                    ].values[0]
-                )
-                st.session_state[f"seleccion_{branch_key}"][
-                    "branch_name"
-                ] = selected_branch
+                # metadata_ramales can be empty for a line (e.g. a dataset with
+                # no branch metadata for it). In that case the selectbox has no
+                # options, selected_branch is None and the id_ramal lookup is
+                # empty; guard so .values[0] doesn't raise IndexError.
+                branch_id_match = metadata_branches.loc[
+                    metadata_branches.nombre_ramal == selected_branch, "id_ramal"
+                ]
+                if len(branch_id_match) > 0:
+                    st.session_state[f"seleccion_{branch_key}"]["branch_id"] = (
+                        branch_id_match.values[0]
+                    )
+                    st.session_state[f"seleccion_{branch_key}"][
+                        "branch_name"
+                    ] = selected_branch
+                else:
+                    st.session_state[f"seleccion_{branch_key}"]["branch_id"] = None
+                    st.session_state[f"seleccion_{branch_key}"]["branch_name"] = None
+                    st.info(
+                        "La línea seleccionada no tiene ramales cargados en "
+                        "metadata_ramales."
+                    )
         else:
             st.warning("No se encontró ninguna coincidencia.")
 
@@ -116,11 +129,18 @@ alias_seleccionado = configurar_selector_dia()
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = leer_configs_generales()
+        # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+        # consistente con la resolución de DB (get_db_path usa autogenerado=False).
+        # Clave acá: lineas_contienen_ramales debe salir de la base que realmente se
+        # cargó; un autogenerado viejo con ramales=True sobre datos sin ramales hacía
+        # que use_branches fuera True y crasheara la selección de ramal.
+        st.session_state.configs = leer_configs_generales(autogenerado=False)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    alias = configs["alias_db_data"]
+    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
+    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    alias = configs.get("alias_db_insumos", "")
     st.text(
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
     )
@@ -206,7 +226,25 @@ comp_gdf_to_db = None
 with st.expander("Comparación de líneas", expanded=True):
     col1, col2 = st.columns([2, 2])
 
-    if st.session_state.id_linea_1 and st.session_state.id_linea_2:
+    lineas_listas = bool(
+        st.session_state.id_linea_1 and st.session_state.id_linea_2
+    )
+    # Con comparación por ramal, ambas líneas necesitan un branch_id. El
+    # selector de ramal puede dejarlo en None cuando la línea no tiene ramales
+    # cargados en metadata_ramales; sin este gate, int(None) tira TypeError.
+    ramales_listos = (not use_branches) or (
+        st.session_state.branch_id_1 is not None
+        and st.session_state.branch_id_2 is not None
+    )
+
+    if lineas_listas and not ramales_listos:
+        st.info(
+            "Para comparar por ramal, ambas líneas deben tener un ramal "
+            "seleccionado. Alguna de las líneas elegidas no tiene ramales "
+            "cargados en metadata_ramales."
+        )
+
+    if lineas_listas and ramales_listos:
         if use_branches:
             base_route_id, comp_route_id = int(st.session_state.branch_id_1), int(
                 st.session_state.branch_id_2
