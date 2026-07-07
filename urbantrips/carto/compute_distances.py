@@ -178,6 +178,62 @@ def _patch_osmnet_overpass(verbose: bool = False) -> None:
         pass  # osmnet no disponible; pandana usara su propio loader
 
 
+def _network_from_frames(
+    nodes_df: "pd.DataFrame",
+    edges_df: "pd.DataFrame",
+) -> "pandana.Network":
+    """
+    Construye un pandana.Network desde nodes/edges ya filtrados.
+    edges_df debe tener columnas ['from', 'to', 'weight'].
+    twoway=True: cada arista se recorre en ambos sentidos.
+    """
+    import pandana
+    return pandana.Network(
+        node_x       = nodes_df["x"],
+        node_y       = nodes_df["y"],
+        edge_from    = edges_df["from"],
+        edge_to      = edges_df["to"],
+        edge_weights = edges_df[["weight"]],
+        twoway       = True,
+    )
+
+
+def _to_largest_component_network(
+    network: "pandana.Network",
+    verbose: bool,
+) -> "pandana.Network":
+    """
+    Reconstruye la red conservando solo el componente debilmente conexo
+    mas grande. La red OSM cruda contiene islotes aislados; si un origen o
+    destino hace snap a un nodo de un islote, shortest_path devuelve el
+    sentinel de pandana (4294967 m) -> NaN. Filtrar ANTES de calcular
+    (no solo al guardar) evita esos NaN espurios.
+    """
+    edf = (
+        network.edges_df.reset_index()
+        if network.edges_df.index.names != [None]
+        else network.edges_df
+    )
+    weight_col = (
+        "distance" if "distance" in edf.columns
+        else edf.select_dtypes(include="float").columns[0]
+    )
+    edges_df = pd.DataFrame({
+        "from"  : edf["from"],
+        "to"    : edf["to"],
+        "weight": edf[weight_col],
+    })
+    nodes_df, edges_df = _largest_component(network.nodes_df[["x", "y"]], edges_df)
+
+    if verbose:
+        print(
+            f"[od_distances] Componente principal: {len(nodes_df):,} nodos | "
+            f"{len(edges_df):,} aristas"
+        )
+
+    return _network_from_frames(nodes_df, edges_df)
+
+
 def _build_network(
     bbox: tuple,
     network_type: str,
@@ -186,6 +242,11 @@ def _build_network(
     """
     Construye red pandana usando su loader interno de OSM.
     bbox = (ymin, xmin, ymax, xmax)  — convencion pandana.
+
+    Filtra al componente conexo principal ANTES de retornar, de modo que la
+    misma red filtrada se use tanto para calcular como para guardar en cache.
+    (Antes se calculaba con la red cruda y se guardaba la filtrada: los nodos
+    aislados de OSM producian NaN espurios en la corrida que poblaba la cache.)
 
     No llama a network.precompute(): pandana usa Dijkstra directo por par,
     lo que evita el alto consumo de RAM de las Contraction Hierarchies.
@@ -210,11 +271,11 @@ def _build_network(
 
     if verbose:
         print(
-            f"[od_distances] Red: {len(network.nodes_df):,} nodos | "
+            f"[od_distances] Red cruda: {len(network.nodes_df):,} nodos | "
             f"{len(network.edges_df):,} aristas"
         )
 
-    return network
+    return _to_largest_component_network(network, verbose)
 
 
 def _largest_component(

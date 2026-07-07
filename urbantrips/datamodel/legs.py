@@ -656,8 +656,8 @@ def assign_time_distances():
         db_path           = "data/matriz_distancia/matriz_distancia.duckdb",
         network_cache_dir = "data/matriz_distancia",
         symmetric         = False,
-        precompute_dist   = 50_000,   
-        max_tile_deg      = 99,      
+        precompute_dist   = 50_000,
+        max_tile_deg      = 99,
         verbose           = True
     )
 
