@@ -293,7 +293,7 @@ def _load_network(
         edge_from    = edges["from"],
         edge_to      = edges["to"],
         edge_weights = edges[["weight"]],
-        twoway       = False,
+        twoway       = True,
     )
     return network
 
