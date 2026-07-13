@@ -202,12 +202,17 @@ class DuckDBDataAdapter:
             self._conn.execute(ddl)
 
     def _migrate_schema(self) -> None:
-        # hora_inicio/hora_fin were incorrectly typed FLOAT; drop so CREATE TABLE rebuilds them as TEXT
+        # hora_inicio/hora_fin were incorrectly typed FLOAT in old DBs; drop so CREATE TABLE rebuilds
+        # them as TEXT. DuckDB reporta las columnas TEXT como 'VARCHAR' en information_schema, así que
+        # comparar sólo contra "TEXT" hacía que la condición fuera SIEMPRE verdadera y la tabla se
+        # borrara en CADA apertura de conexión de escritura (por eso kpi_by_day_line_service quedaba
+        # vacía: --step dashboard destruía lo que --step outputs había escrito). Con "VARCHAR" incluido,
+        # el drop sólo se dispara en DBs legacy con el tipo viejo (caso raro; se regenera re-corriendo).
         row = self._conn.execute(
             "SELECT data_type FROM information_schema.columns "
             "WHERE table_name = 'kpi_by_day_line_service' AND column_name = 'hora_inicio'"
         ).fetchone()
-        if row and row[0].upper() != "TEXT":
+        if row and row[0].upper() not in ("TEXT", "VARCHAR"):
             self._conn.execute("DROP TABLE IF EXISTS kpi_by_day_line_service")
 
         # id_gps_o/id_gps_d agregadas a travel_times_legs para QA de la imputacion

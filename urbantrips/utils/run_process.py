@@ -196,8 +196,16 @@ def _configured_n_batches() -> int | None:
     return n if n > 0 else None
 
 
-def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
-    """Compute n_batches from RAM and CPU so workers stay saturated."""
+def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.30) -> int:
+    """Compute n_batches from RAM and CPU so workers stay saturated.
+
+    safety_factor = fracción de la RAM DISPONIBLE que puede ocupar el chunk de
+    create_legs (cpu_workers batches simultáneos). El pico de datos ≈
+    safety_factor × RAM_disponible; sumado al memory_limit de DuckDB y al overhead
+    de pandas da el pico total del paso legs. Se bajó de 0.40 a 0.30 para dejar más
+    headroom (a 0.40 el paso legs picaba ~50 GB de ~51.6 GB libres). Subir hacia
+    0.40 acelera (chunks más grandes, menos rondas de workers) a costa de margen.
+    """
     import psutil
 
     vm = psutil.virtual_memory()

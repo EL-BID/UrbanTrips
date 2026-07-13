@@ -1070,10 +1070,12 @@ def compute_od_distances(
         del all_dist
         gc.collect()
 
-        merge_keys  = list(zip(o_norm, d_norm))
-        dist_values = lookup.reindex(merge_keys).values
+        # MultiIndex.from_arrays evita materializar una lista Python de N tuplas
+        # (con el mes entero eran ~107M tuplas). Alinea igual que reindex(list-of-tuples).
+        merge_idx   = pd.MultiIndex.from_arrays([o_norm, d_norm])
+        dist_values = lookup.reindex(merge_idx).values
 
-        del lookup, merge_keys, o_norm, d_norm
+        del lookup, merge_idx, o_norm, d_norm
         gc.collect()
 
     finally:

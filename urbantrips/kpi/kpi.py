@@ -1,3 +1,4 @@
+import gc
 import itertools
 import logging
 import warnings
@@ -136,18 +137,50 @@ def compute_kpi(ctx: StorageContext):
     if not ctx.data.has_rows("gps"):
         logger.info("No existe tabla GPS en la base; se calcularán KPI básicos en base a datos de demanda")
 
-    # runing basic kpi
-    run_basic_kpi(ctx)
+    # Se procesa UN DÍA POR VEZ para acotar el pico de RAM: antes cada sub-fase
+    # levantaba etapas/gps del mes entero a pandas. Todos los KPI diarios son
+    # separables por día (los groupby ya llevan `dia`); las agregaciones por tipo
+    # de día (weekday/weekend) cruzan días pero leen tablas ya agregadas (chicas)
+    # y se ejecutan UNA sola vez al final, fuera del loop. Los DELETE de run-days
+    # (upsert por corrida) se hacen una vez antes de cada loop y las sub-funciones
+    # appendean por día (clear_days=False).
+    dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
-    # read data
-    legs, gps = read_data_for_daily_kpi(ctx)
+    # --- KPI básicos (demanda), día por día ---
+    for dia in dias:
+        run_basic_kpi(ctx, dia=dia)
+        gc.collect()
+    # agregados por tipo de día, una sola vez (cross-day, sobre tablas agregadas)
+    compute_basic_kpi_line_typeday(ctx)
+    compute_basic_kpi_line_hr_typeday(ctx)
 
-    if (len(legs) > 0) & (len(gps) > 0):
-        # compute KPI per line and date
-        compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx)
+    # --- KPI por línea y día (demanda + oferta), día por día ---
+    # Guarda equivalente al original: read_data_for_daily_kpi devolvía vacío si no
+    # había tabla gps o no había etapas od_validado; en ese caso no se computaba
+    # ni se borraba nada.
+    gps_present = ctx.data.has_rows("gps")
+    has_valid_legs = bool(
+        ctx.data.query(
+            "SELECT EXISTS(SELECT 1 FROM etapas e "
+            "JOIN dias_ultima_corrida d ON e.dia = d.dia "
+            "WHERE e.od_validado = 1) AS x"
+        ).iloc[0, 0]
+    )
+    if gps_present and has_valid_legs:
+        _delete_run_days_from(ctx, "kpi_by_day_line")
+        any_line_day = False
+        for dia in dias:
+            legs, gps = read_data_for_daily_kpi(ctx, dia=dia)
+            if (len(legs) > 0) & (len(gps) > 0):
+                # compute KPI per line and date (append only; el DELETE ya se hizo)
+                compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx, clear_days=False)
+                any_line_day = True
+            del legs, gps
+            gc.collect()
 
-        # compute KPI per line and type of day
-        compute_kpi_by_line_typeday(ctx)
+        # compute KPI per line and type of day (una vez, cross-day)
+        if any_line_day:
+            compute_kpi_by_line_typeday(ctx)
 
     # Run KPI at service level
     try:
@@ -159,18 +192,34 @@ def compute_kpi(ctx: StorageContext):
 
     if valid_services > 0:
         logger.info("Computando estadisticos por servicio")
-        # compute KPI by service and day
-        compute_kpi_by_service(ctx)
+        _delete_run_days_from(ctx, "kpi_by_day_line_service")
+        for dia in dias:
+            # compute KPI by service and day (append only; el DELETE ya se hizo)
+            compute_kpi_by_service(ctx, dia=dia, clear_days=False)
 
-        # compute amount of hourly services by line and day
-        compute_dispatched_services_by_line_hour_day(ctx)
+            # compute amount of hourly services by line and day
+            compute_dispatched_services_by_line_hour_day(ctx, dia=dia)
+            gc.collect()
 
-        # compute amount of hourly services by line and type of day
+        # compute amount of hourly services by line and type of day (cross-day)
         compute_dispatched_services_by_line_hour_typeday(ctx)
 
     else:
 
         logger.info("No hay servicios procesados. Puede correr services.process_services() si cuenta con GPS")
+
+
+def _delete_run_days_from(ctx: StorageContext, table: str) -> None:
+    """Borra las filas de la corrida actual de `table` (upsert por corrida).
+
+    Reemplaza el patrón "DELETE run-days + append" que cada sub-función de KPI
+    hacía en su única llamada mes-entero; ahora el DELETE se hace UNA vez antes
+    del loop por día y las sub-funciones appendean por día.
+    """
+    dias_ultima_corrida = ctx.data.get_run_days()
+    values = ", ".join(f"'{val}'" for val in dias_ultima_corrida["dia"])
+    if values:
+        ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({values})")
 
 
 # SECTION LOAD KPI
@@ -550,7 +599,7 @@ def compute_section_load_table(legs, route_geoms, hour_range, day_type):
 # GENERAL PURPOSE KPIS WITH GPS
 
 
-def read_data_for_daily_kpi(ctx: StorageContext):
+def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
     """
     Read legs and gps micro data from db and
     merges distances to legs
@@ -572,23 +621,34 @@ def read_data_for_daily_kpi(ctx: StorageContext):
         logger.info("No existe tabla GPS en la base; no se pueden computar indicadores de oferta")
         return pd.DataFrame(), pd.DataFrame()
 
-    q = """
+    # Con dia=None se mantiene el comportamiento mes-entero (JOIN dias_ultima_corrida);
+    # con dia se filtra a un solo día para acotar RAM. El resultado por día es idéntico
+    # (los KPI de demanda son separables por día).
+    if dia is not None:
+        gps_scope = f"WHERE g.dia = '{dia}'"
+        legs_join = ""
+        legs_scope = f"WHERE e.dia = '{dia}' AND e.od_validado = 1"
+    else:
+        gps_scope = "JOIN dias_ultima_corrida d ON g.dia = d.dia"
+        legs_join = "JOIN dias_ultima_corrida d ON e.dia = d.dia"
+        legs_scope = "WHERE e.od_validado = 1"
+
+    q = f"""
     SELECT g.* FROM gps g
-    JOIN dias_ultima_corrida d
-    ON g.dia = d.dia
+    {gps_scope}
     ORDER BY g.dia, id_linea, interno, fecha
     """
     gps = ctx.data.query(q)
 
-    q = """
+    q = f"""
         SELECT e.dia, e.id_linea, e.interno, e.id_tarjeta, e.h3_o,
             e.h3_d, e.factor_expansion_linea,
             tt.travel_time_min, tt.distance_od, tt.distance_route,
             tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
         FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        {legs_join}
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
-        WHERE e.od_validado = 1
+        {legs_scope}
     """
     legs = ctx.data.query(q)
 
@@ -599,7 +659,7 @@ def read_data_for_daily_kpi(ctx: StorageContext):
 
 
 @duracion
-def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
+def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     """
     Takes demand data and computes KPI at line level for each day.
     Supply metrics (tot_veh, tot_km, tot_km_gps) are read directly
@@ -615,14 +675,26 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
 
     ctx : StorageContext
 
+    clear_days : bool
+        Si True (default, uso mes-entero) borra las filas de la corrida de
+        kpi_by_day_line antes de appendear. En el loop por día se pasa False:
+        el DELETE se hace una sola vez en el orquestador y acá solo se appendea.
+
     Returns
     -------
     None
 
     """
+    # Días presentes en la demanda de esta llamada: mes entero (whole-month) o un
+    # solo día (loop). Filtrar oferta por estos días acota RAM sin cambiar el
+    # resultado (los merges son por ["dia", ...], solo sobreviven filas del día).
+    dias_presentes = [str(d) for d in pd.unique(legs["dia"])]
+    dias_in = ", ".join(f"'{d}'" for d in dias_presentes) or "''"
+
     # get veh expansion factors for supply data
     vehicle_expansion_factor = ctx.data.query(
-        "SELECT id_linea, dia, veh_exp FROM vehicle_expansion_factors"
+        f"SELECT id_linea, dia, veh_exp FROM vehicle_expansion_factors"
+        f" WHERE dia IN ({dias_in})"
     )
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
@@ -642,8 +714,8 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
         
     # supply: read from services filtered to valid=1 (no expansion factor)
     services_data = ctx.data.query(
-        "SELECT dia, id_linea, interno, distance_route, distance_route_gps"
-        " FROM services WHERE valid = 1"
+        f"SELECT dia, id_linea, interno, distance_route, distance_route_gps"
+        f" FROM services WHERE valid = 1 AND dia IN ({dias_in})"
     )
     services_tot_veh = (
         services_data
@@ -719,9 +791,10 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext):
     day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
 
     # get last processed days
-    dias_ultima_corrida = ctx.data.get_run_days()
-    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
-    ctx.data.execute(f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})")
+    if clear_days:
+        dias_ultima_corrida = ctx.data.get_run_days()
+        values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+        ctx.data.execute(f"DELETE FROM kpi_by_day_line WHERE dia IN ({values})")
 
     ctx.data.append_raw(day_stats, "kpi_by_day_line")
 
@@ -800,7 +873,7 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
 
 
 @duracion
-def compute_kpi_by_service(ctx: StorageContext):
+def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     """
     Reads supply and demand data and computes KPI at service level
     for each day
@@ -809,15 +882,35 @@ def compute_kpi_by_service(ctx: StorageContext):
     ----------
     ctx : StorageContext
 
+    dia : str or None
+        Si se pasa un día, se procesa solo ese día (etapas y servicios filtrados
+        por `dia`) para acotar RAM. Con None se procesa el mes entero (JOIN
+        dias_ultima_corrida). El resultado por día es idéntico: todos los joins
+        demanda↔servicio son intra-día (d.dia = s.dia) y el dedup es por `id`.
+
+    clear_days : bool
+        Si True (default) borra las filas de la corrida de kpi_by_day_line_service
+        antes de appendear. En el loop por día se pasa False (el DELETE se hace
+        una sola vez en el orquestador).
+
     Returns
     -------
     None
 
     """
+    # Alcance por día vs mes-entero (ver docstring).
+    if dia is not None:
+        etapas_dia_join = ""
+        etapas_dia_filter = f"AND e.dia = '{dia}'"
+        supply_dia_filter = f"AND dia = '{dia}'"
+    else:
+        etapas_dia_join = "JOIN dias_ultima_corrida d ON e.dia = d.dia"
+        etapas_dia_filter = ""
+        supply_dia_filter = ""
 
     logger.debug("Leyendo demanda por servicios validos")
 
-    q_valid_services = """
+    q_valid_services = f"""
         WITH demand AS (
         SELECT
             e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
@@ -825,9 +918,10 @@ def compute_kpi_by_service(ctx: StorageContext):
             e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
             tt.distance_route, tt.distance_route_gps
         FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        {etapas_dia_join}
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
         WHERE e.od_validado = 1
+            {etapas_dia_filter}
             AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
         ),
         valid_services AS (
@@ -848,17 +942,17 @@ def compute_kpi_by_service(ctx: StorageContext):
     valid_demand = ctx.data.query(q_valid_services)
 
     logger.debug("Leyendo demanda por servicios invalidos")
-    q_invalid_services = """
+    q_invalid_services = f"""
         WITH demand AS (
             SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
                 epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
                 e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
                 tt.distance_route, tt.distance_route_gps
             FROM etapas e
-            JOIN dias_ultima_corrida d
-                ON e.dia = d.dia
+            {etapas_dia_join}
             LEFT JOIN travel_times_legs tt ON e.id = tt.id
             WHERE od_validado = 1
+            {etapas_dia_filter}
             AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
         ),
         valid_services AS (
@@ -925,13 +1019,13 @@ def compute_kpi_by_service(ctx: StorageContext):
     )
 
     # read supply service data
-    service_supply_q = """
+    service_supply_q = f"""
         SELECT
             dia, id_linea, id_ramal, interno, service_id,
             distance_route AS tot_km, distance_route_gps AS tot_km_gps,
             min_datetime, max_datetime
         FROM
-            services WHERE valid = 1
+            services WHERE valid = 1 {supply_dia_filter}
         """
     service_supply = ctx.data.query(service_supply_q)
 
@@ -985,9 +1079,10 @@ def compute_kpi_by_service(ctx: StorageContext):
     service_stats = service_stats.reindex(columns=cols)
 
     # get last processed days
-    dias_ultima_corrida = ctx.data.get_run_days()
-    values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
-    ctx.data.execute(f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})")
+    if clear_days:
+        dias_ultima_corrida = ctx.data.get_run_days()
+        values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+        ctx.data.execute(f"DELETE FROM kpi_by_day_line_service WHERE dia IN ({values})")
 
     ctx.data.append_raw(service_stats, "kpi_by_day_line_service")
 
@@ -1130,7 +1225,7 @@ def _build_speed_aggregates(legs, distance_col, speed_leg_col,
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
-def compute_speed_by_day_veh_hour(ctx: StorageContext):
+def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
     """
     Reads GPS data and computes average vehicle speed by (day, line, ramal,
     interno, hour) for each day.
@@ -1154,11 +1249,14 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext):
     """
     processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
 
+    dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
+
     q = f"""
     SELECT dia, id_linea, id_ramal, fecha, interno, velocity,
            distance_km, distance_servicio_mts
     FROM gps
     WHERE dia NOT IN ({processed_days})
+    {dia_filter}
     """
     gps_df = ctx.data.query(q)
 
@@ -1214,7 +1312,7 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext):
 
 
 @duracion
-def run_basic_kpi(ctx: StorageContext, id_linea=[]):
+def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
     # read already process days
     processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
 
@@ -1225,6 +1323,10 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
         WHERE od_validado = 1
         AND dia NOT IN ({processed_days})
     """
+    # Con dia se procesa un solo día (acota RAM); con None, todos los no procesados.
+    # Los KPI básicos son separables por día (todos los groupby llevan `dia`).
+    if dia is not None:
+        q += f" AND dia = '{dia}'"
     if len(id_linea) > 0:
         id_linea_str = ", ".join(map(str, id_linea))
         q += f" AND id_linea IN ({id_linea_str})"
@@ -1272,7 +1374,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
     # else compute commercial speed based on gps or demand
     else:
         if ctx.data.has_rows("gps"):
-            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx)
+            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx, dia=dia)
         else:
             # compute mean veh speed using demand data
             legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
@@ -1497,9 +1599,12 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[]):
 
     ctx.data.append_raw(kpi_by_line_day, "basic_kpi_by_line_day")
 
-    # compute aggregated stats by weekday and weekend
-    compute_basic_kpi_line_typeday(ctx)
-    compute_basic_kpi_line_hr_typeday(ctx)
+    # compute aggregated stats by weekday and weekend.
+    # En el loop por día (dia != None) se difieren al orquestador y se corren una
+    # sola vez al final (son cross-day y leen tablas ya agregadas).
+    if dia is None:
+        compute_basic_kpi_line_typeday(ctx)
+        compute_basic_kpi_line_hr_typeday(ctx)
 
 
 
@@ -1630,7 +1735,7 @@ def get_processed_days(ctx: StorageContext, table_name: str) -> str:
 
 
 @duracion
-def compute_dispatched_services_by_line_hour_day(ctx: StorageContext):
+def compute_dispatched_services_by_line_hour_day(ctx: StorageContext, dia=None):
     """
     Reads services' data and computes how many services
     by line, day and hour
@@ -1638,6 +1743,10 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext):
     Parameters
     ----------
     ctx : StorageContext
+
+    dia : str or None
+        Si se pasa, procesa solo ese día (acota RAM). Con None procesa todos los
+        días no procesados. El conteo por (id_linea, dia, hora) es separable por día.
 
     Returns
     -------
@@ -1655,6 +1764,8 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext):
     except Exception:
         processed_days = "''"
 
+    dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
+
     daily_services_q = f"""
     SELECT
         id_linea, dia, min_datetime
@@ -1663,6 +1774,7 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext):
     WHERE
         valid = 1
     AND dia NOT IN ({processed_days})
+    {dia_filter}
     """
 
     daily_services = ctx.data.query(daily_services_q)

@@ -437,7 +437,17 @@ def infer_destinations(ctx: StorageContext):
 
     has_selective_update = hasattr(ctx.data, "update_leg_destinations")
 
-    diag_slices = []   # accumulate lightweight slices for end-of-run diagnostics
+    # Diagnósticos de fin de corrida: en vez de acumular filas de TODOS los días
+    # (diag_slices + pd.concat del mes entero, un residuo de RAM grande — 7 columnas
+    # con h3_o/h3_d string × mes), se acumulan escalares/contadores por día. Todas
+    # las métricas observadas son asociativas (sumas de conteos por día). La única
+    # que cruzaría días (tasa por línea) NO se imprime ni se usa (diagnostico_destinos
+    # descarta su retorno), así que no se acumula.
+    diag_total = 0
+    diag_con_destino = 0
+    diag_od_mismo_h3 = 0
+    diag_tarjetas_unicas = 0
+    diag_con_destino_por_dia = {}   # {dia: conteo od_validado==1}
     fallback_full = [] # only used when update_leg_destinations is unavailable
 
     # Drop the index on (dia, od_validado) while the per-day UPDATEs run:
@@ -461,7 +471,18 @@ def infer_destinations(ctx: StorageContext):
             else:
                 fallback_full.append(etapas_dia)
 
-            diag_slices.append(etapas_dia[_DIAG_COLS].copy())
+            # acumular diagnósticos por día (sin retener las filas del mes)
+            _n_od = int((etapas_dia["od_validado"] == 1).sum())
+            diag_total += len(etapas_dia)
+            diag_con_destino += _n_od
+            diag_od_mismo_h3 += int(
+                (etapas_dia["h3_o"] == etapas_dia["h3_d"]).sum()
+            )
+            # 'dia' es constante dentro de etapas_dia → groupby solo por id_tarjeta
+            diag_tarjetas_unicas += int(
+                etapas_dia.groupby("id_tarjeta")["id"].count().eq(1).sum()
+            )
+            diag_con_destino_por_dia[dia] = _n_od
             del etapas_dia
     finally:
         if has_selective_update and hasattr(ctx.data, "end_leg_destination_updates"):
@@ -479,11 +500,40 @@ def infer_destinations(ctx: StorageContext):
             ctx.data.save_legs(etapas_completas)
         del etapas_completas
 
-    # Diagnostics over the full run using the accumulated lightweight slices
-    etapas_diag = pd.concat(diag_slices, ignore_index=True)
-    del diag_slices
-    calcular_indicadores_destinos_etapas(etapas_diag, ctx)
-    diagnostico_destinos(etapas_diag)
+    # Indicador "Cantidad de etapas con destinos validados" (por día): mismo efecto
+    # que calcular_indicadores_destinos_etapas(etapas_diag) pero con un frame ya
+    # agregado por día. agrego_indicador con var="indicador" + var_fex="" hace
+    # groupby("dia").sum() → idéntico al conteo por día de etapas od_validado==1.
+    # Se omiten los días con conteo 0 (el groupby original tampoco los emitía).
+    df_ind = pd.DataFrame(
+        [
+            {"dia": _d, "indicador": _n}
+            for _d, _n in diag_con_destino_por_dia.items()
+            if _n > 0
+        ],
+        columns=["dia", "indicador"],
+    )
+    agrego_indicador(
+        df_ind,
+        "Cantidad de etapas con destinos validados",
+        "etapas",
+        0,
+        var="indicador",
+        var_fex="",
+        ctx=ctx,
+    )
+
+    # Diagnóstico impreso (mismos números que diagnostico_destinos sobre el mes,
+    # reconstruidos desde los acumuladores por día).
+    tasa = round(diag_con_destino / diag_total * 100, 2) if diag_total else 0.0
+    print("=" * 50)
+    print("DIAGNÓSTICO DE IMPUTACIÓN DE DESTINOS")
+    print("=" * 50)
+    print(f"  Total etapas:           {diag_total:,}")
+    print(f"  Con destino validado:   {diag_con_destino:,} ({tasa}%)")
+    print(f"  Etapas O==D eliminadas: {diag_od_mismo_h3:,}")
+    print(f"  Tarjetas con 1 etapa:   {diag_tarjetas_unicas:,}")
+    print("=" * 50)
 
     logger.info("Etapas con destinos imputados guardadas")
     return None

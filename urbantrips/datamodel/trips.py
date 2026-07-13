@@ -55,249 +55,266 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
         logger.info("    listo en %.2fs", time.perf_counter() - start)
 
     logger.info("Calculando factores de expansión por etapa, línea y tarjeta")
-    run_step(
-        "Calculando factores en tabla temporal",
-        f"""
-        CREATE OR REPLACE TABLE _ut_etapas_fex AS
-        WITH base AS (
-            SELECT
-                e.*,
-                CASE
-                    WHEN e.latitud = 0 AND e.longitud = 0 THEN 0
-                    ELSE e.od_validado
-                END AS od_base
-            FROM etapas e
-            WHERE e.dia IN ({dias_str})
-        ),
-        factor_etapa AS (
-            SELECT
-                dia,
-                id_linea,
-                SUM(factor_expansion_original)
-                / NULLIF(
-                    SUM(CASE WHEN od_base = 1 THEN factor_expansion_original ELSE 0 END),
-                    0
-                ) AS ratio_etapa
-            FROM base
-            GROUP BY dia, id_linea
-        ),
-        tarjetas AS (
-            SELECT
-                dia,
-                id_tarjeta,
-                AVG(factor_expansion_original) AS factor_expansion_original,
-                MIN(od_base) AS od_validado
-            FROM base
-            GROUP BY dia, id_tarjeta
-        ),
-        ajuste_tarjeta AS (
-            SELECT
-                dia,
-                SUM(factor_expansion_original) AS peso_total,
-                SUM(CASE WHEN od_validado = 1 THEN factor_expansion_original ELSE 0 END)
-                    AS peso_valido
-            FROM tarjetas
-            GROUP BY dia
-        ),
-        factor_tarjeta AS (
-            SELECT
-                t.dia,
-                t.id_tarjeta,
-                COALESCE(
-                    t.factor_expansion_original
-                    * (a.peso_total / NULLIF(a.peso_valido, 0))
-                    * t.od_validado,
-                    0
-                ) AS factor_expansion_tarjeta
-            FROM tarjetas t
-            JOIN ajuste_tarjeta a USING (dia)
-        ),
-        base_tarjeta AS (
-            SELECT
-                b.*,
-                ft.factor_expansion_tarjeta AS factor_expansion_tarjeta_new,
-                CASE
-                    WHEN ft.factor_expansion_tarjeta = 0 THEN 0
-                    ELSE b.od_base
-                END AS od_final
-            FROM base b
-            JOIN factor_tarjeta ft USING (dia, id_tarjeta)
-        ),
-        factor_linea AS (
-            SELECT
-                pt.dia,
-                pt.id_linea,
-                (pt.peso_total / NULLIF(pv.peso_validas, 0))
-                * COALESCE(tl.transacciones / NULLIF(pt.peso_total, 0), 1) AS ratio_final
-            FROM (
-                SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_total
+
+    # Se procesa UN DÍA POR VEZ. Antes el CTAS de factores y el DELETE+INSERT de
+    # etapas abarcaban el mes entero en una sola transacción: el pico de RAM era
+    # DuckDB manteniendo la PRIMARY KEY de ~63M filas + la temporal _ut_etapas_fex
+    # del mes (ahí murió por OOM una corrida del mes). Todos los factores son
+    # separables por día (GROUP BY ... dia, JOIN USING(dia, ...)), viajes/usuarios
+    # agrupan por dia, y las tablas se reescriben con WHERE dia IN (...): por día el
+    # resultado es bit-idéntico y la transacción de reescritura se acota a ~1 día.
+    dias = sorted(dias_ultima_corrida["dia"].tolist())
+    for dia in dias:
+        dia_in = f"'{dia}'"
+        run_step(
+            f"[{dia}] Calculando factores en tabla temporal",
+            f"""
+            CREATE OR REPLACE TABLE _ut_etapas_fex AS
+            WITH base AS (
+                SELECT
+                    e.*,
+                    CASE
+                        WHEN e.latitud = 0 AND e.longitud = 0 THEN 0
+                        ELSE e.od_validado
+                    END AS od_base
+                FROM etapas e
+                WHERE e.dia IN ({dia_in})
+            ),
+            factor_etapa AS (
+                SELECT
+                    dia,
+                    id_linea,
+                    SUM(factor_expansion_original)
+                    / NULLIF(
+                        SUM(CASE WHEN od_base = 1 THEN factor_expansion_original ELSE 0 END),
+                        0
+                    ) AS ratio_etapa
                 FROM base
                 GROUP BY dia, id_linea
-            ) pt
-            LEFT JOIN (
-                SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_validas
-                FROM base_tarjeta
-                WHERE od_final = 1
-                GROUP BY dia, id_linea
-            ) pv USING (dia, id_linea)
-            LEFT JOIN transacciones_linea tl USING (dia, id_linea)
+            ),
+            tarjetas AS (
+                SELECT
+                    dia,
+                    id_tarjeta,
+                    AVG(factor_expansion_original) AS factor_expansion_original,
+                    MIN(od_base) AS od_validado
+                FROM base
+                GROUP BY dia, id_tarjeta
+            ),
+            ajuste_tarjeta AS (
+                SELECT
+                    dia,
+                    SUM(factor_expansion_original) AS peso_total,
+                    SUM(CASE WHEN od_validado = 1 THEN factor_expansion_original ELSE 0 END)
+                        AS peso_valido
+                FROM tarjetas
+                GROUP BY dia
+            ),
+            factor_tarjeta AS (
+                SELECT
+                    t.dia,
+                    t.id_tarjeta,
+                    COALESCE(
+                        t.factor_expansion_original
+                        * (a.peso_total / NULLIF(a.peso_valido, 0))
+                        * t.od_validado,
+                        0
+                    ) AS factor_expansion_tarjeta
+                FROM tarjetas t
+                JOIN ajuste_tarjeta a USING (dia)
+            ),
+            base_tarjeta AS (
+                SELECT
+                    b.*,
+                    ft.factor_expansion_tarjeta AS factor_expansion_tarjeta_new,
+                    CASE
+                        WHEN ft.factor_expansion_tarjeta = 0 THEN 0
+                        ELSE b.od_base
+                    END AS od_final
+                FROM base b
+                JOIN factor_tarjeta ft USING (dia, id_tarjeta)
+            ),
+            factor_linea AS (
+                SELECT
+                    pt.dia,
+                    pt.id_linea,
+                    (pt.peso_total / NULLIF(pv.peso_validas, 0))
+                    * COALESCE(tl.transacciones / NULLIF(pt.peso_total, 0), 1) AS ratio_final
+                FROM (
+                    SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_total
+                    FROM base
+                    GROUP BY dia, id_linea
+                ) pt
+                LEFT JOIN (
+                    SELECT dia, id_linea, SUM(factor_expansion_original) AS peso_validas
+                    FROM base_tarjeta
+                    WHERE od_final = 1
+                    GROUP BY dia, id_linea
+                ) pv USING (dia, id_linea)
+                LEFT JOIN transacciones_linea tl USING (dia, id_linea)
+            )
+            SELECT
+                bt.id,
+                bt.batch_id,
+                bt.id_tarjeta,
+                bt.dia,
+                bt.id_viaje,
+                bt.id_etapa,
+                bt.tiempo,
+                bt.hora,
+                bt.modo,
+                bt.id_linea,
+                bt.id_ramal,
+                bt.interno,
+                bt.genero,
+                bt.tarifa,
+                bt.latitud,
+                bt.longitud,
+                bt.h3_o,
+                bt.h3_d,
+                bt.od_final AS od_validado,
+                bt.od_base AS etapa_validada,
+                bt.factor_expansion_original,
+                COALESCE(bt.factor_expansion_original * fl.ratio_final * bt.od_final, 0)
+                    AS factor_expansion_linea,
+                bt.factor_expansion_tarjeta_new AS factor_expansion_tarjeta,
+                COALESCE(bt.factor_expansion_original * fe.ratio_etapa * bt.od_base, 0)
+                    AS factor_expansion_etapa,
+                bt.distancia,
+                bt.travel_time_min
+            FROM base_tarjeta bt
+            LEFT JOIN factor_etapa fe USING (dia, id_linea)
+            LEFT JOIN factor_linea fl USING (dia, id_linea)
+            """,
         )
-        SELECT
-            bt.id,
-            bt.batch_id,
-            bt.id_tarjeta,
-            bt.dia,
-            bt.id_viaje,
-            bt.id_etapa,
-            bt.tiempo,
-            bt.hora,
-            bt.modo,
-            bt.id_linea,
-            bt.id_ramal,
-            bt.interno,
-            bt.genero,
-            bt.tarifa,
-            bt.latitud,
-            bt.longitud,
-            bt.h3_o,
-            bt.h3_d,
-            bt.od_final AS od_validado,
-            bt.od_base AS etapa_validada,
-            bt.factor_expansion_original,
-            COALESCE(bt.factor_expansion_original * fl.ratio_final * bt.od_final, 0)
-                AS factor_expansion_linea,
-            bt.factor_expansion_tarjeta_new AS factor_expansion_tarjeta,
-            COALESCE(bt.factor_expansion_original * fe.ratio_etapa * bt.od_base, 0)
-                AS factor_expansion_etapa,
-            bt.distancia,
-            bt.travel_time_min
-        FROM base_tarjeta bt
-        LEFT JOIN factor_etapa fe USING (dia, id_linea)
-        LEFT JOIN factor_linea fl USING (dia, id_linea)
-        """,
-    )
-    run_step(
-        "Reemplazando etapas con factores calculados",
-        f"""
-        BEGIN TRANSACTION;
-        DELETE FROM etapas WHERE dia IN ({dias_str});
-        INSERT INTO etapas (
-            id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
-            hora, modo, id_linea, id_ramal, interno, genero, tarifa,
-            latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
-            factor_expansion_original, factor_expansion_linea,
-            factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-            travel_time_min
+        run_step(
+            f"[{dia}] Reemplazando etapas con factores calculados",
+            f"""
+            BEGIN TRANSACTION;
+            DELETE FROM etapas WHERE dia IN ({dia_in});
+            INSERT INTO etapas (
+                id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
+                hora, modo, id_linea, id_ramal, interno, genero, tarifa,
+                latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
+                factor_expansion_original, factor_expansion_linea,
+                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
+                travel_time_min
+            )
+            SELECT
+                id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
+                hora, modo, id_linea, id_ramal, interno, genero, tarifa,
+                latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
+                factor_expansion_original, factor_expansion_linea,
+                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
+                travel_time_min
+            FROM _ut_etapas_fex;
+            COMMIT;
+            """,
         )
-        SELECT
-            id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
-            hora, modo, id_linea, id_ramal, interno, genero, tarifa,
-            latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
-            factor_expansion_original, factor_expansion_linea,
-            factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-            travel_time_min
-        FROM _ut_etapas_fex;
-        COMMIT;
-        """,
-    )
-    
+
+        run_step(
+            f"[{dia}] Borrando viajes previos",
+            f"DELETE FROM viajes WHERE dia IN ({dia_in})",
+        )
+        run_step(
+            f"[{dia}] Insertando viajes",
+            f"""
+            INSERT INTO viajes (
+                id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo,
+                autobus, tren, metro, tranvia, brt, cable, lancha, otros,
+                h3_o, h3_d, genero, tarifa, od_validado,
+                factor_expansion_linea, factor_expansion_tarjeta
+            )
+            WITH trips AS (
+                SELECT
+                    id_tarjeta,
+                    id_viaje,
+                    dia,
+                    ARG_MIN(tiempo, id) AS tiempo,
+                    ARG_MIN(hora, id) AS hora,
+                    COUNT(*) AS cant_etapas,
+                    SUM(CASE WHEN modo = 'autobus' THEN 1 ELSE 0 END) AS autobus,
+                    SUM(CASE WHEN modo = 'tren' THEN 1 ELSE 0 END) AS tren,
+                    SUM(CASE WHEN modo = 'metro' THEN 1 ELSE 0 END) AS metro,
+                    SUM(CASE WHEN modo = 'tranvia' THEN 1 ELSE 0 END) AS tranvia,
+                    SUM(CASE WHEN modo = 'brt' THEN 1 ELSE 0 END) AS brt,
+                    SUM(CASE WHEN modo = 'cable' THEN 1 ELSE 0 END) AS cable,
+                    SUM(CASE WHEN modo = 'lancha' THEN 1 ELSE 0 END) AS lancha,
+                    SUM(CASE WHEN modo = 'otros' THEN 1 ELSE 0 END) AS otros,
+                    ARG_MIN(h3_o, id) AS h3_o,
+                    ARG_MAX(h3_d, id) AS h3_d,
+                    ARG_MIN(genero, id) AS genero,
+                    ARG_MIN(tarifa, id) AS tarifa,
+                    MIN(od_validado) AS od_validado,
+                    AVG(factor_expansion_linea) AS factor_expansion_linea,
+                    AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
+                FROM etapas
+                WHERE dia IN ({dia_in})
+                -- dia DEBE estar en la clave: id_viaje arranca en 1 por tarjeta
+                -- cada día, así que sin dia los viajes de una misma tarjeta en
+                -- días distintos colisionan y se funden en uno solo.
+                GROUP BY id_tarjeta, id_viaje, dia
+            ),
+            classified AS (
+                SELECT
+                    *,
+                    ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
+                     + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
+                     + (lancha > 0)::INT + (otros > 0)::INT) AS cant_modos,
+                    CASE
+                        WHEN ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
+                              + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
+                              + (lancha > 0)::INT + (otros > 0)::INT) > 1 THEN 'Multimodal'
+                        WHEN cant_etapas > 1 THEN 'Multietapa'
+                        WHEN autobus > 0 THEN 'autobus'
+                        WHEN tren > 0 THEN 'tren'
+                        WHEN metro > 0 THEN 'metro'
+                        WHEN tranvia > 0 THEN 'tranvia'
+                        WHEN brt > 0 THEN 'brt'
+                        WHEN cable > 0 THEN 'cable'
+                        WHEN lancha > 0 THEN 'lancha'
+                        WHEN otros > 0 THEN 'otros'
+                        ELSE ''
+                    END AS modo_viaje
+                FROM trips
+            )
+            SELECT
+                id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo_viaje,
+                autobus, tren, metro, tranvia, brt, cable, lancha, otros,
+                h3_o, h3_d, genero, tarifa, od_validado,
+                factor_expansion_linea, factor_expansion_tarjeta
+            FROM classified
+            """,
+        )
+
+        run_step(
+            f"[{dia}] Borrando usuarios previos",
+            f"DELETE FROM usuarios WHERE dia IN ({dia_in})",
+        )
+        run_step(
+            f"[{dia}] Insertando usuarios",
+            f"""
+            INSERT INTO usuarios (
+                id_tarjeta, dia, od_validado, cant_viajes,
+                factor_expansion_linea, factor_expansion_tarjeta
+            )
+            SELECT
+                id_tarjeta,
+                dia,
+                MIN(od_validado) AS od_validado,
+                COUNT(id_viaje) AS cant_viajes,
+                AVG(factor_expansion_linea) AS factor_expansion_linea,
+                AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
+            FROM viajes
+            WHERE dia IN ({dia_in})
+            GROUP BY dia, id_tarjeta
+            """,
+        )
+
     n_etapas = ctx.data.query(
         f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
     )["n"].iloc[0]
-    logger.info("Creando tabla de viajes de %d etapas", n_etapas)
-
-    run_step("Borrando viajes previos", f"DELETE FROM viajes WHERE dia IN ({dias_str})")
-    run_step(
-        "Insertando viajes",
-        f"""
-        INSERT INTO viajes (
-            id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo,
-            autobus, tren, metro, tranvia, brt, cable, lancha, otros,
-            h3_o, h3_d, genero, tarifa, od_validado,
-            factor_expansion_linea, factor_expansion_tarjeta
-        )
-        WITH trips AS (
-            SELECT
-                id_tarjeta,
-                id_viaje,
-                dia,
-                ARG_MIN(tiempo, id) AS tiempo,
-                ARG_MIN(hora, id) AS hora,
-                COUNT(*) AS cant_etapas,
-                SUM(CASE WHEN modo = 'autobus' THEN 1 ELSE 0 END) AS autobus,
-                SUM(CASE WHEN modo = 'tren' THEN 1 ELSE 0 END) AS tren,
-                SUM(CASE WHEN modo = 'metro' THEN 1 ELSE 0 END) AS metro,
-                SUM(CASE WHEN modo = 'tranvia' THEN 1 ELSE 0 END) AS tranvia,
-                SUM(CASE WHEN modo = 'brt' THEN 1 ELSE 0 END) AS brt,
-                SUM(CASE WHEN modo = 'cable' THEN 1 ELSE 0 END) AS cable,
-                SUM(CASE WHEN modo = 'lancha' THEN 1 ELSE 0 END) AS lancha,
-                SUM(CASE WHEN modo = 'otros' THEN 1 ELSE 0 END) AS otros,
-                ARG_MIN(h3_o, id) AS h3_o,
-                ARG_MAX(h3_d, id) AS h3_d,
-                ARG_MIN(genero, id) AS genero,
-                ARG_MIN(tarifa, id) AS tarifa,
-                MIN(od_validado) AS od_validado,
-                AVG(factor_expansion_linea) AS factor_expansion_linea,
-                AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
-            FROM etapas
-            WHERE dia IN ({dias_str})
-            -- dia DEBE estar en la clave: id_viaje arranca en 1 por tarjeta
-            -- cada día, así que sin dia los viajes de una misma tarjeta en
-            -- días distintos colisionan y se funden en uno solo.
-            GROUP BY id_tarjeta, id_viaje, dia
-        ),
-        classified AS (
-            SELECT
-                *,
-                ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
-                 + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
-                 + (lancha > 0)::INT + (otros > 0)::INT) AS cant_modos,
-                CASE
-                    WHEN ((autobus > 0)::INT + (tren > 0)::INT + (metro > 0)::INT
-                          + (tranvia > 0)::INT + (brt > 0)::INT + (cable > 0)::INT
-                          + (lancha > 0)::INT + (otros > 0)::INT) > 1 THEN 'Multimodal'
-                    WHEN cant_etapas > 1 THEN 'Multietapa'
-                    WHEN autobus > 0 THEN 'autobus'
-                    WHEN tren > 0 THEN 'tren'
-                    WHEN metro > 0 THEN 'metro'
-                    WHEN tranvia > 0 THEN 'tranvia'
-                    WHEN brt > 0 THEN 'brt'
-                    WHEN cable > 0 THEN 'cable'
-                    WHEN lancha > 0 THEN 'lancha'
-                    WHEN otros > 0 THEN 'otros'
-                    ELSE ''
-                END AS modo_viaje
-            FROM trips
-        )
-        SELECT
-            id_tarjeta, id_viaje, dia, tiempo, hora, cant_etapas, modo_viaje,
-            autobus, tren, metro, tranvia, brt, cable, lancha, otros,
-            h3_o, h3_d, genero, tarifa, od_validado,
-            factor_expansion_linea, factor_expansion_tarjeta
-        FROM classified
-        """,
-    )
-
-    run_step("Borrando usuarios previos", f"DELETE FROM usuarios WHERE dia IN ({dias_str})")
-    run_step(
-        "Insertando usuarios",
-        f"""
-        INSERT INTO usuarios (
-            id_tarjeta, dia, od_validado, cant_viajes,
-            factor_expansion_linea, factor_expansion_tarjeta
-        )
-        SELECT
-            id_tarjeta,
-            dia,
-            MIN(od_validado) AS od_validado,
-            COUNT(id_viaje) AS cant_viajes,
-            AVG(factor_expansion_linea) AS factor_expansion_linea,
-            AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
-        FROM viajes
-        WHERE dia IN ({dias_str})
-        GROUP BY dia, id_tarjeta
-        """,
-    )
+    logger.info("Viajes y usuarios creados a partir de %d etapas", n_etapas)
 
     totals = ctx.data.query(f"""
         SELECT

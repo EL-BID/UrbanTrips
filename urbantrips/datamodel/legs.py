@@ -561,37 +561,49 @@ def assign_gps_origin(ctx: StorageContext):
     """
     configs = leer_configs_generales(autogenerado=False)
     usa_gps = configs.get("usa_archivo_gps", False)
-    
 
-    if usa_gps:
+    if not usa_gps:
+        return
+
+    # Se procesa UN DÍA POR VEZ para acotar el pico de RAM (antes se levantaban
+    # etapas y gps del mes entero de una sola vez). El merge_asof usa dia dentro
+    # de `by`, así que el emparejamiento nunca cruza días: el resultado por día es
+    # idéntico al del mes entero. La tabla existe por schema; se limpia una vez
+    # (reemplaza la semántica de save_raw de la versión mes-entero) y luego se
+    # appendea por día.
+    dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+    dias_str = ", ".join(f"'{d}'" for d in dias)
+    if dias_str:
+        try:
+            ctx.data.execute(
+                f"DELETE FROM legs_to_gps_origin WHERE dia IN ({dias_str})"
+            )
+        except Exception as e:
+            logger.debug("[assign_gps_origin] DELETE omitido: %s", e)
+
+    cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
+    for dia in dias:
         legs = ctx.data.query(
-            """
+            f"""
             SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id
             FROM etapas e
-            JOIN dias_ultima_corrida d
-            ON e.dia = d.dia
+            WHERE e.dia = '{dia}'
             """
         )
-        legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
-
         gps = ctx.data.query(
-            """
+            f"""
             SELECT g.dia, g.id_linea, g.id_ramal, g.interno, g.fecha, g.id
             FROM gps g
-            JOIN dias_ultima_corrida d
-            ON g.dia = d.dia
+            WHERE g.dia = '{dia}'
             """
         )
         if gps.empty or legs.empty:
-            ctx.data.save_raw(
-                pd.DataFrame(columns=["dia", "id_legs", "id_gps"]),
-                "legs_to_gps_origin",
-            )
-            return
+            del legs, gps
+            continue
 
+        legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
         gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
 
-        cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
         legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
         gps_to_join = gps.reindex(columns=cols).sort_values("fecha")
 
@@ -609,7 +621,10 @@ def assign_gps_origin(ctx: StorageContext):
             columns=["dia", "id_legs", "id_gps"]
         ).dropna()
 
-        ctx.data.save_raw(legs_to_gps_o, "legs_to_gps_origin")
+        ctx.data.append_raw(legs_to_gps_o, "legs_to_gps_origin")
+
+        del legs, gps, legs_to_join, gps_to_join, legs_to_gps_o
+        gc.collect()
 
 
 @duracion
@@ -1058,26 +1073,9 @@ def assign_stations_od(ctx: StorageContext):
             )
             return
 
-        # read legs without travel time in gps and distances
-        legs = ctx.data.query(
-            """
-            SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d
-            FROM etapas e
-            LEFT JOIN travel_times_gps tt
-            ON e.dia = tt.dia AND e.id = tt.id
-            WHERE tt.id IS NULL
-            AND e.etapa_validada = 1
-            """
-        )
-        
-        if len(legs) == 0:
-            logger.info("No hay etapas sin tiempo de viaje asignado. assign_stations_od no tiene nada que procesar.")
-            return
-        
-        # read stations data
+        # Insumos estáticos (no dependen del día): se construyen UNA sola vez fuera
+        # del loop. Antes esto estaba después de leer etapas del mes entero.
         epsg_m = get_epsg_m()
-
-        travel_times_stations = ctx.insumos.get_travel_times_stations()
 
         stations_o = (
             travel_times_stations.reindex(
@@ -1122,121 +1120,168 @@ def assign_stations_od(ctx: StorageContext):
 
         stations = stations.to_crs(epsg=epsg_m)
 
-        # classify legs' origin and destination with station id
-        legs_with_origin_station = (
-            legs.groupby(["id_linea"])
-            .apply(
-                classify_leg_into_station,
-                stations=stations,
-                leg_h3_field="h3_o",
-                join_branch_id=False,
+        # Se procesa UN DÍA POR VEZ para acotar RAM: antes se levantaba etapas del mes
+        # entero (~63M filas) al DataFrame `legs`. Cada etapa se clasifica por sus
+        # h3_o/h3_d contra `stations` (insumo estático) y los tiempos salen de lookups
+        # O→D estáticos → sin dependencia inter-día, resultado idéntico por día.
+        # Los días se derivan de todas las etapas presentes (la query original NO
+        # filtraba por dias_ultima_corrida), no de get_run_days.
+        dias = sorted(ctx.data.query("SELECT DISTINCT dia FROM etapas")["dia"].tolist())
+        dias_str = ", ".join(f"'{d}'" for d in dias)
+        for _tabla in (
+            "legs_to_station_origin",
+            "legs_to_station_destination",
+            "travel_times_stations",
+        ):
+            if dias_str:
+                try:
+                    ctx.data.execute(f"DELETE FROM {_tabla} WHERE dia IN ({dias_str})")
+                except Exception as e:
+                    logger.debug(
+                        "[assign_stations_od] DELETE omitido en %s: %s", _tabla, e
+                    )
+
+        for dia in dias:
+            # read legs without travel time in gps and distances (un día)
+            legs = ctx.data.query(
+                f"""
+                SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d
+                FROM etapas e
+                LEFT JOIN travel_times_gps tt
+                ON e.dia = tt.dia AND e.id = tt.id
+                WHERE tt.id IS NULL
+                AND e.etapa_validada = 1
+                AND e.dia = '{dia}'
+                """
             )
-            .reset_index(drop=True)
-            .rename(columns={"id_station": "id_station_o"})
-        )
 
-        logger.info(
-            "Etapas clasificadas en estaciones de origen: %.1f%%",
-            len(legs_with_origin_station) / len(legs) * 100,
-        )
+            if len(legs) == 0:
+                del legs
+                continue
 
-        legs_with_destination_station = (
-            legs.groupby(["id_linea"])
-            .apply(
-                classify_leg_into_station,
-                stations=stations,
-                leg_h3_field="h3_d",
-                join_branch_id=False,
+            # classify legs' origin and destination with station id
+            legs_with_origin_station = (
+                legs.groupby(["id_linea"])
+                .apply(
+                    classify_leg_into_station,
+                    stations=stations,
+                    leg_h3_field="h3_o",
+                    join_branch_id=False,
+                )
+                .reset_index(drop=True)
+                .rename(columns={"id_station": "id_station_o"})
             )
-            .reset_index(drop=True)
-            .rename(columns={"id_station": "id_station_d"})
-        )
 
-        logger.info(
-            "Etapas clasificadas en estaciones de destino: %.1f%%",
-            len(legs_with_destination_station) / len(legs) * 100,
-        )
-
-        # upload od station into db
-        stations_o = legs_with_origin_station.rename(
-            columns={"id_station_o": "id_station"}
-        ).reindex(columns=["dia", "id_legs", "id_station"])
-
-        stations_d = legs_with_destination_station.rename(
-            columns={"id_station_d": "id_station"}
-        ).reindex(columns=["dia", "id_legs", "id_station"])
-
-        ctx.data.save_raw(stations_o, "legs_to_station_origin")
-        ctx.data.save_raw(stations_d, "legs_to_station_destination")
-        
-        del stations_o
-        del stations_d
-
-        # add stations to legs data
-        travel_times = (
-            legs.reindex(columns=["dia", "id", "id_linea", "distance_od"])
-            .merge(
-                legs_with_origin_station,
-                left_on=["id"],
-                right_on=["id_legs"],
-                how="left",
-            )
-            .merge(
-                legs_with_destination_station,
-                left_on=["id"],
-                right_on=["id_legs"],
-                how="left",
-            )
-            .drop(["id_legs_x", "id_legs_y", "dia_x", "dia_y"], axis=1)
-            .dropna(subset=["id_station_o", "id_station_d"])
-        )
-
-        if len(travel_times) == 0:
-            logger.info("No hay etapas con estaciones OD asignadas.")
-        else:
             logger.info(
-                "Etapas clasificadas en la misma estación OD: %.1f%%",
-                len(travel_times[travel_times.id_station_o == travel_times.id_station_d])
-                / len(travel_times) * 100,
+                "Día %s — etapas clasificadas en estaciones de origen: %.1f%%",
+                dia,
+                len(legs_with_origin_station) / len(legs) * 100,
             )
 
-        travel_times = travel_times.loc[
-            travel_times.id_station_o != travel_times.id_station_d, :
-        ]
+            legs_with_destination_station = (
+                legs.groupby(["id_linea"])
+                .apply(
+                    classify_leg_into_station,
+                    stations=stations,
+                    leg_h3_field="h3_d",
+                    join_branch_id=False,
+                )
+                .reset_index(drop=True)
+                .rename(columns={"id_station": "id_station_d"})
+            )
 
-        # compute travel time
-        travel_times = travel_times.merge(
-            travel_times_stations.reindex(columns=["id_o", "id_d", "travel_time_min"]),
-            left_on=["id_station_o", "id_station_d"],
-            right_on=["id_o", "id_d"],
-            how="left",
-        )
+            logger.info(
+                "Día %s — etapas clasificadas en estaciones de destino: %.1f%%",
+                dia,
+                len(legs_with_destination_station) / len(legs) * 100,
+            )
 
-        logger.info(
-            "Sin tiempos de viaje: %.1f%%",
-            travel_times.travel_time_min.isna().sum() / len(travel_times) * 100,
-        )
-        travel_times = travel_times.dropna(subset=["travel_time_min"])
-        travel_times.loc[:, "kmh_od"] = (
-            travel_times.loc[:, "distance_od"]
-            / (travel_times.loc[:, "travel_time_min"] / 60)
-        ).round(1)
+            # upload od station into db
+            stations_o = legs_with_origin_station.rename(
+                columns={"id_station_o": "id_station"}
+            ).reindex(columns=["dia", "id_legs", "id_station"])
 
-        travel_times.loc[
-            (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
-            "kmh_od",
-        ] = np.nan
+            stations_d = legs_with_destination_station.rename(
+                columns={"id_station_d": "id_station"}
+            ).reindex(columns=["dia", "id_legs", "id_station"])
 
-        # upload to db
-        travel_times = travel_times.reindex(
-            columns=["dia", "id", "travel_time_min", "kmh_od"]
-        )
-        
-        travel_times = travel_times.reindex(
-            columns=["dia", "id", "travel_time_min", "travel_speed"]
-        )
-        
-        ctx.data.save_raw(travel_times, "travel_times_stations")
+            ctx.data.append_raw(stations_o, "legs_to_station_origin")
+            ctx.data.append_raw(stations_d, "legs_to_station_destination")
+
+            del stations_o
+            del stations_d
+
+            # add stations to legs data
+            travel_times = (
+                legs.reindex(columns=["dia", "id", "id_linea", "distance_od"])
+                .merge(
+                    legs_with_origin_station,
+                    left_on=["id"],
+                    right_on=["id_legs"],
+                    how="left",
+                )
+                .merge(
+                    legs_with_destination_station,
+                    left_on=["id"],
+                    right_on=["id_legs"],
+                    how="left",
+                )
+                .drop(["id_legs_x", "id_legs_y", "dia_x", "dia_y"], axis=1)
+                .dropna(subset=["id_station_o", "id_station_d"])
+            )
+
+            if len(travel_times) == 0:
+                logger.info("Día %s — no hay etapas con estaciones OD asignadas.", dia)
+            else:
+                logger.info(
+                    "Día %s — etapas clasificadas en la misma estación OD: %.1f%%",
+                    dia,
+                    len(travel_times[travel_times.id_station_o == travel_times.id_station_d])
+                    / len(travel_times) * 100,
+                )
+
+            travel_times = travel_times.loc[
+                travel_times.id_station_o != travel_times.id_station_d, :
+            ]
+
+            # compute travel time
+            travel_times = travel_times.merge(
+                travel_times_stations.reindex(columns=["id_o", "id_d", "travel_time_min"]),
+                left_on=["id_station_o", "id_station_d"],
+                right_on=["id_o", "id_d"],
+                how="left",
+            )
+
+            if len(travel_times) > 0:
+                logger.info(
+                    "Día %s — sin tiempos de viaje: %.1f%%",
+                    dia,
+                    travel_times.travel_time_min.isna().sum() / len(travel_times) * 100,
+                )
+            travel_times = travel_times.dropna(subset=["travel_time_min"])
+            travel_times.loc[:, "kmh_od"] = (
+                travel_times.loc[:, "distance_od"]
+                / (travel_times.loc[:, "travel_time_min"] / 60)
+            ).round(1)
+
+            travel_times.loc[
+                (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
+                "kmh_od",
+            ] = np.nan
+
+            # upload to db
+            travel_times = travel_times.reindex(
+                columns=["dia", "id", "travel_time_min", "kmh_od"]
+            )
+
+            travel_times = travel_times.reindex(
+                columns=["dia", "id", "travel_time_min", "travel_speed"]
+            )
+
+            ctx.data.append_raw(travel_times, "travel_times_stations")
+
+            del legs, legs_with_origin_station, legs_with_destination_station, travel_times
+            gc.collect()
 
 def add_distance_and_travel_time(ctx: StorageContext):
     """
@@ -1247,43 +1292,55 @@ def add_distance_and_travel_time(ctx: StorageContext):
 
     logger.info("Agregando distancias y tiempos de viaje a las etapas")
 
-    # Leer etapas válidas de la última corrida
-    legs = ctx.data.query(
-        """
-        SELECT e.id, e.h3_d, e.h3_o
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        WHERE e.od_validado = 1
-        """
-    )
-    
-    # Calcular distancias
-    legs = compute_od_distances(
-        od_df=legs,
-        origin_col="h3_o",
-        dest_col="h3_d",
-        distance_col="distance",
-        unit="km",
-        symmetric=False,
-        precompute_dist=50_000,
-        max_tile_deg=99,
-        verbose=True,
-        ctx=ctx,
-    )
+    # Se procesa UN DÍA POR VEZ para acotar RAM: antes se levantaba etapas de toda la
+    # corrida (mes) al DataFrame `legs`. compute_od_distances calcula la distancia
+    # h3_o→h3_d por fila (sin dependencia inter-día) → resultado idéntico por día.
+    dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
-    # Guardar tabla temporal con distancias
-    ctx.data.save_raw(legs, "temp_distancias")
+    for dia in dias:
+        # Leer etapas válidas del día
+        legs = ctx.data.query(
+            f"""
+            SELECT e.id, e.h3_d, e.h3_o
+            FROM etapas e
+            WHERE e.od_validado = 1 AND e.dia = '{dia}'
+            """
+        )
+        if len(legs) == 0:
+            del legs
+            continue
 
-    logger.debug("Actualizando distancias a etapas")
-    ctx.data.execute(
-        """
-        UPDATE etapas
-        SET distancia = temp_distancias.distance
-        FROM temp_distancias
-        WHERE etapas.id = temp_distancias.id
-        """
-    )
+        # Calcular distancias
+        legs = compute_od_distances(
+            od_df=legs,
+            origin_col="h3_o",
+            dest_col="h3_d",
+            distance_col="distance",
+            unit="km",
+            symmetric=False,
+            precompute_dist=50_000,
+            max_tile_deg=99,
+            verbose=True,
+            ctx=ctx,
+        )
 
+        # Guardar tabla temporal con distancias (se recrea por día) y actualizar etapas
+        ctx.data.save_raw(legs, "temp_distancias")
+        logger.debug("Día %s — actualizando distancias a etapas", dia)
+        ctx.data.execute(
+            """
+            UPDATE etapas
+            SET distancia = temp_distancias.distance
+            FROM temp_distancias
+            WHERE etapas.id = temp_distancias.id
+            """
+        )
+        del legs
+        gc.collect()
+
+    ctx.data.execute("DROP TABLE IF EXISTS temp_distancias")
+
+    # Tiempos de viaje: UPDATE SQL puro (join por id, sin pandas) → una sola vez.
     logger.debug("Actualizando tiempos de viaje a etapas")
     ctx.data.execute(
         """
@@ -1293,7 +1350,5 @@ def add_distance_and_travel_time(ctx: StorageContext):
         WHERE etapas.id = travel_times_legs.id
         """
     )
-
-    ctx.data.execute("DROP TABLE IF EXISTS temp_distancias")
 
     

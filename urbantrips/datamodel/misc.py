@@ -328,20 +328,53 @@ def persist_indicators(ctx: StorageContext):
         )
     )
 
-    viajes_median = ctx.data.query(
-        """
-        SELECT dia, modo, distancia AS distance_od, factor_expansion_linea
-        FROM viajes
-        WHERE od_validado = 1
-          AND distancia IS NOT NULL
-        """
+    # Mediana ponderada de distancia de viajes: se computa DÍA POR DÍA para no
+    # levantar toda la tabla `viajes` del mes a pandas (weightedstats no tiene
+    # equivalente SQL). Es separable: _weighted_median_rows agrupa por dia (o
+    # dia,modo) → la mediana nunca cruza días, resultado idéntico. Los días se
+    # derivan de la MISMA población que la query original (todos los viajes válidos
+    # con distancia), no de dias_ultima_corrida, para preservar el alcance exacto.
+    _dias_df = ctx.data.query(
+        "SELECT DISTINCT dia FROM viajes "
+        "WHERE od_validado = 1 AND distancia IS NOT NULL"
+    )
+    dias = sorted(_dias_df["dia"].tolist())
+    _median_total = []
+    _median_by_mode = []
+    for _dia in dias:
+        viajes_median = ctx.data.query(
+            f"""
+            SELECT dia, modo, distancia AS distance_od, factor_expansion_linea
+            FROM viajes
+            WHERE od_validado = 1
+              AND distancia IS NOT NULL
+              AND dia = '{_dia}'
+            """
+        )
+        if viajes_median.empty:
+            continue
+        _median_total.append(
+            _weighted_median_rows(
+                viajes_median,
+                "Distancia de los viajes (mediana en kms)",
+                "avg",
+            )
+        )
+        _median_by_mode.append(
+            _weighted_median_rows(
+                viajes_median[viajes_median["modo"].notna()].copy(),
+                "Distancia de los viajes (mediana en kms)",
+                "avg",
+                by_mode=True,
+            )
+        )
+        del viajes_median
+
+    _empty_median = pd.DataFrame(
+        columns=["dia", "detalle", "indicador", "tabla", "nivel"]
     )
     indicator_rows.append(
-        _weighted_median_rows(
-            viajes_median,
-            "Distancia de los viajes (mediana en kms)",
-            "avg",
-        )
+        pd.concat(_median_total, ignore_index=True) if _median_total else _empty_median
     )
 
     viajes_modo_mean = ctx.data.query(
@@ -369,12 +402,7 @@ def persist_indicators(ctx: StorageContext):
         )
 
     indicator_rows.append(
-        _weighted_median_rows(
-            viajes_median[viajes_median["modo"].notna()].copy(),
-            "Distancia de los viajes (mediana en kms)",
-            "avg",
-            by_mode=True,
-        )
+        pd.concat(_median_by_mode, ignore_index=True) if _median_by_mode else _empty_median
     )
 
     indicator_rows.append(

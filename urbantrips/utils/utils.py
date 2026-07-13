@@ -529,86 +529,57 @@ def _executemany_df(
 
     # print(f"Escritura en {table_name} - Total finalizado en {(time.time()-t0)/60:.1f} min")
 
+from urbantrips.dashboard.dash_storage import (
+    _load_yaml_simple,
+    _find_first_valid_yaml,
+    leer_configs_generales,
+    resolve_db_aliases,
+    normalize_vars,
+    _fetch_sql_dataframe,
+    get_project_root,
+)
 
-def levanto_tabla_sql(
-    tabla_sql,
-    tabla_tipo="dash",
-    query="",
-    alias_db="",
-    index_cols=None,
-):
-    """
-    Lee una tabla SQLite y la devuelve como DataFrame.
-    Si la tabla tiene columna 'wkt', devuelve GeoDataFrame (CRS 4326).
-    Si la tabla no existe, devuelve DataFrame vacío.
-
-    Parameters
-    ----------
-    tabla_sql : str
-        Nombre de la tabla.
-    tabla_tipo : str
-        DB a conectar: "dash" (default), "data", "insumos", "general".
-    query : str
-        Query personalizada. Si se omite, ejecuta SELECT * FROM tabla_sql.
-    alias_db : str
-        Prefijo del archivo SQLite. Si se omite, se lee desde configuración.
-    index_cols : list of str
-        Columnas sobre las que crear índices (CREATE INDEX IF NOT EXISTS).
-        Mejora performance en JOINs y filtros. Default: None.
-
-    Examples
-    --------
-    # Lectura simple
-    etapas = levanto_tabla_sql("etapas", tabla_tipo="data")
-
-    # Query personalizada con índice
-    etapas = levanto_tabla_sql(
-        "etapas",
-        tabla_tipo="data",
-        query="SELECT e.* FROM etapas e JOIN dias_ultima_corrida d ON e.dia = d.dia",
-        index_cols=["dia"],
-    )
-    """
-
+def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
-    _aplicar_pragmas_wal(conn)
-
-    if index_cols:
+    if len(query) == 0:
         tabla_sql = validate_table_name(tabla_sql)
-        for col in index_cols:
-            col = validate_table_name(col)
-            idx_name = f"idx_{tabla_sql}_{col}"
-            conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tabla_sql}({col})")
-        conn.commit()
+        query = f"SELECT * FROM {tabla_sql}"
+
+    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
 
     try:
-        if len(query) == 0:
-            tabla_sql = validate_table_name(tabla_sql)
-            query = f"SELECT * FROM {tabla_sql}"
-        tabla = pd.read_sql_query(query, conn)
-    except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as e:
-        if "no such table" in str(e):
-            logger.debug("La tabla '%s' no existe.", tabla_sql)
+        tabla = _fetch_sql_dataframe(conn, query, params=params)
+    except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
+        error_message = str(e).lower()
+        if "no such table" in error_message or "does not exist" in error_message:
+            logger.warning("La tabla '%s' no existe.", tabla_sql)
             tabla = pd.DataFrame([])
         else:
             raise
-
-    conn.close()
+    finally:
+        conn.close()
 
     if "wkt" in tabla.columns and not tabla.empty:
-        tabla["geometry"] = tabla.wkt.apply(wkt.loads)
-        tabla = tabla.drop(["wkt"], axis=1)
-    if "geometry" in tabla.columns and not tabla.empty:
-        # La columna 'geometry' puede venir como texto WKT (convención de
-        # save_raw del pipeline para poligonos/zonificaciones); en ese caso
-        # hay que parsearla antes de construir el GeoDataFrame.
-        if tabla["geometry"].map(lambda g: isinstance(g, str)).any():
+        tabla["geometry"] = tabla["wkt"].apply(wkt.loads)
+        tabla = tabla.drop(columns=["wkt"])
+
+    elif "geometry" in tabla.columns and not tabla.empty:
+        sample_geom = tabla["geometry"].dropna().iloc[0] if tabla["geometry"].notna().any() else None
+
+        if isinstance(sample_geom, str):
             tabla["geometry"] = tabla["geometry"].apply(
-                lambda x: wkt.loads(x) if isinstance(x, str) and x.strip() else x
+                lambda x: wkt.loads(x) if pd.notna(x) else None
             )
+
+        elif sample_geom is not None and not isinstance(sample_geom, BaseGeometry):
+            raise TypeError(
+                f"La columna geometry existe pero no contiene geometrías válidas. "
+                f"Tipo detectado: {type(sample_geom)}"
+            )
+
+    if "geometry" in tabla.columns and not tabla.empty:
         tabla = gpd.GeoDataFrame(
             tabla,
             geometry="geometry",
@@ -618,7 +589,9 @@ def levanto_tabla_sql(
     tabla = normalize_vars(tabla)
 
     return tabla
-
+    
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
+    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
 
 def guardar_tabla_sql(
     df, table_name, tabla_tipo="dash", filtros=None, alias_db="", modo="append"
