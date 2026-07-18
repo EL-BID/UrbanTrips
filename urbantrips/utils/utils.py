@@ -7,6 +7,7 @@ import time
 from functools import wraps
 from pathlib import Path
 
+import duckdb
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -573,7 +574,7 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
                 lambda x: wkt.loads(x) if pd.notna(x) else None
             )
 
-        elif sample_geom is not None and not isinstance(sample_geom, BaseGeometry):
+        elif sample_geom is not None and not isinstance(sample_geom, shapely_geom.BaseGeometry):
             raise TypeError(
                 f"La columna geometry existe pero no contiene geometrías válidas. "
                 f"Tipo detectado: {type(sample_geom)}"

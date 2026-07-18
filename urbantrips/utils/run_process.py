@@ -196,15 +196,16 @@ def _configured_n_batches() -> int | None:
     return n if n > 0 else None
 
 
-def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.30) -> int:
+def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.40) -> int:
     """Compute n_batches from RAM and CPU so workers stay saturated.
 
     safety_factor = fracción de la RAM DISPONIBLE que puede ocupar el chunk de
     create_legs (cpu_workers batches simultáneos). El pico de datos ≈
     safety_factor × RAM_disponible; sumado al memory_limit de DuckDB y al overhead
-    de pandas da el pico total del paso legs. Se bajó de 0.40 a 0.30 para dejar más
-    headroom (a 0.40 el paso legs picaba ~50 GB de ~51.6 GB libres). Subir hacia
-    0.40 acelera (chunks más grandes, menos rondas de workers) a costa de margen.
+    de pandas da el pico total del paso legs. A 0.40 create_legs picó 50.4 GB en la
+    máquina de 68.6 GB y completó sin OOM (corrida validada 7/10); menos batches =
+    menos rondas de workers = menos re-escaneos de `transacciones` en Fase 2. Bajar
+    hacia 0.30 da más headroom a costa de más rondas (Fase 2 más lenta).
     """
     import psutil
 
@@ -585,14 +586,25 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     if batches is None:
         trips.rearrange_trip_id_same_od(ctx)
     else:
-        n = len(batches)
-        logger.info("Iniciando rearrange_trip_id_same_od (%d batches)", n)
+        # Recorrido por DÍA, no por batch. rearrange es día-separable: todas sus
+        # operaciones agrupan por (dia, id_tarjeta, ...) y ningún cálculo cruza
+        # días, así que particionar por día produce el mismo resultado que por
+        # batch (ambos preservan íntegro cada grupo dia×tarjeta). Motivo del
+        # cambio: tras el rebuild de destinos etapas queda físicamente ordenada
+        # por dia → WHERE dia poda row-groups, mientras que el particionado por
+        # batch_id perdió su soporte físico y cada uno de los ~150 batches
+        # barría la tabla completa (65 min → 414 min a escala de mes, medido).
+        # El UPDATE de vuelta también poda ahora (dia= en update_leg_trip_ids).
+        # RAM: un día (~6M filas) ≈ lo que ya levanta assign_time_distances.
+        dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+        n = len(dias)
+        logger.info("Iniciando rearrange_trip_id_same_od (%d días)", n)
         ts_total = time.perf_counter()
-        for batch in batches:
-            logger.info("  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n)
-            trips.rearrange_trip_id_same_od(ctx, batch=batch, _silent=True)
+        for i, dia in enumerate(dias, 1):
+            logger.info("  [rearrange_trip_id_same_od] día %d/%d (%s)", i, n, dia)
+            trips.rearrange_trip_id_same_od(ctx, dia=dia, _silent=True)
         logger.info(
-            "Finalizado rearrange_trip_id_same_od (%d batches, %.2fs)",
+            "Finalizado rearrange_trip_id_same_od (%d días, %.2fs)",
             n, time.perf_counter() - ts_total,
         )
 
@@ -610,15 +622,19 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     # create_trips_from_legs_and_fex rewrites the whole etapas table
     # (DELETE+INSERT of ~63M rows). With the secondary ART indexes active that
     # rewrite dominates Phase 4 (~68 min of silent tail at full-week scale), so
-    # drop them for the duration and recreate once afterwards.
+    # drop them for the duration and recreate once afterwards. Unlike Phase 2,
+    # nothing in Phase 4 deletes or queries etapas by batch_id, so idx_etapas_batch
+    # is dropped too instead of being maintained row by row across the rewrite.
     if hasattr(ctx.data, "begin_bulk_leg_writes"):
-        ctx.data.begin_bulk_leg_writes()
+        ctx.data.begin_bulk_leg_writes(drop_batch_index=True)
     try:
         trips.create_trips_from_legs_and_fex(ctx)
     finally:
         if hasattr(ctx.data, "end_bulk_leg_writes"):
             ctx.data.end_bulk_leg_writes()
-    trips.add_distance_and_travel_time(ctx)
+    # Las distancias y tiempos por viaje ya están en travel_times_trips (Fase 3,
+    # assign_time_distances). No se recalculan sobre la tabla viajes: los
+    # consumidores (persist_indicators, dashboard) leen travel_times_trips.
 
 
 def run_ingest(ctx: StorageContext) -> None:

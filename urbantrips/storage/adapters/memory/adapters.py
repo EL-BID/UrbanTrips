@@ -77,7 +77,9 @@ class InMemoryDataAdapter:
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         self._append("etapas", df)
 
-    def update_leg_trip_ids(self, df: pd.DataFrame) -> None:
+    def update_leg_trip_ids(self, df: pd.DataFrame, dia: str | None = None) -> None:
+        # `dia` es un hint de pruning para el adapter DuckDB; acá el match por id
+        # (único global) ya determina las filas, así que no altera el resultado.
         existing = self._store.get("etapas", pd.DataFrame())
         if existing.empty or df.empty:
             return

@@ -480,9 +480,8 @@ def procesar_pipeline_por_dia(
 
         chains_list = []
 
-        for dia in dias:
-            if verbose:
-                logger.info("Procesando día %s ...", dia)
+        for i, dia in enumerate(dias, 1):
+            logger.info("[chains] día %d/%d (%s)", i, len(dias), dia)
 
             etapas_dia = ctx.data.query(f"""
                 SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,

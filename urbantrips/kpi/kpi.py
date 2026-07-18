@@ -147,7 +147,8 @@ def compute_kpi(ctx: StorageContext):
     dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
     # --- KPI básicos (demanda), día por día ---
-    for dia in dias:
+    for i, dia in enumerate(dias, 1):
+        logger.info("[compute_kpi básicos] día %d/%d (%s)", i, len(dias), dia)
         run_basic_kpi(ctx, dia=dia)
         gc.collect()
     # agregados por tipo de día, una sola vez (cross-day, sobre tablas agregadas)
@@ -169,7 +170,8 @@ def compute_kpi(ctx: StorageContext):
     if gps_present and has_valid_legs:
         _delete_run_days_from(ctx, "kpi_by_day_line")
         any_line_day = False
-        for dia in dias:
+        for i, dia in enumerate(dias, 1):
+            logger.info("[compute_kpi por línea/día] día %d/%d (%s)", i, len(dias), dia)
             legs, gps = read_data_for_daily_kpi(ctx, dia=dia)
             if (len(legs) > 0) & (len(gps) > 0):
                 # compute KPI per line and date (append only; el DELETE ya se hizo)
@@ -193,7 +195,8 @@ def compute_kpi(ctx: StorageContext):
     if valid_services > 0:
         logger.info("Computando estadisticos por servicio")
         _delete_run_days_from(ctx, "kpi_by_day_line_service")
-        for dia in dias:
+        for i, dia in enumerate(dias, 1):
+            logger.info("[compute_kpi por servicio] día %d/%d (%s)", i, len(dias), dia)
             # compute KPI by service and day (append only; el DELETE ya se hizo)
             compute_kpi_by_service(ctx, dia=dia, clear_days=False)
 

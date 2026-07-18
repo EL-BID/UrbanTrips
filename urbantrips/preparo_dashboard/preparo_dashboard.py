@@ -1448,15 +1448,11 @@ def crear_indices_unificados(ctx: StorageContext):
     """
 
     def _maybe_create(port, table, spec_list):
-        if not _table_exists(port, table):
-            return
-        for name, cols in spec_list:
-            if _table_has_cols(port, table, cols):
-                try:
-                    cols_sql = ", ".join(cols)
-                    port.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols_sql});")
-                except Exception as e:
-                    logger.debug("[índice omitido] %s.%s: %s", table, name, e)
+        # Auditoría empírica 2026-07-18: los índices ART son puro costo en DuckDB (no
+        # aceleran ninguna query — los sirve el zonemap/hash join — y se mantienen en
+        # cada escritura). Vestigio SQLite: no se crean más. Se conserva el
+        # ANALYZE/optimize de esta función (sí actualiza estadísticas del optimizador).
+        return
 
     def _speed_pragmas(port):
         for sql in [

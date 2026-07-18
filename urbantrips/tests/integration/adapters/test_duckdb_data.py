@@ -125,12 +125,14 @@ def test_update_leg_destinations_with_index_bracket(tmp_path):
     # leg 2 untouched
     assert result.loc[2, "od_validado"] == 1
 
-    # the index must exist again after the bracket
+    # Auditoría 2026-07-18: los índices ART son puro costo (no aceleran ninguna query,
+    # se mantienen en cada escritura). end_leg_destination_updates ya NO los recrea; el
+    # UPDATE de destinos corre correcto igual (verificado arriba) apoyándose en zonemap.
     idx = adapter._conn.execute(
         "SELECT index_name FROM duckdb_indexes() "
         "WHERE table_name = 'etapas' AND index_name = 'idx_etapas_dia_od_validado'"
     ).fetchall()
-    assert idx, "idx_etapas_dia_od_validado was not recreated"
+    assert not idx, "idx_etapas_dia_od_validado ya no debe recrearse (política sin índices)"
 
 
 def test_replace_legs_for_days_restores_threads_setting(tmp_path):

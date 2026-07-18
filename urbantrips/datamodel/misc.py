@@ -262,12 +262,16 @@ def persist_indicators(ctx: StorageContext):
         _indicator_query(
             ctx,
             """
-            SELECT dia, SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND distancia <= 5
-              AND factor_expansion_linea IS NOT NULL
-            GROUP BY dia
+            SELECT v.dia, SUM(v.factor_expansion_linea) AS indicador
+            FROM viajes v
+            JOIN travel_times_trips tt
+              ON v.dia = tt.dia
+             AND v.id_tarjeta = tt.id_tarjeta
+             AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+              AND tt.distance_od <= 5
+              AND v.factor_expansion_linea IS NOT NULL
+            GROUP BY v.dia
             """,
             "Cantidad de viajes cortos (<5kms)",
             "viajes expandidos",
@@ -315,12 +319,16 @@ def persist_indicators(ctx: StorageContext):
             ctx,
             """
             SELECT
-                dia,
-                SUM(distancia * factor_expansion_linea) / SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND distancia IS NOT NULL
-            GROUP BY dia
+                v.dia,
+                SUM(tt.distance_od * v.factor_expansion_linea) / SUM(v.factor_expansion_linea) AS indicador
+            FROM viajes v
+            JOIN travel_times_trips tt
+              ON v.dia = tt.dia
+             AND v.id_tarjeta = tt.id_tarjeta
+             AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+              AND tt.distance_od IS NOT NULL
+            GROUP BY v.dia
             """,
             "Distancia de los viajes (promedio en kms)",
             "avg",
@@ -334,9 +342,13 @@ def persist_indicators(ctx: StorageContext):
     # dia,modo) → la mediana nunca cruza días, resultado idéntico. Los días se
     # derivan de la MISMA población que la query original (todos los viajes válidos
     # con distancia), no de dias_ultima_corrida, para preservar el alcance exacto.
+    # La distancia OD del viaje sale de travel_times_trips (Fase 3), no de una
+    # columna en viajes.
     _dias_df = ctx.data.query(
-        "SELECT DISTINCT dia FROM viajes "
-        "WHERE od_validado = 1 AND distancia IS NOT NULL"
+        "SELECT DISTINCT v.dia FROM viajes v "
+        "JOIN travel_times_trips tt "
+        "ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje "
+        "WHERE v.od_validado = 1 AND tt.distance_od IS NOT NULL"
     )
     dias = sorted(_dias_df["dia"].tolist())
     _median_total = []
@@ -344,11 +356,15 @@ def persist_indicators(ctx: StorageContext):
     for _dia in dias:
         viajes_median = ctx.data.query(
             f"""
-            SELECT dia, modo, distancia AS distance_od, factor_expansion_linea
-            FROM viajes
-            WHERE od_validado = 1
-              AND distancia IS NOT NULL
-              AND dia = '{_dia}'
+            SELECT v.dia, v.modo, tt.distance_od AS distance_od, v.factor_expansion_linea
+            FROM viajes v
+            JOIN travel_times_trips tt
+              ON v.dia = tt.dia
+             AND v.id_tarjeta = tt.id_tarjeta
+             AND v.id_viaje = tt.id_viaje
+            WHERE v.od_validado = 1
+              AND tt.distance_od IS NOT NULL
+              AND v.dia = '{_dia}'
             """
         )
         if viajes_median.empty:
@@ -380,14 +396,18 @@ def persist_indicators(ctx: StorageContext):
     viajes_modo_mean = ctx.data.query(
         """
         SELECT
-            dia,
-            modo,
-            SUM(distancia * factor_expansion_linea) / SUM(factor_expansion_linea) AS indicador
-        FROM viajes
-        WHERE od_validado = 1
-          AND modo IS NOT NULL
-          AND distancia IS NOT NULL
-        GROUP BY dia, modo
+            v.dia,
+            v.modo,
+            SUM(tt.distance_od * v.factor_expansion_linea) / SUM(v.factor_expansion_linea) AS indicador
+        FROM viajes v
+        JOIN travel_times_trips tt
+          ON v.dia = tt.dia
+         AND v.id_tarjeta = tt.id_tarjeta
+         AND v.id_viaje = tt.id_viaje
+        WHERE v.od_validado = 1
+          AND v.modo IS NOT NULL
+          AND tt.distance_od IS NOT NULL
+        GROUP BY v.dia, v.modo
         """
     )
     if not viajes_modo_mean.empty:
