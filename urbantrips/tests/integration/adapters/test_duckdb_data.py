@@ -251,7 +251,7 @@ def test_service_kpi_schema_allows_big_branch_ids(tmp_path):
             "service_id": [1],
             "hora_inicio": [8.0],
             "hora_fin": [9.0],
-            "tot_km": [12.0],
+            "tot_km_route": [12.0],
             "tot_pax": [40.0],
             "dmt_mean_od": [1.5],
             "dmt_median_od": [1.3],

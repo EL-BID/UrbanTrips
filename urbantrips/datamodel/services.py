@@ -8,6 +8,27 @@ from urbantrips.storage.context import StorageContext
 logger = logging.getLogger(__name__)
 
 
+def gps_service_distances_to_km(gps_points):
+    """Normaliza las distancias del GPS a km para el nivel servicio.
+
+    - ``distance_km``            -> ``distance_route``     (ya en km, ping-based)
+    - ``distance_servicio_mts``  -> ``distance_route_gps`` (odómetro, viene en
+      METROS -> se divide por 1000 para quedar en km)
+
+    Ambas columnas de servicio quedan así en la MISMA unidad (km), consistente
+    con el nivel etapa (``legs.py``, donde ``distance_route_gps = diff_mts/1000``)
+    y con ``distance_km_gps`` en ``kpi.py`` (que también divide por 1000). Sin
+    esta conversión el nivel servicio quedaba en metros e inflaba 1000x todo lo
+    que se deriva de él (tot_km_route_gps, ipk_route_gps, kvd_route_gps,
+    eko_route_gps, velocidad_comercial_route_gps, distancia_media_veh_route_gps).
+    """
+    out = gps_points.rename(columns={"distance_km": "distance_route"})
+    out["distance_route_gps"] = (
+        pd.to_numeric(out["distance_servicio_mts"], errors="coerce") / 1000
+    )
+    return out.drop(columns=["distance_servicio_mts"])
+
+
 @duracion
 def process_services(ctx: StorageContext, line_ids=None):
     """
@@ -105,10 +126,7 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
     if gps_points.empty:
         return None, None
 
-    gps_points = gps_points.rename(columns={
-        "distance_km": "distance_route",
-        "distance_servicio_mts": "distance_route_gps",
-    })
+    gps_points = gps_service_distances_to_km(gps_points)
 
     gps_lines = gps_points.id_linea.drop_duplicates()
     gps_lines_str = ",".join(gps_lines.map(str))

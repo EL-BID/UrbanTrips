@@ -569,7 +569,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *tot_veh*
      - int
      - Total de vehículos ofertados en el día.
-   * - *tot_km*
+   * - *tot_km_route*
      - float
      - Total de kilómetros ofertados en el día.
    * - *tot_pax*
@@ -584,7 +584,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *pvd*
      - float
      - Pasajeros promedio transportados por vehículo por día.
-   * - *kvd*
+   * - *kvd_route*
      - float
      - Kilómetros promedio recorridos por vehículo por día.
    * - *ipk*
@@ -625,7 +625,7 @@ Estas tablas contienen estadísticos calculados por UrbanTrips. Algunos estádis
    * - *hora_fin*
      - float
      - hora de cierre del servicio.
-   * - *tot_km*
+   * - *tot_km_route*
      - float
      - Total de kilómetros ofertados por el servicio.
    * - *tot_pax*
