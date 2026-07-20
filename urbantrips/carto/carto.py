@@ -137,10 +137,13 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
       - transacciones (etapas.h3_o), descartando pares con una sola ocurrencia
       - puntos GPS (gps.h3), descartando hexagonos con muy pocos puntos (outliers
         de densidad: glitches de GPS)
-    Aplica un filtro por buffer alrededor del corredor real (footprint de puntos
-    GPS validos; si no hay GPS, el recorrido oficial como fallback) descartando las
-    paradas que caen muy por fuera, y construye el area de influencia (anillo H3 de
-    tamano ring_size) para todas las paradas.
+    El filtro de outliers se aplica SOLO a los puntos GPS (por densidad): las
+    paradas de transacciones (etapas.h3_o con n>1) son verdad de campo y nunca se
+    descartan. El GPS solo AGREGA cobertura donde es denso; no puede eliminar una
+    parada de transacciones. Asi, lineas con GPS escaso o poco representativo
+    (p.ej. FFCC Roca: 582 puntos GPS) no pierden estaciones reales que la gente si
+    usa. Construye el area de influencia (anillo H3 de tamano ring_size) para todas
+    las paradas resultantes.
 
     El uso de ramal se decide por modo (modo_valida_ramal). Para los modos que
     validan por ramal construye por (id_linea_agg, id_ramal); para los que no,
@@ -152,21 +155,13 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     asi que la matriz se reescribe entera en cada corrida (re-evalua outliers).
 
     Parametros leidos de configuraciones_generales.yaml:
-      - resolucion_h3
-      - tolerancia_validacion_recorrido (metros, default 600): buffer del filtro
       - frac_mediana_gps (default 0.25): umbral de outliers GPS como fraccion de la
         mediana de puntos por hexagono
       - lineas_contienen_ramales, modo_valida_ramal
     """
     configs = leer_configs_generales(autogenerado=False)
     modos_ramal = modos_con_ramal(configs)
-    resolucion_h3 = configs["resolucion_h3"]
     frac_mediana_gps = configs.get("frac_mediana_gps", 0.25)
-    tol_filtro = configs.get("tolerancia_validacion_recorrido", 600)
-
-    # Buffer del filtro de recorrido: mas chico que el area de influencia.
-    lado_m = h3.average_hexagon_edge_length(res=resolucion_h3, unit="m")
-    ring_filtro = max(1, round(tol_filtro / (lado_m * 2)))
 
     # Key fija; id_ramal lleva el valor efectivo (real para modos con ramal,
     # RAMAL_SENTINEL para los que no). Se convierte a NULL al persistir.
@@ -263,66 +258,14 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
             paradas_pre_na - len(paradas),
         )
 
-    # --- Footprint del corredor real por grupo: GPS valido; fallback recorrido ---
-    footprint_por_grupo = {}
-    if usa_gps and len(gps_validos) > 0:
-        for gkey, sub in gps_validos.groupby(key):
-            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
-            footprint_por_grupo[gkey] = set(sub["parada"])
-
-    # Recorridos oficiales: se traen id_linea (real) y modo desde metadata_ramales
-    # y se resuelve id_linea_agg via metadata_lineas, para que la clave coincida
-    # con las candidatas de etapas/gps (importante en modos agregados como metro).
-    obgh = ctx.insumos.get_raw("official_branches_geoms_h3")
-    mr = ctx.insumos.get_metadata_ramales()
-    if not obgh.empty and not mr.empty:
-        obgh = obgh.copy()
-        obgh["id_ramal"] = obgh["id_ramal"].astype("int64")
-        h3_recorridos = (
-            obgh[["id_ramal", "h3"]]
-            .merge(mr[["id_ramal", "id_linea", "modo"]], on="id_ramal")
-            .rename(columns={"h3": "parada"})
-        )
-        h3_recorridos = h3_recorridos.merge(
-            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
-        )
-        h3_recorridos["id_ramal"] = id_ramal_efectivo(
-            h3_recorridos["modo"], h3_recorridos["id_ramal"], modos_ramal
-        )
-        h3_recorridos = h3_recorridos[key + ["parada"]].drop_duplicates()
-        for gkey, sub in h3_recorridos.groupby(key):
-            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
-            footprint_por_grupo.setdefault(gkey, set(sub["parada"]))
-
-    # --- Filtro por buffer: conservar candidatas dentro del footprint buffereado.
-    # Grupos sin footprint (ni GPS ni recorrido) no se filtran (se confia en trx). ---
-    if len(footprint_por_grupo) > 0:
-        permitidas_rows = []
-        for gkey, hexes in footprint_por_grupo.items():
-            buffered = set()
-            for hx in hexes:
-                buffered.update(h3.grid_disk(hx, ring_filtro))
-            for hx in buffered:
-                permitidas_rows.append((*gkey, hx))
-        permitidas = pd.DataFrame(
-            permitidas_rows, columns=key + ["parada"]
-        ).drop_duplicates()
-
-        grupos_con_footprint = set(footprint_por_grupo.keys())
-        clave_tuplas = list(map(tuple, paradas[key].to_numpy()))
-        mask_con = pd.Series(
-            [t in grupos_con_footprint for t in clave_tuplas], index=paradas.index
-        )
-        paradas_con = paradas[mask_con].merge(
-            permitidas, on=key + ["parada"], how="inner"
-        )
-        paradas_sin = paradas[~mask_con]
-        paradas_pre = len(paradas)
-        paradas = pd.concat([paradas_con, paradas_sin], ignore_index=True)
-        logger.info(
-            "Filtro por recorrido/buffer (ring_filtro=%d): %d -> %d paradas",
-            ring_filtro, paradas_pre, len(paradas),
-        )
+    # --- Sin filtro por corredor sobre transacciones ---
+    # Las paradas de transacciones (n>1) son verdad de campo: la gente pico la
+    # tarjeta ahi, asi que nunca se descartan por un corredor GPS/recorrido. El GPS
+    # ya viene limpio de outliers por densidad (Fuente B) y solo SUMA cobertura;
+    # como el GPS define su propio corredor, filtrar el GPS por ese corredor seria
+    # un no-op. El unico efecto del viejo filtro por footprint era borrar paradas de
+    # transacciones en lineas con GPS escaso o no representativo (p.ej. FFCC Roca:
+    # 93 -> 35 paradas), perdiendo estaciones reales; por eso se elimina.
 
     # --- Reconstruccion total: se recalcula la matriz entera en cada corrida ---
     # etapas y gps son acumulativas y se leen completas, asi que el estado actual ya

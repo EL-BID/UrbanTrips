@@ -433,6 +433,53 @@ def guardar_chains_norm(chains_norm, ctx: StorageContext):
     ctx.dash.upsert_chains_norm(chains_norm, dias)
 
 
+def _fetch_chains_inputs_dia(ctx, dia, lineas):
+    """Lee (en el MAIN) las etapas y viajes de un día para el pipeline de chains.
+    Separado del cómputo para poder despachar el cómputo a workers (DuckDB no es
+    spawn-safe → toda lectura queda en el main). Devuelve (etapas_dia, viajes_dia) o
+    None si el día no tiene etapas."""
+    etapas_dia = ctx.data.query(f"""
+        SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,
+               e.latitud, e.longitud,
+               e.hora, e.modo, e.id_linea, e.tarifa, e.genero,
+               e.factor_expansion_linea,
+               tt.distance_od, tt.travel_time_min
+        FROM etapas e
+        JOIN dias_ultima_corrida d ON e.dia = d.dia
+        LEFT JOIN travel_times_legs tt ON e.id = tt.id
+        WHERE e.od_validado = 1 AND e.dia = '{dia}'
+    """)
+    if etapas_dia.empty:
+        return None
+    if len(lineas) > 0:
+        etapas_dia = etapas_dia.merge(lineas, on="id_linea", how="left")
+    viajes_dia = ctx.data.query(f"""
+        SELECT v.dia, v.id_tarjeta, v.id_viaje,
+               v.hora, v.tiempo, v.cant_etapas,
+               tt.distance_od, tt.travel_time_min
+        FROM viajes v
+        JOIN dias_ultima_corrida d ON v.dia = d.dia
+        LEFT JOIN travel_times_trips tt
+            ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta
+            AND v.id_viaje = tt.id_viaje
+        WHERE v.od_validado = 1 AND v.dia = '{dia}'
+    """)
+    return etapas_dia, viajes_dia
+
+
+def _compute_chains_dia(etapas_dia, viajes_dia, res, max_etapas, verbose):
+    """Cómputo PURO (sin DB) de las cadenas normalizadas de un día. Reusa exactamente
+    las mismas funciones que el camino serial (compute_od_coordinates_h3 →
+    build_filters_tables → construir_cadenas_viajes → normalizar_cadenas) → resultado
+    bit-idéntico; función pura → puede correr en un worker process. Las cadenas son por
+    (dia, id_tarjeta, id_viaje) y nunca cruzan días."""
+    etapas_dia = compute_od_coordinates_h3(etapas_dia, res)
+    legs, _ = build_filters_tables(etapas_dia, viajes_dia)
+    return normalizar_cadenas(
+        construir_cadenas_viajes(legs, max_etapas=max_etapas, verbose=verbose)
+    )
+
+
 def procesar_pipeline_por_dia(
     res: int = RES_CHAINS_NORM,
     max_etapas: int = 3,
@@ -480,58 +527,64 @@ def procesar_pipeline_por_dia(
 
         chains_list = []
 
-        for i, dia in enumerate(dias, 1):
-            logger.info("[chains] día %d/%d (%s)", i, len(dias), dia)
+        import gc as _gc
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from urbantrips.datamodel.legs import _parallel_day_workers
+        n_workers = _parallel_day_workers(len(dias))
 
-            etapas_dia = ctx.data.query(f"""
-                SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,
-                       e.latitud, e.longitud,
-                       e.hora, e.modo, e.id_linea, e.tarifa, e.genero,
-                       e.factor_expansion_linea,
-                       tt.distance_od, tt.travel_time_min
-                FROM etapas e
-                JOIN dias_ultima_corrida d ON e.dia = d.dia
-                LEFT JOIN travel_times_legs tt ON e.id = tt.id
-                WHERE e.od_validado = 1 AND e.dia = '{dia}'
-            """)
-
-            if etapas_dia.empty:
-                if verbose:
-                    logger.info("Día %s sin datos, skip.", dia)
-                continue
-
-            if len(lineas) > 0:
-                etapas_dia = etapas_dia.merge(lineas, on="id_linea", how="left")
-
-            viajes_dia = ctx.data.query(f"""
-                SELECT v.dia, v.id_tarjeta, v.id_viaje,
-                       v.hora, v.tiempo, v.cant_etapas,
-                       tt.distance_od, tt.travel_time_min
-                FROM viajes v
-                JOIN dias_ultima_corrida d ON v.dia = d.dia
-                LEFT JOIN travel_times_trips tt
-                    ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta
-                    AND v.id_viaje = tt.id_viaje
-                WHERE v.od_validado = 1 AND v.dia = '{dia}'
-            """)
-
-            etapas_dia = compute_od_coordinates_h3(etapas_dia, res)
-            legs, _ = build_filters_tables(etapas_dia, viajes_dia)
-            chains_dia = normalizar_cadenas(
-                construir_cadenas_viajes(legs, max_etapas=max_etapas, verbose=verbose)
-            )
-
+        def _emit(dia, chains_dia, n_et):
+            # guardar=True: cada día se persiste al dash (single-writer, en el main).
+            # guardar=False: se acumula para el concat de retorno (el caller lo descarta
+            # con guardar=True, por eso ahí no se acumula).
             if guardar:
                 guardar_chains_norm(chains_dia, ctx)
             else:
-                # Solo se acumula en memoria cuando el caller espera el concat
-                # de retorno. Con guardar=True cada día ya quedó persistido, así
-                # que acumular las 26.5M filas y concatenarlas al final es trabajo
-                # y RAM desperdiciados (el caller descarta el retorno).
                 chains_list.append(chains_dia)
-
             if verbose:
-                logger.info("Día %s: %s etapas procesadas.", dia, f"{len(etapas_dia):,}")
+                logger.info("Día %s: %s etapas procesadas.", dia, f"{n_et:,}")
+
+        if n_workers <= 1:
+            # ── Camino SERIAL (comportamiento previo, idéntico) ──
+            for i, dia in enumerate(dias, 1):
+                logger.info("[chains] día %d/%d (%s)", i, len(dias), dia)
+                inp = _fetch_chains_inputs_dia(ctx, dia, lineas)
+                if inp is None:
+                    if verbose:
+                        logger.info("Día %s sin datos, skip.", dia)
+                    continue
+                etapas_dia, viajes_dia = inp
+                n_et = len(etapas_dia)
+                chains_dia = _compute_chains_dia(etapas_dia, viajes_dia, res, max_etapas, verbose)
+                _emit(dia, chains_dia, n_et)
+        else:
+            # ── Camino PARALELO: el main lee los insumos por día (DuckDB, single-reader)
+            # y despacha el cómputo puro a workers; el resultado por día es bit-idéntico
+            # al serial (mismo _compute_chains_dia, cadenas nunca cruzan días). El guardado
+            # al dash queda en el main. Chunks con barrera para acotar la RAM (mismo criterio
+            # que assign_time_distances / infer_destinations).
+            logger.info("[chains] paralelizando: %d días en vuelo", n_workers)
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                for chunk_start in range(0, len(dias), n_workers):
+                    futures = {}
+                    for i in range(chunk_start, min(chunk_start + n_workers, len(dias))):
+                        dia = dias[i]
+                        logger.info("[chains] día %d/%d (%s) — leyendo insumos", i + 1, len(dias), dia)
+                        inp = _fetch_chains_inputs_dia(ctx, dia, lineas)
+                        if inp is None:
+                            if verbose:
+                                logger.info("Día %s sin datos, skip.", dia)
+                            continue
+                        etapas_dia, viajes_dia = inp
+                        futures[executor.submit(
+                            _compute_chains_dia, etapas_dia, viajes_dia, res, max_etapas, verbose
+                        )] = (dia, len(etapas_dia))
+                        del etapas_dia, viajes_dia, inp
+                    for fut in as_completed(futures):
+                        dia, n_et = futures[fut]
+                        chains_dia = fut.result()
+                        _emit(dia, chains_dia, n_et)
+                        del chains_dia
+                    _gc.collect()
 
         if guardar:
             return pd.DataFrame([])

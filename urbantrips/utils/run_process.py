@@ -289,12 +289,45 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
 
 
 def _get_parallel_workers(n_batches: int) -> int:
+    """Workers de Fase 2 (create legs). Override manual: `parallel_workers` en config.
+
+    Sin override, AUTOTUNE por RAM (antes: `cpu_count-1` ciego a la memoria → causó el
+    OOM del mes 2026-07-18 con 19 workers). Modelo (mismo criterio que
+    `_parallel_day_workers` de Fase 3): el pico de Fase 2 es `base + per_worker × W`,
+    donde `base` = memory_limit de DuckDB (buffers del main) + OS/main; cada worker
+    cuesta ~el tamaño de su batch (split picklado + copia + legs de salida). Se
+    presupuesta sobre la RAM TOTAL con un factor de seguridad, y se capea por cores y
+    n_batches. Auto-escala: en 64 GB da ~10, en 128 GB sube, en 16 GB cae a serial.
+    """
     configs = leer_configs_generales(autogenerado=False)
     configured = configs.get("parallel_workers")
     if configured is not None:
         return max(min(int(configured), n_batches), 1)
-    cpu_workers = max(multiprocessing.cpu_count() - 1, 1)
-    return max(min(cpu_workers, n_batches), 1)
+
+    cpu_cap = max(multiprocessing.cpu_count() - 1, 1)
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / 2**30
+    except Exception:
+        return max(min(cpu_cap, n_batches), 1)
+
+    try:
+        from urbantrips.datamodel.legs import _duckdb_memory_limit_gb
+        memlimit_gb = _duckdb_memory_limit_gb()
+    except Exception:
+        memlimit_gb = total_gb * 0.25
+
+    os_baseline_gb = 8.0     # OS + working set del main fuera de DuckDB
+    per_worker_gb = 3.0      # batch split + copia en el worker + legs de salida (~1.65 medido + colchón)
+    budget = total_gb * 0.85 - memlimit_gb - os_baseline_gb
+    workers = int(max(0.0, budget) // per_worker_gb)
+    n = max(1, min(cpu_cap, workers, n_batches))
+    logger.info(
+        "[parallel_workers] autotune: %d workers (RAM total %.0f GB − DuckDB %.0f − OS %.0f, "
+        "%.1f GB/worker, cap cores %d, n_batches %d)",
+        n, total_gb, memlimit_gb, os_baseline_gb, per_worker_gb, cpu_cap, n_batches,
+    )
+    return n
 
 
 def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
@@ -644,6 +677,14 @@ def run_ingest(ctx: StorageContext) -> None:
     corridas = inicializo_ambiente(ctx)
     logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
     _ingest_all_days(ctx, corridas)
+    # Register each ingested corrida in the general DB so inicializo_ambiente's
+    # run_exists() can skip already-ingested days on a later incremental run.
+    # The legacy monolithic procesar_transacciones did this via
+    # write_transactions_to_db; the phased flow (run_ingest/legs/outputs/dashboard)
+    # is the one run_all uses, so registration must live here or the corridas
+    # table stays empty and every run re-ingests all configured days.
+    for corrida in corridas:
+        ctx.general.register_run(alias=corrida, process="transactions_completed")
 
 
 def run_legs(ctx: StorageContext) -> None:

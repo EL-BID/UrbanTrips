@@ -1336,6 +1336,25 @@ def assign_stations_od(ctx: StorageContext):
 
         stations = stations.to_crs(epsg=epsg_m)
 
+        # OPTIMIZACIÓN (bit-idéntica): classify_leg_into_station filtra las estaciones por
+        # id_linea (geo.py:490), así que una etapa de una línea SIN estaciones clasifica a 0
+        # (stations queda vacío para ese grupo). Filtrar la query de etapas a las líneas que
+        # sí tienen estaciones evita la conversión h3→latlng + join geométrico sobre el resto
+        # (en AMBA el CSV cubre pocas líneas → ~99% de las 177M etapas se salteaban a 0 igual).
+        # El resultado (legs_to_station_*, travel_times_stations de salida) es idéntico.
+        station_lines = [int(x) for x in stations["id_linea"].dropna().unique().tolist()]
+        if not station_lines:
+            logger.info(
+                "[assign_stations_od] las estaciones no tienen id_linea válido → nada que "
+                "clasificar; se omite."
+            )
+            return
+        station_lines_str = ", ".join(str(x) for x in station_lines)
+        logger.info(
+            "[assign_stations_od] %d línea(s) con estaciones → se clasifican solo esas etapas",
+            len(station_lines),
+        )
+
         # Se procesa UN DÍA POR VEZ para acotar RAM: antes se levantaba etapas del mes
         # entero (~63M filas) al DataFrame `legs`. Cada etapa se clasifica por sus
         # h3_o/h3_d contra `stations` (insumo estático) y los tiempos salen de lookups
@@ -1369,6 +1388,7 @@ def assign_stations_od(ctx: StorageContext):
                 WHERE tt.id IS NULL
                 AND e.etapa_validada = 1
                 AND e.dia = '{dia}'
+                AND e.id_linea IN ({station_lines_str})
                 """
             )
 

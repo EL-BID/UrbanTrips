@@ -81,6 +81,27 @@ def _indicator_query(
     return df[["dia", "detalle", "indicador", "tabla", "nivel"]]
 
 
+def _fused_indicators(ctx: StorageContext, sql: str, specs: list) -> list:
+    """Ejecuta UNA query (dia + varias columnas agregadas) y la expande en varias
+    filas de indicadores. Reduce scans: N indicadores con el MISMO FROM/WHERE/GROUP BY
+    dia se computan en un solo scan de la tabla en vez de N. Bit-idéntico a las queries
+    separadas — SUM ignora NULLs igual que `WHERE col IS NOT NULL`, y `CASE WHEN cond`
+    replica un `WHERE cond` extra. specs = [(col, detalle, tabla, nivel), ...]."""
+    df = ctx.data.query(sql)
+    out = []
+    empty = pd.DataFrame(columns=["dia", "detalle", "indicador", "tabla", "nivel"])
+    for col, detalle, tabla, nivel in specs:
+        if df.empty or col not in df.columns:
+            out.append(empty.copy())
+            continue
+        d = df[["dia", col]].rename(columns={col: "indicador"}).copy()
+        d["detalle"] = detalle
+        d["tabla"] = tabla
+        d["nivel"] = nivel
+        out.append(d[["dia", "detalle", "indicador", "tabla", "nivel"]])
+    return out
+
+
 def _weighted_median_rows(
     df: pd.DataFrame,
     detalle_prefix: str,
@@ -123,32 +144,22 @@ def persist_indicators(ctx: StorageContext):
     indicator_rows = []
 
     # TRANSACCIONES
-    indicator_rows.append(
-        _indicator_query(
+    # FUSIÓN (1 scan de transacciones en vez de 2). COUNT(*) = registros; SUM ignora
+    # NULLs solo → idéntico al WHERE factor_expansion IS NOT NULL de la query separada.
+    indicator_rows.extend(
+        _fused_indicators(
             ctx,
             """
-            SELECT dia, COUNT(*) AS indicador
+            SELECT dia,
+                   COUNT(*) AS registros,
+                   SUM(factor_expansion) AS totales
             FROM transacciones
             GROUP BY dia
             """,
-            "Registros en transacciones",
-            "transacciones",
-            0,
-        )
-    )
-
-    indicator_rows.append(
-        _indicator_query(
-            ctx,
-            """
-            SELECT dia, SUM(factor_expansion) AS indicador
-            FROM transacciones
-            WHERE factor_expansion IS NOT NULL
-            GROUP BY dia
-            """,
-            "Cantidad de transacciones totales",
-            "transacciones",
-            0,
+            [
+                ("registros", "Registros en transacciones", "transacciones", 0),
+                ("totales", "Cantidad de transacciones totales", "transacciones", 0),
+            ],
         )
     )
 
@@ -186,75 +197,54 @@ def persist_indicators(ctx: StorageContext):
             etapas_modo[["dia", "detalle", "indicador", "tabla", "nivel"]]
         )
 
-    indicator_rows.append(
-        _indicator_query(
+    # FUSIÓN (1 scan de etapas en vez de 2): las dos comparten el GROUP BY dia,id_tarjeta
+    # sobre etapas WHERE od_validado=1 → MAX(fex_tarjeta) y MIN(fex_linea) en una pasada.
+    # SUM ignora NULLs → idéntico a los WHERE ... IS NOT NULL de las queries separadas.
+    indicator_rows.extend(
+        _fused_indicators(
             ctx,
             """
-            SELECT dia, SUM(factor_expansion_tarjeta) AS indicador
+            SELECT dia,
+                   SUM(fex_tarjeta) AS tarjetas_finales,
+                   SUM(fex_linea) AS tarjetas_totales
             FROM (
-                SELECT dia, id_tarjeta, MAX(factor_expansion_tarjeta) AS factor_expansion_tarjeta
+                SELECT dia, id_tarjeta,
+                       MAX(factor_expansion_tarjeta) AS fex_tarjeta,
+                       MIN(factor_expansion_linea) AS fex_linea
                 FROM etapas
                 WHERE od_validado = 1
                 GROUP BY dia, id_tarjeta
             )
-            WHERE factor_expansion_tarjeta IS NOT NULL
             GROUP BY dia
             """,
-            "Cantidad de tarjetas finales",
-            "usuarios",
-            0,
-        )
-    )
-
-    indicator_rows.append(
-        _indicator_query(
-            ctx,
-            """
-            SELECT dia, SUM(factor_expansion_linea) AS indicador
-            FROM (
-                SELECT dia, id_tarjeta, MIN(factor_expansion_linea) AS factor_expansion_linea
-                FROM etapas
-                WHERE od_validado = 1
-                GROUP BY dia, id_tarjeta
-            )
-            WHERE factor_expansion_linea IS NOT NULL
-            GROUP BY dia
-            """,
-            "Cantidad total de tarjetas",
-            "usuarios expandidos",
-            0,
+            [
+                ("tarjetas_finales", "Cantidad de tarjetas finales", "usuarios", 0),
+                ("tarjetas_totales", "Cantidad total de tarjetas", "usuarios expandidos", 0),
+            ],
         )
     )
 
     # VIAJES
-    indicator_rows.append(
-        _indicator_query(
+    # FUSIÓN (1 scan de viajes en vez de 3; incluye la de transferencia de más abajo).
+    # Todas comparten WHERE od_validado=1 GROUP BY dia. COUNT(*)=registros; SUM(fex) ignora
+    # NULLs=expandidos; SUM(CASE WHEN cant_etapas>1) replica el WHERE cant_etapas>1.
+    indicator_rows.extend(
+        _fused_indicators(
             ctx,
             """
-            SELECT dia, COUNT(*) AS indicador
+            SELECT dia,
+                   COUNT(*) AS registros,
+                   SUM(factor_expansion_linea) AS expandidos,
+                   SUM(CASE WHEN cant_etapas > 1 THEN factor_expansion_linea END) AS transferencia
             FROM viajes
             WHERE od_validado = 1
             GROUP BY dia
             """,
-            "Cantidad de registros en viajes",
-            "viajes",
-            0,
-        )
-    )
-
-    indicator_rows.append(
-        _indicator_query(
-            ctx,
-            """
-            SELECT dia, SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND factor_expansion_linea IS NOT NULL
-            GROUP BY dia
-            """,
-            "Cantidad total de viajes expandidos",
-            "viajes expandidos",
-            0,
+            [
+                ("registros", "Cantidad de registros en viajes", "viajes", 0),
+                ("expandidos", "Cantidad total de viajes expandidos", "viajes expandidos", 0),
+                ("transferencia", "Cantidad de viajes con transferencia", "viajes expandidos", 1),
+            ],
         )
     )
 
@@ -279,22 +269,7 @@ def persist_indicators(ctx: StorageContext):
         )
     )
 
-    indicator_rows.append(
-        _indicator_query(
-            ctx,
-            """
-            SELECT dia, SUM(factor_expansion_linea) AS indicador
-            FROM viajes
-            WHERE od_validado = 1
-              AND cant_etapas > 1
-              AND factor_expansion_linea IS NOT NULL
-            GROUP BY dia
-            """,
-            "Cantidad de viajes con transferencia",
-            "viajes expandidos",
-            1,
-        )
-    )
+    # (la "Cantidad de viajes con transferencia" se computa en la fusión de viajes de arriba)
 
     viajes_modo = ctx.data.query(
         """
