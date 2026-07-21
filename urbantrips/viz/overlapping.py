@@ -83,7 +83,9 @@ def plot_interactive_supply_overlapping(ctx: StorageContext, overlapping_dict):
     return fig
 
 
-def plot_interactive_demand_overlapping(ctx: StorageContext, base_demand, comp_demand, overlapping_dict):
+def plot_interactive_demand_overlapping(
+    ctx: StorageContext, base_demand, comp_demand, overlapping_dict
+):
     base_gdf = overlapping_dict["base"]["h3"]
     base_route_gdf = overlapping_dict["base"]["line"]
     comp_gdf = overlapping_dict["comp"]["h3"]

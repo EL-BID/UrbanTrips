@@ -59,10 +59,15 @@ def compute_lines_od_matrix(
             raise Exception("No se puede utilizar una cantidad de secciones > 1000")
 
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
+    legs = read_legs_data_by_line_hours_and_day(
+        line_ids_where, hour_range, day_type, ctx
+    )
 
     # read routes data from insumos
     route_geoms_all = ctx.insumos.get_routes()
+    # use only direction 0 for route geom
+    route_geoms_all = route_geoms_all.loc[route_geoms_all.direction == 0, :]
+
     if line_ids is not None and line_ids is not False:
         ids = [line_ids] if isinstance(line_ids, int) else list(line_ids)
         route_geoms = route_geoms_all[route_geoms_all.id_linea.isin(ids)].copy()
@@ -139,7 +144,9 @@ def compute_lines_od_matrix(
     else:
         logger.info(
             "No existen recorridos o etapas para las líneas | lineas=%d recorridos=%d etapas=%d",
-            len(line_ids), len(route_geoms), len(legs),
+            len(line_ids),
+            len(route_geoms),
+            len(legs),
         )
 
 
@@ -174,7 +181,9 @@ def delete_old_lines_od_matrix_by_section_data(
         for _, row in delete_df.iterrows():
             logger.debug(
                 "Borrando datos antiguos de Matriz OD | linea=%s secciones=%s yr_mo=%s%s",
-                row.id_linea, row.n_sections, yr_mo,
+                row.id_linea,
+                row.n_sections,
+                yr_mo,
                 f" horas {hour_range[0]}-{hour_range[1]}" if hour_range else "",
             )
 

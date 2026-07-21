@@ -114,7 +114,7 @@ def traigo_mes_dia():
         "SELECT DISTINCT mes, tipo_dia FROM chains_norm;",
     )
     mes = mes_dia.mes.values.tolist()
-    tipo_dia = mes_dia.tipo_dia.values.tolist()    
+    tipo_dia = mes_dia.tipo_dia.values.tolist()
     return mes, tipo_dia
 
 
@@ -514,19 +514,18 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
         hour_range = [rango_desde, rango_hasta]
         st.session_state["hour_range_7"] = hour_range
 
-   
     with col2:
         st.subheader("Dibujar la línea")
-    
+
         fuente = st.radio(
             "Fuente de la geometría",
             ["Dibujar en el mapa", "Cargar GeoJSON"],
             horizontal=True,
             key="route_source_7",
         )
-    
+
         geometry = None  # <- acá vamos a dejar la geometría final (LineString)
-    
+
         if fuente == "Dibujar en el mapa":
             m = folium.Map(location=latlon, zoom_start=10)
             draw = folium.plugins.Draw(
@@ -542,28 +541,28 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
                 edit_options={"edit": True, "remove": True},
             )
             draw.add_to(m)
-    
+
             output = st_folium(m, width=700, height=700, key="map")
-    
+
             if output.get("last_active_drawing"):
                 geometry_data = output["last_active_drawing"]["geometry"]
                 geometry = shape(geometry_data)
-    
+
         else:
             geojson_file = st.file_uploader(
                 "Subí un GeoJSON con una línea (FeatureCollection/Feature) o un archivo exportado por QGIS",
                 type=["geojson", "json"],
                 key="route_geojson_7",
             )
-    
+
             if geojson_file is not None:
                 try:
                     geojson = json.load(geojson_file)
-    
+
                     # Opción A (más robusta): leer con GeoPandas desde un archivo temporal
                     # (Streamlit requiere escribirlo a disco si querés usar gpd.read_file)
                     # Para evitar tocar mucho, hacemos parse directo con shapely:
-    
+
                     # def _extract_line_from_geojson(obj):
                     #     # obj puede ser FeatureCollection, Feature o Geometry
                     #     if obj.get("type") == "FeatureCollection":
@@ -572,24 +571,29 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
                     #         geoms = [shape(obj.get("geometry"))] if obj.get("geometry") else []
                     #     else:
                     #         geoms = [shape(obj)]
-    
+
                     #     geoms = [g for g in geoms if g is not None and not g.is_empty]
                     #     if not geoms:
                     #         return None
-    
+
                     #     # Si hay varias geometrías, las unimos/mergeamos si son líneas
                     #     # (si hubiera polígonos por error, esto no va a ser una línea válida)
                     #     g = linemerge(geoms) if len(geoms) > 1 else geoms[0]
-    
+
                     #     # Normalizar MultiLineString -> LineString cuando sea posible
                     #     if isinstance(g, MultiLineString):
                     #         g = linemerge(g)
-    
+
                     #     return g
-                    from shapely.geometry import shape, LineString, MultiLineString, Point
+                    from shapely.geometry import (
+                        shape,
+                        LineString,
+                        MultiLineString,
+                        Point,
+                    )
                     from shapely.ops import linemerge
                     import numpy as np
-                    
+
                     def _extract_line_from_geojson(obj):
                         """
                         Acepta:
@@ -598,67 +602,79 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
                         Devuelve:
                         - LineString o None
                         """
-                    
+
                         # -------------------------
                         # Extraer geometrías
                         # -------------------------
                         if obj.get("type") == "FeatureCollection":
-                            geoms = [shape(f["geometry"]) for f in obj.get("features", []) if f.get("geometry")]
+                            geoms = [
+                                shape(f["geometry"])
+                                for f in obj.get("features", [])
+                                if f.get("geometry")
+                            ]
                         elif obj.get("type") == "Feature":
-                            geoms = [shape(obj.get("geometry"))] if obj.get("geometry") else []
+                            geoms = (
+                                [shape(obj.get("geometry"))]
+                                if obj.get("geometry")
+                                else []
+                            )
                         else:
                             geoms = [shape(obj)]
-                    
+
                         geoms = [g for g in geoms if g is not None and not g.is_empty]
-                    
+
                         if not geoms:
                             return None
-                    
+
                         # -------------------------
                         # Caso 1: ya es línea
                         # -------------------------
-                        if all(g.geom_type in ("LineString", "MultiLineString") for g in geoms):
+                        if all(
+                            g.geom_type in ("LineString", "MultiLineString")
+                            for g in geoms
+                        ):
                             g = linemerge(geoms) if len(geoms) > 1 else geoms[0]
                             if g.geom_type == "MultiLineString":
                                 g = linemerge(g)
                             return g if g.geom_type == "LineString" else None
-                    
+
                         # -------------------------
                         # Caso 2: son puntos (estaciones)
                         # -------------------------
                         if all(g.geom_type == "Point" for g in geoms):
                             coords = np.array([(p.x, p.y) for p in geoms])
-                    
+
                             # Si vienen ordenados, esto ya alcanza
                             # Si no, hacemos un ordenamiento simple por distancia acumulada
                             if len(coords) > 2:
                                 ordered = [coords[0]]
                                 remaining = list(coords[1:])
-                    
+
                                 while remaining:
                                     last = ordered[-1]
-                                    dists = [np.linalg.norm(last - r) for r in remaining]
+                                    dists = [
+                                        np.linalg.norm(last - r) for r in remaining
+                                    ]
                                     idx = int(np.argmin(dists))
                                     ordered.append(remaining.pop(idx))
-                    
+
                                 coords = np.array(ordered)
-                    
+
                             return LineString(coords)
-                    
+
                         # -------------------------
                         # Caso no soportado
                         # -------------------------
                         return None
 
-    
                     geometry = _extract_line_from_geojson(geojson)
-    
+
                 except Exception as e:
                     st.error(f"No pude leer el GeoJSON. Detalle: {e}")
                     geometry = None
-    
+
     # -----------------------------
-    # Validación mínima 
+    # Validación mínima
     # -----------------------------
     if geometry is not None:
         # Asegurar que sea línea (si te suben polygon por error)
@@ -669,19 +685,23 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
             if geometry.geom_type == "MultiLineString":
                 geometry = linemerge(geometry)
                 if geometry.geom_type != "LineString":
-                    st.error("La geometría es MultiLineString y no pude convertirla a una sola LineString.")
+                    st.error(
+                        "La geometría es MultiLineString y no pude convertirla a una sola LineString."
+                    )
                     geometry = None
-    
+
     if geometry is not None:
         n_sections = st.session_state["n_sections_7"]
         if n_sections is None or n_sections == 0:
-            st.text("Por favor ingrese un número de secciones válido. Se usara 10 por defecto")
+            st.text(
+                "Por favor ingrese un número de secciones válido. Se usara 10 por defecto"
+            )
             n_sections = 10
             st.session_state["n_sections_7"] = n_sections
-    
+
         day_type = st.session_state["day_type_7"]
         hour_range = st.session_state["hour_range_7"]
-    
+
         route_geoms = gpd.GeoDataFrame(
             {
                 "id_linea": [-1],
@@ -764,7 +784,9 @@ with st.expander("Demanda total y por linea"):
 
     resultados = legs.reindex(columns=["id_linea", "factor_expansion_linea"])
     resultados = resultados.groupby("id_linea").sum().reset_index()
-    resultados.factor_expansion_linea = resultados.factor_expansion_linea.round().map(int)
+    resultados.factor_expansion_linea = resultados.factor_expansion_linea.round().map(
+        int
+    )
     resultados = resultados.merge(metadata, on="id_linea", how="left")
     resultados = resultados.reindex(columns=["nombre_linea", "factor_expansion_linea"])
     resultados = resultados.rename(columns={"factor_expansion_linea": "Etapas totales"})
@@ -786,15 +808,14 @@ with st.expander("Demanda total y por linea"):
                 x=alt.X(
                     "nombre_linea:N",
                     sort=alt.EncodingSortField(
-                        field="Etapas totales",
-                        order="descending"
-                    )
+                        field="Etapas totales", order="descending"
+                    ),
                 ),
                 y="Etapas totales:Q",
-                tooltip=["nombre_linea", "Etapas totales"]
+                tooltip=["nombre_linea", "Etapas totales"],
             )
         )
-        
+
         st.altair_chart(chart, use_container_width=True)
 
 
@@ -810,7 +831,9 @@ with st.expander("Superposición"):
     # -----------------------------
     # 1) Top N + selección/deselección
     # -----------------------------
-    top_n = st.slider("Cantidad de líneas a superponer (Top N por etapas)", 1, 30, 1, key="sup_top_n")
+    top_n = st.slider(
+        "Cantidad de líneas a superponer (Top N por etapas)", 1, 30, 1, key="sup_top_n"
+    )
 
     # Asegurar id_linea en resultados_sup
     if "id_linea" not in resultados.columns:
@@ -870,8 +893,13 @@ with st.expander("Superposición"):
     # 2) Traer geometrías de líneas seleccionadas
     # -----------------------------
     gdf_lineas = levanto_tabla_sql("lines_geoms", "insumos")
+    # usar solo los sentidos de ida
+    gdf_lineas = gdf_lineas.loc[gdf_lineas.direction == 0, :]
+
     if gdf_lineas is None or len(gdf_lineas) == 0:
-        st.warning("No pude levantar geometrías de líneas con levanto_tabla_sql('lines_geoms', 'insumos').")
+        st.warning(
+            "No pude levantar geometrías de líneas con levanto_tabla_sql('lines_geoms', 'insumos')."
+        )
         st.stop()
 
     if ids:
@@ -950,9 +978,17 @@ with st.expander("Superposición"):
     h3_inter_total = h3_drawn.intersection(h3_all_selected)
     h3_union_total = h3_drawn.union(h3_all_selected)
 
-    pct_total_on_drawn = (len(h3_inter_total) / len(h3_drawn) * 100) if len(h3_drawn) else 0.0
-    pct_total_on_selected = (len(h3_inter_total) / len(h3_all_selected) * 100) if len(h3_all_selected) else 0.0
-    jaccard_total = (len(h3_inter_total) / len(h3_union_total)) if len(h3_union_total) else 0.0
+    pct_total_on_drawn = (
+        (len(h3_inter_total) / len(h3_drawn) * 100) if len(h3_drawn) else 0.0
+    )
+    pct_total_on_selected = (
+        (len(h3_inter_total) / len(h3_all_selected) * 100)
+        if len(h3_all_selected)
+        else 0.0
+    )
+    jaccard_total = (
+        (len(h3_inter_total) / len(h3_union_total)) if len(h3_union_total) else 0.0
+    )
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Hexágonos (línea dibujada)", f"{len(h3_drawn):,}")
@@ -962,7 +998,9 @@ with st.expander("Superposición"):
     st.write(
         {
             "% superposición TOTAL sobre dibujada": round(pct_total_on_drawn, 1),
-            "% superposición TOTAL sobre seleccionadas": round(pct_total_on_selected, 1),
+            "% superposición TOTAL sobre seleccionadas": round(
+                pct_total_on_selected, 1
+            ),
             "Jaccard TOTAL": round(jaccard_total, 3),
         }
     )
@@ -971,7 +1009,9 @@ with st.expander("Superposición"):
         df_overlap = df_overlap.sort_values("% sobre dibujada", ascending=False)
         st.dataframe(df_overlap, use_container_width=True)
     else:
-        st.info("No hay líneas seleccionadas para calcular superposición (solo se muestra la línea dibujada).")
+        st.info(
+            "No hay líneas seleccionadas para calcular superposición (solo se muestra la línea dibujada)."
+        )
 
     # -----------------------------
     # 5) Mapa folium con colores:
@@ -982,9 +1022,15 @@ with st.expander("Superposición"):
     st.markdown("### Mapa de superposición (H3 claro/oscuro)")
 
     colv1, colv2, colv3 = st.columns(3)
-    show_h3_selected = colv1.checkbox("Ver H3 líneas seleccionadas (claro)", value=True, key="sup_show_h3_selected")
-    show_h3_drawn = colv2.checkbox("Ver H3 línea dibujada (gris)", value=True, key="sup_show_h3_drawn")
-    show_h3_inter_total = colv3.checkbox("Ver H3 superpuesto (oscuro)", value=True, key="sup_show_h3_inter_total")
+    show_h3_selected = colv1.checkbox(
+        "Ver H3 líneas seleccionadas (claro)", value=True, key="sup_show_h3_selected"
+    )
+    show_h3_drawn = colv2.checkbox(
+        "Ver H3 línea dibujada (gris)", value=True, key="sup_show_h3_drawn"
+    )
+    show_h3_inter_total = colv3.checkbox(
+        "Ver H3 superpuesto (oscuro)", value=True, key="sup_show_h3_inter_total"
+    )
 
     show_h3_inter_one = st.checkbox(
         "Ver intersección por línea (además de la total)",
@@ -993,7 +1039,9 @@ with st.expander("Superposición"):
     )
 
     center = drawn_geom.centroid
-    m_sup = folium.Map(location=[center.y, center.x], zoom_start=11, tiles="cartodbpositron")
+    m_sup = folium.Map(
+        location=[center.y, center.x], zoom_start=11, tiles="cartodbpositron"
+    )
 
     # Línea dibujada (distintiva)
     folium.GeoJson(
@@ -1020,7 +1068,9 @@ with st.expander("Superposición"):
             gdf_sup.__geo_interface__,
             name="Líneas seleccionadas",
             style_function=lambda x: {"color": "#ff0000", "weight": 3, "opacity": 0.8},
-            tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases),
+            tooltip=folium.GeoJsonTooltip(
+                fields=tooltip_fields, aliases=tooltip_aliases
+            ),
         ).add_to(m_sup)
 
     def _add_h3_union_layer(h3_set, layer_name, color, fill_opacity):
@@ -1030,28 +1080,49 @@ with st.expander("Superposición"):
         folium.GeoJson(
             gpd.GeoSeries([geom_union], crs=4326).__geo_interface__,
             name=layer_name,
-            style_function=lambda x: {"color": color, "weight": 2, "fillOpacity": fill_opacity},
+            style_function=lambda x: {
+                "color": color,
+                "weight": 2,
+                "fillOpacity": fill_opacity,
+            },
         ).add_to(m_sup)
 
     if show_h3_selected:
-        _add_h3_union_layer(h3_all_selected, f"H3 líneas seleccionadas (res {h3_res_sup})", "#ff0000", 0.08)
+        _add_h3_union_layer(
+            h3_all_selected,
+            f"H3 líneas seleccionadas (res {h3_res_sup})",
+            "#ff0000",
+            0.08,
+        )
 
     if show_h3_drawn:
-        _add_h3_union_layer(h3_drawn, f"H3 línea dibujada (res {h3_res_sup})", "#444444", 0.15)
+        _add_h3_union_layer(
+            h3_drawn, f"H3 línea dibujada (res {h3_res_sup})", "#444444", 0.15
+        )
 
     if show_h3_inter_total:
-        _add_h3_union_layer(h3_inter_total, f"H3 superpuesto TOTAL (res {h3_res_sup})", "#1f77b4", 0.35)
+        _add_h3_union_layer(
+            h3_inter_total, f"H3 superpuesto TOTAL (res {h3_res_sup})", "#1f77b4", 0.35
+        )
 
     if show_h3_inter_one and not df_overlap.empty and not gdf_sup.empty:
         opciones_vis = df_overlap["nombre_linea"].tolist()
-        sel_vis = st.selectbox("Línea para visualizar intersección H3", options=opciones_vis, key="sup_sel_vis")
+        sel_vis = st.selectbox(
+            "Línea para visualizar intersección H3",
+            options=opciones_vis,
+            key="sup_sel_vis",
+        )
 
-        id_vis = int(df_overlap.loc[df_overlap["nombre_linea"] == sel_vis, "id_linea"].iloc[0])
+        id_vis = int(
+            df_overlap.loc[df_overlap["nombre_linea"] == sel_vis, "id_linea"].iloc[0]
+        )
         geom_vis = gdf_sup.loc[gdf_sup["id_linea"] == id_vis, "geometry"].iloc[0]
         h3_vis = _line_to_h3_set(geom_vis, h3_res_sup)
         h3_inter_one = h3_drawn.intersection(h3_vis)
 
-        _add_h3_union_layer(h3_inter_one, f"H3 superpuesto — {sel_vis}", "#006400", 0.35)
+        _add_h3_union_layer(
+            h3_inter_one, f"H3 superpuesto — {sel_vis}", "#006400", 0.35
+        )
 
     folium.LayerControl(collapsed=True).add_to(m_sup)
     st_folium(m_sup, width=900, height=700)
@@ -1202,7 +1273,6 @@ with st.expander("Polígono de análisis de cuenca"):
     # else:
     #     corridas = [corrida]
 
-
     drawn_poli_id = st.text_input(
         "ID del polígono (para guardar en insumos)",
         value=st.session_state["drawn_poli_id"],
@@ -1210,10 +1280,10 @@ with st.expander("Polígono de análisis de cuenca"):
         key="drawn_poli_id_input",
     ).strip()
 
-
-
     # persistir (por si el usuario lo modifica)
-    st.session_state["drawn_poli_id"] = drawn_poli_id if drawn_poli_id else default_drawn_poli_id
+    st.session_state["drawn_poli_id"] = (
+        drawn_poli_id if drawn_poli_id else default_drawn_poli_id
+    )
     drawn_poli_id = st.session_state["drawn_poli_id"]
 
     if st.button("Procesar polígono"):

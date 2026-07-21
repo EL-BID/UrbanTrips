@@ -37,7 +37,7 @@ def _build_ctx() -> StorageContext:
     # If alias_db is absent, fall back to alias_db_insumos so single-alias
     # configs keep working.
     alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
-    alias_data    = configs.get("alias_db",          alias_insumos)
+    alias_data = configs.get("alias_db", alias_insumos)
     db_dir = get_paths().db_dir
     db_dir.mkdir(parents=True, exist_ok=True)
     return StorageContext(
@@ -159,15 +159,21 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
     if not alias_db:
         return
 
-    alias_insumos = configs_usuario.get("alias_db_insumos", configs_usuario.get("alias_db", ""))
-    alias_data    = configs_usuario.get("alias_db", alias_insumos)
+    alias_insumos = configs_usuario.get(
+        "alias_db_insumos", configs_usuario.get("alias_db", "")
+    )
+    alias_data = configs_usuario.get("alias_db", alias_insumos)
     base = get_paths().db_dir
 
     if alias_db == "all":
         if ctx is not None:
             ctx.general.clear_runs()
-        for suffix, alias in [("data", alias_data), ("dash", alias_data),
-                               ("insumos", alias_insumos), ("general", alias_data)]:
+        for suffix, alias in [
+            ("data", alias_data),
+            ("dash", alias_data),
+            ("insumos", alias_insumos),
+            ("general", alias_data),
+        ]:
             for ext in [".sqlite", ".duckdb"]:
                 p = base / f"{alias}_{suffix}{ext}"
                 if p.exists():
@@ -203,12 +209,14 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
     vm = psutil.virtual_memory()
     logger.info(
         "[n_batches] RAM — total: %.1f GB, available: %.1f GB (%.0f%% free)",
-        vm.total / 1e9, vm.available / 1e9, vm.available / vm.total * 100,
+        vm.total / 1e9,
+        vm.available / 1e9,
+        vm.available / vm.total * 100,
     )
 
-    total_rows = ctx.data.query(
-        "SELECT COUNT(*) AS n FROM transacciones_raw"
-    ).iloc[0, 0]
+    total_rows = ctx.data.query("SELECT COUNT(*) AS n FROM transacciones_raw").iloc[
+        0, 0
+    ]
 
     if total_rows == 0:
         logger.info("[n_batches] No raw transactions found — using 1 batch")
@@ -230,9 +238,14 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
         "[n_batches] Auto-tuned: %d rows × %.0f B/row = %.0f MB total"
         " | target %.1f GB/chunk (%d workers × %.1f GB/batch, %.0f%% of available)"
         " → %d batches",
-        total_rows, bytes_per_row, total_mb,
-        target_chunk / 1e9, cpu_workers, target_per_batch / 1e9,
-        safety_factor * 100, ram_batches,
+        total_rows,
+        bytes_per_row,
+        total_mb,
+        target_chunk / 1e9,
+        cpu_workers,
+        target_per_batch / 1e9,
+        safety_factor * 100,
+        ram_batches,
     )
     return ram_batches
 
@@ -258,9 +271,9 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
     import duckdb as _duckdb
 
     try:
-        stamped = ctx.data.query(
-            "SELECT MAX(batch_id) AS m FROM transacciones"
-        ).iloc[0, 0]
+        stamped = ctx.data.query("SELECT MAX(batch_id) AS m FROM transacciones").iloc[
+            0, 0
+        ]
     except _duckdb.CatalogException:
         stamped = None
 
@@ -268,7 +281,8 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
         n = int(stamped) + 1
         logger.info(
             "[n_batches] No n_batches in config — inheriting stamped partition"
-            " count from transacciones: %d batches", n,
+            " count from transacciones: %d batches",
+            n,
         )
         return n
 
@@ -320,7 +334,10 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             geolocalizar_trx = configs.get("geolocalizar_trx", False)
             # Prefer an explicit value from the config; fall back to the {corrida}_trx.csv convention
             from urbantrips.utils.paths import get_paths
-            nombre_archivo_trx = configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
+
+            nombre_archivo_trx = (
+                configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
+            )
             csv_path = str(get_paths().input_dir / nombre_archivo_trx)
             logger.info("[Phase 1] Ingesting %s from %s", corrida, csv_path)
             ingest_day_csv(
@@ -358,7 +375,9 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
         for corrida in gps_corridas:
             check_config(corrida)
             configs = leer_configs_generales(autogenerado=False)
-            nombre_archivo_gps = configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
+            nombre_archivo_gps = (
+                configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
+            )
             logger.info("[Phase 1] Ingesting GPS for %s", corrida)
             trx.process_and_upload_gps_table(
                 ctx=ctx,
@@ -369,7 +388,8 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
 
         if geolocalizar_corridas:
             logger.info(
-                "[Phase 1] Geolocating %d corrida(s) from gps", len(geolocalizar_corridas)
+                "[Phase 1] Geolocating %d corrida(s) from gps",
+                len(geolocalizar_corridas),
             )
             # lineas_contienen_ramales here is whatever the *last* corrida in the
             # `corridas` loop above set it to, since it's a scalar reused across all
@@ -380,8 +400,12 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
 
         n_batches = _resolve_n_batches(ctx)
         id_offset = ctx.data.get_max_id("transacciones")
-        logger.info("[Phase 1] Standardizing raw → transacciones (n_batches=%d)", n_batches)
-        ctx.data.standardize_raw_to_transacciones(n_batches=n_batches, id_offset=id_offset)
+        logger.info(
+            "[Phase 1] Standardizing raw → transacciones (n_batches=%d)", n_batches
+        )
+        ctx.data.standardize_raw_to_transacciones(
+            n_batches=n_batches, id_offset=id_offset
+        )
     finally:
         ctx.data.clear_raw()
 
@@ -440,7 +464,9 @@ def _build_legs_for_batch_worker(
 ):
     from urbantrips.datamodel.legs import build_legs_dataframe
 
-    legs_df, duplicate_cards = build_legs_dataframe(trx, dias_ultima_corrida, trx_order_params, h3_res=h3_res)
+    legs_df, duplicate_cards = build_legs_dataframe(
+        trx, dias_ultima_corrida, trx_order_params, h3_res=h3_res
+    )
     return batch, legs_df, duplicate_cards
 
 
@@ -471,8 +497,10 @@ def _create_legs_for_batches(
     done = 0
 
     logger.info("  using %d worker processes", parallel_workers)
-    with ProcessPoolExecutor(max_workers=parallel_workers) as executor, \
-         ThreadPoolExecutor(max_workers=1) as save_pool:
+    with (
+        ProcessPoolExecutor(max_workers=parallel_workers) as executor,
+        ThreadPoolExecutor(max_workers=1) as save_pool,
+    ):
         save_futures: list = []
         for chunk_start in range(0, n, parallel_workers):
             # Flush previous chunk's saves before touching DuckDB again
@@ -480,7 +508,7 @@ def _create_legs_for_batches(
                 sf.result()
             save_futures.clear()
 
-            chunk = batches[chunk_start: chunk_start + parallel_workers]
+            chunk = batches[chunk_start : chunk_start + parallel_workers]
 
             # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting
             chunk_trx = ctx.data.get_transactions_for_chunk(
@@ -488,7 +516,8 @@ def _create_legs_for_batches(
             )
             splits = {
                 b.batch_id: chunk_trx[chunk_trx["_batch_id"] == b.batch_id]
-                    .drop(columns=["_batch_id"]).reset_index(drop=True)
+                .drop(columns=["_batch_id"])
+                .reset_index(drop=True)
                 for b in chunk
             }
             del chunk_trx
@@ -496,7 +525,11 @@ def _create_legs_for_batches(
             futures = {
                 executor.submit(
                     _build_legs_for_batch_worker,
-                    b, splits[b.batch_id], dias_ultima_corrida, trx_order_params, h3_res,
+                    b,
+                    splits[b.batch_id],
+                    dias_ultima_corrida,
+                    trx_order_params,
+                    h3_res,
                 ): b
                 for b in chunk
             }
@@ -505,7 +538,9 @@ def _create_legs_for_batches(
             for future in as_completed(futures):
                 batch_res, legs_df, duplicate_cards = future.result()
                 save_futures.append(
-                    save_pool.submit(_save_batch_results, ctx, legs_df, batch_res, duplicate_cards)
+                    save_pool.submit(
+                        _save_batch_results, ctx, legs_df, batch_res, duplicate_cards
+                    )
                 )
 
                 done += 1
@@ -513,7 +548,11 @@ def _create_legs_for_batches(
                 eta = (elapsed / done * (n - done)) if done < n else 0.0
                 logger.info(
                     "  [Phase 2] %d/%d batches done (%.0f%%) — %.0fs elapsed, ~%.0fs remaining",
-                    done, n, done / n * 100, elapsed, eta,
+                    done,
+                    n,
+                    done / n * 100,
+                    elapsed,
+                    eta,
                 )
 
         for sf in save_futures:
@@ -528,6 +567,7 @@ def _clear_current_run_legs(ctx: StorageContext) -> None:
     at the time, so a batch_id-based delete would miss them.
     """
     import duckdb as _duckdb
+
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return
@@ -542,6 +582,7 @@ def _clear_current_run_legs(ctx: StorageContext) -> None:
 def _clear_current_run_travel_times(ctx: StorageContext) -> None:
     """Clear derived travel-time tables for the current run days before rebuilding."""
     import duckdb as _duckdb
+
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return
@@ -567,7 +608,10 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     carto.update_stations_catchment_area(ring_size, ctx)
     dest.infer_destinations(ctx)
 
-    usa_archivo_gps = configs.get("usa_archivo_gps", False) or configs.get("nombre_archivo_gps") is not None
+    usa_archivo_gps = (
+        configs.get("usa_archivo_gps", False)
+        or configs.get("nombre_archivo_gps") is not None
+    )
     if usa_archivo_gps:
         services.process_services(ctx, line_ids=None)
         legs.assign_gps_origin(ctx)
@@ -581,11 +625,14 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
         logger.info("Iniciando rearrange_trip_id_same_od (%d batches)", n)
         ts_total = time.perf_counter()
         for batch in batches:
-            logger.info("  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n)
+            logger.info(
+                "  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n
+            )
             trips.rearrange_trip_id_same_od(ctx, batch=batch, _silent=True)
         logger.info(
             "Finalizado rearrange_trip_id_same_od (%d batches, %.2fs)",
-            n, time.perf_counter() - ts_total,
+            n,
+            time.perf_counter() - ts_total,
         )
 
     # Compute distances and travel times for all legs; writes travel_times_legs/trips
@@ -635,7 +682,9 @@ def run_legs(ctx: StorageContext) -> None:
     _clear_current_run_legs(ctx)
     n_batches = _resolve_n_batches(ctx)
     batches = ctx.data.get_user_batches(n_batches)
-    parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
+    parallel_workers = (
+        _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
+    )
     logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
     # Drop the secondary etapas indexes for the whole batch-save loop: with them
     # active, DuckDB maintains them row by row on every save_legs INSERT (~40 min

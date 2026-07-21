@@ -179,7 +179,9 @@ class DuckDBInsumoAdapter:
         table_name = validate_table_name(table_name)
         self._conn.register("_raw_df", df)
         try:
-            self._conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            self._conn.execute(
+                f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df"
+            )
         finally:
             self._conn.unregister("_raw_df")
 

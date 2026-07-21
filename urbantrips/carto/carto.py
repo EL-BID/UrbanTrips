@@ -34,6 +34,7 @@ import warnings
 
 try:
     from pandana.loaders import osm as osm_pandana  # noqa: F401
+
     warnings.filterwarnings(
         "ignore",
         message="Unsigned integer: shortest path distance is trying to be calculated",
@@ -181,9 +182,9 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # contra las columnas correctas y los consumidores encuentran id_linea_agg. ---
     from urbantrips.storage.schema.insumos import MATRIZ_VALIDACION
 
-    cols_actuales = set(ctx.insumos.query(
-        "SELECT * FROM matriz_validacion LIMIT 0"
-    ).columns)
+    cols_actuales = set(
+        ctx.insumos.query("SELECT * FROM matriz_validacion LIMIT 0").columns
+    )
     schema_viejo = bool(cols_actuales) and (
         "id_linea_agg" not in cols_actuales or "id_ramal" not in cols_actuales
     )
@@ -205,9 +206,7 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         "select id_linea, id_ramal, h3_o as parada, count(*) as n "
         "from etapas group by id_linea, id_ramal, h3_o"
     )
-    paradas_etapas = paradas_etapas[
-        paradas_etapas["parada"].map(_es_h3_valido)
-    ].copy()
+    paradas_etapas = paradas_etapas[paradas_etapas["parada"].map(_es_h3_valido)].copy()
     paradas_etapas = paradas_etapas.merge(metadata_lineas, how="left", on="id_linea")
     paradas_etapas["id_ramal"] = id_ramal_efectivo(
         paradas_etapas["modo"], paradas_etapas["id_ramal"], modos_ramal
@@ -230,9 +229,7 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     if usa_gps:
         gps = gps[gps["parada"].map(_es_h3_valido)].copy()
         gps = gps.merge(metadata_lineas, how="left", on="id_linea")
-        gps["id_ramal"] = id_ramal_efectivo(
-            gps["modo"], gps["id_ramal"], modos_ramal
-        )
+        gps["id_ramal"] = id_ramal_efectivo(gps["modo"], gps["id_ramal"], modos_ramal)
         gps = gps.drop(columns=["id_linea", "modo"])
         # Sumar n_pts por la clave efectiva + parada: colapsa los ramales de un modo
         # sin ramal para que el conteo del hexagono sea el total antes del filtro.
@@ -243,7 +240,8 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         gps_validos = gps_validos[key + ["parada"]]
         logger.info(
             "frac_mediana_gps=%s, outliers GPS descartados=%d",
-            frac_mediana_gps, len(gps) - len(gps_validos),
+            frac_mediana_gps,
+            len(gps) - len(gps_validos),
         )
     else:
         gps_validos = pd.DataFrame(columns=key + ["parada"])
@@ -274,6 +272,10 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # y se resuelve id_linea_agg via metadata_lineas, para que la clave coincida
     # con las candidatas de etapas/gps (importante en modos agregados como metro).
     obgh = ctx.insumos.get_raw("official_branches_geoms_h3")
+    
+    # Tomar solo los recorridos oficiales en la direccion 0 (ida) para el footprint
+    #obgh = obgh.loc[obgh.direction == 0, :]
+
     mr = ctx.insumos.get_metadata_ramales()
     if not obgh.empty and not mr.empty:
         obgh = obgh.copy()
@@ -321,7 +323,9 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         paradas = pd.concat([paradas_con, paradas_sin], ignore_index=True)
         logger.info(
             "Filtro por recorrido/buffer (ring_filtro=%d): %d -> %d paradas",
-            ring_filtro, paradas_pre, len(paradas),
+            ring_filtro,
+            paradas_pre,
+            len(paradas),
         )
 
     # --- Reconstruccion total: se recalcula la matriz entera en cada corrida ---
@@ -346,7 +350,8 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         ctx.insumos.save_matrix_validation(matriz)
         logger.info(
             "matriz_validacion reconstruida: %d filas, %d paradas",
-            len(matriz), paradas["parada"].nunique(),
+            len(matriz),
+            paradas["parada"].nunique(),
         )
     else:
         logger.info("Sin paradas candidatas: matriz_validacion no se modifica")
@@ -458,9 +463,7 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
                 ]
                 h3_layers.append(layer)
 
-            zonificaciones = pd.concat(
-                [zonificaciones, *h3_layers], ignore_index=True
-            )
+            zonificaciones = pd.concat([zonificaciones, *h3_layers], ignore_index=True)
 
             logger.info("guardo_zonificaciones: guardando zonificaciones")
             zonificaciones_to_save = _with_wkt_geometry(zonificaciones)
@@ -488,7 +491,9 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
                     ignore_index=True,
                 )
 
-            logger.info("guardo_zonificaciones: guardando polígonos (%d filas)", len(poly))
+            logger.info(
+                "guardo_zonificaciones: guardando polígonos (%d filas)", len(poly)
+            )
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")
             poligonos_para_equivalencias = _as_geodataframe_wkt(poly)
@@ -507,6 +512,7 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
             resoluciones=resoluciones,
         )
         upsert_equivalencias_zonas(equivalencias, ctx=ctx)
+
 
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     """
@@ -601,7 +607,11 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     """
     # Validar que la resolución objetivo sea mayor que la resolución actual
     current_resolution = h3.get_resolution(hexagon_gdf["h3_index"].iloc[0])
-    logger.debug("Resolución actual: %s, Resolución objetivo: %s", current_resolution, target_resolution)
+    logger.debug(
+        "Resolución actual: %s, Resolución objetivo: %s",
+        current_resolution,
+        target_resolution,
+    )
     if target_resolution <= current_resolution:
         raise ValueError(
             "La resolución objetivo debe ser mayor que la resolución actual."
