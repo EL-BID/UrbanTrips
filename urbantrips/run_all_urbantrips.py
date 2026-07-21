@@ -11,6 +11,7 @@ from urbantrips.utils.run_process import (
     run_dashboard,
     run_all,
 )
+from urbantrips.utils.cli import add_bootstrap_args, apply_bootstrap_env
 
 """
 ────────────────────────────────────────────────────────────────────────────
@@ -80,22 +81,7 @@ def build_parser():
         description="Ejecuta corridas de UrbanTrips con opciones de borrado y dashboard."
     )
 
-    parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        default=None,
-        help="Ruta al archivo de configuración YAML (por defecto: configs/configuraciones_generales.yaml)",
-    )
-
-    parser.add_argument(
-        "-d",
-        "--base-dir",
-        type=str,
-        default=None,
-        dest="base_dir",
-        help="Project root directory. Config, inputs, databases, and outputs are resolved relative to this path.",
-    )
+    add_bootstrap_args(parser)
 
     parser.add_argument(
         "-b",
@@ -144,7 +130,6 @@ if __name__ == "__main__":
         datefmt="%H:%M:%S",
     )
 
-    import os
     from pathlib import Path
     from urbantrips.utils.paths import init_paths
 
@@ -153,11 +138,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     _validate_args(args)
 
-    if args.config:
-        os.environ["URBANTRIPS_CONFIG"] = args.config
-
-    if args.base_dir:
-        os.environ["URBANTRIPS_BASE"] = args.base_dir
+    apply_bootstrap_env(args)
 
     init_paths(
         base_dir=Path(args.base_dir) if args.base_dir else None,
