@@ -28,6 +28,7 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
+
 # from urbantrips.kpi.kpi import add_distances_to_legs
 from urbantrips.carto.compute_distances import compute_od_distances
 import warnings
@@ -43,13 +44,17 @@ warnings.filterwarnings(
 
 
 @duracion
-def create_legs_from_transactions(ctx: StorageContext, trx_order_params, batch: BatchSpec | None = None):
+def create_legs_from_transactions(
+    ctx: StorageContext, trx_order_params, batch: BatchSpec | None = None
+):
     """
     Esta function toma las transacciones de la db
     las estructura en etapas con sus id y id viaje
     y crea la tabla etapas en la db
     """
-    legs, tarjetas_duplicadas = build_legs_from_transactions(ctx, trx_order_params, batch)
+    legs, tarjetas_duplicadas = build_legs_from_transactions(
+        ctx, trx_order_params, batch
+    )
     ctx.data.save_legs(legs, batch)
     if len(tarjetas_duplicadas) > 0:
         ctx.data.save_raw(tarjetas_duplicadas, "tarjetas_duplicadas")
@@ -79,6 +84,12 @@ def build_legs_dataframe(
     """
     legs = trx[trx.dia.isin(dias_ultima_corrida.dia)]
 
+    print("Eliminando transacciones con longitud o latitud igual a cero")
+    n_trx_ = len(legs)
+    print(f"Transacciones antes de eliminar: {len(legs)}")
+    legs = legs.loc[(legs.longitud != 0) & (legs.latitud != 0), :]
+    print(f"Transacciones eliminadas: {n_trx_ - len(legs)}")
+
     # parse dates using local timezone
     legs = legs.copy()
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
@@ -97,7 +108,9 @@ def build_legs_dataframe(
         raise ValueError("ordenamiento_transacciones mal especificado")
 
     # asignar nuevo id tarjeta trx simultaneas
-    legs, tarjetas_duplicadas = _change_card_id_for_concurrent_trx(legs, trx_order_params)
+    legs, tarjetas_duplicadas = _change_card_id_for_concurrent_trx(
+        legs, trx_order_params
+    )
 
     # crear columna delta nuevamente para los nuevos ids tarjeta
     if trx_order_params["criterio"] == "orden_trx":
@@ -135,6 +148,7 @@ def build_legs_dataframe(
     legs = legs.rename(columns={"factor_expansion": "factor_expansion_original"})
     return legs, tarjetas_duplicadas
 
+
 def crear_delta_trx(trx):
     """
     Takes a transactions df with a date in datetime format with hour minutes
@@ -169,7 +183,9 @@ def crear_delta_trx(trx):
     return trx
 
 
-def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida, ctx: StorageContext):
+def change_card_id_for_concurrent_trx(
+    trx, trx_order_params, dias_ultima_corrida, ctx: StorageContext
+):
     """
     Changes card id for those cards with concurrent transactions as defined by
     the parameters in  trx_order_params.
@@ -194,7 +210,9 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
         legs with new card ids
 
     """
-    trx_c, tarjetas_duplicadas = _change_card_id_for_concurrent_trx(trx, trx_order_params)
+    trx_c, tarjetas_duplicadas = _change_card_id_for_concurrent_trx(
+        trx, trx_order_params
+    )
     if len(tarjetas_duplicadas) > 0:
 
         # # borro si ya existen etapas de una corrida anterior
@@ -207,7 +225,6 @@ def change_card_id_for_concurrent_trx(trx, trx_order_params, dias_ultima_corrida
         #     "tarjetas_duplicadas", conn, if_exists="append", index=False
         # )
         ctx.data.save_raw(tarjetas_duplicadas, "tarjetas_duplicadas")
-
 
     return trx_c
 
@@ -276,7 +293,9 @@ def pago_doble_tarjeta(trx, trx_order_params):
     ).diff_datetime.shift(+1)
 
     g = ["dia", "id_tarjeta", "id_linea"]
-    trx["_is_start"] = (trx.diff_datetime2.isna() | (trx.diff_datetime2 > diff_segundos)).astype(int)
+    trx["_is_start"] = (
+        trx.diff_datetime2.isna() | (trx.diff_datetime2 > diff_segundos)
+    ).astype(int)
     trx["_run_id"] = trx.groupby(g)["_is_start"].cumsum()
     trx["nro"] = trx.groupby(g + ["_run_id"]).cumcount()
     trx = trx.drop(columns=["_is_start", "_run_id"])
@@ -483,9 +502,8 @@ def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
     trx = trx.sort_values(["id_tarjeta", "fecha"])
 
     # Calcular los id_viajes
-    trx["id_viaje"] = (
-        trx.groupby(["id_tarjeta"])["delta"]
-        .transform(lambda s: _trip_ids_from_deltas(s.to_numpy(dtype=np.float64), ventana_viajes))
+    trx["id_viaje"] = trx.groupby(["id_tarjeta"])["delta"].transform(
+        lambda s: _trip_ids_from_deltas(s.to_numpy(dtype=np.float64), ventana_viajes)
     )
     lista = ["id_tarjeta", "id_viaje"]
     trx["id_etapa"] = trx.groupby(lista).cumcount() + 1
@@ -739,17 +757,18 @@ def _gps_destino_y_tiempos_dia(
             gps_next["hora"] = gps_next["hora"] + 24
             gps_dia = pd.concat([gps_dia, gps_next], ignore_index=True)
 
-    etapas_result_list = _process_dia(dia, legs[legs["dia"] == dia].copy(), gps_dia, matriz)
+    etapas_result_list = _process_dia(
+        dia, legs[legs["dia"] == dia].copy(), gps_dia, matriz
+    )
 
     if len(etapas_result_list) == 0:
         # sin destinos GPS imputados ese día: las etapas conservan distance_od (route NULL)
         travel_times = legs_all.reindex(
             columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
         ).copy()
-        travel_times_trips = (
-            travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-            [["distance_od"]].sum(min_count=1)
-        )
+        travel_times_trips = travel_times.groupby(
+            ["dia", "id_tarjeta", "id_viaje"], as_index=False
+        )[["distance_od"]].sum(min_count=1)
         return travel_times, travel_times_trips, None
 
     etapas_result = pd.concat(etapas_result_list, ignore_index=True)
@@ -763,13 +782,22 @@ def _gps_destino_y_tiempos_dia(
     gps_anchors = legs_to_gps_o.merge(legs_to_gps_d_dist, on="id_legs")
 
     gps_ranked = gps.reindex(
-        columns=["id", "dia", "id_linea", "id_ramal", "interno",
-                 "distance_km", "distance_servicio_mts"]
+        columns=[
+            "id",
+            "dia",
+            "id_linea",
+            "id_ramal",
+            "interno",
+            "distance_km",
+            "distance_servicio_mts",
+        ]
     ).copy()
     del gps
     gc.collect()
 
-    gps_ranked["distance_km"] = pd.to_numeric(gps_ranked["distance_km"], errors="coerce")
+    gps_ranked["distance_km"] = pd.to_numeric(
+        gps_ranked["distance_km"], errors="coerce"
+    )
     gps_ranked["distance_servicio_mts"] = pd.to_numeric(
         gps_ranked["distance_servicio_mts"], errors="coerce"
     )
@@ -780,11 +808,15 @@ def _gps_destino_y_tiempos_dia(
     )["distance_km"].cumsum()
     dist_mts = gps_ranked["distance_servicio_mts"]
     group_keys = [
-        gps_ranked["dia"], gps_ranked["id_linea"],
-        gps_ranked["id_ramal"], gps_ranked["interno"],
+        gps_ranked["dia"],
+        gps_ranked["id_linea"],
+        gps_ranked["id_ramal"],
+        gps_ranked["interno"],
     ]
     gps_ranked["acum_mts"] = dist_mts.fillna(0).groupby(group_keys).cumsum()
-    gps_ranked["acum_mts_nan_count"] = dist_mts.isna().astype(int).groupby(group_keys).cumsum()
+    gps_ranked["acum_mts_nan_count"] = (
+        dist_mts.isna().astype(int).groupby(group_keys).cumsum()
+    )
 
     acum_km_map = gps_ranked.set_index("id")["acum_km"]
     acum_mts_map = gps_ranked.set_index("id")["acum_mts"]
@@ -807,7 +839,9 @@ def _gps_destino_y_tiempos_dia(
     nan_entre_anclas = gps_anchors["nan_d"].values - gps_anchors["nan_o"].values
     diff_mts = gps_anchors["acum_mts_d"].values - gps_anchors["acum_mts_o"].values
     gps_distances["distance_route_gps"] = np.where(
-        nan_entre_anclas > 0, np.nan, diff_mts / 1000,
+        nan_entre_anclas > 0,
+        np.nan,
+        diff_mts / 1000,
     )
     gps_distances = gps_distances.rename(columns={"id_legs": "id"})
     del gps_anchors
@@ -819,13 +853,16 @@ def _gps_destino_y_tiempos_dia(
 
     travel_times = legs.reindex(columns=["dia", "id", "fecha", "distance_od"]).merge(
         etapas_result.reindex(columns=["id_legs", "fecha_gps"]),
-        how="left", left_on=["id"], right_on=["id_legs"],
+        how="left",
+        left_on=["id"],
+        right_on=["id_legs"],
     )
     del legs, etapas_result
     gc.collect()
 
     travel_times["travel_time_min"] = round(
-        (travel_times["fecha_gps"] - travel_times["fecha"]).dt.total_seconds() / 60, 1,
+        (travel_times["fecha_gps"] - travel_times["fecha"]).dt.total_seconds() / 60,
+        1,
     )
     travel_times = travel_times.loc[travel_times.travel_time_min > 0, :]
     travel_times["kmh_od"] = (
@@ -846,56 +883,76 @@ def _gps_destino_y_tiempos_dia(
         travel_times["distance_route"] / (travel_times["travel_time_min"] / 60)
     ).round(1)
     travel_times.loc[
-        (travel_times.kmh_route == np.inf) | (travel_times.kmh_route >= VELOCIDAD_MAXIMA_KMH),
+        (travel_times.kmh_route == np.inf)
+        | (travel_times.kmh_route >= VELOCIDAD_MAXIMA_KMH),
         "kmh_route",
     ] = np.nan
     travel_times["kmh_route_gps"] = (
         travel_times["distance_route_gps"] / (travel_times["travel_time_min"] / 60)
     ).round(1)
     travel_times.loc[
-        (travel_times.kmh_route_gps == np.inf) | (travel_times.kmh_route_gps >= VELOCIDAD_MAXIMA_KMH),
+        (travel_times.kmh_route_gps == np.inf)
+        | (travel_times.kmh_route_gps >= VELOCIDAD_MAXIMA_KMH),
         "kmh_route_gps",
     ] = np.nan
 
     travel_times = travel_times.reindex(
-        columns=['dia', 'id', 'travel_time_min', 'distance_od', 'distance_route',
-                 'distance_route_gps', 'kmh_od', 'kmh_route', 'kmh_route_gps'])
+        columns=[
+            "dia",
+            "id",
+            "travel_time_min",
+            "distance_od",
+            "distance_route",
+            "distance_route_gps",
+            "kmh_od",
+            "kmh_route",
+            "kmh_route_gps",
+        ]
+    )
 
     # Merge explicito por (dia, id): distance_od de legs_all es la autoritativa
     # (incluye las etapas sin GPS, con route NULL).
     travel_times = legs_all[
-        ['dia', 'id', 'id_tarjeta', 'id_viaje', 'id_etapa', 'distance_od']
+        ["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
     ].merge(
-        travel_times.drop(columns=['distance_od']), on=['dia', 'id'], how='left',
+        travel_times.drop(columns=["distance_od"]),
+        on=["dia", "id"],
+        how="left",
     )
     travel_times = travel_times.merge(
-        legs_to_gps_o.rename(columns={"id_legs": "id"}), on="id", how="left",
+        legs_to_gps_o.rename(columns={"id_legs": "id"}),
+        on="id",
+        how="left",
     )
     travel_times = travel_times.merge(
-        legs_to_gps_d.reindex(columns=["id_legs", "id_gps"])
-        .rename(columns={"id_legs": "id", "id_gps": "id_gps_d"}),
-        on="id", how="left",
+        legs_to_gps_d.reindex(columns=["id_legs", "id_gps"]).rename(
+            columns={"id_legs": "id", "id_gps": "id_gps_d"}
+        ),
+        on="id",
+        how="left",
     )
 
-    travel_times_trips = (
-        travel_times
-        .groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-        [["travel_time_min", "distance_od", "distance_route", "distance_route_gps"]]
-        .sum(min_count=1)
+    travel_times_trips = travel_times.groupby(
+        ["dia", "id_tarjeta", "id_viaje"], as_index=False
+    )[["travel_time_min", "distance_od", "distance_route", "distance_route_gps"]].sum(
+        min_count=1
     )
     travel_times_trips["kmh_od"] = (
         travel_times_trips["distance_od"] / (travel_times_trips["travel_time_min"] / 60)
     ).round(1)
     travel_times_trips["kmh_route"] = (
-        travel_times_trips["distance_route"] / (travel_times_trips["travel_time_min"] / 60)
+        travel_times_trips["distance_route"]
+        / (travel_times_trips["travel_time_min"] / 60)
     ).round(1)
     travel_times_trips["kmh_route_gps"] = (
-        travel_times_trips["distance_route_gps"] / (travel_times_trips["travel_time_min"] / 60)
+        travel_times_trips["distance_route_gps"]
+        / (travel_times_trips["travel_time_min"] / 60)
     ).round(1)
     for col in ["kmh_od", "kmh_route", "kmh_route_gps"]:
         travel_times_trips.loc[
             (travel_times_trips[col] == np.inf)
-            | (travel_times_trips[col] >= VELOCIDAD_MAXIMA_KMH), col
+            | (travel_times_trips[col] >= VELOCIDAD_MAXIMA_KMH),
+            col,
         ] = np.nan
 
     return travel_times, travel_times_trips, legs_to_gps_d
@@ -1185,8 +1242,19 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
     """Process one (dia, hora) slice for GPS destination imputation."""
     etapas_tx = legs.loc[
         (legs["hora"] == hora) & (legs["dia"] == dia),
-        ["dia", "id", "id_linea", "id_linea_agg", "id_ramal", "interno", "h3_o",
-         "h3_d", "h3_d_gps_res", "distance_od", "fecha"],
+        [
+            "dia",
+            "id",
+            "id_linea",
+            "id_linea_agg",
+            "id_ramal",
+            "interno",
+            "h3_o",
+            "h3_d",
+            "h3_d_gps_res",
+            "distance_od",
+            "fecha",
+        ],
     ].copy()
 
     if len(etapas_tx) == 0:
@@ -1201,9 +1269,21 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
     )
 
     hora_filtro = [hora + i for i in range(0, 4)]
-    gps_tx = gps.loc[gps["hora"].isin(hora_filtro)].reindex(
-        columns=["id", "id_linea", "id_ramal", "interno", "h3_legs_res", "h3", "fecha_gps"]
-    ).rename(columns={"h3_legs_res": "area_influencia"})
+    gps_tx = (
+        gps.loc[gps["hora"].isin(hora_filtro)]
+        .reindex(
+            columns=[
+                "id",
+                "id_linea",
+                "id_ramal",
+                "interno",
+                "h3_legs_res",
+                "h3",
+                "fecha_gps",
+            ]
+        )
+        .rename(columns={"h3_legs_res": "area_influencia"})
+    )
 
     # Pre-filter GPS to only timestamps after the earliest boarding per vehicle.
     # id_ramal is excluded because it can be None/NaN, causing dtype mismatches
@@ -1215,7 +1295,9 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
         .rename(columns={"fecha": "min_fecha_leg"})
     )
     gps_tx = gps_tx.merge(min_fecha_vehicle, on=["id_linea", "interno"], how="inner")
-    gps_tx = gps_tx.loc[gps_tx["fecha_gps"] > gps_tx["min_fecha_leg"]].drop(columns=["min_fecha_leg"])
+    gps_tx = gps_tx.loc[gps_tx["fecha_gps"] > gps_tx["min_fecha_leg"]].drop(
+        columns=["min_fecha_leg"]
+    )
 
     if len(gps_tx) == 0:
         return None
@@ -1230,7 +1312,9 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
     if len(etapas_tx) == 0:
         return None
 
-    etapas_tx["fecha_dif"] = (etapas_tx["fecha_gps"] - etapas_tx["fecha"]).dt.total_seconds() / 60
+    etapas_tx["fecha_dif"] = (
+        etapas_tx["fecha_gps"] - etapas_tx["fecha"]
+    ).dt.total_seconds() / 60
     etapas_tx = etapas_tx.loc[etapas_tx.fecha_dif > 0]
 
     if len(etapas_tx) == 0:
@@ -1253,7 +1337,9 @@ def _process_dia_hora(dia, hora, legs, gps, matriz):
     ]
     etapas_tx = etapas_tx.merge(h3_pairs, on=["h3_d_gps_res", "h3"], how="left")
 
-    etapas_tx = etapas_tx.sort_values(["id_legs", "ring", "distancia_h3", "min_fecha_d"])
+    etapas_tx = etapas_tx.sort_values(
+        ["id_legs", "ring", "distancia_h3", "min_fecha_d"]
+    )
     return etapas_tx.groupby("id_legs", as_index=False).first()
 
 

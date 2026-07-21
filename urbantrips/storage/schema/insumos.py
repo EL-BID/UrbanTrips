@@ -54,29 +54,33 @@ CREATE TABLE IF NOT EXISTS metadata_ramales (
 
 OFFICIAL_BRANCHES_GEOMS = """
 CREATE TABLE IF NOT EXISTS official_branches_geoms (
-    id_ramal BIGINT PRIMARY KEY NOT NULL,
-    wkt      TEXT NOT NULL
+    id_ramal  BIGINT NOT NULL,
+    direction INT NOT NULL,
+    wkt       TEXT NOT NULL
 )
 """
 
 INFERRED_LINES_GEOMS = """
 CREATE TABLE IF NOT EXISTS inferred_lines_geoms (
-    id_linea BIGINT PRIMARY KEY NOT NULL,
-    wkt      TEXT NOT NULL
+    id_linea  BIGINT NOT NULL,
+    direction INT NOT NULL,
+    wkt       TEXT NOT NULL
 )
 """
 
 LINES_GEOMS = """
 CREATE TABLE IF NOT EXISTS lines_geoms (
-    id_linea BIGINT PRIMARY KEY NOT NULL,
-    wkt      TEXT NOT NULL
+    id_linea  BIGINT NOT NULL,
+    direction INT NOT NULL,
+    wkt       TEXT NOT NULL
 )
 """
 
 BRANCHES_GEOMS = """
 CREATE TABLE IF NOT EXISTS branches_geoms (
-    id_ramal BIGINT PRIMARY KEY NOT NULL,
-    wkt      TEXT NOT NULL
+    id_ramal  BIGINT NOT NULL,
+    direction INT NOT NULL,
+    wkt       TEXT NOT NULL
 )
 """
 
@@ -84,6 +88,7 @@ STOPS = """
 CREATE TABLE IF NOT EXISTS stops (
     id_linea          BIGINT NOT NULL,
     id_ramal          BIGINT NOT NULL,
+    direction         INT NOT NULL,
     node_id           INT NOT NULL,
     branch_stop_order INT NOT NULL,
     stop_x            FLOAT NOT NULL,
@@ -106,9 +111,42 @@ CREATE TABLE IF NOT EXISTS routes_section_id_coords (
 
 OFFICIAL_BRANCHES_GEOMS_H3 = """
 CREATE TABLE IF NOT EXISTS official_branches_geoms_h3 (
-    id_ramal   BIGINT PRIMARY KEY NOT NULL,
+    id_ramal   BIGINT NOT NULL,
+    direction  INT NOT NULL,
     section_id INT,
     h3         TEXT,
+    wkt        TEXT NOT NULL
+)
+"""
+
+OFFICIAL_BRANCHES_GEOMS_H3_PARENT = """
+CREATE TABLE IF NOT EXISTS official_branches_geoms_h3_parent (
+    id_ramal   BIGINT NOT NULL,
+    direction  INT NOT NULL,
+    section_id INT,
+    h3         TEXT,
+    resolution INT,
+    wkt        TEXT NOT NULL
+)
+"""
+
+OFFICIAL_LINES_GEOMS_H3 = """
+CREATE TABLE IF NOT EXISTS official_lines_geoms_h3 (
+    id_linea   BIGINT NOT NULL,
+    direction  INT NOT NULL,
+    section_id INT,
+    h3         TEXT,
+    wkt        TEXT NOT NULL
+)
+"""
+
+OFFICIAL_LINES_GEOMS_H3_PARENT = """
+CREATE TABLE IF NOT EXISTS official_lines_geoms_h3_parent (
+    id_linea   BIGINT NOT NULL,
+    direction  INT NOT NULL,
+    section_id INT,
+    h3         TEXT,
+    resolution INT,
     wkt        TEXT NOT NULL
 )
 """
@@ -121,7 +159,7 @@ CREATE TABLE IF NOT EXISTS travel_times_stations (
     id_ramal_o   BIGINT,
     lat_o        FLOAT,
     lon_o        FLOAT,
-    id_linea_d   BIGINT,
+    id_linea_d   BIGINT,    
     id_ramal_d   BIGINT,
     lat_d        FLOAT,
     lon_d        FLOAT,
@@ -130,8 +168,20 @@ CREATE TABLE IF NOT EXISTS travel_times_stations (
 """
 
 ALL_TABLES = [
-    DISTANCIAS, MATRIZ_VALIDACION, POLIGONOS,METADATA_LINEAS, METADATA_RAMALES,
-    OFFICIAL_BRANCHES_GEOMS, INFERRED_LINES_GEOMS, LINES_GEOMS, BRANCHES_GEOMS,
-    STOPS, ROUTES_SECTION_ID_COORDS, OFFICIAL_BRANCHES_GEOMS_H3,
+    DISTANCIAS,
+    MATRIZ_VALIDACION,
+    POLIGONOS,
+    METADATA_LINEAS,
+    METADATA_RAMALES,
+    OFFICIAL_BRANCHES_GEOMS,
+    INFERRED_LINES_GEOMS,
+    LINES_GEOMS,
+    BRANCHES_GEOMS,
+    STOPS,
+    ROUTES_SECTION_ID_COORDS,
+    OFFICIAL_BRANCHES_GEOMS_H3,
+    OFFICIAL_BRANCHES_GEOMS_H3_PARENT,
+    OFFICIAL_LINES_GEOMS_H3,
+    OFFICIAL_LINES_GEOMS_H3_PARENT,
     TRAVEL_TIMES_STATIONS,
 ]

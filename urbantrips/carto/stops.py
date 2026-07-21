@@ -47,6 +47,7 @@ def upload_stops_table(stops, ctx: StorageContext):
     cols = [
         "id_linea",
         "id_ramal",
+        "direction",
         "node_id",
         "branch_stop_order",
         "stop_x",

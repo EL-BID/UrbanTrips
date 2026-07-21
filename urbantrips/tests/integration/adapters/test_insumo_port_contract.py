@@ -8,7 +8,7 @@ from urbantrips.storage.ports import InsumoPort
 
 def _sample_routes() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(
-        {"id_linea": [1, 2]},
+        {"id_linea": [1, 2], "direction": [0, 1]},
         geometry=[LineString([(0, 0), (1, 1)]), LineString([(1, 1), (2, 2)])],
         crs=4326,
     )
@@ -19,6 +19,7 @@ def _sample_stops() -> pd.DataFrame:
         {
             "id_linea": [1, 1],
             "id_ramal": [10, 10],
+            "direction": [0, 0],
             "node_id": [100, 101],
             "branch_stop_order": [0, 1],
             "stop_x": [0.0, 1.0],
@@ -147,7 +148,9 @@ def test_insumo_port_contract_metadata_roundtrips(insumo_adapter):
     assert insumo_adapter.get_metadata_lineas()["nombre_linea"].tolist() == ["L1"]
     assert insumo_adapter.get_metadata_ramales()["nombre_ramal"].tolist() == ["R1"]
     assert insumo_adapter.get_matrix_validation()["parada"].tolist() == ["P1"]
-    assert insumo_adapter.get_travel_times_stations()["travel_time_min"].tolist() == [15.0]
+    assert insumo_adapter.get_travel_times_stations()["travel_time_min"].tolist() == [
+        15.0
+    ]
 
 
 def test_insumo_port_contract_raw_helpers(insumo_adapter):
@@ -157,7 +160,9 @@ def test_insumo_port_contract_raw_helpers(insumo_adapter):
     insumo_adapter.save_raw(first, "contract_raw")
     insumo_adapter.append_raw(second, "contract_raw")
 
-    result = insumo_adapter.get_raw("contract_raw").sort_values("id").reset_index(drop=True)
+    result = (
+        insumo_adapter.get_raw("contract_raw").sort_values("id").reset_index(drop=True)
+    )
     expected = pd.concat([first, second], ignore_index=True)
     pd.testing.assert_frame_equal(result[expected.columns], expected)
 

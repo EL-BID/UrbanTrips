@@ -113,7 +113,9 @@ class DuckDBInsumoAdapter:
         self._conn.execute("DELETE FROM lines_geoms")
         self._conn.register("_df", flat)
         try:
-            self._conn.execute("INSERT INTO lines_geoms SELECT id_linea, wkt FROM _df")
+            self._conn.execute(
+                "INSERT INTO lines_geoms SELECT id_linea, direction, wkt FROM _df"
+            )
         finally:
             self._conn.unregister("_df")
 
@@ -184,7 +186,9 @@ class DuckDBInsumoAdapter:
         table_name = validate_table_name(table_name)
         self._conn.register("_raw_df", df)
         try:
-            self._conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df")
+            self._conn.execute(
+                f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM _raw_df"
+            )
         finally:
             self._conn.unregister("_raw_df")
 

@@ -413,6 +413,12 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
     zonificaciones (si existe) o del archivo de configuración.
     """
     zonificaciones = ctx.insumos.get_zones()
+    # eliminar trx con 0
+    print("Eliminando transacciones con longitud o latitud igual a cero")
+    n_trx_ = len(trx)
+    print(f"Transacciones antes de eliminar: {len(trx)}")
+    trx = trx.loc[(trx.longitud != 0) & (trx.latitud != 0)]
+    print(f"Transacciones eliminadas: {n_trx_ - len(trx)}")
 
     if len(zonificaciones) > 0:
         minx, miny, maxx, maxy = zonificaciones.total_bounds
@@ -752,6 +758,7 @@ def process_and_upload_gps_table(
     configs = leer_configs_generales(autogenerado=False)
 
     from urbantrips.utils.io import open_csv, resolve_zip
+
     ruta_gps = resolve_zip(str(get_paths().input_dir / nombre_archivo_gps))
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
     with open_csv(ruta_gps) as f:
