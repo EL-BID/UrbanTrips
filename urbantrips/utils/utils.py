@@ -71,20 +71,32 @@ def get_db_path(tipo="data", alias_db=""):
     return db_path
 
 
-def iniciar_conexion_db(tipo="data", alias_db=""):
+def iniciar_conexion_db(tipo="data", alias_db="", read_only=None):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion a la db (DuckDB o SQLite segun el archivo disponible)
+
+    ``read_only=None`` delega en ``storage.access.read_only_mode()``: el pipeline
+    abre en escritura y el dashboard en solo lectura (para que varios dashboards
+    puedan leer la misma base y no bloqueen a una corrida).
     """
     import duckdb as _duckdb
+
+    from urbantrips.storage.access import resolve_read_only, retry_on_busy
 
     if len(alias_db) == 0:
         alias_db = leer_alias(tipo)
     if not alias_db.endswith("_"):
         alias_db += "_"
     db_path = get_db_path(tipo, alias_db)
+    ro = resolve_read_only(read_only)
     if str(db_path).endswith(".duckdb"):
-        return _duckdb.connect(str(db_path), read_only=False)
+        if ro and not Path(db_path).exists():
+            raise FileNotFoundError(f"No se encontro la base {db_path}")
+        return retry_on_busy(
+            lambda: _duckdb.connect(str(db_path), read_only=ro),
+            f"abrir {Path(db_path).name}",
+        )
     return sqlite3.connect(db_path, timeout=10)
 
 
@@ -548,7 +560,12 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
         tabla_sql = validate_table_name(tabla_sql)
         query = f"SELECT * FROM {tabla_sql}"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    try:
+        conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    except FileNotFoundError:
+        # En solo lectura no se crea la base al vuelo: base ausente == sin datos.
+        logger.warning("No existe la base '%s'; se devuelve vacio.", tabla_tipo)
+        return normalize_vars(pd.DataFrame([]))
 
     try:
         tabla = _fetch_sql_dataframe(conn, query, params=params)
@@ -640,6 +657,10 @@ def guardar_tabla_sql(
         filtros={"dia": ["2024-03-15", "2024-03-16"], "id_linea": 41},
     )
     """
+    from urbantrips.storage.access import require_write_access
+
+    require_write_access(f"guardar la tabla '{table_name}'")
+
     t0 = time.time()
     table_name = validate_table_name(table_name)
     if filtros:

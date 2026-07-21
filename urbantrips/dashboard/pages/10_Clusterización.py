@@ -10,6 +10,9 @@ from dash_utils import (
 )
 import numpy as np
 
+from urbantrips.storage.access import write_access
+
+
 def normalizar_id_linea(col):
     def convertir(x):
         if pd.isna(x):
@@ -132,12 +135,13 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                         kpis_merged = pd.concat([kpis_merged, promedios], ignore_index=True)
                         st.session_state["tabla_mergeada"] = kpis_merged.copy()
                         
-                        guardar_tabla_sql(
-                            st.session_state["tabla_mergeada"],
-                            "kpis_lineas_merge",
-                            "general",
-                            modo="replace",
-                        )
+                        with write_access("guardar kpis_lineas_merge"):
+                            guardar_tabla_sql(
+                                st.session_state["tabla_mergeada"],
+                                "kpis_lineas_merge",
+                                "general",
+                                modo="replace",
+                            )
 
                         st.success("Merge reemplazado con éxito.")
                         st.info("✅ Tabla guardada en `kpis_linea_merge`.")
@@ -168,14 +172,14 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                         kpis_merged = pd.concat([kpis_merged, promedios], ignore_index=True)
                         st.session_state["tabla_mergeada"] = kpis_merged.copy()
                         
-                        guardar_tabla_sql(
-                            st.session_state["tabla_mergeada"],
-                            "kpis_lineas_merge",
-                            "general",
-                            modo="replace",
-                        )
-                       
-                        
+                        with write_access("guardar kpis_lineas_merge"):
+                            guardar_tabla_sql(
+                                st.session_state["tabla_mergeada"],
+                                "kpis_lineas_merge",
+                                "general",
+                                modo="replace",
+                            )
+
                         st.success("Merge realizado con éxito.")
                         st.info("✅ Tabla guardada en `kpis_lineas`.")
                         st.dataframe(st.session_state["tabla_mergeada"])
@@ -221,9 +225,10 @@ def save_escenarios(lista: list[dict]):
         "cant_clusters_recluster",
     ]
     df_guardar = df_guardar[columnas]
-    guardar_tabla_sql(
-        df_guardar, "escenarios_clusterizacion", "insumos", modo="replace"
-    )
+    with write_access("guardar escenarios_clusterizacion"):
+        guardar_tabla_sql(
+            df_guardar, "escenarios_clusterizacion", "insumos", modo="replace"
+        )
 
 
 # UI
@@ -311,9 +316,10 @@ with st.expander("🗂️ Escenarios de clusterización", expanded=True):
 
         if st.button("Eliminar escenario seleccionado"):
             df_filtrado = df_escenarios[df_escenarios["nombre"].astype(str) != a_borrar]
-            guardar_tabla_sql(
-                df_filtrado, "escenarios_clusterizacion", "insumos", modo="replace"
-            )
+            with write_access("eliminar escenario de clusterización"):
+                guardar_tabla_sql(
+                    df_filtrado, "escenarios_clusterizacion", "insumos", modo="replace"
+                )
             st.cache_data.clear()
             st.success(f"Escenario '{a_borrar}' eliminado.")
             st.rerun()

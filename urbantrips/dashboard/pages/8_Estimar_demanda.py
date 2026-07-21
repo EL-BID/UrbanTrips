@@ -1232,63 +1232,71 @@ with st.expander("Polígono de análisis de cuenca"):
         if poly_gdf.crs is None:
             poly_gdf = poly_gdf.set_crs(4326)
 
-        # --- 1) Upsert de la geometría del polígono en la tabla 'poligonos' ---
-        # Se preserva el contorno para los mapas. Se reemplaza solo este id.
-        # insumos es la fuente; dash es el espejo que lee el dashboard
-        # (pages/3_Poligonos lee poligonos desde 'dash').
-        poligonos = levanto_tabla_sql_local("poligonos", "insumos")
-        if len(poligonos) > 0:
-            poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
-        poligonos_out = pd.concat([poligonos, poly_gdf], ignore_index=True)
-        st.write("Guardando geometría del polígono en insumos y dash")
-        for _tabla_tipo in ("insumos", "dash"):
-            guardar_tabla_sql(poligonos_out, "poligonos", _tabla_tipo, modo="replace")
-
-        # --- 2) Construir equivalencias_zonas (formato largo) para el polígono ---
-        # Mismas resoluciones que el pipeline (resolucion_h3 + RES_CHAINS_NORM),
-        # para que los joins del dashboard funcionen en todas las capas.
         # Import lazy: evita cargar el pipeline (chains) al abrir la página.
         from urbantrips.preparo_dashboard.chains import RES_CHAINS_NORM
-
-        resoluciones = sorted({int(configs["resolucion_h3"]), RES_CHAINS_NORM})
-        equiv = construir_equivalencias_zonas(
-            gdf_poligonos=poly_gdf,
-            resoluciones=resoluciones,
-            modo_poligonos="overlap",
-        )
-
-        # --- 3) Upsert en equivalencias_zonas (borra solo este polígono y lo
-        # reescribe, preservando el resto) en insumos y en la copia dash. ---
-        st.write(
-            f"Actualizando equivalencias_zonas: {len(equiv)} celdas H3 para "
-            f"'{drawn_poli_id}'"
-        )
-        upsert_equivalencias_zonas(equiv, db_path="insumos")
-        upsert_equivalencias_zonas(equiv, db_path="dash")
-
-        # --- 4) Recalcular poly_indicadores para el polígono nuevo ---
-        # Los viajes por polígono se seleccionan on-the-fly desde chains_norm +
-        # equivalencias_zonas (recién actualizada). NO re-corre chains_norm ni el
-        # pipeline pesado de preparo_indicadores_dash; solo refresca la tabla
-        # poly_indicadores (recomputa todos los polígonos) que leen las páginas
-        # de Polígonos. Import lazy para no cargar el pipeline al abrir la página.
-        from urbantrips.dashboard import get_dashboard_ctx
+        from urbantrips.dashboard import dashboard_ctx
         from urbantrips.preparo_dashboard.preparo_dashboard import (
             construyo_indicadores,
         )
+        from urbantrips.storage.access import DatabaseBusyError, write_access
 
-        with st.spinner("Calculando indicadores del polígono (poly_indicadores)…"):
-            ctx = get_dashboard_ctx()
-            try:
-                construyo_indicadores(ctx, poligonos=True)
-            finally:
-                for _adapter in (ctx.data, ctx.insumos, ctx.dash, ctx.general):
-                    try:
-                        _adapter.close()
-                    except Exception:
-                        pass
+        # Todo el procesamiento del polígono escribe en insumos y dash, así que
+        # corre dentro de una única ventana de escritura (DuckDB no admite
+        # conexiones de lectura y escritura al mismo archivo en un proceso).
+        try:
+            with write_access(f"procesar polígono {drawn_poli_id}"):
+                # --- 1) Upsert de la geometría del polígono en 'poligonos' ---
+                # Se preserva el contorno para los mapas. Se reemplaza solo este id.
+                # insumos es la fuente; dash es el espejo que lee el dashboard
+                # (pages/3_Poligonos lee poligonos desde 'dash').
+                poligonos = levanto_tabla_sql_local("poligonos", "insumos")
+                if len(poligonos) > 0:
+                    poligonos = poligonos.loc[poligonos["id"] != drawn_poli_id, :]
+                poligonos_out = pd.concat([poligonos, poly_gdf], ignore_index=True)
+                st.write("Guardando geometría del polígono en insumos y dash")
+                for _tabla_tipo in ("insumos", "dash"):
+                    guardar_tabla_sql(
+                        poligonos_out, "poligonos", _tabla_tipo, modo="replace"
+                    )
 
-        st.cache_data.clear()
+                # --- 2) Construir equivalencias_zonas (formato largo) ---
+                # Mismas resoluciones que el pipeline (resolucion_h3 +
+                # RES_CHAINS_NORM), para que los joins del dashboard funcionen
+                # en todas las capas.
+                resoluciones = sorted({int(configs["resolucion_h3"]), RES_CHAINS_NORM})
+                equiv = construir_equivalencias_zonas(
+                    gdf_poligonos=poly_gdf,
+                    resoluciones=resoluciones,
+                    modo_poligonos="overlap",
+                )
+
+                # --- 3) Upsert en equivalencias_zonas (borra solo este polígono
+                # y lo reescribe, preservando el resto) en insumos y dash. ---
+                st.write(
+                    f"Actualizando equivalencias_zonas: {len(equiv)} celdas H3 para "
+                    f"'{drawn_poli_id}'"
+                )
+                upsert_equivalencias_zonas(equiv, db_path="insumos")
+                upsert_equivalencias_zonas(equiv, db_path="dash")
+
+                # --- 4) Recalcular poly_indicadores para el polígono nuevo ---
+                # Los viajes por polígono se seleccionan on-the-fly desde
+                # chains_norm + equivalencias_zonas (recién actualizada). NO
+                # re-corre chains_norm ni el pipeline pesado de
+                # preparo_indicadores_dash; solo refresca poly_indicadores
+                # (recomputa todos los polígonos) que leen las páginas de
+                # Polígonos.
+                with st.spinner(
+                    "Calculando indicadores del polígono (poly_indicadores)…"
+                ):
+                    with dashboard_ctx() as ctx:
+                        construyo_indicadores(ctx, poligonos=True)
+        except DatabaseBusyError as e:
+            st.error(
+                f"{e} Cerrá el otro dashboard o esperá a que termine la corrida "
+                "y volvé a intentar."
+            )
+            st.stop()
         st.success(
             f"Polígono '{drawn_poli_id}' procesado e indicadores actualizados. "
             "Puede ver los patrones en el apartado Polígonos."

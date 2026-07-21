@@ -29,6 +29,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+from urbantrips.storage.access import (
+    require_write_access,
+    resolve_read_only,
+    retry_on_busy,
+    write_access,
+)
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.utils.dataframe import calculate_weighted_means  # noqa: F401 — used by callers via this module
 from urbantrips.utils.paths import get_paths
@@ -114,10 +120,14 @@ def get_db_path(tipo="data", alias_db=""):
     return db_path
 
 
-def iniciar_conexion_db(tipo="data", alias_db=""):
+def iniciar_conexion_db(tipo="data", alias_db="", read_only=None):
     """
     Esta funcion toma un tipo de datos (data o insumos)
     y devuelve una conexion a la db (DuckDB o SQLite segun el archivo disponible)
+
+    ``read_only=None`` delega en ``storage.access.read_only_mode()``: dentro de
+    Streamlit se abre en solo lectura, salvo que estemos dentro de una ventana
+    de escritura (``storage.access.write_access``).
     """
     if len(alias_db) == 0:
         alias_db = leer_alias(tipo)
@@ -126,11 +136,28 @@ def iniciar_conexion_db(tipo="data", alias_db=""):
     db_path = get_db_path(tipo, alias_db)
 
     if str(db_path).endswith(".duckdb"):
-        return duckdb.connect(str(db_path), read_only=False)
+        ro = resolve_read_only(read_only)
+        return retry_on_busy(
+            lambda: duckdb.connect(str(db_path), read_only=ro),
+            f"abrir {Path(db_path).name}",
+        )
     return sqlite3.connect(db_path, timeout=10)
 
 
 # Calculate weighted mean, handling division by zero or empty inputs
+
+
+def _consultar(query, params=None, tipo="dash"):
+    """Corre una consulta con una conexión de vida corta y la cierra siempre.
+
+    Dejar una conexión DuckDB abierta toma el lock del archivo y bloquea a otro
+    dashboard y al pipeline, así que nunca se sostiene más allá de la consulta.
+    """
+    conn = iniciar_conexion_db(tipo=tipo)
+    try:
+        return _fetch_sql_dataframe(conn, query, params=params)
+    finally:
+        conn.close()
 
 
 def weighted_mean(series, weights):
@@ -462,6 +489,11 @@ def asegurar_equivalencias_dash():
     The pipeline copies them via sincronizar_equivalencias_dash; if missing
     (older run), they are created here from insumos on the fly.
     """
+    # Primero se resuelve TODO lo que hay que copiar leyendo (modo solo lectura)
+    # y recien despues se abre una unica ventana de escritura: DuckDB no permite
+    # mezclar conexiones de lectura y escritura al mismo archivo en un proceso.
+    pendientes = []
+
     chk = levanto_tabla_sql(
         "equivalencias_zonas", "dash",
         query="SELECT h3 FROM equivalencias_zonas LIMIT 1",
@@ -469,9 +501,9 @@ def asegurar_equivalencias_dash():
     if len(chk) == 0:
         eq = levanto_tabla_sql("equivalencias_zonas", "insumos")
         if len(eq) > 0 and "zona" in eq.columns:
-            guardar_tabla_sql(
-                pd.DataFrame(eq.drop(columns="geometry", errors="ignore")),
-                "equivalencias_zonas", "dash", modo="replace",
+            pendientes.append(
+                (pd.DataFrame(eq.drop(columns="geometry", errors="ignore")),
+                 "equivalencias_zonas")
             )
 
     for tabla in ("zonificaciones", "poligonos"):
@@ -485,7 +517,14 @@ def asegurar_equivalencias_dash():
         raw = pd.DataFrame(src.copy())
         if hasattr(src, "geometry") and "geometry" in raw.columns:
             raw["geometry"] = src.geometry.to_wkt()
-        guardar_tabla_sql(raw, tabla, "dash", modo="replace")
+        pendientes.append((raw, tabla))
+
+    if pendientes:
+        # Migracion one-off de bases viejas: la copia la hizo el pipeline
+        # (sincronizar_equivalencias_dash) en las corridas nuevas.
+        with write_access("copiar tablas de insumos a dash"):
+            for raw, tabla in pendientes:
+                guardar_tabla_sql(raw, tabla, "dash", modo="replace")
 
     return True
 
@@ -1998,8 +2037,6 @@ def traigo_tablas_con_filtros(
 
     zonas = zonas.groupby([var_zonif], as_index=False)[["latitud", "longitud"]].mean()
 
-    conn = iniciar_conexion_db(tipo="dash")
-
     # Crear marcadores de posición para SQL
     placeholders1 = ", ".join(["?"] * len(lst1))  # Para lista origen
     placeholders2 = ", ".join(["?"] * len(lst2))  # Para lista destino
@@ -2108,7 +2145,7 @@ def traigo_tablas_con_filtros(
 
     # Ejecutar consulta
 
-    agg_etapas = _fetch_sql_dataframe(conn, query, params=params)
+    agg_etapas = _consultar(query, params=params)
 
     if len(agg_etapas) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
@@ -2249,7 +2286,7 @@ def traigo_tablas_con_filtros(
         """
         params = [var_zonif, dia] + lst1 * 2
 
-    agg_matrices = _fetch_sql_dataframe(conn, query, params=params)
+    agg_matrices = _consultar(query, params=params)
 
     if len(agg_matrices) > 0:
         zonas_renamed = zonas[[var_zonif, "latitud", "longitud"]]
@@ -2318,8 +2355,6 @@ def traigo_tablas_con_filtros(
             + agg_matrices["fin"]
         )
         agg_matrices = agg_matrices.drop(["orden_inicio", "orden_fin"], axis=1)
-
-    conn.close()
 
     return agg_etapas, agg_matrices
 
@@ -2407,6 +2442,8 @@ def guardar_tabla_sql(
     modo (str): 'append' para agregar registros o 'replace' para reemplazar la tabla completa.
     """
     # Conectar a la base de datos
+    require_write_access(f"guardar la tabla '{table_name}'")
+
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
@@ -2478,6 +2515,43 @@ def _hex_to_rgba(hex_color: str, alpha: int = 200) -> list:
     return [int(h[i : i + 2], 16) for i in (0, 2, 4)] + [alpha]
 
 
+# Resaltado de zonas/polígonos en los mapas pydeck.
+#
+# Dos mecanismos distintos pintan una zona, y hay que domar los dos:
+#
+# 1. HOVER — deck.gl usa `highlightColor`, cuyo default es azul marino casi
+#    opaco ([0, 0, 128, 128]).
+# 2. SELECCIÓN — `st.pydeck_chart(..., on_select="rerun")` PISA `getFillColor`
+#    (y `getColor`/`getSourceColor`/`getTargetColor` en las capas de líneas):
+#    respeta el RGB original pero fuerza alpha=255 en lo seleccionado y 102 en
+#    el resto. Esos alphas están hardcodeados en el frontend de Streamlit, no
+#    son configurables desde acá.
+#
+# Ese alpha 102 pinta TODAS las zonas, no solo la elegida: con una zonificación
+# que cubre el área de estudio, el mapa entero queda teñido, y sigue teñido
+# aunque se limpie el filtro (la selección del widget pydeck no se borra).
+#
+# La salida es anular el relleno de esa capa con el `opacity` de la capa, que
+# Streamlit no toca, y dibujar la selección nosotros. Tres detalles del shader
+# de deck.gl que hacen que esto funcione (verificados en el bundle de deck.gl):
+#
+#   1. `vColor = vec4(color.rgb, color.a * opacity)` -> con opacity 0 el relleno
+#      es alpha 0 exacto, pinte lo que pinte Streamlit.
+#   2. El hover NO se apaga: en picking_filterHighlightColor,
+#      `blendedAlpha = highLightAlpha + color.a * (1 - highLightAlpha)`, y con
+#      color.a = 0 queda exactamente el alpha de `highlightColor`.
+#   3. Las capas se saltean por `props.visible`, no por `opacity`, así que la
+#      capa se sigue dibujando al buffer de picking y el click sigue andando.
+#
+# (Ojo: deck.gl aplica gamma a opacity, `Math.pow(opacity, 1/2.2)`. Por eso
+# valores "casi cero" NO alcanzan: 0.02 rinde 0.17, no 0.02. Solo 0 da 0.)
+_HIGHLIGHT_ZONA = [255, 140, 0, 70]    # hover de zona (~27%, no lo escala opacity)
+_FILL_ZONA_SEL = [255, 140, 0, 110]    # relleno de la zona seleccionada (~43%)
+_LINE_ZONA_SEL = [200, 90, 0, 255]     # borde de la zona seleccionada
+_HIGHLIGHT_POLY = [255, 140, 0, 70]    # hover del polígono
+_OPACIDAD_ZONA = 0.0                   # anula el recoloreado de Streamlit
+
+
 def obtener_clases_fisherjenks(
     df: pd.DataFrame, var_fex: str, max_clases: int = 5, min_clases: int = 1
 ):
@@ -2515,9 +2589,10 @@ def crear_mapa_lineas_deseo(
     savefile: str = "",
     k_jenks: int = 5,
     latlon: list = None,
-    tipo_visualizacion: str = "Líneas",
+    tipo_visualizacion: str = "Arcos",
     poly=None,
     show_poly: bool = False,
+    zona_resaltada=None,
 ):
     """Crea mapa interactivo pydeck (WebGL) para viajes, etapas, orígenes, destinos
     y transferencias.  poly/show_poly dibujan el polígono de análisis como
@@ -2647,32 +2722,73 @@ def crear_mapa_lineas_deseo(
     agregar_capa_puntos(destinos, "Destinos", var_fex, cmap_puntos)
     agregar_capa_puntos(transferencias, "Transferencias", var_fex, cmap_puntos)
 
-    if isinstance(zonif, pd.DataFrame) and len(zonif) > 0:
-        zonif_json = json.loads(zonif.to_json())
-        for feature in zonif_json.get("features", []):
+    def _etiquetar(geojson):
+        """Nombre para el tooltip, y `var_fex` vacío.
+
+        El tooltip del Deck es uno solo para todas las capas y muestra
+        `{label}` y `{var_fex}`. En zonas y polígonos no existe `var_fex`, y
+        Streamlit deja el literal "{factor_expansion_linea}" cuando la
+        propiedad falta; poniéndola vacía el tooltip queda solo con el nombre.
+        """
+        for feature in geojson.get("features", []):
             props = feature.get("properties", {})
             props["label"] = props.get("id", "")
+            props.setdefault(var_fex, "")
+        return geojson
+
+    if isinstance(zonif, pd.DataFrame) and len(zonif) > 0:
+        zonif_json = _etiquetar(json.loads(zonif.to_json()))
+        # Capa clickeable: hace pickeable el interior de la zona y da el hover.
+        # Su relleno nunca se ve (opacity 0), así que el recoloreado que aplica
+        # Streamlit al haber una selección queda anulado; el hover sí se ve
+        # porque el highlight no pasa por `opacity` (ver nota arriba).
         layers.append(pdk.Layer(
             "GeoJsonLayer", data=zonif_json, id="zonas",
-            stroked=True, filled=True,
-            get_fill_color=[0, 0, 255, 0],
+            stroked=False, filled=True,
+            get_fill_color=[255, 140, 0, 0],
+            opacity=_OPACIDAD_ZONA,
+            pickable=True, auto_highlight=True,
+            highlight_color=_HIGHLIGHT_ZONA,
+        ))
+
+        # Zona seleccionada, dibujada por nosotros: color y transparencia bajo
+        # nuestro control, y solo sobre la zona elegida.
+        if zona_resaltada is not None and "id" in zonif.columns:
+            sel = zonif[zonif["id"].astype(str) == str(zona_resaltada)]
+            if len(sel) > 0:
+                sel_json = _etiquetar(json.loads(sel.to_json()))
+                layers.append(pdk.Layer(
+                    "GeoJsonLayer", data=sel_json, id="zona_resaltada",
+                    stroked=True, filled=True,
+                    get_fill_color=_FILL_ZONA_SEL,
+                    get_line_color=_LINE_ZONA_SEL,
+                    line_width_min_pixels=2,
+                    pickable=False,
+                ))
+
+        # Borde en capa aparte y no clickeable: si fuera parte de la capa
+        # clickeable, el `opacity` de arriba lo haría desaparecer.
+        layers.append(pdk.Layer(
+            "GeoJsonLayer", data=zonif_json, id="zonas_borde",
+            stroked=True, filled=False,
             get_line_color=[0, 0, 128, 180],
             line_width_min_pixels=1,
-            pickable=True, auto_highlight=True,
+            pickable=False,
         ))
 
     if show_poly and poly is not None and hasattr(poly, "geometry") and len(poly) > 0:
-        poly_json = json.loads(poly.to_json())
-        for feature in poly_json.get("features", []):
-            props = feature.get("properties", {})
-            props["label"] = props.get("id", "")
+        poly_json = _etiquetar(json.loads(poly.to_json()))
+        # El relleno mantiene transparencia (se ven las líneas por debajo) pero
+        # con algo más de cuerpo, y el borde pasa de blanco a gris oscuro: sobre
+        # el basemap "light" un borde blanco era prácticamente invisible.
         layers = [pdk.Layer(
             "GeoJsonLayer", data=poly_json, id="poligono",
             stroked=True, filled=True,
-            get_fill_color=[128, 128, 128, 60],
-            get_line_color=[255, 255, 255, 200],
+            get_fill_color=[110, 110, 110, 95],
+            get_line_color=[40, 40, 40, 230],
             line_width_min_pixels=2,
             pickable=True, auto_highlight=True,
+            highlight_color=_HIGHLIGHT_POLY,
         )] + layers
 
     if not layers:
