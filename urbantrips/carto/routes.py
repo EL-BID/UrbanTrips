@@ -1418,53 +1418,6 @@ def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
     return parent_routes_h3_gdf
 
 
-def process_all_ramales_into_parent_h3(ramales, parent_res):
-    conn_insumos = iniciar_conexion_db(
-        tipo="insumos",
-        alias_db=leer_configs_generales(autogenerado=False).get("alias_db", ""),
-    )
-    # Aplicar turn_child_h3_into_parent_h3 a todos los ramales
-    parent_ramales = []
-
-    # Obtener los id_ramal únicos
-    unique_ramales = ramales["id_ramal"].unique()
-
-    print(f"Procesando {len(unique_ramales)} ramales...")
-
-    for id_ramal in unique_ramales:
-        print(f"Procesando ramal: {id_ramal}")
-
-        # Obtener la geometría H3 del ramal desde ramales
-        ramal_h3 = ramales[ramales["id_ramal"] == id_ramal].copy()
-
-        # Obtener la geometría original del ramal desde la base de datos
-        query = f"SELECT * FROM official_branches_geoms where id_ramal = '{id_ramal}' and direction = 0"
-        df = pd.read_sql(query, conn_insumos)
-        df["geometry"] = gpd.GeoSeries.from_wkt(df.wkt)
-        ramal_geom = gpd.GeoDataFrame(
-            df.drop(columns=["wkt"]), geometry="geometry", crs="EPSG:4326"
-        )
-
-        # Aplicar la función
-        parent_ramal_h3 = turn_child_h3_into_parent_h3(
-            route_h3=ramal_h3, parent_res=parent_res, route_geom=ramal_geom
-        )
-
-        parent_ramales.append(parent_ramal_h3)
-
-    # Concatenar todos los resultados
-    parent_ramales_gdf = pd.concat(parent_ramales, ignore_index=True)
-    parent_ramales_gdf["geometry"] = gpd.GeoSeries.from_wkt(parent_ramales_gdf.wkt)
-    parent_ramales_gdf = gpd.GeoDataFrame(
-        parent_ramales_gdf, geometry="geometry", crs="EPSG:4326"
-    )
-
-    print(
-        f"\nProcesamiento completo. Total de celdas H3 padre: {len(parent_ramales_gdf)}"
-    )
-    return parent_ramales_gdf
-
-
 def create_edges_between_h3_centroids(parent_ramales_gdf):
     # Crear directed edges y linestrings entre centroides de H3 para cada ramal
     edges_data = []
