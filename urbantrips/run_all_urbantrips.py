@@ -164,11 +164,40 @@ if __name__ == "__main__":
         config_file=Path(args.config) if args.config else None,
     )
 
-    main(
-        borrar_corrida=args.borrar_corrida,
-        crear_dashboard=not args.no_dashboard,
-        step=args.step,
-        through=args.through,
+    # Persistent file log: mirror console output to <base>/logs/run_<timestamp>.log.
+    # basicConfig above only writes to the console (stderr), which is lost on a
+    # reboot or hard crash. The FileHandler flushes per record, so the file keeps
+    # everything up to the instant the process died — enough to diagnose a crash.
+    from datetime import datetime
+    from urbantrips.utils.paths import get_paths
+
+    logs_dir = get_paths().base / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_file = logs_dir / f"run_{datetime.now():%Y%m%d_%H%M%S}.log"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     )
+    logging.getLogger().addHandler(file_handler)
+    logging.info("Log de esta corrida: %s", log_file)
+
+    # Uncaught exceptions print their traceback to the console (stderr) but do NOT
+    # pass through `logging`, so without this wrapper the file log ends at the bare
+    # "Falló X" decorator line and the actual traceback is lost on a crash/reboot.
+    # logging.exception() emits at ERROR level WITH the full traceback to every
+    # handler — including the FileHandler — so the crash is diagnosable from the file.
+    try:
+        main(
+            borrar_corrida=args.borrar_corrida,
+            crear_dashboard=not args.no_dashboard,
+            step=args.step,
+            through=args.through,
+        )
+    except BaseException:
+        logging.exception("La corrida terminó por una excepción no controlada")
+        raise
     fin = time.time()
     logging.info("tiempo total de la corrida: %.2f min", (fin - inicio) / 60)

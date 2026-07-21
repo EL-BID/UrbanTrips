@@ -1,4 +1,7 @@
 import logging
+import os
+import shutil
+import tempfile
 import numpy as np
 import pandas as pd
 import h3
@@ -346,17 +349,9 @@ def _clear_h3_parent(etapas, column, parent_h3):
     etapas.loc[mask, "etapa_validada"] = 0
     etapas.loc[mask, "od_validado"] = 0
 
-def _infer_destinations_for_day(dia, destinos_min_dist, ctx):
-    """
-    Runs the full destination inference pipeline for a single day.
-    Returns the processed etapas DataFrame (columns needed for write-back and diagnostics).
-
-    La validación contra matriz_validacion se hace por id_linea_agg (red agregada)
-    e id_ramal efectivo según modo_valida_ramal. id_linea_agg se trae mergeando
-    metadata_lineas; modo es nativo de etapas. El id_ramal efectivo lo resuelven
-    validar_destinos / imputar_destino_min_distancia con modos_con_ramal(configs).
-    """
-    etapas = ctx.data.query(
+def _fetch_etapas_dia_infer(ctx, dia):
+    """Lee (en el main) las etapas de un día para la imputación de destinos."""
+    return ctx.data.query(
         f"""
         SELECT e.id, e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa,
                e.hora, e.tiempo, e.modo, e.id_linea, e.id_ramal, e.h3_o,
@@ -367,28 +362,52 @@ def _infer_destinations_for_day(dia, destinos_min_dist, ctx):
         """
     )
 
-    metadata_lineas = ctx.insumos.get_metadata_lineas()[["id_linea", "id_linea_agg"]]
+
+def _prep_matriz_infer(mv, destinos_min_dist):
+    """Proyección de la matriz de validación que usa cada camino, BIT-IDÉNTICA a lo
+    que preparaban validar_destinos / imputar_destino_min_distancia antes de delegar
+    en las _*_con_matriz. Proyectar baja la RAM al pasarla a los workers sin cambiar
+    el resultado (las _con_matriz solo tocan estas columnas)."""
+    if destinos_min_dist:
+        # imputar_destino_min_distancia pasaba la mv completa; _con_matriz solo usa
+        # estas 4 columnas (id_linea_agg, id_ramal, area_influencia, parada).
+        return mv[["id_linea_agg", "id_ramal", "area_influencia", "parada"]]
+    return mv[["id_linea_agg", "id_ramal", "area_influencia"]].drop_duplicates()
+
+
+def _infer_destinations_dia_compute(
+    dia, destinos_min_dist, etapas, metadata_lineas, matriz_val, modos_ramal
+):
+    """Cómputo PURO (sin DB) de la imputación de destinos de un día. Recibe las etapas
+    del día y los insumos día-independientes ya leídos (metadata_lineas, la matriz
+    proyectada, modos_ramal) → puede correr en un worker process. Reusa exactamente las
+    mismas _*_con_matriz que el camino serial, así el resultado es bit-idéntico.
+
+    Devuelve (etapas_dia, n_mismo_od) — n_mismo_od para que el caller logue el conteo.
+    """
     etapas = etapas.merge(metadata_lineas, how="left", on="id_linea")
 
     etapas_destinos_potencial = imputar_destino_potencial(etapas)
     del etapas
 
     if destinos_min_dist:
-        destinos = imputar_destino_min_distancia(etapas_destinos_potencial, ctx)
+        destinos = _imputar_destino_min_distancia_con_matriz(
+            etapas_destinos_potencial, matriz_val, modos_ramal
+        )
         etapas = etapas_destinos_potencial.drop(columns=["h3_d"]).merge(
             destinos[["id", "h3_d", "od_validado"]], on="id", how="left"
         )
     else:
-        destinos = validar_destinos(etapas_destinos_potencial, ctx)
+        destinos = _validar_destinos_con_matriz(
+            etapas_destinos_potencial, matriz_val, modos_ramal
+        )
         etapas = etapas_destinos_potencial.merge(
             destinos[["id", "od_validado"]], on="id", how="left"
         )
     del etapas_destinos_potencial, destinos
 
     etapas_mismo_od = etapas["h3_o"] == etapas["h3_d"]
-    logger.info(
-        "Dia %s — eliminando destinos con OD mismo h3: %d", dia, etapas_mismo_od.sum()
-    )
+    n_mismo_od = int(etapas_mismo_od.sum())
     etapas.loc[etapas_mismo_od, "h3_d"] = np.nan
     etapas.loc[etapas_mismo_od, "od_validado"] = 0
     del etapas_mismo_od
@@ -403,12 +422,57 @@ def _infer_destinations_for_day(dia, destinos_min_dist, ctx):
     # _clear_h3_parent siguiente la refina a 0 para los h3 en isla nula.
     etapas["etapa_validada"] = etapas["od_validado"]
 
-    logger.debug("Dia %s — limpiando h3_o con coordenadas (0, 0)", dia)
     _clear_h3_parent(etapas, "h3_o", H3_NULL_ISLAND_RES8)
-    logger.debug("Dia %s — limpiando h3_d con coordenadas (0, 0)", dia)
     _clear_h3_parent(etapas, "h3_d", H3_NULL_ISLAND_RES8)
 
-    return etapas
+    return etapas, n_mismo_od
+
+
+def _infer_destinations_for_day(dia, destinos_min_dist, ctx):
+    """
+    Runs the full destination inference pipeline for a single day (camino SERIAL,
+    comportamiento sin cambios). Lee de la DB los insumos del día y delega el cómputo
+    en _infer_destinations_dia_compute.
+
+    La validación contra matriz_validacion se hace por id_linea_agg (red agregada)
+    e id_ramal efectivo según modo_valida_ramal. id_linea_agg se trae mergeando
+    metadata_lineas; modo es nativo de etapas. El id_ramal efectivo lo resuelven las
+    _*_con_matriz con modos_con_ramal(configs).
+    """
+    etapas = _fetch_etapas_dia_infer(ctx, dia)
+    metadata_lineas = ctx.insumos.get_metadata_lineas()[["id_linea", "id_linea_agg"]]
+    configs = leer_configs_generales(autogenerado=False)
+    modos_ramal = modos_con_ramal(configs)
+    matriz_val = _prep_matriz_infer(ctx.insumos.get_matrix_validation(), destinos_min_dist)
+
+    etapas_dia, n_mismo_od = _infer_destinations_dia_compute(
+        dia, destinos_min_dist, etapas, metadata_lineas, matriz_val, modos_ramal
+    )
+    logger.info("Dia %s — eliminando destinos con OD mismo h3: %d", dia, n_mismo_od)
+    return etapas_dia
+
+
+def _infer_destinations_dia_worker(
+    dia, idx, destinos_min_dist, etapas, metadata_lineas, matriz_val, modos_ramal, stage_dir
+):
+    """Worker process (camino paralelo): computa el día con _infer_destinations_dia_compute
+    (pandas puro) y escribe SU propio parquet (sin contención con la DB — la ventaja
+    estructural de este paso). Devuelve los diagnósticos escalares del día para que el
+    main los agregue (sumas asociativas → bit-idéntico al serial)."""
+    etapas_dia, n_mismo_od = _infer_destinations_dia_compute(
+        dia, destinos_min_dist, etapas, metadata_lineas, matriz_val, modos_ramal
+    )
+    skinny = etapas_dia[["id", "dia", "h3_d", "od_validado", "etapa_validada"]]
+    skinny.to_parquet(os.path.join(stage_dir, f"day-{idx:04d}.parquet"), index=False)
+    n_od = int((etapas_dia["od_validado"] == 1).sum())
+    return dia, {
+        "total": len(etapas_dia),
+        "con_destino": n_od,
+        "od_mismo_h3": int((etapas_dia["h3_o"] == etapas_dia["h3_d"]).sum()),
+        "tarjetas_unicas": int(etapas_dia.groupby("id_tarjeta")["id"].count().eq(1).sum()),
+        "n_od": n_od,
+        "n_mismo_od": n_mismo_od,
+    }
 
 
 _DIAG_COLS = ["id", "dia", "id_tarjeta", "id_linea", "h3_o", "h3_d", "od_validado"]
@@ -450,43 +514,120 @@ def infer_destinations(ctx: StorageContext):
     diag_con_destino_por_dia = {}   # {dia: conteo od_validado==1}
     fallback_full = [] # only used when update_leg_destinations is unavailable
 
-    # Drop the index on (dia, od_validado) while the per-day UPDATEs run:
+    # Write-back batcheado: en vez de un UPDATE por día contra la tabla `etapas`
+    # completa (cada uno escanea toda la tabla y reescribe las filas del día
+    # dispersas por todos los row-groups → amplificación ~N× a escala mes), cada
+    # día vuelca solo su franja flaca (id, dia, h3_d, od_validado, etapa_validada)
+    # a un parquet en disco (RAM plana, mismo patrón que save_legs) y al final se
+    # hace UN solo UPDATE leyendo el glob. El cómputo sigue día-por-día; solo se
+    # difiere la escritura. Bit-idéntico: ningún día lee od_validado/h3_d de otro.
+    # Sin update_leg_destinations_from_parquet se cae al UPDATE por día de antes.
+    use_parquet_stage = has_selective_update and hasattr(
+        ctx.data, "update_leg_destinations_from_parquet"
+    )
+    stage_dir = tempfile.mkdtemp(prefix="urbantrips_destupd_") if use_parquet_stage else None
+    staged_any = False
+
+    # Drop the index on (dia, od_validado) while the destination writes run:
     # updating an indexed column makes DuckDB rewrite each row (delete+insert
     # with full ART maintenance), turning the write-back into the dominant
     # cost of the step (~34 min/day vs seconds without the index).
     if has_selective_update and hasattr(ctx.data, "begin_leg_destination_updates"):
         ctx.data.begin_leg_destination_updates()
     try:
-        for dia in dias:
-            logger.info("Procesando dia %s", dia)
-            etapas_dia = _infer_destinations_for_day(
-                dia, destinos_min_dist, ctx
-            )
+        # El paralelismo solo aplica al camino con parquet stage (workers escriben su
+        # propio parquet, sin contención con la DB). Sin stage se mantiene serial.
+        import gc as _gc
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from urbantrips.datamodel.legs import _parallel_day_workers
+        n_workers = _parallel_day_workers(len(dias)) if use_parquet_stage else 1
 
-            if has_selective_update:
-                ctx.data.update_leg_destinations(
-                    etapas_dia[["id", "dia", "h3_d", "od_validado", "etapa_validada"]]
+        if n_workers <= 1:
+            # ── Camino SERIAL (comportamiento previo, idéntico) ──
+            for idx, dia in enumerate(dias):
+                logger.info("Procesando dia %s", dia)
+                etapas_dia = _infer_destinations_for_day(
+                    dia, destinos_min_dist, ctx
                 )
-                logger.info("Dia %s — destinos guardados", dia)
-            else:
-                fallback_full.append(etapas_dia)
 
-            # acumular diagnósticos por día (sin retener las filas del mes)
-            _n_od = int((etapas_dia["od_validado"] == 1).sum())
-            diag_total += len(etapas_dia)
-            diag_con_destino += _n_od
-            diag_od_mismo_h3 += int(
-                (etapas_dia["h3_o"] == etapas_dia["h3_d"]).sum()
+                skinny = etapas_dia[["id", "dia", "h3_d", "od_validado", "etapa_validada"]]
+                if use_parquet_stage:
+                    skinny.to_parquet(
+                        os.path.join(stage_dir, f"day-{idx:04d}.parquet"), index=False
+                    )
+                    staged_any = True
+                elif has_selective_update:
+                    ctx.data.update_leg_destinations(skinny)
+                    logger.info("Dia %s — destinos guardados", dia)
+                else:
+                    fallback_full.append(etapas_dia)
+
+                # acumular diagnósticos por día (sin retener las filas del mes)
+                _n_od = int((etapas_dia["od_validado"] == 1).sum())
+                diag_total += len(etapas_dia)
+                diag_con_destino += _n_od
+                diag_od_mismo_h3 += int(
+                    (etapas_dia["h3_o"] == etapas_dia["h3_d"]).sum()
+                )
+                # 'dia' es constante dentro de etapas_dia → groupby solo por id_tarjeta
+                diag_tarjetas_unicas += int(
+                    etapas_dia.groupby("id_tarjeta")["id"].count().eq(1).sum()
+                )
+                diag_con_destino_por_dia[dia] = _n_od
+                del etapas_dia, skinny
+        else:
+            # ── Camino PARALELO: cada worker computa un día (pandas puro, reusando
+            # _infer_destinations_dia_compute) y escribe SU parquet. El main lee los
+            # insumos por día (DB) y agrega los diagnósticos escalares. Bit-idéntico al
+            # serial (mismo cómputo por día; los diag son sumas asociativas). Chunks con
+            # barrera para acotar la RAM (mismo criterio que assign_time_distances).
+            metadata_lineas = ctx.insumos.get_metadata_lineas()[["id_linea", "id_linea_agg"]]
+            modos_ramal = modos_con_ramal(configs)
+            matriz_val = _prep_matriz_infer(
+                ctx.insumos.get_matrix_validation(), destinos_min_dist
             )
-            # 'dia' es constante dentro de etapas_dia → groupby solo por id_tarjeta
-            diag_tarjetas_unicas += int(
-                etapas_dia.groupby("id_tarjeta")["id"].count().eq(1).sum()
+            logger.info("[infer_destinations] paralelizando: %d días en vuelo", n_workers)
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                for chunk_start in range(0, len(dias), n_workers):
+                    futures = {}
+                    for idx in range(chunk_start, min(chunk_start + n_workers, len(dias))):
+                        dia = dias[idx]
+                        logger.info("Procesando dia %s", dia)
+                        etapas = _fetch_etapas_dia_infer(ctx, dia)
+                        futures[executor.submit(
+                            _infer_destinations_dia_worker, dia, idx, destinos_min_dist,
+                            etapas, metadata_lineas, matriz_val, modos_ramal, stage_dir,
+                        )] = dia
+                        del etapas
+                    for fut in as_completed(futures):
+                        dia, diag = fut.result()
+                        staged_any = True
+                        diag_total += diag["total"]
+                        diag_con_destino += diag["con_destino"]
+                        diag_od_mismo_h3 += diag["od_mismo_h3"]
+                        diag_tarjetas_unicas += diag["tarjetas_unicas"]
+                        diag_con_destino_por_dia[dia] = diag["n_od"]
+                        logger.info(
+                            "Dia %s — eliminando destinos con OD mismo h3: %d",
+                            dia, diag["n_mismo_od"],
+                        )
+                    _gc.collect()
+
+        # Un solo UPDATE con todos los días acumulados (dentro del bracket de
+        # índice dropeado, para que el UPDATE no mantenga el ART fila por fila).
+        if use_parquet_stage and staged_any:
+            logger.info(
+                "Escribiendo destinos de %d día(s) en un único rebuild batcheado", len(dias)
             )
-            diag_con_destino_por_dia[dia] = _n_od
-            del etapas_dia
+            ctx.data.update_leg_destinations_from_parquet(
+                os.path.join(stage_dir, "*.parquet")
+            )
+            logger.info("Destinos guardados (batch)")
     finally:
         if has_selective_update and hasattr(ctx.data, "end_leg_destination_updates"):
             ctx.data.end_leg_destination_updates()
+        if stage_dir is not None:
+            shutil.rmtree(stage_dir, ignore_errors=True)
 
     # Fallback write-back for adapters that lack selective UPDATE support
     if not has_selective_update and fallback_full:

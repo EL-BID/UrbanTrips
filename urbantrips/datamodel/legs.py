@@ -553,6 +553,31 @@ def crear_viaje_id_acumulada(df, ventana_viajes=120):
     ).tolist()
 
 
+def _gps_origin_dia(legs, gps):
+    """Empareja (pandas puro) cada etapa del día con el punto GPS más cercano en
+    el tiempo (mismo dia/linea/ramal/interno, tolerancia 7 min).
+
+    Función PURA respecto de la DB: puede correr en un worker process o en el main.
+    """
+    cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
+    legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
+    gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+
+    legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
+    gps_to_join = gps.reindex(columns=cols).sort_values("fecha")
+
+    legs_to_gps_o = pd.merge_asof(
+        legs_to_join,
+        gps_to_join,
+        on="fecha",
+        by=["dia", "id_linea", "id_ramal", "interno"],
+        direction="nearest",
+        tolerance=pd.Timedelta("7 minutes"),
+        suffixes=("_legs", "_gps"),
+    )
+    return legs_to_gps_o.reindex(columns=["dia", "id_legs", "id_gps"]).dropna()
+
+
 @duracion
 def assign_gps_origin(ctx: StorageContext):
     """
@@ -581,8 +606,8 @@ def assign_gps_origin(ctx: StorageContext):
         except Exception as e:
             logger.debug("[assign_gps_origin] DELETE omitido: %s", e)
 
-    cols = ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]
-    for dia in dias:
+    def _fetch_origin_inputs(dia):
+        """Lecturas del día (main): etapas y gps mínimos para el merge_asof."""
         legs = ctx.data.query(
             f"""
             SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id
@@ -597,49 +622,55 @@ def assign_gps_origin(ctx: StorageContext):
             WHERE g.dia = '{dia}'
             """
         )
-        if gps.empty or legs.empty:
-            del legs, gps
-            continue
+        return legs, gps
 
-        legs["fecha"] = pd.to_datetime(legs["dia"] + " " + legs["tiempo"])
-        gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
+    n_workers = _parallel_day_workers(len(dias))
 
-        legs_to_join = legs.reindex(columns=cols).sort_values("fecha")
-        gps_to_join = gps.reindex(columns=cols).sort_values("fecha")
+    if n_workers <= 1:
+        # ── Camino serial (comportamiento previo, mismos resultados) ──
+        for i, dia in enumerate(dias, 1):
+            logger.info("[assign_gps_origin] día %d/%d (%s)", i, len(dias), dia)
+            legs, gps = _fetch_origin_inputs(dia)
+            if gps.empty or legs.empty:
+                del legs, gps
+                continue
+            legs_to_gps_o = _gps_origin_dia(legs, gps)
+            ctx.data.append_raw(legs_to_gps_o, "legs_to_gps_origin")
+            del legs, gps, legs_to_gps_o
+            gc.collect()
+        return
 
-        legs_to_gps_o = pd.merge_asof(
-            legs_to_join,
-            gps_to_join,
-            on="fecha",
-            by=["dia", "id_linea", "id_ramal", "interno"],
-            direction="nearest",
-            tolerance=pd.Timedelta("7 minutes"),
-            suffixes=("_legs", "_gps"),
-        )
+    # ── Camino paralelo: merge_asof (pandas puro) en workers; lecturas y
+    # escrituras a DuckDB en el main. Chunks con barrera para acotar RAM.
+    logger.info("[assign_gps_origin] paralelizando: %d días en vuelo", n_workers)
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        for chunk_start in range(0, len(dias), n_workers):
+            chunk = dias[chunk_start: chunk_start + n_workers]
+            futures = {}
+            for offset, dia in enumerate(chunk, 1):
+                logger.info(
+                    "[assign_gps_origin] día %d/%d (%s) — leyendo insumos",
+                    chunk_start + offset, len(dias), dia,
+                )
+                legs, gps = _fetch_origin_inputs(dia)
+                if gps.empty or legs.empty:
+                    del legs, gps
+                    continue
+                futures[executor.submit(_gps_origin_dia, legs, gps)] = dia
+                del legs, gps
+            for future in as_completed(futures):
+                ctx.data.append_raw(future.result(), "legs_to_gps_origin")
+            gc.collect()
 
-        legs_to_gps_o = legs_to_gps_o.reindex(
-            columns=["dia", "id_legs", "id_gps"]
-        ).dropna()
 
-        ctx.data.append_raw(legs_to_gps_o, "legs_to_gps_origin")
+def _fetch_time_distance_inputs_dia(ctx, dia, next_dia):
+    """Lee (en el PROCESO MAIN) los insumos de _gps_destino_y_tiempos_dia para un día.
 
-        del legs, gps, legs_to_join, gps_to_join, legs_to_gps_o
-        gc.collect()
-
-
-@duracion
-def _gps_destino_y_tiempos_dia(
-    ctx, dia, next_dia, legs_all, metadata_lineas, matriz, modos_ramal, legs_h3_res
-):
-    """Imputación de GPS de destino + tiempos/distancias de viaje para UN día.
-
-    Reproduce, para un solo día, exactamente lo que la versión previa hacía sobre
-    todos los días juntos: carga gps del día (+ madrugada de next_dia para legs que
-    cruzan medianoche), geocodifica, imputa el GPS de destino (_process_dia) y
-    calcula distance_route / distance_route_gps / travel_time_min / kmh_*.
-
-    Devuelve (travel_times, travel_times_trips, legs_to_gps_d) ya armados para el día.
-    legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+    Separado del cómputo para poder despachar el cómputo a workers: DuckDB no es
+    fork/spawn-safe, así que toda lectura/escritura a la DB queda en el main y los
+    workers reciben DataFrames (mismo patrón que la Fase 2 de create_legs).
+    El ORDER BY del gps es imprescindible: los cumsum de distancia acumulada por
+    servicio dependen del orden por fecha dentro de (dia, linea, ramal, interno).
     """
     gps_dias = [dia] + ([next_dia] if next_dia else [])
     gps_str = ", ".join(f"'{d}'" for d in gps_dias)
@@ -650,6 +681,35 @@ def _gps_destino_y_tiempos_dia(
         ORDER BY dia, id_linea, id_ramal, interno, fecha
         """
     )
+    legs_to_gps_o = ctx.data.query(
+        f"""
+        SELECT lo.id_legs, lo.id_gps AS id_gps_o
+        FROM legs_to_gps_origin lo
+        WHERE lo.dia = '{dia}'
+        """
+    )
+    return gps, legs_to_gps_o
+
+
+@duracion
+def _gps_destino_y_tiempos_dia(
+    dia, next_dia, legs_all, gps, legs_to_gps_o,
+    metadata_lineas, matriz, modos_ramal, legs_h3_res,
+):
+    """Imputación de GPS de destino + tiempos/distancias de viaje para UN día.
+
+    Reproduce, para un solo día, exactamente lo que la versión previa hacía sobre
+    todos los días juntos: geocodifica el gps del día (+ madrugada de next_dia para
+    legs que cruzan medianoche), imputa el GPS de destino (_process_dia) y
+    calcula distance_route / distance_route_gps / travel_time_min / kmh_*.
+
+    Función PURA respecto de la DB: recibe gps y legs_to_gps_o ya leídos
+    (_fetch_time_distance_inputs_dia) para poder ejecutarse en un worker process.
+
+    Devuelve (travel_times, travel_times_trips, legs_to_gps_d) ya armados para el día.
+    legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+    """
+    logger.info("[_gps_destino_y_tiempos_dia] día %s", dia)
     # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
     gps = gps.merge(metadata_lineas, how="left", on="id_linea")
     gps["id_ramal"] = id_ramal_efectivo(gps["modo"], gps["id_ramal"], modos_ramal)
@@ -696,13 +756,7 @@ def _gps_destino_y_tiempos_dia(
     legs_to_gps_d = etapas_result.reindex(columns=["dia", "id_legs", "id_gps"])
 
     # ── distance_route y distance_route_gps: ambas desde GPS ──
-    legs_to_gps_o = ctx.data.query(
-        f"""
-        SELECT lo.id_legs, lo.id_gps AS id_gps_o
-        FROM legs_to_gps_origin lo
-        WHERE lo.dia = '{dia}'
-        """
-    )
+    # legs_to_gps_o llega como parámetro (leído en el main por _fetch_time_distance_inputs_dia)
     legs_to_gps_d_dist = etapas_result.reindex(
         columns=["id_legs", "id_gps"]
     ).rename(columns={"id_gps": "id_gps_d"})
@@ -847,12 +901,165 @@ def _gps_destino_y_tiempos_dia(
     return travel_times, travel_times_trips, legs_to_gps_d
 
 
+def _duckdb_memory_limit_gb() -> float:
+    """GB que DuckDB tiene reservados (su memory_limit resuelto), como proxy del pico
+    del proceso main durante la fase paralela.
+
+    Espeja la prioridad de `_resolve_memory_limit` (override en tuning.yaml → 25% de
+    la RAM) SIN llamarla, para no re-emitir su log INFO en cada corrida. Se usa como
+    reserva porque en el punto donde se decide el paralelismo `compute_od_distances`
+    todavía no corrió: DuckDB puede crecer hasta su límite y el working set en pandas
+    del main vive por encima. Se autoescala con la máquina.
+    """
+    try:
+        from urbantrips.utils.utils import leer_configs_tuning
+        val = (leer_configs_tuning().get("duckdb", {}) or {}).get("memory_limit")
+    except Exception:
+        val = None
+    if val:
+        s = str(val).strip().upper()
+        try:
+            num = float("".join(c for c in s if c.isdigit() or c == "."))
+            return num / 1024.0 if ("MB" in s or "MIB" in s) else num
+        except Exception:
+            pass
+    try:
+        import psutil
+        return max(psutil.virtual_memory().total / 2**30 * 0.25, 1.0)
+    except Exception:
+        return 8.0
+
+
+def _parallel_day_workers(n_days: int) -> int:
+    """Cantidad de días del enrichment a procesar en paralelo.
+
+    Override manual: clave `parallel_day_workers` en configs/tuning.yaml (1 fuerza
+    serial, útil para comparar). Sin override, autotune por RAM:
+
+      workers = (RAM_libre_ahora − reserva_main) / (~12 GB por día en vuelo)
+
+    `RAM_libre_ahora` (psutil.available) ya refleja OS, apps/IDE y lo que el main
+    lleva cargado — por eso es mejor que la RAM total con un factor fijo. `reserva_main`
+    = el memory_limit de DuckDB (_duckdb_memory_limit_gb): aproxima el pico que el main
+    todavía va a alcanzar (buffers de DuckDB hasta su límite + pandas de compute_od).
+    Tope de 3 (los saves son seriales en el main, más workers no rinde).
+
+    Historia: el colchón fijo de 8 GB subestimaba el main real (~21 GB con memory_limit
+    17 GB) y sobre-committeaba; con 2 workers la máquina quedaba en ~5 GB libres
+    thrasheando (ver corrida 2026-07-17).
+    """
+    try:
+        import yaml
+        from urbantrips.utils.paths import get_paths
+
+        tuning = get_paths().base / "configs" / "tuning.yaml"
+        if tuning.exists():
+            override = (yaml.safe_load(tuning.read_text()) or {}).get(
+                "parallel_day_workers"
+            )
+            if override:
+                return max(1, min(int(override), n_days))
+    except Exception as e:
+        logger.debug("[parallel_day_workers] override ilegible: %s", e)
+    try:
+        import psutil
+
+        avail_gb = psutil.virtual_memory().available / 2**30
+    except Exception:
+        return 1
+    reserve_gb = _duckdb_memory_limit_gb()
+    per_day_gb = 12.0
+    budget_gb = avail_gb - reserve_gb
+    workers = int(max(0.0, budget_gb) // per_day_gb)
+    n = max(1, min(3, workers, n_days))
+    logger.info(
+        "[parallel_day_workers] autotune: %d worker(s) — RAM libre %.1f GB "
+        "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día (tope 3)",
+        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb,
+    )
+    return n
+
+
+def _fetch_legs_all_dia(ctx, dia):
+    """Lee (main) las etapas validadas del día y les computa distance_od.
+
+    compute_od_distances queda en el MAIN a propósito: usa un cache DuckDB propio
+    (od_distances) de un solo escritor; llamarlo desde varios workers a la vez
+    rompería el file-lock del cache.
+    """
+    legs_all = ctx.data.query(
+        f"""
+        SELECT e.*
+        FROM etapas e
+        WHERE e.etapa_validada = 1 AND e.dia = '{dia}'
+        ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
+        """
+    )
+    if len(legs_all) == 0:
+        return None
+    return compute_od_distances(
+        od_df=legs_all,
+        origin_col="h3_o",
+        dest_col="h3_d",
+        distance_col="distance_od",
+        unit="km",
+        symmetric=False,
+        precompute_dist=50_000,
+        max_tile_deg=99,
+        verbose=True,
+        ctx=ctx,
+    )
+
+
+def _travel_times_sin_gps(legs_all):
+    """Camino sin tabla gps: solo distance_od por etapa y suma por viaje."""
+    travel_times = legs_all.reindex(
+        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
+    ).copy()
+    travel_times_trips = (
+        travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
+        [["distance_od"]].sum(min_count=1)
+    )
+    return travel_times, travel_times_trips
+
+
+def _save_travel_times_dia(ctx, dia, travel_times, travel_times_trips, legs_to_gps_d):
+    """Normaliza esquemas y appendea (main) las salidas de un día."""
+    travel_times = travel_times.reindex(
+        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
+                 "distance_od", "distance_route", "distance_route_gps",
+                 "kmh_od", "kmh_route", "kmh_route_gps",
+                 "id_gps_o", "id_gps_d"]
+    )
+    travel_times_trips = travel_times_trips.reindex(
+        columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
+                 "distance_od", "distance_route", "distance_route_gps",
+                 "kmh_od", "kmh_route", "kmh_route_gps"]
+    )
+    travel_times["distance_route_gps"] = travel_times["distance_route_gps"].round(2)
+
+    tot = len(travel_times)
+    pct = travel_times["travel_time_min"].notna().sum() / max(tot, 1) * 100
+    logger.info(
+        "[assign_time_distances] %s guardado: %d etapas, travel_time imputado %.1f%%",
+        dia, tot, pct,
+    )
+
+    if legs_to_gps_d is not None:
+        ctx.data.append_raw(legs_to_gps_d, "legs_to_gps_destination")
+    ctx.data.append_raw(travel_times, "travel_times_legs")
+    ctx.data.append_raw(travel_times_trips, "travel_times_trips")
+
+
 def assign_time_distances(ctx: StorageContext):
     """
     Lee las etapas DIA POR DIA y, si hay tabla gps, imputa el gps de destino y
     calcula distance_od / distance_route / distance_route_gps / travel_time_min
     por dia, guardando y liberando antes del siguiente. Acota la RAM (escala a un
     mes) preservando exactamente la logica intra-dia (ver _gps_destino_y_tiempos_dia).
+
+    Con RAM suficiente, el cómputo pesado de cada día corre en workers
+    (_parallel_day_workers); las lecturas/escrituras a la DB quedan en el main.
     """
     configs = leer_configs_generales(autogenerado=False)
     usa_gps = configs.get("usa_archivo_gps", False)
@@ -893,66 +1100,75 @@ def assign_time_distances(ctx: StorageContext):
         except Exception as e:
             logger.debug("[delete omitido] %s: %s", table, e)
 
-    for dia in dias:
-        legs_all = ctx.data.query(
-            f"""
-            SELECT e.*
-            FROM etapas e
-            WHERE e.etapa_validada = 1 AND e.dia = '{dia}'
-            ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
-            """
-        )
-        if len(legs_all) == 0:
-            continue
+    n_workers = _parallel_day_workers(len(dias)) if usa_gps else 1
 
-        legs_all = compute_od_distances(
-            od_df=legs_all,
-            origin_col="h3_o",
-            dest_col="h3_d",
-            distance_col="distance_od",
-            unit="km",
-            symmetric=False,
-            precompute_dist=50_000,
-            max_tile_deg=99,
-            verbose=True,
-            ctx=ctx,
-        )
+    if n_workers <= 1:
+        # ── Camino serial (comportamiento previo, mismos resultados) ──
+        for i, dia in enumerate(dias, 1):
+            logger.info("[assign_time_distances] día %d/%d (%s)", i, len(dias), dia)
+            legs_all = _fetch_legs_all_dia(ctx, dia)
+            if legs_all is None:
+                continue
 
-        if usa_gps:
-            travel_times, travel_times_trips, legs_to_gps_d = _gps_destino_y_tiempos_dia(
-                ctx, dia, dia_to_next.get(dia), legs_all,
-                metadata_lineas, matriz, modos_ramal, legs_h3_res,
+            if usa_gps:
+                gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
+                    ctx, dia, dia_to_next.get(dia)
+                )
+                travel_times, travel_times_trips, legs_to_gps_d = (
+                    _gps_destino_y_tiempos_dia(
+                        dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
+                        metadata_lineas, matriz, modos_ramal, legs_h3_res,
+                    )
+                )
+                del gps, legs_to_gps_o
+            else:
+                travel_times, travel_times_trips = _travel_times_sin_gps(legs_all)
+                legs_to_gps_d = None
+
+            _save_travel_times_dia(
+                ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
             )
-        else:
-            travel_times = legs_all.reindex(
-                columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
-            ).copy()
-            travel_times_trips = (
-                travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-                [["distance_od"]].sum(min_count=1)
-            )
-            legs_to_gps_d = None
+            del legs_all, travel_times, travel_times_trips
+            gc.collect()
+        return
 
-        travel_times = travel_times.reindex(
-            columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
-                     "distance_od", "distance_route", "distance_route_gps",
-                     "kmh_od", "kmh_route", "kmh_route_gps",
-                     "id_gps_o", "id_gps_d"]
-        )
-        travel_times_trips = travel_times_trips.reindex(
-            columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
-                     "distance_od", "distance_route", "distance_route_gps",
-                     "kmh_od", "kmh_route", "kmh_route_gps"]
-        )
-        travel_times["distance_route_gps"] = travel_times["distance_route_gps"].round(2)
+    # ── Camino paralelo: el cómputo pesado de cada día (_gps_destino_y_tiempos_dia,
+    # pandas puro) corre en worker processes; el main hace TODAS las lecturas y
+    # escrituras a DuckDB y compute_od_distances (cache de un solo escritor).
+    # Chunks de n_workers días con barrera por chunk para acotar la RAM en vuelo
+    # (mismo patrón que la Fase 2 de create_legs). El resultado por día es idéntico
+    # al serial; solo cambia el orden físico de inserción entre días.
+    logger.info("[assign_time_distances] paralelizando: %d días en vuelo", n_workers)
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        for chunk_start in range(0, len(dias), n_workers):
+            chunk = dias[chunk_start: chunk_start + n_workers]
+            futures = {}
+            for offset, dia in enumerate(chunk, 1):
+                logger.info(
+                    "[assign_time_distances] día %d/%d (%s) — leyendo insumos",
+                    chunk_start + offset, len(dias), dia,
+                )
+                legs_all = _fetch_legs_all_dia(ctx, dia)
+                if legs_all is None:
+                    continue
+                gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
+                    ctx, dia, dia_to_next.get(dia)
+                )
+                futures[executor.submit(
+                    _gps_destino_y_tiempos_dia,
+                    dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
+                    metadata_lineas, matriz, modos_ramal, legs_h3_res,
+                )] = dia
+                del legs_all, gps, legs_to_gps_o
 
-        if legs_to_gps_d is not None:
-            ctx.data.append_raw(legs_to_gps_d, "legs_to_gps_destination")
-        ctx.data.append_raw(travel_times, "travel_times_legs")
-        ctx.data.append_raw(travel_times_trips, "travel_times_trips")
-
-        del legs_all, travel_times, travel_times_trips
-        gc.collect()
+            for future in as_completed(futures):
+                dia = futures[future]
+                travel_times, travel_times_trips, legs_to_gps_d = future.result()
+                _save_travel_times_dia(
+                    ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
+                )
+                del travel_times, travel_times_trips, legs_to_gps_d
+            gc.collect()
 
 
 def _process_dia(dia, legs_dia, gps_dia, matriz):
@@ -1120,6 +1336,25 @@ def assign_stations_od(ctx: StorageContext):
 
         stations = stations.to_crs(epsg=epsg_m)
 
+        # OPTIMIZACIÓN (bit-idéntica): classify_leg_into_station filtra las estaciones por
+        # id_linea (geo.py:490), así que una etapa de una línea SIN estaciones clasifica a 0
+        # (stations queda vacío para ese grupo). Filtrar la query de etapas a las líneas que
+        # sí tienen estaciones evita la conversión h3→latlng + join geométrico sobre el resto
+        # (en AMBA el CSV cubre pocas líneas → ~99% de las 177M etapas se salteaban a 0 igual).
+        # El resultado (legs_to_station_*, travel_times_stations de salida) es idéntico.
+        station_lines = [int(x) for x in stations["id_linea"].dropna().unique().tolist()]
+        if not station_lines:
+            logger.info(
+                "[assign_stations_od] las estaciones no tienen id_linea válido → nada que "
+                "clasificar; se omite."
+            )
+            return
+        station_lines_str = ", ".join(str(x) for x in station_lines)
+        logger.info(
+            "[assign_stations_od] %d línea(s) con estaciones → se clasifican solo esas etapas",
+            len(station_lines),
+        )
+
         # Se procesa UN DÍA POR VEZ para acotar RAM: antes se levantaba etapas del mes
         # entero (~63M filas) al DataFrame `legs`. Cada etapa se clasifica por sus
         # h3_o/h3_d contra `stations` (insumo estático) y los tiempos salen de lookups
@@ -1141,7 +1376,8 @@ def assign_stations_od(ctx: StorageContext):
                         "[assign_stations_od] DELETE omitido en %s: %s", _tabla, e
                     )
 
-        for dia in dias:
+        for i, dia in enumerate(dias, 1):
+            logger.info("[assign_stations_od] día %d/%d (%s)", i, len(dias), dia)
             # read legs without travel time in gps and distances (un día)
             legs = ctx.data.query(
                 f"""
@@ -1152,6 +1388,7 @@ def assign_stations_od(ctx: StorageContext):
                 WHERE tt.id IS NULL
                 AND e.etapa_validada = 1
                 AND e.dia = '{dia}'
+                AND e.id_linea IN ({station_lines_str})
                 """
             )
 
@@ -1283,72 +1520,10 @@ def assign_stations_od(ctx: StorageContext):
             del legs, legs_with_origin_station, legs_with_destination_station, travel_times
             gc.collect()
 
-def add_distance_and_travel_time(ctx: StorageContext):
-    """
-    This function reads legs data and adds distances and travel times
-    from the distances table.
-    It also computes the travel speed.
-    """
-
-    logger.info("Agregando distancias y tiempos de viaje a las etapas")
-
-    # Se procesa UN DÍA POR VEZ para acotar RAM: antes se levantaba etapas de toda la
-    # corrida (mes) al DataFrame `legs`. compute_od_distances calcula la distancia
-    # h3_o→h3_d por fila (sin dependencia inter-día) → resultado idéntico por día.
-    dias = sorted(ctx.data.get_run_days()["dia"].tolist())
-
-    for dia in dias:
-        # Leer etapas válidas del día
-        legs = ctx.data.query(
-            f"""
-            SELECT e.id, e.h3_d, e.h3_o
-            FROM etapas e
-            WHERE e.od_validado = 1 AND e.dia = '{dia}'
-            """
-        )
-        if len(legs) == 0:
-            del legs
-            continue
-
-        # Calcular distancias
-        legs = compute_od_distances(
-            od_df=legs,
-            origin_col="h3_o",
-            dest_col="h3_d",
-            distance_col="distance",
-            unit="km",
-            symmetric=False,
-            precompute_dist=50_000,
-            max_tile_deg=99,
-            verbose=True,
-            ctx=ctx,
-        )
-
-        # Guardar tabla temporal con distancias (se recrea por día) y actualizar etapas
-        ctx.data.save_raw(legs, "temp_distancias")
-        logger.debug("Día %s — actualizando distancias a etapas", dia)
-        ctx.data.execute(
-            """
-            UPDATE etapas
-            SET distancia = temp_distancias.distance
-            FROM temp_distancias
-            WHERE etapas.id = temp_distancias.id
-            """
-        )
-        del legs
-        gc.collect()
-
-    ctx.data.execute("DROP TABLE IF EXISTS temp_distancias")
-
-    # Tiempos de viaje: UPDATE SQL puro (join por id, sin pandas) → una sola vez.
-    logger.debug("Actualizando tiempos de viaje a etapas")
-    ctx.data.execute(
-        """
-        UPDATE etapas
-        SET travel_time_min = travel_times_legs.travel_time_min
-        FROM travel_times_legs
-        WHERE etapas.id = travel_times_legs.id
-        """
-    )
+# NOTA: la antigua `add_distance_and_travel_time` (etapas) fue ELIMINADA
+# (2026-07-17). Estaba MUERTA desde el commit ebe0789 (2026-05-31), reemplazada
+# por `assign_time_distances`, que calcula distance_od/route/route_gps y
+# travel_time_min y los guarda en travel_times_legs/travel_times_trips (de donde
+# los leen kpi, chains y el dashboard). Nadie consumía etapas.distancia.
 
     

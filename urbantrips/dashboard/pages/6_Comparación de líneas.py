@@ -12,13 +12,16 @@ from dash_utils import (
 from urbantrips.utils import utils
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
-from urbantrips.dashboard import get_dashboard_ctx
+from urbantrips.dashboard import dashboard_ctx
+from urbantrips.storage.access import DatabaseBusyError, write_access
 
-
-@st.cache_resource
-def obtener_ctx():
-    """StorageContext de solo lectura, cacheado para toda la sesión."""
-    return get_dashboard_ctx()
+# El StorageContext ya NO se cachea con @st.cache_resource: una conexión DuckDB
+# abierta toma el lock del archivo y bloquea tanto a otro dashboard como al
+# pipeline. Se abre y cierra dentro de `with dashboard_ctx() as ctx:`.
+#
+# compute_supply_overlapping y compute_demand_overlapping escriben en
+# overlapping_by_route, así que van dentro de una ventana de escritura; los
+# plot_interactive_* son solo lectura.
 # except ImportError as e:
 #     st.error(
 #         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -260,14 +263,19 @@ with st.expander("Comparación de líneas", expanded=True):
             not in st.session_state
         ):
 
-            overlapping_dict = ovl.compute_supply_overlapping(
-                "weekday",
-                base_route_id,
-                comp_route_id,
-                "branches" if use_branches else "lines",
-                h3_res_comp,
-                obtener_ctx(),
-            )
+            try:
+                with write_access("overlapping de oferta"), dashboard_ctx() as ctx:
+                    overlapping_dict = ovl.compute_supply_overlapping(
+                        "weekday",
+                        base_route_id,
+                        comp_route_id,
+                        "branches" if use_branches else "lines",
+                        h3_res_comp,
+                        ctx,
+                    )
+            except DatabaseBusyError as e:
+                st.error(f"{e} Volvé a intentar en unos segundos.")
+                st.stop()
             st.session_state[
                 f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
             ] = overlapping_dict
@@ -282,8 +290,9 @@ with st.expander("Comparación de líneas", expanded=True):
             f"overlapping_dict_{base_route_id}_{comp_route_id}_res{h3_res_comp}"
         ]
 
-        # Renderiza el primer mapa
-        f = ovl_viz.plot_interactive_supply_overlapping(obtener_ctx(), overlapping_dict)
+        # Renderiza el primer mapa (solo lectura)
+        with dashboard_ctx() as ctx:
+            f = ovl_viz.plot_interactive_supply_overlapping(ctx, overlapping_dict)
         # Muestra la salida solo en col1
         with col1:
             if f is not None:
@@ -309,16 +318,21 @@ with st.expander("Comparación de líneas", expanded=True):
             base_gdf = overlapping_dict["base"]["h3"]
             comp_gdf = overlapping_dict["comp"]["h3"]
             if (base_gdf is not None) and (comp_gdf is not None):
-                demand_overlapping = ovl.compute_demand_overlapping(
-                    st.session_state.id_linea_1,
-                    st.session_state.id_linea_2,
-                    "weekday",
-                    base_route_id,
-                    comp_route_id,
-                    base_gdf,
-                    comp_gdf,
-                    obtener_ctx(),
-                )
+                try:
+                    with write_access("overlapping de demanda"), dashboard_ctx() as ctx:
+                        demand_overlapping = ovl.compute_demand_overlapping(
+                            st.session_state.id_linea_1,
+                            st.session_state.id_linea_2,
+                            "weekday",
+                            base_route_id,
+                            comp_route_id,
+                            base_gdf,
+                            comp_gdf,
+                            ctx,
+                        )
+                except DatabaseBusyError as e:
+                    st.error(f"{e} Volvé a intentar en unos segundos.")
+                    st.stop()
                 st.session_state[
                     f"base_demand_comp_demand_{base_route_id}_{comp_route_id}"
                 ] = demand_overlapping
@@ -343,9 +357,10 @@ with st.expander("Comparación de líneas", expanded=True):
             base_demand = demand_overlapping["base"]["data"]
             comp_demand = demand_overlapping["comp"]["data"]
 
-            demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
-                obtener_ctx(), base_demand, comp_demand, overlapping_dict
-            )
+            with dashboard_ctx() as ctx:
+                demand_overlapping_fig = ovl_viz.plot_interactive_demand_overlapping(
+                    ctx, base_demand, comp_demand, overlapping_dict
+                )
             fig = demand_overlapping_fig["fig"]
             base_gdf_to_db = demand_overlapping_fig["base_gdf_to_db"]
             comp_gdf_to_db = demand_overlapping_fig["comp_gdf_to_db"]

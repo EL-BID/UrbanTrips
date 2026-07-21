@@ -76,6 +76,21 @@ def test_persist_indicators_pushdown_outputs_expected_values(tmp_path):
             }
         )
     )
+    # La distancia OD por viaje vive en travel_times_trips (la produce
+    # assign_time_distances en Fase 3); persist_indicators la lee de ahí, no de
+    # viajes.distancia. distance_od espeja los valores antes en viajes.distancia.
+    ctx.data.append_raw(
+        pd.DataFrame(
+            {
+                "dia": [day, day, day],
+                "id_tarjeta": ["A", "B", "C"],
+                "id_viaje": [1, 1, 1],
+                "distance_od": [2.0, 8.0, 4.0],
+                "travel_time_min": [10.0, 20.0, 30.0],
+            }
+        ),
+        "travel_times_trips",
+    )
 
     persist_indicators(ctx)
 

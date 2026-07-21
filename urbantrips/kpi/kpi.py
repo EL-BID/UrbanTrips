@@ -147,7 +147,8 @@ def compute_kpi(ctx: StorageContext):
     dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
     # --- KPI básicos (demanda), día por día ---
-    for dia in dias:
+    for i, dia in enumerate(dias, 1):
+        logger.info("[compute_kpi básicos] día %d/%d (%s)", i, len(dias), dia)
         run_basic_kpi(ctx, dia=dia)
         gc.collect()
     # agregados por tipo de día, una sola vez (cross-day, sobre tablas agregadas)
@@ -169,7 +170,8 @@ def compute_kpi(ctx: StorageContext):
     if gps_present and has_valid_legs:
         _delete_run_days_from(ctx, "kpi_by_day_line")
         any_line_day = False
-        for dia in dias:
+        for i, dia in enumerate(dias, 1):
+            logger.info("[compute_kpi por línea/día] día %d/%d (%s)", i, len(dias), dia)
             legs, gps = read_data_for_daily_kpi(ctx, dia=dia)
             if (len(legs) > 0) & (len(gps) > 0):
                 # compute KPI per line and date (append only; el DELETE ya se hizo)
@@ -193,7 +195,8 @@ def compute_kpi(ctx: StorageContext):
     if valid_services > 0:
         logger.info("Computando estadisticos por servicio")
         _delete_run_days_from(ctx, "kpi_by_day_line_service")
-        for dia in dias:
+        for i, dia in enumerate(dias, 1):
+            logger.info("[compute_kpi por servicio] día %d/%d (%s)", i, len(dias), dia)
             # compute KPI by service and day (append only; el DELETE ya se hizo)
             compute_kpi_by_service(ctx, dia=dia, clear_days=False)
 
@@ -662,7 +665,7 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
 def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     """
     Takes demand data and computes KPI at line level for each day.
-    Supply metrics (tot_veh, tot_km, tot_km_gps) are read directly
+    Supply metrics (tot_veh, tot_km_route, tot_km_route_gps) are read directly
     from services WHERE valid = 1, without any vehicle expansion factor.
 
     Parameters
@@ -727,8 +730,8 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
         services_data
         .groupby(["dia", "id_linea"], as_index=False)
         .agg(
-            tot_km=("distance_route", "sum"),
-            tot_km_gps=("distance_route_gps", "sum"),
+            tot_km_route=("distance_route", "sum"),
+            tot_km_route_gps=("distance_route_gps", "sum"),
         )
         .round(2)
     )
@@ -740,13 +743,13 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
 
     # Safe division: replace 0 with NaN in denominators
     tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
-    tot_km_safe = day_stats.tot_km.replace(0, np.nan)
-    tot_km_gps_safe = day_stats.tot_km_gps.replace(0, np.nan)
+    tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
+    tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
 
     # compute KPI
     day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
-    day_stats["kvd"] = day_stats.tot_km / tot_veh_safe
-    day_stats["kvd_gps"] = day_stats.tot_km_gps / tot_veh_safe
+    day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
+    day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
     
     day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
     day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
@@ -759,22 +762,22 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
     day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
 
-    day_stats["eko"] = (day_stats.tot_km * 60).replace(0, np.nan)
-    day_stats["eko_gps"] = (day_stats.tot_km_gps * 60).replace(0, np.nan)
+    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
+    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
 
-    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko
-    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko
-    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_gps
-    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko
-    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko
-    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_gps
+    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
+    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
+    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_route_gps
+    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
+    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko_route
+    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_route_gps
 
     cols = [
         "id_linea", "dia",
-        "tot_veh", "tot_km", "tot_km_gps", "tot_pax",
+        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
         "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
         "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-        "pvd", "kvd", "kvd_gps", "ipk_route", "ipk_route_gps",
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
     ]
@@ -782,7 +785,7 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     day_stats = day_stats.reindex(columns=cols)
 
     ratio_cols = [
-        "pvd", "kvd", "kvd_gps", "ipk_route", "ipk_route_gps",
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
     ]
@@ -807,9 +810,9 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
     Reads daily KPI data from kpi_by_day_line and computes average KPI
     at line level for weekday and weekend.
 
-    Totals (tot_veh, tot_km, tot_km_gps, tot_pax) and distance metrics
+    Totals (tot_veh, tot_km_route, tot_km_route_gps, tot_pax) and distance metrics
     (dmt_mean_*, dmt_median_*) are averaged across days. Ratios (ipk, pvd,
-    kvd, fo) are then recomputed from those averaged totals to avoid the
+    kvd_route, fo) are then recomputed from those averaged totals to avoid the
     statistical bias of averaging ratios directly.
 
     Parameters
@@ -835,7 +838,7 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
     # average totals by type of day — ratios are recomputed from these
     totals_cols = [
         "id_linea", "dia",
-        "tot_veh", "tot_km", "tot_km_gps", "tot_pax",
+        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
         "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
         "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
     ]
@@ -847,17 +850,17 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
 
     cols = [
         "id_linea", "dia",
-        "tot_veh", "tot_km", "tot_km_gps", "tot_pax",
+        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
         "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
         "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-        "pvd", "kvd", "kvd_gps", "ipk_route", "ipk_route_gps",
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
     ]
     type_of_day_stats = type_of_day_stats.reindex(columns=cols)
     
-    cols_float = ['tot_veh', 'tot_km', 'tot_km_gps', 'dmt_mean_od', 'dmt_mean_route', 'dmt_mean_route_gps', 'dmt_median_od',
-       'dmt_median_route', 'dmt_median_route_gps', 'pvd', 'kvd', 'kvd_gps',
+    cols_float = ['tot_veh', 'tot_km_route', 'tot_km_route_gps', 'dmt_mean_od', 'dmt_mean_route', 'dmt_mean_route_gps', 'dmt_median_od',
+       'dmt_median_route', 'dmt_median_route_gps', 'pvd', 'kvd_route', 'kvd_route_gps',
        'ipk_route', 'ipk_route_gps', 'fo_mean_od', 'fo_mean_route',
        'fo_mean_route_gps', 'fo_median_od', 'fo_median_route', 
        'fo_median_route_gps']
@@ -1022,7 +1025,7 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     service_supply_q = f"""
         SELECT
             dia, id_linea, id_ramal, interno, service_id,
-            distance_route AS tot_km, distance_route_gps AS tot_km_gps,
+            distance_route AS tot_km_route, distance_route_gps AS tot_km_route_gps,
             min_datetime, max_datetime
         FROM
             services WHERE valid = 1 {supply_dia_filter}
@@ -1038,8 +1041,8 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     service_stats.tot_pax = service_stats.tot_pax.fillna(0)
 
     # Safe division: replace 0 with NaN in denominators
-    tot_km_safe = service_stats["tot_km"].replace(0, np.nan)
-    tot_km_gps_safe = service_stats["tot_km_gps"].replace(0, np.nan)
+    tot_km_safe = service_stats["tot_km_route"].replace(0, np.nan)
+    tot_km_gps_safe = service_stats["tot_km_route_gps"].replace(0, np.nan)
 
     # compute stats
     service_stats["ipk_route"] = service_stats["tot_pax"] / tot_km_safe
@@ -1051,15 +1054,15 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     service_stats["ekd_median_route"] = service_stats["tot_pax"] * service_stats["dmt_median_route"]
     service_stats["ekd_median_route_gps"] = service_stats["tot_pax"] * service_stats["dmt_median_route_gps"]
 
-    service_stats["eko"] = (service_stats["tot_km"] * 60).replace(0, np.nan)
-    service_stats["eko_gps"] = (service_stats["tot_km_gps"] * 60).replace(0, np.nan)
+    service_stats["eko_route"] = (service_stats["tot_km_route"] * 60).replace(0, np.nan)
+    service_stats["eko_route_gps"] = (service_stats["tot_km_route_gps"] * 60).replace(0, np.nan)
 
-    service_stats["fo_mean_od"] = service_stats["ekd_mean_od"] / service_stats["eko"]
-    service_stats["fo_mean_route"] = service_stats["ekd_mean_route"] / service_stats["eko"]
-    service_stats["fo_mean_route_gps"] = service_stats["ekd_mean_route_gps"] / service_stats["eko_gps"]
-    service_stats["fo_median_od"] = service_stats["ekd_median_od"] / service_stats["eko"]
-    service_stats["fo_median_route"] = service_stats["ekd_median_route"] / service_stats["eko"]
-    service_stats["fo_median_route_gps"] = service_stats["ekd_median_route_gps"] / service_stats["eko_gps"]
+    service_stats["fo_mean_od"] = service_stats["ekd_mean_od"] / service_stats["eko_route"]
+    service_stats["fo_mean_route"] = service_stats["ekd_mean_route"] / service_stats["eko_route"]
+    service_stats["fo_mean_route_gps"] = service_stats["ekd_mean_route_gps"] / service_stats["eko_route_gps"]
+    service_stats["fo_median_od"] = service_stats["ekd_median_od"] / service_stats["eko_route"]
+    service_stats["fo_median_route"] = service_stats["ekd_median_route"] / service_stats["eko_route"]
+    service_stats["fo_median_route_gps"] = service_stats["ekd_median_route_gps"] / service_stats["eko_route_gps"]
 
     service_stats["hora_inicio"] = service_stats.min_datetime.str[11:16]
     service_stats["hora_fin"] = service_stats.max_datetime.str[11:16]
@@ -1068,7 +1071,7 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     cols = [
         "id_linea", "dia", "id_ramal", "interno", "service_id",
         "hora_inicio", "hora_fin",
-        "tot_km", "tot_km_gps", "tot_pax",
+        "tot_km_route", "tot_km_route_gps", "tot_pax",
         "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
         "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
         "ipk_route", "ipk_route_gps",

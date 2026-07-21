@@ -73,12 +73,12 @@ LABELS = {
     "sin_descuento": "Sin descuento",
     "tarifa_social": "Tarifa social",
     "educacion_jubilacion": "Estudiantes/Jubilados",
-    "velocidad_comercial": "Vel. comercial (km/h)",
-    "distancia_media_veh": "Dist. media/veh (km)",
+    "velocidad_comercial_route": "Vel. comercial (km/h)",
+    "distancia_media_veh_route": "Dist. media/veh (km)",
     "fo_mean_od": "Factor Ocupación (media)",
     "fo_median_od": "Factor Ocupación (mediana)",
     "travel_time_min": "Tiempo promedio viaje (min)",
-    "tot_km": "Km recorridos",
+    "tot_km_route": "Km recorridos",
     "dmt_mean_od": "Distancia media Pax (km)",
     "dmt_median_od": "Distancia mediana Pax (km)",
     "ipk_route": "IPK",
@@ -88,9 +88,9 @@ GENERAL_COLS = ["vehiculos_operativos", "transacciones"]
 GENDER_COLS = ["Masculino", "Femenino", "No informado"]
 TARIFA_COLS = ["sin_descuento", "tarifa_social", "educacion_jubilacion"]
 DEMO_COLS = GENDER_COLS + TARIFA_COLS
-OPERATIVE_COLS1 = ["velocidad_comercial", "distancia_media_veh", "fo_mean_od", "fo_median_od"]
-OPERATIVE_COLS2 = ["ipk_route", "tot_km", "dmt_mean_od", "dmt_median_od"]
-INT_DISPLAY_COLS = set(GENERAL_COLS + DEMO_COLS + ["tot_km"])
+OPERATIVE_COLS1 = ["velocidad_comercial_route", "distancia_media_veh_route", "fo_mean_od", "fo_median_od"]
+OPERATIVE_COLS2 = ["ipk_route", "tot_km_route", "dmt_mean_od", "dmt_median_od"]
+INT_DISPLAY_COLS = set(GENERAL_COLS + DEMO_COLS + ["tot_km_route"])
 TOTAL_SLOTS = 6  # columnas fijas por fila
 
 # -----------------------------------------------------------------------------
@@ -197,10 +197,10 @@ with st.expander("Totales y promedios del sistema", expanded=False):
             {
                 "vehiculos_operativos": [df_sel["vehiculos_operativos"].sum()],
                 "transacciones": [df_sel["transacciones"].sum()],
-                "tot_km": [df_sel["tot_km"].sum()],
+                "tot_km_route": [df_sel["tot_km_route"].sum()],
             }
         )
-        metric_row(tot_df, GENERAL_COLS + ["tot_km"])
+        metric_row(tot_df, GENERAL_COLS + ["tot_km_route"])
         st.divider()
         demo_tot = df_sel[DEMO_COLS].sum().to_frame().T
         demo_tot["transacciones"] = tot_df["transacciones"].iloc[0]

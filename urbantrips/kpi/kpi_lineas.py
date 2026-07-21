@@ -38,10 +38,16 @@ def cal_velocidad_comercial(servicios):
         servicios["max_datetime"] - servicios["min_datetime"]
     ).dt.total_seconds() / 60
 
-    # Cálculo de velocidad comercial
-    servicios["velocidad_comercial"] = servicios["distance_route"] / (
-        servicios["diff_minutes"] / 60
-    )
+    # Velocidad comercial por servicio, en dos familias homónimas al resto de
+    # los KPIs de distancia:
+    #   _route     -> ping-based   (distance_route,     reconstruida ping-a-ping)
+    #   _route_gps -> odómetro     (distance_route_gps, distancia de servicio)
+    horas = servicios["diff_minutes"] / 60
+    servicios["velocidad_comercial_route"] = servicios["distance_route"] / horas
+    servicios["velocidad_comercial_route_gps"] = servicios["distance_route_gps"] / horas
+
+    _vc_cols = ["velocidad_comercial_route", "velocidad_comercial_route_gps"]
+    _dist_cols = ["distance_route", "distance_route_gps"]
 
     # Extraer hora de finalización del servicio
     servicios["hour"] = servicios["max_datetime"].dt.hour
@@ -52,7 +58,7 @@ def cal_velocidad_comercial(servicios):
     )
     vel_comercial_linea_ramal_pico = (
         servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
     )
@@ -60,12 +66,15 @@ def cal_velocidad_comercial(servicios):
     # Distancia media recorrida por vehículo en ramal
     km_recorridos_ramal = (
         servicios.groupby(["dia", "id_linea", "id_ramal", "interno"], as_index=False)[
-            "distance_route"
+            _dist_cols
         ]
         .sum()
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["distance_route"]
+        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_dist_cols]
         .mean()
-        .rename(columns={"distance_route": "distancia_media_veh"})
+        .rename(columns={
+            "distance_route": "distancia_media_veh_route",
+            "distance_route_gps": "distancia_media_veh_route_gps",
+        })
         .round(1)
     )
 
@@ -75,7 +84,7 @@ def cal_velocidad_comercial(servicios):
 
     # Velocidad comercial total por línea (todo el día)
     vel_comercial_linea_all = (
-        servicios.groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        servicios.groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
     )
@@ -83,10 +92,13 @@ def cal_velocidad_comercial(servicios):
     # Velocidad comercial AM
     vel_comercial_linea_am = (
         servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
-        .rename(columns={"velocidad_comercial": "velocidad_comercial_am"})
+        .rename(columns={
+            "velocidad_comercial_route": "velocidad_comercial_am_route",
+            "velocidad_comercial_route_gps": "velocidad_comercial_am_route_gps",
+        })
     )
 
     # Velocidad comercial PM (15 a 19 hs)
@@ -95,10 +107,13 @@ def cal_velocidad_comercial(servicios):
     )
     vel_comercial_linea_pm = (
         servicios[filtro_pico_pm]
-        .groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
-        .rename(columns={"velocidad_comercial": "velocidad_comercial_pm"})
+        .rename(columns={
+            "velocidad_comercial_route": "velocidad_comercial_pm_route",
+            "velocidad_comercial_route_gps": "velocidad_comercial_pm_route_gps",
+        })
     )
 
     # Consolidar velocidades comerciales
@@ -108,11 +123,14 @@ def cal_velocidad_comercial(servicios):
 
     # Distancia media recorrida por vehículo (total)
     km_recorridos_linea = (
-        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)["distance_route"]
+        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)[_dist_cols]
         .sum()
-        .groupby(["dia", "id_linea"], as_index=False)["distance_route"]
+        .groupby(["dia", "id_linea"], as_index=False)[_dist_cols]
         .mean()
-        .rename(columns={"distance_route": "distancia_media_veh"})
+        .rename(columns={
+            "distance_route": "distancia_media_veh_route",
+            "distance_route_gps": "distancia_media_veh_route_gps",
+        })
         .round(1)
     )
 
@@ -299,16 +317,16 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         veh_validos, on=cols, how="left"
     )
 
-    # tot_km: solo km de servicios con valid=1
-    all["tot_km"] = all["serv_distance_route"]
+    # tot_km_route: solo km de servicios con valid=1
+    all["tot_km_route"] = all["serv_distance_route"]
 
     # tot_veh sincronizado con vehiculos_operativos corregido
     all["tot_veh"] = all["vehiculos_operativos"]
 
-    # Recalcular ratios que dependen de tot_veh y tot_km
+    # Recalcular ratios que dependen de tot_veh y tot_km_route
     all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["kvd"] = (all["tot_km"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["ipk_route"] = (all["tot_pax"] / all["tot_km"].replace(0, pd.NA)).round(1)
+    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(1)
 
     all = all[
         [
@@ -331,11 +349,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "cant_internos_en_trx",
             "flota",
             "vehiculos_operativos",
-            "velocidad_comercial",
-            "velocidad_comercial_am",
-            "velocidad_comercial_pm",
-            "distancia_media_veh",
-            "tot_km",
+            "velocidad_comercial_route",
+            "velocidad_comercial_route_gps",
+            "velocidad_comercial_am_route",
+            "velocidad_comercial_am_route_gps",
+            "velocidad_comercial_pm_route",
+            "velocidad_comercial_pm_route_gps",
+            "distancia_media_veh_route",
+            "distancia_media_veh_route_gps",
+            "tot_km_route",
             "distancia_media_pax",
             "dmt_mean_od",
             "dmt_mean_route",
@@ -344,7 +366,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "dmt_median_route",
             "dmt_median_route_gps",
             "pvd",
-            "kvd",
+            "kvd_route",
             "ipk_route",
             "ipk_route_gps",
             "fo_mean_od",

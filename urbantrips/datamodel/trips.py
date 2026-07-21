@@ -9,7 +9,6 @@ import pandas as pd
 from urbantrips.utils.utils import duracion
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
-from urbantrips.carto.compute_distances import compute_od_distances
 
 logger = logging.getLogger(__name__)
 
@@ -45,26 +44,107 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
         return
     dias_str = ", ".join(f"'{d}'" for d in dias_ultima_corrida["dia"].tolist())
 
+    logger.info("Calculando factores de expansión por etapa, línea y tarjeta")
+
+    # Se procesa UN DÍA POR VEZ (los factores son separables por día: GROUP BY
+    # ... dia, JOIN USING(dia, ...); viajes/usuarios agrupan por dia → por día el
+    # resultado es bit-idéntico y la RAM se acota a ~1 día).
+    #
+    # REBUILD+SWAP en vez de DELETE+INSERT sobre etapas: el patrón anterior
+    # (DELETE WHERE dia + INSERT, día a día sobre la misma tabla) degradaba
+    # progresivamente — con datos idénticos por semana, los scans WHERE dia del
+    # CTAS de factores midieron 56→134→159→207s entre semanas 1→4 (+267%): las
+    # filas borradas sin compactar y la fragmentación por reuso de huecos
+    # encarecen cada lectura siguiente. Acá cada día se APPENDEA a _ut_etapas_new
+    # (tabla fresca, sin índices) y al final un swap atómico la renombra a
+    # etapas. La tabla original queda intacta durante todo el loop (los CTAS
+    # leen de ella a velocidad constante) y la nueva queda clusterizada por día.
+    # Los índices de etapas ya están dropeados (begin_bulk_leg_writes);
+    # end_bulk_leg_writes los recrea sobre la tabla nueva tras el swap.
+    ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
+    ctx.data.execute("CREATE TABLE _ut_etapas_new AS SELECT * FROM etapas LIMIT 0")
+
+    dias = sorted(dias_ultima_corrida["dia"].tolist())
+    # preserve_insertion_order=true (default) serializa los INSERT...SELECT para
+    # emitir las filas en orden de origen: el reemplazo de etapas escribía con
+    # ~2 de 20 cores (medido a escala mes: 259s/día de los ~360s del día). Acá
+    # ningún orden intra-día importa — el clustering por día que #0 necesita lo
+    # da la propia estructura del loop (cada día se appendea como bloque en su
+    # transacción) — así que se desactiva para paralelizar escritura/compresión
+    # de row-groups, y se restaura SIEMPRE al salir: la Fase 2 sí depende del
+    # ORDER BY batch_id de sus INSERTs.
+    ctx.data.execute("SET preserve_insertion_order = false")
+    try:
+        _create_trips_day_loop(ctx, dias)
+
+        # Días de otras corridas (si los hay) pasan tal cual a la tabla nueva.
+        # En una corrida fresca copia 0 filas; cuesta un solo scan de etapas.
+        logger.info("  - Copiando días de otras corridas a la tabla nueva...")
+        ctx.data.execute(
+            f"INSERT INTO _ut_etapas_new SELECT * FROM etapas WHERE dia NOT IN ({dias_str})"
+        )
+
+        # Swap atómico: una sola transacción, o queda la etapas vieja o la nueva.
+        logger.info("  - Swap etapas <- _ut_etapas_new...")
+        ctx.data.execute(
+            """
+            BEGIN TRANSACTION;
+            DROP TABLE etapas;
+            ALTER TABLE _ut_etapas_new RENAME TO etapas;
+            COMMIT;
+            """
+        )
+    finally:
+        ctx.data.execute("SET preserve_insertion_order = true")
+
+    n_etapas = ctx.data.query(
+        f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
+    )["n"].iloc[0]
+    logger.info("Viajes y usuarios creados a partir de %d etapas", n_etapas)
+
+    totals = ctx.data.query(f"""
+        SELECT
+            SUM(factor_expansion_original) AS factor_expansion_original,
+            SUM(factor_expansion_etapa) AS factor_expansion_etapa,
+            SUM(factor_expansion_linea) AS factor_expansion_linea
+        FROM etapas
+        WHERE dia IN ({dias_str})
+    """)
+    trx_total = ctx.data.query(f"""
+        SELECT
+            COUNT(*) AS registros,
+            COALESCE(SUM(transacciones), 0) AS transacciones
+        FROM transacciones_linea
+        WHERE dia IN ({dias_str})
+    """)
+
+    logger.info(
+        "Verificación de factores de expansión | original=%.0f etapa=%.0f linea=%.0f trx=%.0f",
+        totals.factor_expansion_original.iloc[0],
+        totals.factor_expansion_etapa.iloc[0],
+        totals.factor_expansion_linea.iloc[0],
+        trx_total.transacciones.iloc[0],
+    )
+    if trx_total.registros.iloc[0] == 0:
+        logger.warning("transacciones_linea no tiene registros para esta corrida")
+
+    for table in ["_ut_etapas_fex"]:
+        ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
+    """Cuerpo por-día de create_trips: factores, reescritura de etapas, viajes
+    y usuarios de cada día. Separado para que el caller pueda encerrarlo en el
+    toggle de preserve_insertion_order sin indentar 250 líneas de SQL."""
+
     def run_step(label: str, sql: str) -> None:
-        # INFO (no debug) para que el log de la corrida muestre qué sub-paso
-        # domina create_trips: el CTAS de factores vs el DELETE+INSERT de ~63M
-        # filas que mantiene la PRIMARY KEY de etapas fila por fila.
         logger.info("  - %s...", label)
         start = time.perf_counter()
         ctx.data.execute(sql)
         logger.info("    listo en %.2fs", time.perf_counter() - start)
 
-    logger.info("Calculando factores de expansión por etapa, línea y tarjeta")
-
-    # Se procesa UN DÍA POR VEZ. Antes el CTAS de factores y el DELETE+INSERT de
-    # etapas abarcaban el mes entero en una sola transacción: el pico de RAM era
-    # DuckDB manteniendo la PRIMARY KEY de ~63M filas + la temporal _ut_etapas_fex
-    # del mes (ahí murió por OOM una corrida del mes). Todos los factores son
-    # separables por día (GROUP BY ... dia, JOIN USING(dia, ...)), viajes/usuarios
-    # agrupan por dia, y las tablas se reescriben con WHERE dia IN (...): por día el
-    # resultado es bit-idéntico y la transacción de reescritura se acota a ~1 día.
-    dias = sorted(dias_ultima_corrida["dia"].tolist())
-    for dia in dias:
+    for i, dia in enumerate(dias, 1):
+        logger.info("[create_trips] día %d/%d (%s)", i, len(dias), dia)
         dia_in = f"'{dia}'"
         run_step(
             f"[{dia}] Calculando factores en tabla temporal",
@@ -73,11 +153,22 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
             WITH base AS (
                 SELECT
                     e.*,
+                    -- od_base replica las DOS invalidaciones del create_trips
+                    -- original (urbantrips_viejo trips.py:84-99), aplicadas ANTES
+                    -- de calcular los factores: (1) lat/lon = 0 (GPS faltante) y
+                    -- (2) distancia OD nula o cero (par no ruteable o mismo
+                    -- hexágono origen-destino). distance_od viene de
+                    -- travel_times_legs (assign_time_distances, Fase 3). Sin este
+                    -- gate una etapa con destino pero sin distancia medible queda
+                    -- validada e infla los factores de expansión.
                     CASE
                         WHEN e.latitud = 0 AND e.longitud = 0 THEN 0
+                        WHEN tt.distance_od IS NULL OR tt.distance_od = 0 THEN 0
                         ELSE e.od_validado
                     END AS od_base
                 FROM etapas e
+                LEFT JOIN travel_times_legs tt
+                    ON e.id = tt.id AND e.dia = tt.dia
                 WHERE e.dia IN ({dia_in})
             ),
             factor_etapa AS (
@@ -188,11 +279,9 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
             """,
         )
         run_step(
-            f"[{dia}] Reemplazando etapas con factores calculados",
+            f"[{dia}] Insertando etapas con factores en tabla nueva",
             f"""
-            BEGIN TRANSACTION;
-            DELETE FROM etapas WHERE dia IN ({dia_in});
-            INSERT INTO etapas (
+            INSERT INTO _ut_etapas_new (
                 id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
                 hora, modo, id_linea, id_ramal, interno, genero, tarifa,
                 latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
@@ -207,8 +296,7 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
                 factor_expansion_original, factor_expansion_linea,
                 factor_expansion_tarjeta, factor_expansion_etapa, distancia,
                 travel_time_min
-            FROM _ut_etapas_fex;
-            COMMIT;
+            FROM _ut_etapas_fex
             """,
         )
 
@@ -248,7 +336,10 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
                     MIN(od_validado) AS od_validado,
                     AVG(factor_expansion_linea) AS factor_expansion_linea,
                     AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
-                FROM etapas
+                -- Se lee de _ut_etapas_fex (las etapas del día CON los factores
+                -- recién calculados), NO de etapas: la tabla original conserva
+                -- los factores viejos hasta el swap final.
+                FROM _ut_etapas_fex
                 WHERE dia IN ({dia_in})
                 -- dia DEBE estar en la clave: id_viaje arranca en 1 por tarjeta
                 -- cada día, así que sin dia los viajes de una misma tarjeta en
@@ -310,40 +401,6 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
             GROUP BY dia, id_tarjeta
             """,
         )
-
-    n_etapas = ctx.data.query(
-        f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
-    )["n"].iloc[0]
-    logger.info("Viajes y usuarios creados a partir de %d etapas", n_etapas)
-
-    totals = ctx.data.query(f"""
-        SELECT
-            SUM(factor_expansion_original) AS factor_expansion_original,
-            SUM(factor_expansion_etapa) AS factor_expansion_etapa,
-            SUM(factor_expansion_linea) AS factor_expansion_linea
-        FROM etapas
-        WHERE dia IN ({dias_str})
-    """)
-    trx_total = ctx.data.query(f"""
-        SELECT
-            COUNT(*) AS registros,
-            COALESCE(SUM(transacciones), 0) AS transacciones
-        FROM transacciones_linea
-        WHERE dia IN ({dias_str})
-    """)
-
-    logger.info(
-        "Verificación de factores de expansión | original=%.0f etapa=%.0f linea=%.0f trx=%.0f",
-        totals.factor_expansion_original.iloc[0],
-        totals.factor_expansion_etapa.iloc[0],
-        totals.factor_expansion_linea.iloc[0],
-        trx_total.transacciones.iloc[0],
-    )
-    if trx_total.registros.iloc[0] == 0:
-        logger.warning("transacciones_linea no tiene registros para esta corrida")
-
-    for table in ["_ut_etapas_fex"]:
-        ctx.data.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 @duracion
@@ -413,7 +470,9 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
 
 
 @duracion
-def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = None):
+def rearrange_trip_id_same_od(
+    ctx: StorageContext, batch: BatchSpec | None = None, dia: str | None = None
+):
     """
     Takes a legs dataframe with legs and trips id and splits
     trips with same id into 2 trips with different ids and uploads
@@ -430,19 +489,29 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     pandas DataFrame
         legs with new trips ids
 
+    Particionado: `dia` procesa un solo día (preferido: etapas queda físicamente
+    clusterizada por dia tras el rebuild de destinos, así el SELECT y el UPDATE
+    podan row-groups). `batch` (legacy) particiona por batch_id, que perdió su
+    soporte físico con ese mismo rebuild — a escala de mes cada query barría la
+    tabla completa. Ambos particionados son equivalentes en resultado: todas las
+    operaciones de esta función agrupan por (dia, id_tarjeta, ...) como prefijo,
+    y tanto batch (hash de tarjeta) como dia preservan íntegro cada grupo
+    (dia, id_tarjeta) → ningún cálculo cruza la frontera de la partición.
     """
     dias_ultima_corrida = ctx.data.get_run_days()
 
-    batch_filter = ""
-    if batch is not None:
-        batch_filter = f"WHERE e.batch_id = {batch.batch_id}"
+    scope_filter = ""
+    if dia is not None:
+        scope_filter = f"WHERE e.dia = '{dia}'"
+    elif batch is not None:
+        scope_filter = f"WHERE e.batch_id = {batch.batch_id}"
 
     df = ctx.data.query(
         f"""
         SELECT e.*
         FROM etapas e
         JOIN dias_ultima_corrida d ON e.dia = d.dia
-        {batch_filter}
+        {scope_filter}
         """
     )
     if df.empty:
@@ -537,7 +606,7 @@ def rearrange_trip_id_same_od(ctx: StorageContext, batch: BatchSpec | None = Non
     # Borrar columnas auxiliares
     df = df[cols_df]
 
-    ctx.data.update_leg_trip_ids(df)
+    ctx.data.update_leg_trip_ids(df, dia=dia)
 
 
 @duracion
@@ -571,62 +640,11 @@ def compute_trips_travel_time(ctx: StorageContext):
         """
     )
 
-@duracion
-def add_distance_and_travel_time(ctx: StorageContext):
-    """
-    This function reads trips data and adds distances and travel times
-    from the distances table. It also computes the travel speed.
-    """
-
-    trips = ctx.data.query(
-        """
-        SELECT v.id_tarjeta, v.id_viaje, v.dia, v.h3_d, v.h3_o
-        FROM viajes v
-        JOIN dias_ultima_corrida d ON v.dia = d.dia
-        WHERE od_validado = 1
-        """
-    )
-
-    trips = compute_od_distances(
-        od_df=trips,
-        origin_col="h3_o",
-        dest_col="h3_d",
-        distance_col="distance",
-        unit="km",
-        symmetric=False,
-        precompute_dist=50_000,
-        max_tile_deg=99,
-        verbose=False,
-        ctx=ctx,
-    )
-
-    ctx.data.save_raw(trips, "temp_distancias")
-
-    ctx.data.execute(
-        """
-        UPDATE viajes
-        SET distancia = temp_distancias.distance
-        FROM temp_distancias
-        WHERE viajes.id_tarjeta = temp_distancias.id_tarjeta
-        AND viajes.id_viaje = temp_distancias.id_viaje
-        AND viajes.dia = temp_distancias.dia
-        """
-    )
-
-    ctx.data.execute(
-        """
-        UPDATE viajes
-        SET travel_time_min = t.travel_time_min
-        FROM (
-            SELECT dia, id_tarjeta, id_viaje,
-                   SUM(COALESCE(travel_time_min, 0)) AS travel_time_min
-            FROM travel_times_legs
-            GROUP BY dia, id_tarjeta, id_viaje
-        ) t
-        WHERE viajes.dia = t.dia
-        AND viajes.id_tarjeta = t.id_tarjeta
-        AND viajes.id_viaje = t.id_viaje
-        """
-    )
-
-    ctx.data.execute("DROP TABLE IF EXISTS temp_distancias")
+# NOTA: la antigua `add_distance_and_travel_time` (viajes) fue ELIMINADA
+# (2026-07-17). Recalculaba con compute_od_distances la distancia OD directa del
+# viaje y la escribía en viajes.distancia — pero (a) esa métrica no es la que se
+# quiere (el diseño usa la distancia de `travel_times_trips`, producida por
+# assign_time_distances, que ya corre en Fase 3) y (b) su UPDATE global levantaba
+# el mes entero (39+ GB). Los consumidores (persist_indicators) leen ahora
+# `travel_times_trips` directamente, igual que el dashboard (preparo_dashboard) y
+# que el pipeline original, donde esta función nunca se llamaba.

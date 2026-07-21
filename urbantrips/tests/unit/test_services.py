@@ -1,9 +1,42 @@
 import pandas as pd
 
+import numpy as np
+
 from urbantrips.datamodel.services import (
     classify_line_gps_points_into_services,
     compute_new_services_stats,
+    gps_service_distances_to_km,
 )
+
+
+def test_gps_service_distances_to_km_converts_odometer_metres_to_km():
+    """El nivel servicio debe dejar distance_route_gps en KM, no en metros.
+
+    distance_servicio_mts (odómetro) viene en metros y debe dividirse por 1000
+    para quedar en la misma unidad que distance_route (km). Sin esto, todo lo
+    derivado (tot_km_route_gps, ipk_route_gps, velocidad_comercial_route_gps...)
+    quedaba inflado 1000x. Guarda contra la regresión del bug de unidades.
+    """
+    gps_points = pd.DataFrame({
+        "distance_km": [1.5, 3.0, 0.0],            # ping-based, ya en km
+        "distance_servicio_mts": [1500.0, 3000.0, None],  # odómetro en METROS
+        "interno": ["1", "1", "2"],
+    })
+
+    out = gps_service_distances_to_km(gps_points)
+
+    # distance_route = distance_km (sin cambios de unidad)
+    assert out["distance_route"].tolist() == [1.5, 3.0, 0.0]
+    # distance_route_gps = metros / 1000 -> km; NULL -> NaN (odómetro ausente)
+    assert out["distance_route_gps"].iloc[0] == 1.5
+    assert out["distance_route_gps"].iloc[1] == 3.0
+    assert np.isnan(out["distance_route_gps"].iloc[2])
+    # la columna cruda en metros ya no debe quedar
+    assert "distance_servicio_mts" not in out.columns
+    # ambas familias en la misma escala (ratio ~1, no ~1000)
+    m = out["distance_route"] > 0
+    ratio = (out.loc[m, "distance_route_gps"] / out.loc[m, "distance_route"]).dropna()
+    assert (ratio.between(0.5, 2.0)).all()
 
 
 def test_classify_services_from_gps_markers_vectorized_per_vehicle():
