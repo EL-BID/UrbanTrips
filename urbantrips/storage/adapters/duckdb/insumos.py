@@ -113,7 +113,9 @@ class DuckDBInsumoAdapter:
         self._conn.execute("DELETE FROM lines_geoms")
         self._conn.register("_df", flat)
         try:
-            self._conn.execute("INSERT INTO lines_geoms SELECT id_linea, wkt FROM _df")
+            self._conn.execute(
+                "INSERT INTO lines_geoms SELECT id_linea, direction, wkt FROM _df"
+            )
         finally:
             self._conn.unregister("_df")
 
