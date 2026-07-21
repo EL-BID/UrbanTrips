@@ -340,7 +340,10 @@ with st.expander("Líneas de Deseo", expanded=True):
             desc_etapas = False
 
         tipo_visualizacion = col1.radio(
-            "Tipo de visualización", options=["Líneas", "Arcos"], horizontal=True
+            "Tipo de visualización",
+            options=["Líneas", "Arcos"],
+            index=1,  # default explícito: arcos
+            horizontal=True,
         )
 
         zonas_values_all = ["Todos"] + zonas_values[

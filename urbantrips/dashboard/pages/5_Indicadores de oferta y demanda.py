@@ -30,6 +30,24 @@ from urbantrips.utils import utils
 #     st.stop()
 
 
+def asegurar_columnas_si_vacio(df, cols):
+    """Repone columnas faltantes SOLO cuando el df viene vacío.
+
+    En DuckDB una tabla ausente/vacía se devuelve como DataFrame sin columnas
+    (el viejo SQLite, con tablas pre-creadas, devolvía las columnas aunque no
+    hubiera filas). Sin esto, accesos como ``df["hour_min"]`` o filtros como
+    ``df[df.id_linea == ...]`` lanzan KeyError. Al reponer las columnas en el
+    df vacío, los bloques fluyen hacia el "No hay datos para mostrar" en vez de
+    romper. Solo actúa sobre df vacíos, así no enmascara columnas realmente
+    faltantes cuando sí hay datos.
+    """
+    if df.empty:
+        faltan = [c for c in cols if c not in df.columns]
+        if faltan:
+            df = df.reindex(columns=list(df.columns) + faltan)
+    return df
+
+
 def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
 
     try:
@@ -786,11 +804,17 @@ alias_seleccionado = configurar_selector_dia()
 try:
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = utils.leer_configs_generales()
+        # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+        # consistente con la resolución de DB (get_db_path usa autogenerado=False).
+        # Evita leer un autogenerado viejo de otra corrida.
+        st.session_state.configs = utils.leer_configs_generales(autogenerado=False)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    alias = configs["alias_db_data"]
+    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
+    # alias_db_insumos (las claves por-corrida alias_db_data/alias_db_dashboard
+    # ya no aplican).
+    alias = configs.get("alias_db_insumos", "")
     use_branches = configs["lineas_contienen_ramales"]
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
         ["id_linea", "nombre_linea"]
@@ -843,6 +867,10 @@ with col2:
 with st.expander("Factor de ocupación por horas"):
     basic_kpi_lineas = levanto_tabla_sql_local(
         "basic_kpi_by_line_hr", tabla_tipo="data"
+    )
+
+    basic_kpi_lineas = asegurar_columnas_si_vacio(
+        basic_kpi_lineas, ["id_linea", "dia", "yr_mo"]
     )
 
     nombre_linea_kpi = st.session_state["nombre_linea"]
@@ -928,6 +956,12 @@ with st.expander("Demanda por segmento de recorrido"):
 
     lineas = levanto_tabla_sql_local("ocupacion_por_linea_tramo")
 
+    lineas = asegurar_columnas_si_vacio(
+        lineas,
+        ["hour_min", "hour_max", "id_linea", "yr_mo", "day_type",
+         "n_sections", "rango"],
+    )
+
     lineas = lineas[
         (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
     ]
@@ -993,6 +1027,12 @@ with st.expander("Líneas de deseo por linea"):
 
     matriz = create_linestring_od(matriz)
 
+    matriz = asegurar_columnas_si_vacio(
+        matriz,
+        ["hour_min", "hour_max", "id_linea", "yr_mo", "day_type",
+         "n_sections", "rango"],
+    )
+
     matriz.loc[matriz["hour_min"].notna(), "rango"] = (
         "de "
         + matriz.loc[matriz["hour_min"].notna(), "hour_min"].astype(int).astype(str)
@@ -1030,6 +1070,12 @@ with st.expander("Matriz OD por linea"):
 
     matriz = levanto_tabla_sql_local("matrices_linea")
     # nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
+
+    matriz = asegurar_columnas_si_vacio(
+        matriz,
+        ["hour_min", "hour_max", "id_linea", "yr_mo", "day_type",
+         "n_sections", "rango"],
+    )
 
     matriz.loc[matriz["hour_min"].notna(), "rango"] = (
         "de "
@@ -1079,6 +1125,8 @@ with st.expander("Matriz OD por linea"):
         st.write("No hay datos para mostrar")
 
     zonas = levanto_tabla_sql("matrices_linea_carto")
+
+    zonas = asegurar_columnas_si_vacio(zonas, ["id_linea", "n_sections"])
 
     zonas = zonas.loc[
         (zonas.id_linea == id_linea)
@@ -1132,6 +1180,13 @@ with st.expander("Oferta por segmento de recorrido"):
     col1, col2 = st.columns([1, 1])
 
     lineas = levanto_tabla_sql_local("supply_stats_by_section_id")
+
+    lineas = asegurar_columnas_si_vacio(
+        lineas,
+        ["hour_min", "hour_max", "id_linea", "yr_mo", "day_type",
+         "n_sections", "rango"],
+    )
+
     lineas = lineas[
         (lineas.id_linea == id_linea) & (lineas.yr_mo == st.session_state[f"yr_mo_kpi"])
     ]

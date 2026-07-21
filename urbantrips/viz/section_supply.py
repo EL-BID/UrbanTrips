@@ -72,6 +72,20 @@ def visualize_route_section_supply_data(
         section_meters=section_meters,
     )
 
+    # Supply stats are derived from GPS data only. With a transactions-only
+    # dataset (no GPS) compute_route_section_supply never writes
+    # supply_stats_by_section_id, so get_route_section_supply_data returns an
+    # empty, column-less DataFrame. Guard before groupby: an empty frame has no
+    # "id_linea" column and would raise KeyError (the legacy code read via
+    # pd.read_sql, which returned an empty-but-columned frame, so groupby was a
+    # silent no-op). Nothing to visualize here.
+    if len(route_section_supply) == 0:
+        logger.info(
+            "No hay estadisticos de oferta por seccion para visualizar "
+            "(sin datos de GPS para estos filtros)."
+        )
+        return
+
     # Explicit loops: DataFrameGroupBy.apply swallows a TypeError raised in the
     # callee and retries without the grouping columns, masking the real error.
     # Create a speed viz for each route

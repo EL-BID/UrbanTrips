@@ -202,8 +202,17 @@ def _configured_n_batches() -> int | None:
     return n if n > 0 else None
 
 
-def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
-    """Compute n_batches from RAM and CPU so workers stay saturated."""
+def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.40) -> int:
+    """Compute n_batches from RAM and CPU so workers stay saturated.
+
+    safety_factor = fracción de la RAM DISPONIBLE que puede ocupar el chunk de
+    create_legs (cpu_workers batches simultáneos). El pico de datos ≈
+    safety_factor × RAM_disponible; sumado al memory_limit de DuckDB y al overhead
+    de pandas da el pico total del paso legs. A 0.40 create_legs picó 50.4 GB en la
+    máquina de 68.6 GB y completó sin OOM (corrida validada 7/10); menos batches =
+    menos rondas de workers = menos re-escaneos de `transacciones` en Fase 2. Bajar
+    hacia 0.30 da más headroom a costa de más rondas (Fase 2 más lenta).
+    """
     import psutil
 
     vm = psutil.virtual_memory()
@@ -294,12 +303,45 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
 
 
 def _get_parallel_workers(n_batches: int) -> int:
+    """Workers de Fase 2 (create legs). Override manual: `parallel_workers` en config.
+
+    Sin override, AUTOTUNE por RAM (antes: `cpu_count-1` ciego a la memoria → causó el
+    OOM del mes 2026-07-18 con 19 workers). Modelo (mismo criterio que
+    `_parallel_day_workers` de Fase 3): el pico de Fase 2 es `base + per_worker × W`,
+    donde `base` = memory_limit de DuckDB (buffers del main) + OS/main; cada worker
+    cuesta ~el tamaño de su batch (split picklado + copia + legs de salida). Se
+    presupuesta sobre la RAM TOTAL con un factor de seguridad, y se capea por cores y
+    n_batches. Auto-escala: en 64 GB da ~10, en 128 GB sube, en 16 GB cae a serial.
+    """
     configs = leer_configs_generales(autogenerado=False)
     configured = configs.get("parallel_workers")
     if configured is not None:
         return max(min(int(configured), n_batches), 1)
-    cpu_workers = max(multiprocessing.cpu_count() - 1, 1)
-    return max(min(cpu_workers, n_batches), 1)
+
+    cpu_cap = max(multiprocessing.cpu_count() - 1, 1)
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / 2**30
+    except Exception:
+        return max(min(cpu_cap, n_batches), 1)
+
+    try:
+        from urbantrips.datamodel.legs import _duckdb_memory_limit_gb
+        memlimit_gb = _duckdb_memory_limit_gb()
+    except Exception:
+        memlimit_gb = total_gb * 0.25
+
+    os_baseline_gb = 8.0     # OS + working set del main fuera de DuckDB
+    per_worker_gb = 3.0      # batch split + copia en el worker + legs de salida (~1.65 medido + colchón)
+    budget = total_gb * 0.85 - memlimit_gb - os_baseline_gb
+    workers = int(max(0.0, budget) // per_worker_gb)
+    n = max(1, min(cpu_cap, workers, n_batches))
+    logger.info(
+        "[parallel_workers] autotune: %d workers (RAM total %.0f GB − DuckDB %.0f − OS %.0f, "
+        "%.1f GB/worker, cap cores %d, n_batches %d)",
+        n, total_gb, memlimit_gb, os_baseline_gb, per_worker_gb, cpu_cap, n_batches,
+    )
+    return n
 
 
 def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
@@ -621,18 +663,26 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     if batches is None:
         trips.rearrange_trip_id_same_od(ctx)
     else:
-        n = len(batches)
-        logger.info("Iniciando rearrange_trip_id_same_od (%d batches)", n)
+        # Recorrido por DÍA, no por batch. rearrange es día-separable: todas sus
+        # operaciones agrupan por (dia, id_tarjeta, ...) y ningún cálculo cruza
+        # días, así que particionar por día produce el mismo resultado que por
+        # batch (ambos preservan íntegro cada grupo dia×tarjeta). Motivo del
+        # cambio: tras el rebuild de destinos etapas queda físicamente ordenada
+        # por dia → WHERE dia poda row-groups, mientras que el particionado por
+        # batch_id perdió su soporte físico y cada uno de los ~150 batches
+        # barría la tabla completa (65 min → 414 min a escala de mes, medido).
+        # El UPDATE de vuelta también poda ahora (dia= en update_leg_trip_ids).
+        # RAM: un día (~6M filas) ≈ lo que ya levanta assign_time_distances.
+        dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+        n = len(dias)
+        logger.info("Iniciando rearrange_trip_id_same_od (%d días)", n)
         ts_total = time.perf_counter()
-        for batch in batches:
-            logger.info(
-                "  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n
-            )
-            trips.rearrange_trip_id_same_od(ctx, batch=batch, _silent=True)
+        for i, dia in enumerate(dias, 1):
+            logger.info("  [rearrange_trip_id_same_od] día %d/%d (%s)", i, n, dia)
+            trips.rearrange_trip_id_same_od(ctx, dia=dia, _silent=True)
         logger.info(
-            "Finalizado rearrange_trip_id_same_od (%d batches, %.2fs)",
-            n,
-            time.perf_counter() - ts_total,
+            "Finalizado rearrange_trip_id_same_od (%d días, %.2fs)",
+            n, time.perf_counter() - ts_total,
         )
 
     # Compute distances and travel times for all legs; writes travel_times_legs/trips
@@ -649,15 +699,19 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     # create_trips_from_legs_and_fex rewrites the whole etapas table
     # (DELETE+INSERT of ~63M rows). With the secondary ART indexes active that
     # rewrite dominates Phase 4 (~68 min of silent tail at full-week scale), so
-    # drop them for the duration and recreate once afterwards.
+    # drop them for the duration and recreate once afterwards. Unlike Phase 2,
+    # nothing in Phase 4 deletes or queries etapas by batch_id, so idx_etapas_batch
+    # is dropped too instead of being maintained row by row across the rewrite.
     if hasattr(ctx.data, "begin_bulk_leg_writes"):
-        ctx.data.begin_bulk_leg_writes()
+        ctx.data.begin_bulk_leg_writes(drop_batch_index=True)
     try:
         trips.create_trips_from_legs_and_fex(ctx)
     finally:
         if hasattr(ctx.data, "end_bulk_leg_writes"):
             ctx.data.end_bulk_leg_writes()
-    trips.add_distance_and_travel_time(ctx)
+    # Las distancias y tiempos por viaje ya están en travel_times_trips (Fase 3,
+    # assign_time_distances). No se recalculan sobre la tabla viajes: los
+    # consumidores (persist_indicators, dashboard) leen travel_times_trips.
 
 
 def run_ingest(ctx: StorageContext) -> None:
@@ -667,6 +721,14 @@ def run_ingest(ctx: StorageContext) -> None:
     corridas = inicializo_ambiente(ctx)
     logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
     _ingest_all_days(ctx, corridas)
+    # Register each ingested corrida in the general DB so inicializo_ambiente's
+    # run_exists() can skip already-ingested days on a later incremental run.
+    # The legacy monolithic procesar_transacciones did this via
+    # write_transactions_to_db; the phased flow (run_ingest/legs/outputs/dashboard)
+    # is the one run_all uses, so registration must live here or the corridas
+    # table stays empty and every run re-ingests all configured days.
+    for corrida in corridas:
+        ctx.general.register_run(alias=corrida, process="transactions_completed")
 
 
 def run_legs(ctx: StorageContext) -> None:

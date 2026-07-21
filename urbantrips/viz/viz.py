@@ -135,6 +135,12 @@ def visualize_route_section_load(
         section_meters=section_meters,
     )
 
+    # An empty (column-less) frame has no "id_linea" column and would raise
+    # KeyError at groupby; nothing to visualize in that case.
+    if len(section_load_data) == 0:
+        logger.info("No hay datos de carga por tramo para visualizar.")
+        return
+
     # Explicit loop: DataFrameGroupBy.apply swallows a TypeError raised in the
     # callee and retries without the grouping columns, masking the real error.
     # Create a viz for each route
@@ -194,8 +200,14 @@ def get_route_section_load(
         section_meters=section_meters,
     )
 
-    # Read data from section load table
-    section_load_data = ctx.data.query(q)
+    # Read data from section load table. The table only exists once
+    # compute_route_section_load has written rows; tolerate the missing table
+    # (same pattern as get_route_section_supply_data / get_lines_od_matrix_data)
+    # so a line with no legs/route geoms yields "no data" instead of a crash.
+    try:
+        section_load_data = ctx.data.query(q)
+    except duckdb.CatalogException:
+        section_load_data = pd.DataFrame()
 
     if len(section_load_data) == 0:
         logger.info(

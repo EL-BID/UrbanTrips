@@ -183,7 +183,10 @@ with st.expander("Líneas de Deseo", expanded=True):
         st.session_state.etapas_seleccionada = vi_et_seleccion == "Etapas"
 
         tipo_visualizacion = col1.radio(
-            "Tipo de visualización", options=["Líneas", "Arcos"], horizontal=True
+            "Tipo de visualización",
+            options=["Líneas", "Arcos"],
+            index=1,  # default explícito: arcos
+            horizontal=True,
         )
 
         col3.write("Agregar Filtros")
@@ -526,6 +529,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         k_jenks=5,
                         latlon=latlon,
                         tipo_visualizacion=tipo_visualizacion,
+                        zona_resaltada=zona_click,
                     )
                 else:
                     st.session_state.map = None

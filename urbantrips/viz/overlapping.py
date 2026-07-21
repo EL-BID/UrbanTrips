@@ -11,7 +11,12 @@ import h3
 
 
 def get_route_metadata(ctx: StorageContext, route_id):
-    configs = leer_configs_generales()
+    # autogenerado=False: leer el config base, consistente con kpi/overlapping.py
+    # (que ya usa autogenerado=False en todas sus lecturas). Si el viz leyera el
+    # autogenerado stale con lineas_contienen_ramales=True mientras el overlapping
+    # se calculó por líneas, buscaría en metadata_ramales (vacía) y reventaría con
+    # IndexError en .iloc[0].
+    configs = leer_configs_generales(autogenerado=False)
     use_branches = configs["lineas_contienen_ramales"]
     if use_branches:
         metadata_ramales = ctx.insumos.get_metadata_ramales()

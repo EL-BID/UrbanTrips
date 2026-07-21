@@ -26,12 +26,12 @@ from urbantrips.utils.check_configs import check_config
 #         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
 #     )
 #     st.stop()
-from urbantrips.dashboard import get_dashboard_ctx
+from urbantrips.dashboard import dashboard_ctx
+from urbantrips.storage.access import DatabaseBusyError, write_access
 
-@st.cache_resource
-def obtener_ctx():
-    """StorageContext de solo lectura, cacheado para toda la sesión."""
-    return get_dashboard_ctx()
+# El StorageContext ya NO se cachea con @st.cache_resource: una conexión DuckDB
+# abierta toma el lock del archivo y bloquea tanto a otro dashboard como al
+# pipeline. Se abre y cierra dentro de `with dashboard_ctx() as ctx:`.
 # --- Función para levantar tablas SQL y almacenar en session_state ---
 def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
     if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
@@ -93,11 +93,17 @@ try:
 
     # --- Cargar configuraciones y conexiones en session_state ---
     if "configs" not in st.session_state:
-        st.session_state.configs = leer_configs_generales(autogenerado=True)
+        # autogenerado=False: leer el config base (configuraciones_generales.yaml),
+        # consistente con la resolución de DB en dash_utils (get_db_path también usa
+        # autogenerado=False). El autogenerado puede quedar viejo de otra corrida y
+        # desincronizar flags como lineas_contienen_ramales respecto de la base cargada.
+        st.session_state.configs = leer_configs_generales(autogenerado=False)
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    alias = configs["alias_db_data"]
+    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
+    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    alias = configs.get("alias_db_insumos", "")
     st.text(
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"
     )
@@ -191,85 +197,99 @@ if st.button("Comenzar a procesar"):
         section_meters = st.session_state["section_meters_7"]
         day_type = st.session_state["day_type_7"]
 
-        st.write("Calculando indicadores basicos...")
-        run_basic_kpi(obtener_ctx(), id_linea=[line_ids])
+        # Este bloque escribe en las bases (KPIs, matriz OD, oferta y carga por
+        # sección), así que corre dentro de una ventana de escritura explícita.
+        # Si otro dashboard o una corrida tiene la base tomada, se avisa en vez
+        # de romper con un traceback de DuckDB.
+        try:
+            with write_access("procesar indicadores de línea"), dashboard_ctx() as ctx:
+                st.write("Calculando indicadores basicos...")
+                run_basic_kpi(ctx, id_linea=[line_ids])
 
-        st.write("Calculando la matriz OD de la linea...")
-        # Se computa la matriz OD de las lineas
-        compute_lines_od_matrix(
-            obtener_ctx(),
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            n_sections=n_sections,
-            section_meters=section_meters,
-            day_type=day_type,
-            save_csv=True,
-        )
-        st.write("Visualizando la matriz OD de la linea...")
-        # Se visualiza la matriz OD de las lineas
-        visualize_lines_od_matrix(
-            obtener_ctx(),
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            day_type=day_type,
-            n_sections=n_sections,
-            section_meters=section_meters,
-            stat="totals",
-        )
+                st.write("Calculando la matriz OD de la linea...")
+                # Se computa la matriz OD de las lineas
+                compute_lines_od_matrix(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                    day_type=day_type,
+                    save_csv=True,
+                )
+                st.write("Visualizando la matriz OD de la linea...")
+                # Se visualiza la matriz OD de las lineas
+                visualize_lines_od_matrix(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    day_type=day_type,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                    stat="totals",
+                )
 
-        st.write("Calculando los estadisticos de oferta por secciones de las lineas...")
-        # Calcula los estadisticos de oferta por sección de las lineas
-        route_section_supply = compute_route_section_supply(
-            obtener_ctx(),
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            n_sections=n_sections,
-            section_meters=section_meters,
-            day_type=day_type,
-        )
+                st.write(
+                    "Calculando los estadisticos de oferta por secciones de las lineas..."
+                )
+                # Calcula los estadisticos de oferta por sección de las lineas
+                route_section_supply = compute_route_section_supply(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                    day_type=day_type,
+                )
 
-        st.write(
-            "Visualizando los estadisticos de oferta por secciones de las lineas..."
-        )
-        # Visualiza los estadisticos de oferta por sección de las lineas
-        visualize_route_section_supply_data(
-            obtener_ctx(),            
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            day_type=day_type,
-            n_sections=n_sections,
-            section_meters=section_meters,
-        )
+                st.write(
+                    "Visualizando los estadisticos de oferta por secciones de las lineas..."
+                )
+                # Visualiza los estadisticos de oferta por sección de las lineas
+                visualize_route_section_supply_data(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    day_type=day_type,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                )
 
-        st.write(
-            "Calculando los estadisticos de carga de las secciones de las lineas..."
-        )
-        # Se calculan los estadisticos de carga de las secciones de las lineas
-        compute_route_section_load(
-            obtener_ctx(),
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            n_sections=n_sections,
-            section_meters=section_meters,
-            day_type=day_type,
-        )
+                st.write(
+                    "Calculando los estadisticos de carga de las secciones de las lineas..."
+                )
+                # Se calculan los estadisticos de carga de las secciones de las lineas
+                compute_route_section_load(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                    day_type=day_type,
+                )
 
-        st.write(
-            "Visualizando los estadisticos de carga de las secciones de las lineas..."
-        )
-        # Se visualizan los estadisticos de carga de las secciones de las lineas
-        visualize_route_section_load(
-            obtener_ctx(),
-            line_ids=[line_ids],
-            hour_range=hour_range,
-            day_type=day_type,
-            n_sections=n_sections,
-            section_meters=section_meters,
-            save_gdf=True,
-            stat="totals",
-            factor=500,
-            factor_min=10,
-        )
+                st.write(
+                    "Visualizando los estadisticos de carga de las secciones de las lineas..."
+                )
+                # Se visualizan los estadisticos de carga de las secciones de las lineas
+                visualize_route_section_load(
+                    ctx,
+                    line_ids=[line_ids],
+                    hour_range=hour_range,
+                    day_type=day_type,
+                    n_sections=n_sections,
+                    section_meters=section_meters,
+                    save_gdf=True,
+                    stat="totals",
+                    factor=500,
+                    factor_min=10,
+                )
+        except DatabaseBusyError as e:
+            st.error(
+                f"{e} Cerrá el otro dashboard o esperá a que termine la corrida "
+                "y volvé a intentar."
+            )
+            st.stop()
 
         st.write(
             "Resultados pueden consultarse en el directorio UrbanTrips/"

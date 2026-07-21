@@ -340,6 +340,28 @@ python urbantrips/run_all_urbantrips.py --borrar_corrida all
 streamlit run urbantrips/dashboard/dashboard.py
 ```
 
+#### Acceso concurrente a las bases
+
+El dashboard abre las bases DuckDB **en modo solo lectura**, con conexiones de
+vida corta. Eso permite:
+
+- tener **varios dashboards abiertos** sobre la misma base al mismo tiempo;
+- que el pipeline pueda arrancar aunque haya dashboards abiertos.
+
+Las pocas acciones del dashboard que escriben (procesar indicadores de línea en
+*Herramientas interactivas*, comparar líneas, procesar un polígono en *Estimar
+demanda*, guardar escenarios/clusters) abren una **ventana de escritura**
+acotada: se cierran las conexiones de lectura, se escribe, y se vuelve a solo
+lectura. Si en ese momento otra corrida u otro dashboard tiene la base tomada,
+se muestra un aviso y se reintenta, en vez de fallar con un error de DuckDB.
+
+Límite conocido: DuckDB admite un solo escritor por archivo y no permite
+lectores mientras hay un escritor. **Mientras corre el pipeline, los dashboards
+no van a poder leer esa base.**
+
+Para forzar el modo solo lectura en cualquier proceso (por ejemplo un script de
+consulta) se puede exportar `URBANTRIPS_DB_READ_ONLY=1`.
+
 ---
 
 ## Configuración para desarrollo

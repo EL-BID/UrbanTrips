@@ -14,14 +14,19 @@ from urbantrips.storage.schema import general as schema
 class DuckDBGeneralAdapter:
     """Implements GeneralPort using DuckDB."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, read_only: bool = False) -> None:
         self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = duckdb.connect(str(self._path))
-        self._apply_schema()
+        self._read_only = read_only
+        if not read_only:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
+        if not read_only:
+            self._apply_schema()
 
     def close(self) -> None:
-        if self._conn is not None:
+        # getattr: si duckdb.connect falla en __init__ (base tomada por otro
+        # proceso) el atributo no existe y __del__ no tiene que romper.
+        if getattr(self, "_conn", None) is not None:
             self._conn.close()
             self._conn = None
 
@@ -33,7 +38,12 @@ class DuckDBGeneralAdapter:
             self._conn.execute(ddl)
 
     def get_completed_runs(self) -> pd.DataFrame:
-        return self._conn.execute("SELECT * FROM corridas").fetchdf()
+        # En modo solo lectura no se aplica el esquema, asi que la tabla puede
+        # no existir todavia (base recien creada o incompleta).
+        try:
+            return self._conn.execute("SELECT * FROM corridas").fetchdf()
+        except duckdb.CatalogException:
+            return pd.DataFrame()
 
     def register_run(self, alias: str, process: str) -> None:
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

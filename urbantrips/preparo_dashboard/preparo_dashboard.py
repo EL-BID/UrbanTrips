@@ -1361,9 +1361,9 @@ def resumen_x_linea(ctx: StorageContext):
         "transacciones",
         "distancia_media", "travel_time_min", "kmh_od",
         "cant_internos_en_trx", "cant_internos_en_gps",
-        "tot_veh", "tot_km", "tot_pax",
+        "tot_veh", "tot_km_route", "tot_pax",
         "dmt_mean_od", "dmt_median_od",
-        "pvd", "kvd", "ipk_route", "fo_mean_od", "fo_median_od",
+        "pvd", "kvd_route", "ipk_route", "fo_mean_od", "fo_median_od",
     ]
 
     # Resumen por línea
@@ -1448,15 +1448,11 @@ def crear_indices_unificados(ctx: StorageContext):
     """
 
     def _maybe_create(port, table, spec_list):
-        if not _table_exists(port, table):
-            return
-        for name, cols in spec_list:
-            if _table_has_cols(port, table, cols):
-                try:
-                    cols_sql = ", ".join(cols)
-                    port.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols_sql});")
-                except Exception as e:
-                    logger.debug("[índice omitido] %s.%s: %s", table, name, e)
+        # Auditoría empírica 2026-07-18: los índices ART son puro costo en DuckDB (no
+        # aceleran ninguna query — los sirve el zonemap/hash join — y se mantienen en
+        # cada escritura). Vestigio SQLite: no se crean más. Se conserva el
+        # ANALYZE/optimize de esta función (sí actualiza estadísticas del optimizador).
+        return
 
     def _speed_pragmas(port):
         for sql in [
