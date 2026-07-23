@@ -334,7 +334,6 @@ def persist_indicators(ctx: StorageContext):
               AND tt.distance_od <= 5
               AND v.factor_expansion_linea IS NOT NULL
               AND v.dia IN ({dias_str})
-              AND tt.dia IN ({dias_str})
             GROUP BY v.dia
             """,
             "Cantidad de viajes cortos (<5kms)",
@@ -380,7 +379,6 @@ def persist_indicators(ctx: StorageContext):
             WHERE v.od_validado = 1
               AND tt.distance_od IS NOT NULL
               AND v.dia IN ({dias_str})
-              AND tt.dia IN ({dias_str})
             GROUP BY v.dia
             """,
             "Distancia de los viajes (promedio en kms)",
@@ -411,7 +409,7 @@ def persist_indicators(ctx: StorageContext):
         "JOIN travel_times_trips tt "
         "ON v.dia = tt.dia AND v.id_tarjeta = tt.id_tarjeta AND v.id_viaje = tt.id_viaje "
         f"WHERE v.od_validado = 1 AND tt.distance_od IS NOT NULL "
-        f"AND v.dia IN ({dias_str}) AND tt.dia IN ({dias_str})"
+        f"AND v.dia IN ({dias_str})"
     )
     dias = sorted(_dias_df["dia"].tolist())
     _paso(f"días para medianas ({len(dias)})")
@@ -429,7 +427,6 @@ def persist_indicators(ctx: StorageContext):
             WHERE v.od_validado = 1
               AND tt.distance_od IS NOT NULL
               AND v.dia = '{_dia}'
-              AND tt.dia = '{_dia}'
             """
         )
         if viajes_median.empty:
@@ -474,7 +471,6 @@ def persist_indicators(ctx: StorageContext):
           AND v.modo IS NOT NULL
           AND tt.distance_od IS NOT NULL
           AND v.dia IN ({dias_str})
-          AND tt.dia IN ({dias_str})
         GROUP BY v.dia, v.modo
         """
     )
