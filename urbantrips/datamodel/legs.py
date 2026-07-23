@@ -84,12 +84,8 @@ def build_legs_dataframe(
     """
     legs = trx[trx.dia.isin(dias_ultima_corrida.dia)]
 
-    print("Eliminando transacciones con longitud o latitud igual a cero")
-    n_trx_ = len(legs)
-    print(f"Transacciones antes de eliminar: {len(legs)}")
-    legs = legs.loc[(legs.longitud != 0) & (legs.latitud != 0), :]
-    print(f"Transacciones eliminadas: {n_trx_ - len(legs)}")
-
+    # El borrado geográfico se centraliza en eliminar_trx_fuera_bbox (ingesta): las
+    # fuera-de-bbox ya se eliminaron y las lat/lon == 0 llegan conservadas con fex=0.
     # parse dates using local timezone
     legs = legs.copy()
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
@@ -1445,9 +1441,12 @@ def assign_stations_od(ctx: StorageContext):
         # entero (~63M filas) al DataFrame `legs`. Cada etapa se clasifica por sus
         # h3_o/h3_d contra `stations` (insumo estático) y los tiempos salen de lookups
         # O→D estáticos → sin dependencia inter-día, resultado idéntico por día.
-        # Los días se derivan de todas las etapas presentes (la query original NO
-        # filtraba por dias_ultima_corrida), no de get_run_days.
-        dias = sorted(ctx.data.query("SELECT DISTINCT dia FROM etapas")["dia"].tolist())
+        # Acotado a los días de la corrida (get_run_days): la asignación de estaciones
+        # es separable por día (cada etapa se clasifica por sus h3_o/h3_d contra insumos
+        # estáticos), así que day-scopear es bit-idéntico. Antes derivaba los días de
+        # TODAS las etapas presentes → reprocesaba los días congelados en cada corrida
+        # (∝ acumulado). Los DELETE/loop de abajo quedan acotados a run_days.
+        dias = sorted(ctx.data.get_run_days()["dia"].tolist())
         dias_str = ", ".join(f"'{d}'" for d in dias)
         for _tabla in (
             "legs_to_station_origin",

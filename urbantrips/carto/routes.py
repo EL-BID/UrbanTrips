@@ -429,14 +429,37 @@ def check_directions_on_geoms(geojson_data, branches_present):
 def infer_routes_geoms(ctx: StorageContext):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
-    de las lineas y lo guarda en la db
+    de las lineas y lo guarda en la db.
+
+    Incremental: lowess lee TODAS las etapas de cada línea y es caro (escala con lo
+    acumulado). Las líneas que YA tienen geometría inferida de corridas previas no se
+    recalculan — solo se computan las líneas nuevas (o las que quedaron sin geometría,
+    p.ej. porque lowess falló). Como `save_raw` hace CREATE OR REPLACE, se guarda la
+    UNIÓN (existentes + nuevas), no solo las nuevas. En corrida fresca (insumos vacía)
+    calcula todas → idéntico al comportamiento original.
     """
 
-    q = """
+    existentes = ctx.insumos.get_raw("inferred_lines_geoms")
+    ya_inferidas = (
+        set(existentes["id_linea"].tolist()) if not existentes.empty else set()
+    )
+
+    filtro = ""
+    if ya_inferidas:
+        ids = ", ".join(str(int(x)) for x in ya_inferidas)
+        filtro = f"where e.id_linea not in ({ids})"
+    q = f"""
     select e.id_linea,e.longitud,e.latitud
     from etapas e
+    {filtro}
     """
     etapas = ctx.data.query(q)
+
+    if etapas.empty:
+        logger.info(
+            "infer_routes_geoms: todas las líneas ya tienen geometría inferida — skip"
+        )
+        return
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
 
@@ -463,6 +486,14 @@ def infer_routes_geoms(ctx: StorageContext):
     recorridos_lowess = recorridos_lowess.reindex(
         columns=["id_linea", "direction", "wkt"]
     )
+
+    # Unir con las líneas ya inferidas: save_raw reemplaza toda la tabla, así que hay
+    # que guardar existentes + nuevas (no solo las nuevas, o se perderían las viejas).
+    if not existentes.empty:
+        recorridos_lowess = pd.concat(
+            [existentes[["id_linea", "direction", "wkt"]], recorridos_lowess],
+            ignore_index=True,
+        )
 
     ctx.insumos.save_raw(recorridos_lowess, "inferred_lines_geoms")
 

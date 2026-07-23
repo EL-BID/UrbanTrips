@@ -407,10 +407,13 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
         # carries a populated `dia` column at this point (set during
         # standardization-on-read in _standardize_chunk), so we don't need
         # to wait for the raw → transacciones promotion to compute it.
-        all_dias = ctx.data.query(
+        # Días de ESTA corrida: transacciones_raw sólo contiene las corridas nuevas
+        # que se ingieren ahora (inicializo_ambiente filtra las ya corridas). Se
+        # preserva en run_dias para acotar la re-derivación de más abajo.
+        run_dias = ctx.data.query(
             "SELECT DISTINCT dia FROM transacciones_raw ORDER BY dia"
         )
-        ctx.data.save_run_days(all_dias)
+        ctx.data.save_run_days(run_dias)
 
         # gps must be loaded before standardizing so geocoding (below) and
         # downstream gps-dependent steps have data to join against.
@@ -451,15 +454,23 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
     finally:
         ctx.data.clear_raw()
 
-    # transacciones_raw is cleared above; transacciones now holds the
-    # promoted rows for this run, so re-derive the day list once more in
-    # case standardization dropped any day entirely (e.g. all its rows
-    # failed validation). This keeps dias_ultima_corrida accurate for
-    # every step downstream of this function.
-    all_dias = ctx.data.query(
-        "SELECT DISTINCT dia FROM transacciones ORDER BY dia"
-    ).rename(columns={"dia": "dia"})
-    ctx.data.save_run_days(all_dias)
+    # transacciones_raw is cleared above; re-derive the day list once more in case
+    # standardization dropped any day entirely (e.g. all its rows failed validation).
+    # ACOTADO a run_dias: `transacciones` es ACUMULATIVA (contiene los días de todas
+    # las corridas previas, nunca se limpia por corrida), así que SIN el filtro
+    # dias_ultima_corrida se llenaría con todo el histórico y toda la Fase 3
+    # (infer_destinations, assign_*, rearrange, create_trips, compute_kpi, chains)
+    # reprocesaría días ya finalizados. La intersección — días de esta corrida que
+    # sobrevivieron a la estandarización — es lo correcto y CONGELA los días viejos.
+    dias_corrida = run_dias["dia"].tolist()
+    if dias_corrida:
+        dias_str = ", ".join(f"'{d}'" for d in dias_corrida)
+        all_dias = ctx.data.query(
+            f"SELECT DISTINCT dia FROM transacciones "
+            f"WHERE dia IN ({dias_str}) ORDER BY dia"
+        )
+        ctx.data.save_run_days(all_dias)
+    # si no hay días nuevos, run_dias (vacío) ya quedó guardado arriba
 
 
 def _create_legs_for_batch(ctx: StorageContext, batch, trx_order_params: dict) -> None:
@@ -552,9 +563,12 @@ def _create_legs_for_batches(
 
             chunk = batches[chunk_start : chunk_start + parallel_workers]
 
-            # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting
+            # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting.
+            # Acotado a run_days: transacciones es acumulativa, sin este filtro cada
+            # worker cargaría todos los días acumulados en RAM (OOM incremental).
             chunk_trx = ctx.data.get_transactions_for_chunk(
-                [b.batch_id for b in chunk], n
+                [b.batch_id for b in chunk], n,
+                run_days=dias_ultima_corrida["dia"].tolist(),
             )
             splits = {
                 b.batch_id: chunk_trx[chunk_trx["_batch_id"] == b.batch_id]

@@ -52,7 +52,26 @@ _STEP_FNS = {
 }
 
 
+def _log_run_context(mode: str) -> None:
+    """Deja explícito en el log qué archivo de config y qué alias se está usando.
+    Se registra al inicio (primera línea) y en cada step, para que una corrida de
+    un solo --step también quede identificada en su propio log."""
+    import os
+
+    cfg_path = os.environ.get(
+        "URBANTRIPS_CONFIG", "configs/configuraciones_generales.yaml"
+    )
+    try:
+        from urbantrips.utils.utils import leer_configs_generales
+
+        alias = leer_configs_generales(autogenerado=False).get("alias_db_insumos", "?")
+    except Exception:
+        alias = "?"
+    logging.info("Config: %s | alias: %s | %s", cfg_path, alias, mode)
+
+
 def _run_step(step: str) -> None:
+    _log_run_context(f"step: {step}")
     ctx = _build_ctx()
     check_prerequisites(step, ctx)
     _STEP_FNS[step](ctx)
@@ -62,6 +81,7 @@ def _run_through(through: str) -> None:
     ctx = _build_ctx()
     steps = _STEP_ORDER[: _STEP_ORDER.index(through) + 1]
     for step in steps:
+        _log_run_context(f"step: {step} (through {through})")
         check_prerequisites(step, ctx)
         _STEP_FNS[step](ctx)
 
@@ -182,6 +202,14 @@ if __name__ == "__main__":
         )
     )
     logging.getLogger().addHandler(file_handler)
+    _startup_mode = (
+        f"step: {args.step}"
+        if args.step
+        else f"through: {args.through}"
+        if args.through
+        else "corrida completa (ingest → legs → outputs → dashboard)"
+    )
+    _log_run_context(_startup_mode)
     logging.info("Log de esta corrida: %s", log_file)
 
     # Uncaught exceptions print their traceback to the console (stderr) but do NOT

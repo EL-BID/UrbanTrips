@@ -74,6 +74,31 @@ def test_transactions_roundtrip(tmp_path):
     assert set(result["id"]) == {1, 2, 3}
 
 
+def test_get_transactions_for_chunk_filters_by_run_days(tmp_path):
+    """Regresión: get_transactions_for_chunk debe acotar la lectura a run_days.
+
+    transacciones es ACUMULATIVA; sin este filtro cada worker de Fase 2 carga
+    TODOS los días acumulados en RAM (la memoria crece con lo acumulado, no con
+    los días de la corrida) — causó un OOM incremental a escala AMBA.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    trx = _sample_transactions()   # ids 1,2 -> 2024-01-01 ; id 3 -> 2024-01-02
+    trx["batch_id"] = 0
+    adapter.save_transactions(trx)
+
+    # sin run_days: todo el batch (los 2 días acumulados)
+    todo = adapter.get_transactions_for_chunk([0], 1)
+    assert set(todo["dia"]) == {"2024-01-01", "2024-01-02"}
+    assert len(todo) == 3
+
+    # con run_days: SOLO el día de la corrida (no arrastra lo acumulado)
+    solo = adapter.get_transactions_for_chunk([0], 1, run_days=["2024-01-02"])
+    assert set(solo["dia"]) == {"2024-01-02"}
+    assert len(solo) == 1
+
+
 def test_legs_roundtrip(tmp_path):
     from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
     adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
@@ -97,6 +122,38 @@ def test_save_legs_chunked_upsert(tmp_path, monkeypatch):
     result = adapter.get_legs()
     assert len(result) == 2
     assert result.loc[result["id"] == 1, "h3_d"].iloc[0] == "882a100d5bfffff"
+
+
+def test_save_legs_batch_preserves_previously_saved_days(tmp_path):
+    """Regresión: save_legs(batch) NO debe borrar días de corridas previas.
+
+    batch_id particiona VIAJEROS y abarca TODOS los días, así que un
+    `DELETE WHERE batch_id = ?` pelado borra las filas de ese batch de los
+    días ya procesados — pérdida de datos incremental (las etapas de corridas
+    viejas desaparecen mientras viajes las conserva). El delete debe acotarse
+    a los días presentes en df.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+    from urbantrips.storage.ports import BatchSpec
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    batch = BatchSpec(batch_id=0, total_batches=1)
+
+    # corrida previa: día A escrito bajo el batch 0
+    adapter.save_legs(_sample_legs(), batch)  # dia = 2024-01-01
+
+    # corrida incremental: día B bajo el MISMO batch 0
+    day_b = _sample_legs()
+    day_b["dia"] = "2024-01-02"
+    day_b["id"] = [3, 4]
+    adapter.save_legs(day_b, batch)
+
+    result = adapter.get_legs()
+    assert set(result["dia"]) == {"2024-01-01", "2024-01-02"}, (
+        "save_legs(batch) borró el día previo: el DELETE por batch_id no está "
+        "acotado por día (pérdida de datos incremental)"
+    )
+    assert len(result) == 4
 
 
 def test_update_leg_destinations_with_index_bracket(tmp_path):

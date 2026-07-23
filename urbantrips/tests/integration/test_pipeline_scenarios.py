@@ -298,6 +298,14 @@ def test_ingest_geolocalizar_trx_fills_coordinates_from_gps(tmp_path, monkeypatc
         "geolocalizar_trx": True,
         "resolucion_h3": 8,
         "n_batches": 1,
+        # bbox del área de estudio: eliminar_trx_fuera_bbox lo requiere (única
+        # llave de borrado geográfico); cubre las coords del fixture (~-34.6,-58.4).
+        "filtro_latlong_bbox": {
+            "minx": -59.0,
+            "miny": -35.0,
+            "maxx": -58.0,
+            "maxy": -34.0,
+        },
     }
 
     monkeypatch.setattr(
@@ -454,6 +462,14 @@ def test_ingest_with_latlong_already_present_skips_geocoding_and_keeps_values(
         "geolocalizar_trx": True,
         "resolucion_h3": 8,
         "n_batches": 1,
+        # bbox del área de estudio: eliminar_trx_fuera_bbox lo requiere (única
+        # llave de borrado geográfico); cubre las coords del fixture (~-34.6,-58.4).
+        "filtro_latlong_bbox": {
+            "minx": -59.0,
+            "miny": -35.0,
+            "maxx": -58.0,
+            "maxy": -34.0,
+        },
     }
 
     monkeypatch.setattr(
@@ -493,3 +509,84 @@ def test_ingest_with_latlong_already_present_skips_geocoding_and_keeps_values(
     assert transacciones["longitud"].tolist() == pytest.approx([-58.40, -58.41]), (
         "pre-existing longitud values must not be overwritten by gps data"
     )
+def test_ingest_incremental_run_days_solo_dias_nuevos(tmp_path, monkeypatch):
+    """Una segunda corrida (incremental, misma DB) debe dejar dias_ultima_corrida
+    SOLO con los días nuevos — no con los ya ingeridos.
+
+    Regresión de: run_process._ingest_all_days re-derivaba dias_ultima_corrida de
+    `transacciones` (tabla ACUMULATIVA), así que la 2da corrida la llenaba con todos
+    los días históricos y la Fase 3 reprocesaba los días viejos.
+    """
+    from urbantrips.utils import run_process
+    from urbantrips.utils.paths import init_paths, reset_paths
+
+    base = tmp_path
+    (base / "data" / "data_ciudad").mkdir(parents=True)
+    (base / "configs").mkdir(parents=True)
+    (base / "configs" / "configuraciones_generales.yaml").write_text("placeholder: true\n")
+
+    def _trx_csv(corrida, fecha, id_off):
+        p = base / "data" / "data_ciudad" / f"{corrida}_trx.csv"
+        p.write_text(
+            "id,id_tarjeta,fecha,id_linea,id_ramal,interno,orden,latitud,longitud,modo,tarifa,fex\n"
+            f"{id_off+1},card_1,{fecha} 08:05:00,1,1,10,1,-34.60,-58.40,autobus,-,1.0\n"
+            f"{id_off+2},card_2,{fecha} 09:05:00,1,1,10,2,-34.61,-58.41,autobus,-,1.0\n"
+        )
+
+    corrida_a, fecha_a = "20250101", "2025-01-01"
+    corrida_b, fecha_b = "20250102", "2025-01-02"
+    _trx_csv(corrida_a, fecha_a, 0)
+    _trx_csv(corrida_b, fecha_b, 100)
+
+    reset_paths()
+    init_paths(base)
+    ctx = _ctx(base)
+
+    config = {
+        "nombres_variables_trx": _NOMBRES_VARIABLES_TRX,
+        "formato_fecha": "%Y-%m-%d %H:%M:%S",
+        "tipo_trx_invalidas": None,
+        "lineas_contienen_ramales": True,
+        "usa_archivo_gps": False,
+        "geolocalizar_trx": False,
+        "resolucion_h3": 8,
+        "n_batches": 1,
+    }
+    monkeypatch.setattr(
+        "urbantrips.utils.check_configs.check_config", lambda corrida: None)
+    monkeypatch.setattr(
+        run_process, "leer_configs_generales", lambda *a, **k: config)
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.leer_configs_generales",
+        lambda *a, **k: config)
+
+    def _passthrough_distances(od_df, **kwargs):
+        r = od_df.copy()
+        r["distance_km"] = 0.0
+        return r
+    monkeypatch.setattr(
+        "urbantrips.datamodel.transactions.compute_od_distances",
+        _passthrough_distances)
+
+    try:
+        # ── Corrida 1: día A ──
+        run_process._ingest_all_days(ctx, [corrida_a])
+        run_days_1 = sorted(ctx.data.get_run_days()["dia"].tolist())
+        assert run_days_1 == [fecha_a], f"run1 esperaba [{fecha_a}], dio {run_days_1}"
+
+        # ── Corrida 2 incremental: día B (misma DB, A ya en transacciones) ──
+        run_process._ingest_all_days(ctx, [corrida_b])
+        run_days_2 = sorted(ctx.data.get_run_days()["dia"].tolist())
+        assert run_days_2 == [fecha_b], (
+            f"run2 incremental debía dejar SOLO [{fecha_b}] en dias_ultima_corrida, "
+            f"pero dio {run_days_2} (el día viejo se reprocesaría en Fase 3)"
+        )
+
+        # ambos días deben seguir en transacciones (acumulativa, correcto)
+        dias_trx = sorted(
+            r[0] for r in ctx.data.query(
+                "SELECT DISTINCT dia FROM transacciones").itertuples(index=False))
+        assert dias_trx == [fecha_a, fecha_b], (
+            f"transacciones debe conservar ambos días: {dias_trx}")
+    finally:
+        reset_paths()

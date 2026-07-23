@@ -277,7 +277,7 @@ class DuckDBDataAdapter:
         where = self._batch_where(batch, "id_tarjeta")
         return self._conn.execute(f"SELECT * FROM transacciones {where}").fetchdf()
 
-    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int) -> pd.DataFrame:
+    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int, run_days: list[str] | None = None) -> pd.DataFrame:
         """Load rows for the given batch IDs in one scan, with _batch_id column for splitting.
 
         Reads the batch_id stamped at standardize time (= hash(id_tarjeta) % n_batches,
@@ -286,10 +286,21 @@ class DuckDBDataAdapter:
         batch_id, a chunk's contiguous batch_ids let DuckDB prune row groups and read
         only its slice — turning ~one full scan per chunk into ~one full scan total
         across Phase 2. total_batches is kept for signature compatibility, unused now.
+
+        `run_days` acota la lectura a los días de la corrida. `transacciones` es
+        ACUMULATIVA (nunca se limpia por corrida), así que sin este filtro cada worker
+        cargaría TODOS los días acumulados y recién build_legs_dataframe los descarta en
+        pandas — la RAM de Fase 2 crecería con lo acumulado y no con los días de la
+        corrida (causó un OOM incremental a escala AMBA). Con el filtro la memoria queda
+        acotada a la corrida; el resultado es idéntico (el worker filtra los mismos días).
         """
         ids = ", ".join(str(b) for b in batch_ids)
+        where = f"batch_id IN ({ids})"
+        if run_days:
+            dias = ", ".join(f"'{d}'" for d in run_days)
+            where += f" AND dia IN ({dias})"
         return self._conn.execute(
-            f"SELECT *, batch_id AS _batch_id FROM transacciones WHERE batch_id IN ({ids})"
+            f"SELECT *, batch_id AS _batch_id FROM transacciones WHERE {where}"
         ).fetchdf()
 
     def save_transactions(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
@@ -689,9 +700,18 @@ class DuckDBDataAdapter:
             try:
                 # Delete by batch_id (indexed) instead of joining on id —
                 # avoids an O(n²) scan as the etapas table grows across batches.
+                # SCOPED BY DAY: batch_id partitions travelers and spans ALL days,
+                # so a bare `WHERE batch_id = ?` would wipe this batch's rows for
+                # previously-processed days too (incremental data loss — etapas of
+                # old runs vanish while viajes keep them). df carries only the
+                # current run's legs (filtered to run days in build_legs_dataframe),
+                # so restrict the delete to the days actually present in it.
                 if batch is not None:
+                    dias_batch = df["dia"].unique().tolist()
+                    ph = ", ".join("?" for _ in dias_batch)
                     self._conn.execute(
-                        "DELETE FROM etapas WHERE batch_id = ?", [batch.batch_id]
+                        f"DELETE FROM etapas WHERE batch_id = ? AND dia IN ({ph})",
+                        [batch.batch_id, *dias_batch],
                     )
                 else:
                     self._conn.execute(

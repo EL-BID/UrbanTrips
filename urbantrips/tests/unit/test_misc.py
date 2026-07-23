@@ -25,6 +25,11 @@ def test_persist_indicators_pushdown_outputs_expected_values(tmp_path):
     ctx = _ctx(tmp_path)
     day = "2024-01-01"
 
+    # persist_indicators acota sus agregados a dias_ultima_corrida (mismo patrón
+    # que create_trips_from_legs_and_fex): sin días registrados no hay nada que
+    # calcular y retorna temprano.
+    ctx.data.save_run_days(pd.DataFrame({"dia": [day]}))
+
     ctx.data.save_legs(
         pd.DataFrame(
             {
@@ -124,3 +129,47 @@ def test_persist_indicators_pushdown_outputs_expected_values(tmp_path):
     assert value("Distancia de los viajes (promedio en kms) - bus", "avg") == 3.43
     assert value("Etapas promedio de los viajes", "avg") == 2.3
     assert value("Cantidad promedio de viajes por tarjeta", "avg") == 3.2
+
+
+def test_weighted_median_equivale_a_weightedstats():
+    """La versión numpy debe dar lo mismo que weightedstats.weighted_median.
+
+    Se reemplazó la implementación pura (Python: listas + sorted + while, ~8x más
+    lenta sobre los ~5M de valores por día del pipeline). Este test fija la
+    equivalencia, incluidos los bordes donde las dos ramas del algoritmo original
+    difieren: empates, un peso que supera el midpoint, y acumulada que cae justo
+    sobre el midpoint (promedia dos valores).
+    """
+    import numpy as np
+    import weightedstats as ws
+
+    from urbantrips.datamodel.misc import _weighted_median
+
+    casos = [
+        ([1.0, 2.0, 3.0], [1.0, 1.0, 1.0]),          # impar simple
+        ([1.0, 2.0, 3.0, 4.0], [1.0, 1.0, 1.0, 1.0]),  # acumulada justo en midpoint
+        ([5.0, 1.0, 3.0], [1.0, 10.0, 1.0]),          # un peso > midpoint
+        ([2.0, 2.0, 2.0, 9.0], [1.0, 1.0, 1.0, 2.0]),  # empates en los datos
+        ([1.0, 2.0], [0.0, 3.0]),                      # peso cero
+        ([7.5], [4.0]),                                # un solo elemento
+        ([3.0, 1.0, 2.0], [0.5, 0.25, 0.25]),          # pesos fraccionarios
+    ]
+    for data, weights in casos:
+        esperado = ws.weighted_median(data, weights=list(weights))
+        obtenido = _weighted_median(np.array(data), np.array(weights))
+        assert obtenido == esperado, (
+            f"data={data} weights={weights}: numpy={obtenido} vs pura={esperado}"
+        )
+
+    # aleatorio, para cubrir combinaciones que no se me ocurrieron
+    rng = np.random.default_rng(20260722)
+    for _ in range(200):
+        n = int(rng.integers(1, 50))
+        data = rng.normal(10, 5, n).round(3)
+        weights = rng.random(n).round(3) * 10
+        esperado = ws.weighted_median(data.tolist(), weights=weights.tolist())
+        obtenido = _weighted_median(data, weights)
+        assert obtenido == esperado, (
+            f"n={n} data={data.tolist()} weights={weights.tolist()}: "
+            f"numpy={obtenido} vs pura={esperado}"
+        )

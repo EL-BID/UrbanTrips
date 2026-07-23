@@ -147,6 +147,13 @@ def compute_kpi(ctx: StorageContext):
     dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
     # --- KPI básicos (demanda), día por día ---
+    # Upsert por corrida: se borran los run-days de las salidas ANTES del loop y
+    # run_basic_kpi appendea por día. (Antes usaba `dia NOT IN(processed_days)`, que
+    # SALTEABA días ya presentes → re-procesar dejaba filas stale, y re-leer la salida
+    # creciente por iteración daba O(n²). Los agregados weekday/weekend viven con
+    # dia='weekday'/'weekend' → el DELETE por fecha de run-days no los toca.)
+    for _t in ("basic_kpi_by_line_day", "basic_kpi_by_line_hr", "basic_kpi_by_vehicle_hr"):
+        _delete_run_days_from(ctx, _t)
     for i, dia in enumerate(dias, 1):
         logger.info("[compute_kpi básicos] día %d/%d (%s)", i, len(dias), dia)
         run_basic_kpi(ctx, dia=dia)
@@ -195,6 +202,9 @@ def compute_kpi(ctx: StorageContext):
     if valid_services > 0:
         logger.info("Computando estadisticos por servicio")
         _delete_run_days_from(ctx, "kpi_by_day_line_service")
+        # services_by_line_hour (data + dash) también upsert por corrida; antes usaba
+        # processed_days → no re-procesable y escalera O(n²).
+        _delete_run_days_from(ctx, "services_by_line_hour", also_dash=True)
         for i, dia in enumerate(dias, 1):
             logger.info("[compute_kpi por servicio] día %d/%d (%s)", i, len(dias), dia)
             # compute KPI by service and day (append only; el DELETE ya se hizo)
@@ -212,17 +222,33 @@ def compute_kpi(ctx: StorageContext):
         logger.info("No hay servicios procesados. Puede correr services.process_services() si cuenta con GPS")
 
 
-def _delete_run_days_from(ctx: StorageContext, table: str) -> None:
+def _delete_run_days_from(
+    ctx: StorageContext, table: str, also_dash: bool = False
+) -> None:
     """Borra las filas de la corrida actual de `table` (upsert por corrida).
 
     Reemplaza el patrón "DELETE run-days + append" que cada sub-función de KPI
     hacía en su única llamada mes-entero; ahora el DELETE se hace UNA vez antes
-    del loop por día y las sub-funciones appendean por día.
+    del loop por día y las sub-funciones appendean por día. `also_dash=True` para
+    tablas espejadas en la DB dash (p.ej. services_by_line_hour). Tolera que la
+    tabla aún no exista (corrida fresca: se crea lazily en el primer append) →
+    nada que borrar.
     """
+    import duckdb as _duckdb
+
     dias_ultima_corrida = ctx.data.get_run_days()
     values = ", ".join(f"'{val}'" for val in dias_ultima_corrida["dia"])
-    if values:
+    if not values:
+        return
+    try:
         ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({values})")
+    except _duckdb.CatalogException:
+        pass
+    if also_dash:
+        try:
+            ctx.dash.execute(f"DELETE FROM {table} WHERE dia IN ({values})")
+        except _duckdb.CatalogException:
+            pass
 
 
 # SECTION LOAD KPI
@@ -1250,16 +1276,15 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
         kmh_route_veh_h, kmh_route_gps_veh_h.
         Rows where both speeds are non-positive are dropped.
     """
-    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
-
-    dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
+    # day-scoped: el día viene del loop de run_basic_kpi. Se quitó el guard
+    # `dia NOT IN(processed_days)` que impedía re-procesar y escaneaba de más.
+    where = f"WHERE dia = '{dia}'" if dia is not None else ""
 
     q = f"""
     SELECT dia, id_linea, id_ramal, fecha, interno, velocity,
            distance_km, distance_servicio_mts
     FROM gps
-    WHERE dia NOT IN ({processed_days})
-    {dia_filter}
+    {where}
     """
     gps_df = ctx.data.query(q)
 
@@ -1316,15 +1341,13 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
 
 @duracion
 def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
-    # read already process days
-    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
-
-    # read unprocessed data from legs
-    q = f"""
+    # read data from legs. El upsert por corrida (DELETE run-days antes del loop en
+    # compute_kpi) reemplaza el viejo guard `dia NOT IN(processed_days)`, que salteaba
+    # días ya presentes (no re-procesable) y causaba O(n²) al re-leer la salida creciente.
+    q = """
         SELECT *
         FROM etapas
         WHERE od_validado = 1
-        AND dia NOT IN ({processed_days})
     """
     # Con dia se procesa un solo día (acota RAM); con None, todos los no procesados.
     # Los KPI básicos son separables por día (todos los groupby llevan `dia`).
@@ -1756,17 +1779,9 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext, dia=None):
     None
 
     """
-    try:
-        processed_df = ctx.data.get_raw("services_by_line_hour")
-        if processed_df.empty or "dia" not in processed_df.columns:
-            processed_days = "''"
-        else:
-            processed_days = (
-                ", ".join(f"'{v}'" for v in processed_df["dia"].unique()) or "''"
-            )
-    except Exception:
-        processed_days = "''"
-
+    # day-scoped: el día viene del loop de compute_kpi; el upsert (DELETE run-days
+    # antes del loop) reemplaza el viejo guard `dia NOT IN(processed_days)`, que no
+    # dejaba re-procesar y re-leía la salida creciente (escalera O(n²)).
     dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
 
     daily_services_q = f"""
@@ -1776,7 +1791,6 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext, dia=None):
         services
     WHERE
         valid = 1
-    AND dia NOT IN ({processed_days})
     {dia_filter}
     """
 

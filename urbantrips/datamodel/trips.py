@@ -414,12 +414,35 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
     the dashboard maps (built from etapas). Fix: re-run `--step legs`.
 
     Returns a DataFrame with one row per inconsistent day (empty when OK).
+
+    Se acota a los días de la corrida actual. Los días de corridas previas ya se
+    verificaron en su momento y create_trips los preserva por construcción: copia
+    sus etapas tal cual a la tabla nueva y sólo borra/reinserta `viajes` de los
+    días de la corrida. Sin este filtro el chequeo cuesta un GROUP BY sobre
+    `etapas` entera + FULL OUTER JOIN con `viajes` entera en CADA corrida, o sea
+    proporcional al acumulado y no a lo que se procesó (234s con 7 días).
     """
+    empty = pd.DataFrame(
+        columns=["dia", "viajes_solo_en_etapas", "viajes_solo_en_viajes",
+                 "cant_etapas_distinta"]
+    )
+    run_days = ctx.data.get_run_days()
+    if run_days.empty:
+        return empty
+    dias_str = ", ".join(f"'{d}'" for d in run_days["dia"].tolist())
+
     diff = ctx.data.query(
-        """
+        f"""
         WITH te AS (
             SELECT dia, id_tarjeta, id_viaje, COUNT(*) AS cant_etapas_e
-            FROM etapas GROUP BY 1, 2, 3
+            FROM etapas
+            WHERE dia IN ({dias_str})
+            GROUP BY 1, 2, 3
+        ),
+        tv AS (
+            SELECT dia, id_tarjeta, id_viaje, cant_etapas
+            FROM viajes
+            WHERE dia IN ({dias_str})
         ),
         j AS (
             SELECT COALESCE(te.dia, v.dia) AS dia,
@@ -429,7 +452,7 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
                              AND te.cant_etapas_e != v.cant_etapas
                         THEN 1 ELSE 0 END AS cant_etapas_distinta
             FROM te
-            FULL OUTER JOIN viajes v
+            FULL OUTER JOIN tv v
               ON te.dia = v.dia AND te.id_tarjeta = v.id_tarjeta
              AND te.id_viaje = v.id_viaje
         )

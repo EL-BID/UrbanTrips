@@ -326,7 +326,7 @@ def test_create_legs_for_batches_uses_parallel_workers(monkeypatch):
     )
     monkeypatch.setattr(
         ctx.data, "get_transactions_for_chunk",
-        lambda batch_ids, total_batches: chunk_trx[chunk_trx["_batch_id"].isin(batch_ids)].copy(),
+        lambda batch_ids, total_batches, run_days=None: chunk_trx[chunk_trx["_batch_id"].isin(batch_ids)].copy(),
     )
     monkeypatch.setattr(
         ctx.data,
