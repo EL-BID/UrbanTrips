@@ -69,7 +69,10 @@ def build_legs_from_transactions(
     Build legs and duplicated-card records without writing them to storage.
     """
     dias_ultima_corrida = ctx.data.get_run_days()
-    trx = ctx.data.get_transactions(batch)
+    # Acota la lectura a los días de la corrida en el SQL (transacciones es acumulativa);
+    # build_legs_dataframe igual filtra por dia como defensa, pero ya no trae lo acumulado.
+    run_days = dias_ultima_corrida["dia"].tolist()
+    trx = ctx.data.get_transactions(batch, run_days=run_days)
     return build_legs_dataframe(trx, dias_ultima_corrida, trx_order_params)
 
 

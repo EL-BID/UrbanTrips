@@ -273,8 +273,21 @@ class DuckDBDataAdapter:
 
     # ── transactions ──────────────────────────────────────────────────────────
 
-    def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
-        where = self._batch_where(batch, "id_tarjeta")
+    def get_transactions(
+        self, batch: BatchSpec | None = None, run_days: list[str] | None = None
+    ) -> pd.DataFrame:
+        # `transacciones` es ACUMULATIVA (nunca se limpia por corrida). Sin el filtro
+        # por día, el path serial de Fase 2 cargaría TODOS los días acumulados y recién
+        # build_legs_dataframe los descarta en pandas → RAM/tiempo O(acumulado). Con
+        # run_days la lectura queda acotada a la corrida (mismo resultado). Espeja el
+        # filtro que ya aplica get_transactions_for_chunk en el path paralelo.
+        conds = []
+        if batch is not None:
+            conds.append(f"hash(id_tarjeta) % {batch.total_batches} = {batch.batch_id}")
+        if run_days:
+            dias = ", ".join(f"'{d}'" for d in run_days)
+            conds.append(f"dia IN ({dias})")
+        where = f"WHERE {' AND '.join(conds)}" if conds else ""
         return self._conn.execute(f"SELECT * FROM transacciones {where}").fetchdf()
 
     def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int, run_days: list[str] | None = None) -> pd.DataFrame:

@@ -99,6 +99,30 @@ def test_get_transactions_for_chunk_filters_by_run_days(tmp_path):
     assert len(solo) == 1
 
 
+def test_get_transactions_filters_by_run_days(tmp_path):
+    """Regresión #7: el path serial de get_transactions debe acotar a run_days.
+
+    Espeja get_transactions_for_chunk (path paralelo): transacciones es ACUMULATIVA,
+    así que sin el filtro build_legs_from_transactions cargaría todos los días
+    acumulados y recién los descartaría en pandas (tiempo/RAM O(acumulado)).
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    trx = _sample_transactions()   # ids 1,2 -> 2024-01-01 ; id 3 -> 2024-01-02
+    adapter.save_transactions(trx)
+
+    # sin run_days: todos los días acumulados
+    todo = adapter.get_transactions()
+    assert set(todo["dia"]) == {"2024-01-01", "2024-01-02"}
+    assert len(todo) == 3
+
+    # con run_days: SOLO el día de la corrida
+    solo = adapter.get_transactions(run_days=["2024-01-02"])
+    assert set(solo["dia"]) == {"2024-01-02"}
+    assert len(solo) == 1
+
+
 def test_legs_roundtrip(tmp_path):
     from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
     adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")

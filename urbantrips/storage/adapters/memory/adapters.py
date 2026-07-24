@@ -57,8 +57,13 @@ class InMemoryDataAdapter:
     def save_run_days(self, df: pd.DataFrame) -> None:
         self._store["dias_ultima_corrida"] = df.copy()
 
-    def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
-        return self._filter_batch(self._get("transacciones"), batch)
+    def get_transactions(
+        self, batch: BatchSpec | None = None, run_days: list[str] | None = None
+    ) -> pd.DataFrame:
+        df = self._filter_batch(self._get("transacciones"), batch)
+        if run_days:
+            df = df[df["dia"].isin(run_days)].reset_index(drop=True)
+        return df
 
     def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int, run_days: list[str] | None = None) -> pd.DataFrame:
         df = self._get("transacciones")
