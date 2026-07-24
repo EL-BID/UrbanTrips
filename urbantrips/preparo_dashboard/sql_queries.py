@@ -181,21 +181,51 @@ ETAPAS_PROC_MAT = "etapas_proc_mat"
 VIAJES_PROC_MAT = "viajes_proc_mat"
 
 
-def materializar_proc_tables(ctx, replace=False):
+def materializar_proc_tables(ctx, replace=False, run_days=None):
     """Build {etapas,viajes}_proc_mat temp tables in the data DB.
 
     replace=True rebuilds fresh (the orchestrator, once per run). The default
     CREATE TEMP TABLE IF NOT EXISTS lets a consumer called standalone build it on
     first use and reuse it; within an orchestrator run the first call already
     materialised it, so the rest are no-ops.
+
+    run_days: lista de días 'YYYY-MM-DD' — acota las tablas materializadas a esos
+    días (corridas incrementales sobre bases acumulativas). None/[] materializa
+    todos los días. El filtro es seguro para diff_time: la window de viajes_proc
+    particiona por (dia, id_tarjeta), nunca cruza días.
     """
     verb = "CREATE OR REPLACE TEMP TABLE" if replace else "CREATE TEMP TABLE IF NOT EXISTS"
+    where = ""
+    if run_days:
+        dias = ", ".join("'" + str(d).replace("'", "''") + "'" for d in run_days)
+        where = f" WHERE dia IN ({dias})"
     ctx.data.execute(
-        f"{verb} {ETAPAS_PROC_MAT} AS WITH {ETAPAS_PROC_CTE} SELECT * FROM etapas_proc"
+        f"{verb} {ETAPAS_PROC_MAT} AS WITH {ETAPAS_PROC_CTE} SELECT * FROM etapas_proc{where}"
     )
     ctx.data.execute(
-        f"{verb} {VIAJES_PROC_MAT} AS WITH {VIAJES_PROC_CTE} SELECT * FROM viajes_proc"
+        f"{verb} {VIAJES_PROC_MAT} AS WITH {VIAJES_PROC_CTE} SELECT * FROM viajes_proc{where}"
     )
+
+
+def proc_mat_days(ctx):
+    """Días presentes en el proc-mat (== scope de la corrida cuando el
+    orquestador lo materializó con run_days). Los consumidores que mezclan el
+    mat con gps/trx/kpi/services acotan esas lecturas a ESTOS días: derivarlos
+    del mat — y no de dias_ultima_corrida — garantiza que el scope de lectura
+    coincida siempre con las filas que van a escribir, también cuando el mat se
+    construyó standalone (all-days)."""
+    dias = ctx.data.query(f"SELECT DISTINCT dia FROM {ETAPAS_PROC_MAT}")
+    if len(dias) == 0:
+        return []
+    return sorted(dias["dia"].astype(str).tolist())
+
+
+def dias_where_clause(dias, col="dia", prefix="WHERE"):
+    """Fragmento `WHERE dia IN (...)` (o '' si no hay días que acotar)."""
+    if not dias:
+        return ""
+    valores = ", ".join("'" + str(d).replace("'", "''") + "'" for d in dias)
+    return f" {prefix} {col} IN ({valores})"
 
 
 def drop_proc_tables(ctx):

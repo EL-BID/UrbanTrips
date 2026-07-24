@@ -139,22 +139,33 @@ def cal_velocidad_comercial(servicios):
     return vel_comercial_linea
 
 
-def levanto_data(ctx: StorageContext, etapas=[], viajes=[]):
+def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None):
 
     # Only the columns used below — gps and transacciones are the two largest
-    # tables in the run; loading them whole multiplies peak RSS.
-    gps = ctx.data.query("SELECT fecha, id_linea, id_ramal, interno FROM gps")
+    # tables in the run; loading them whole multiplies peak RSS. `dias` acota
+    # las lecturas (tablas acumulativas) a los días del proc-mat: las filas de
+    # salida de agrego_lineas se anclan en el mat, leer más días es descarte.
+    from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
 
-    trx = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM transacciones")
+    _where = dias_where_clause(dias)
+    gps = ctx.data.query(f"SELECT fecha, id_linea, id_ramal, interno FROM gps{_where}")
+
+    trx = ctx.data.query(
+        f"SELECT dia, id_linea, id_ramal, interno FROM transacciones{_where}"
+    )
 
     lineas = ctx.insumos.get_metadata_lineas()[
         ["id_linea", "nombre_linea", "empresa"]
     ].drop_duplicates()
 
-    kpis = ctx.data.get_raw("kpi_by_day_line")
-
     try:
-        servicios = ctx.data.query("SELECT * FROM services WHERE valid = 1")
+        kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
+    except Exception:
+        kpis = pd.DataFrame()
+
+    _and = dias_where_clause(dias, prefix="AND")
+    try:
+        servicios = ctx.data.query(f"SELECT * FROM services WHERE valid = 1{_and}")
     except Exception:
         servicios = pd.DataFrame()
 
@@ -405,11 +416,12 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
 @duracion
 def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     from urbantrips.preparo_dashboard.sql_queries import (
-        materializar_proc_tables, ETAPAS_PROC_MAT,
+        materializar_proc_tables, ETAPAS_PROC_MAT, proc_mat_days,
     )
     materializar_proc_tables(ctx)
 
-    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx)
+    dias_mat = proc_mat_days(ctx)
+    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx, dias=dias_mat)
     kpis = agrego_lineas(
         ["dia", "id_linea"], trx, None, gps, servicios, kpis_varios, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,

@@ -850,6 +850,21 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
 
 
 
+def _upsert_indicator_por_dia(ctx: StorageContext, df, name, dia_col="Día"):
+    """save_indicator es reemplazo TOTAL de la tabla; con el proc-mat day-scoped
+    el df solo trae los run-days, así que hay que preservar el histórico de los
+    demás días (mismo patrón merge-con-historia de construyo_indicadores). No se
+    usa append_raw: el schema del dash pre-crea estas tablas con columnas legacy
+    (desc_dia/...) que no matchean el df — save_indicator las reemplaza entera.
+    """
+    prev = ctx.dash.get_indicator(name)
+    if len(prev) > 0 and dia_col in prev.columns:
+        prev = prev[~prev[dia_col].isin(df[dia_col].unique())]
+        df = pd.concat([df, prev], ignore_index=True)
+        df = df.sort_values(df.columns[:2].tolist()).reset_index(drop=True)
+    ctx.dash.save_indicator(df, name)
+
+
 def replace_dash_partition(ctx: StorageContext, df, table_name, partition_cols):
     if len(df) == 0:
         return
@@ -1245,8 +1260,8 @@ def crea_socio_indicadores(ctx: StorageContext):
     dist.columns = ["Día", "Modo", "Distancia (kms)", "Viajes"]
     hora.columns = ["Día", "Modo", "Hora", "Viajes"]
 
-    ctx.dash.save_indicator(dist, "distribucion")
-    ctx.dash.save_indicator(hora, "viajes_hora")
+    _upsert_indicator_por_dia(ctx, dist, "distribucion")
+    _upsert_indicator_por_dia(ctx, hora, "viajes_hora")
 
 
 @duracion
@@ -1340,21 +1355,37 @@ def guarda_particion_modal(ctx: StorageContext):
 @duracion
 def resumen_x_linea(ctx: StorageContext):
     from urbantrips.preparo_dashboard.sql_queries import (
-        materializar_proc_tables, ETAPAS_PROC_MAT,
+        materializar_proc_tables, ETAPAS_PROC_MAT, proc_mat_days, dias_where_clause,
     )
     materializar_proc_tables(ctx)
 
     # Only the columns agrego_lineas reads — gps and transacciones are the two
-    # largest tables in the run; loading them whole multiplies peak RSS.
-    logger.info("resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones")
-    gps = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM gps")
+    # largest tables in the run; loading them whole multiplies peak RSS. Las
+    # lecturas se acotan a los días del proc-mat: las filas de salida se anclan
+    # en el mat (merges left desde `tot`), así que leer días fuera de ese scope
+    # es puro descarte y escala con lo acumulado.
+    dias_mat = proc_mat_days(ctx)
+    _where = dias_where_clause(dias_mat)
+    logger.info(
+        "resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones "
+        "(%s días)", len(dias_mat) if dias_mat else "todos los",
+    )
+    gps = ctx.data.query(f"SELECT dia, id_linea, id_ramal, interno FROM gps{_where}")
     lineas = ctx.insumos.get_metadata_lineas()
-    kpis = ctx.data.get_raw("kpi_by_day_line")
-    servicios = ctx.data.get_raw("services")
+    # try/except: preserva la semántica de get_raw (tabla ausente → df vacío)
+    try:
+        kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
+    except Exception:
+        kpis = pd.DataFrame()
+    try:
+        servicios = ctx.data.query(f"SELECT * FROM services{_where}")
+    except Exception:
+        servicios = pd.DataFrame()
     lineas = lineas[["id_linea", "nombre_linea", "empresa"]].sort_values(["id_linea"])
 
     trx = ctx.data.query(
-        "SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion FROM transacciones"
+        f"SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion "
+        f"FROM transacciones{_where}"
     )
 
     metric_cols = [
@@ -1712,7 +1743,17 @@ def preparo_indicadores_dash(
     from urbantrips.preparo_dashboard.sql_queries import (
         materializar_proc_tables, drop_proc_tables,
     )
-    materializar_proc_tables(ctx, replace=True)
+    # Day-scope incremental: el proc-mat se acota a los días de la corrida, así
+    # cada consumidor escribe SOLO sus particiones run-day (los días congelados
+    # quedan intactos y el costo deja de crecer con lo acumulado). Con
+    # dias_ultima_corrida vacía (bases pre-refactor / uso manual) se materializa
+    # todo, que es el comportamiento previo.
+    _dias_corrida = ctx.data.get_run_days()
+    run_days = (
+        sorted(_dias_corrida["dia"].astype(str).tolist())
+        if not _dias_corrida.empty else []
+    )
+    materializar_proc_tables(ctx, replace=True, run_days=run_days or None)
     try:
         resumen_x_linea(ctx)
 
