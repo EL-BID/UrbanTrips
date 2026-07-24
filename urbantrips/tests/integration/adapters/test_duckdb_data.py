@@ -192,6 +192,49 @@ def test_update_leg_destinations_with_index_bracket(tmp_path):
     assert not idx, "idx_etapas_dia_od_validado ya no debe recrearse (política sin índices)"
 
 
+def test_update_leg_destinations_from_parquet_es_day_scoped(tmp_path):
+    """Regresión #8: el write-back de destinos reescribe SOLO los días del parquet
+    (run-days). Los días congelados (sin fila staged) quedan intactos; los run-days
+    toman los destinos del parquet (COALESCE) — bit-idéntico al rebuild viejo, pero
+    O(run-days) en vez de O(acumulado).
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    # día A (congelado) + día B (run-day)
+    day_a = _sample_legs()  # dia 2024-01-01, ids 1,2, od_validado 1
+    adapter.save_legs(day_a)
+    day_b = _sample_legs()
+    day_b["dia"] = "2024-01-02"
+    day_b["id"] = [3, 4]
+    adapter.save_legs(day_b)
+    a_h3d = day_a.set_index("id").loc[1, "h3_d"]
+
+    # parquet con destinos de SOLO el día B (run-day)
+    upd = pd.DataFrame({
+        "id": [3, 4],
+        "dia": ["2024-01-02", "2024-01-02"],
+        "h3_d": ["882a100d99fffff", "882a100daafffff"],
+        "od_validado": [0, 0],
+        "etapa_validada": [0, 0],
+    })
+    pq = tmp_path / "dest.parquet"
+    upd.to_parquet(pq, index=False)
+
+    adapter.update_leg_destinations_from_parquet(str(pq))
+
+    res = adapter.get_legs().set_index("id")
+    assert len(res) == 4  # row count preservado
+    # día B (run-day) tomó los destinos del parquet
+    assert res.loc[3, "h3_d"] == "882a100d99fffff"
+    assert res.loc[3, "od_validado"] == 0
+    assert res.loc[3, "etapa_validada"] == 0
+    # día A (congelado, no estaba en el parquet) INTACTO
+    assert res.loc[1, "dia"] == "2024-01-01"
+    assert res.loc[1, "od_validado"] == 1
+    assert res.loc[1, "h3_d"] == a_h3d
+
+
 def test_replace_legs_for_days_restores_threads_setting(tmp_path):
     from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
 

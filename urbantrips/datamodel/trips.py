@@ -50,17 +50,17 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     # ... dia, JOIN USING(dia, ...); viajes/usuarios agrupan por dia → por día el
     # resultado es bit-idéntico y la RAM se acota a ~1 día).
     #
-    # REBUILD+SWAP en vez de DELETE+INSERT sobre etapas: el patrón anterior
-    # (DELETE WHERE dia + INSERT, día a día sobre la misma tabla) degradaba
-    # progresivamente — con datos idénticos por semana, los scans WHERE dia del
-    # CTAS de factores midieron 56→134→159→207s entre semanas 1→4 (+267%): las
-    # filas borradas sin compactar y la fragmentación por reuso de huecos
-    # encarecen cada lectura siguiente. Acá cada día se APPENDEA a _ut_etapas_new
-    # (tabla fresca, sin índices) y al final un swap atómico la renombra a
-    # etapas. La tabla original queda intacta durante todo el loop (los CTAS
-    # leen de ella a velocidad constante) y la nueva queda clusterizada por día.
-    # Los índices de etapas ya están dropeados (begin_bulk_leg_writes);
-    # end_bulk_leg_writes los recrea sobre la tabla nueva tras el swap.
+    # DAY-SCOPED: los factores de los run-days se computan en _ut_etapas_new (tabla
+    # fresca), y al final se reemplaza SOLO el slice de run-days en etapas (DELETE +
+    # INSERT), dejando los días congelados intactos → O(días de la corrida).
+    # Antes era rebuild+swap de TODA etapas (copiaba los N-2 días congelados) para
+    # evitar la fragmentación del patrón "DELETE WHERE dia + INSERT día a día sobre la
+    # misma tabla", que degradaba 56→207s en 4 semanas RE-PROCESANDO datos idénticos.
+    # Con el congelamiento eso no aplica: cada día se escribe UNA vez (su corrida) y
+    # nunca se re-borra → la fragmentación no se compone. El day-loop deja
+    # _ut_etapas_new ordenado por día → etapas queda dia-clusterizada (append de
+    # bloques por día). etapas no tiene índices (política, ver begin/end_bulk_leg_writes)
+    # → el DELETE+INSERT es append puro sin mantenimiento de ART.
     ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
     ctx.data.execute("CREATE TABLE _ut_etapas_new AS SELECT * FROM etapas LIMIT 0")
 
@@ -77,23 +77,24 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     try:
         _create_trips_day_loop(ctx, dias)
 
-        # Días de otras corridas (si los hay) pasan tal cual a la tabla nueva.
-        # En una corrida fresca copia 0 filas; cuesta un solo scan de etapas.
-        logger.info("  - Copiando días de otras corridas a la tabla nueva...")
-        ctx.data.execute(
-            f"INSERT INTO _ut_etapas_new SELECT * FROM etapas WHERE dia NOT IN ({dias_str})"
-        )
-
-        # Swap atómico: una sola transacción, o queda la etapas vieja o la nueva.
-        logger.info("  - Swap etapas <- _ut_etapas_new...")
-        ctx.data.execute(
-            """
-            BEGIN TRANSACTION;
-            DROP TABLE etapas;
-            ALTER TABLE _ut_etapas_new RENAME TO etapas;
-            COMMIT;
-            """
-        )
+        # Day-scoped: se reescriben SOLO los run-days; los días congelados quedan
+        # INTACTOS. Antes se copiaban los N-2 días congelados a la tabla nueva y se
+        # swapeaba (O(acumulado)); ahora se borra el slice de run-days de etapas y se
+        # re-appendea el nuevo (con factores). El day-loop ya lo dejó ordenado por día
+        # → preserva el dia-clustering (cada corrida appendea sus días como bloque).
+        # etapas no tiene índices (política, ver begin/end_bulk_leg_writes) → el
+        # DELETE+INSERT es append puro sin mantenimiento de ART, no un rebuild.
+        # Atómico: ante error, ROLLBACK deja etapas intacta.
+        logger.info("  - Reemplazo del slice de run-days en etapas <- _ut_etapas_new...")
+        ctx.data.execute("BEGIN TRANSACTION")
+        try:
+            ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+            ctx.data.execute("INSERT INTO etapas SELECT * FROM _ut_etapas_new")
+            ctx.data.execute("COMMIT")
+        except Exception:
+            ctx.data.execute("ROLLBACK")
+            raise
+        ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
     finally:
         ctx.data.execute("SET preserve_insertion_order = true")
 

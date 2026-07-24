@@ -598,40 +598,47 @@ class DuckDBDataAdapter:
             return None
 
     def update_leg_destinations_from_parquet(self, parquet_glob: str) -> None:
-        """Write the destination columns back for all days at once, via a full
-        table REBUILD (CREATE + INSERT ... SELECT + swap) — NOT an UPDATE ... FROM.
+        """Write the destination columns back for the RUN's days (day-scoped rewrite).
 
-        infer_destinations stages every leg's (id, dia, h3_d, od_validado,
-        etapa_validada) to parquet during its per-day loop; this merges all of it
-        back in one pass. An UPDATE ... FROM read_parquet degrades badly at month
-        scale (~253M legs): DuckDB runs it as a per-row DELETE+INSERT (MVCC) that
-        maintains the PRIMARY KEY and every secondary ART index row by row, while
-        the 253M×253M join spills tens of GB — >75 min and still climbing in
-        practice. Rebuilding etapas once (sequential bulk write; PK + indexes built
-        in bulk afterward) is ~36 min and bit-identical. Same reason geolocate_raw_
-        transactions_from_gps rebuilds via CREATE ... AS SELECT ("an UPDATE keyed on
-        a per-row rowid join degrades to row-by-row execution").
+        infer_destinations stages every RUN-DAY leg's (id, dia, h3_d, od_validado,
+        etapa_validada) to parquet. Los días de corridas previas están CONGELADOS
+        (no se re-imputan) → no tienen fila staged. Antes esto reconstruía TODA
+        `etapas` (O(acumulado)) para actualizar 3 columnas de destino de solo los
+        run-days: la reescritura del slice congelado era puro costo que crecía con lo
+        acumulado. Ahora se reescribe SOLO el slice de run-days (derivados del parquet):
+        se materializa el slice actualizado ORDER BY dia y se hace DELETE+INSERT de
+        esos días. Resultado BIT-IDÉNTICO (COALESCE deja igual las columnas sin fila
+        staged; los congelados ni se tocan) y O(días de la corrida).
 
-        The LEFT JOIN + COALESCE keeps a leg's current value when it has no staged
-        row, so a partial glob never nulls out destinations. The swap only runs if
-        the rebuilt table has exactly the same row count, so a failed rebuild
-        leaves etapas intact.
+        Se sigue evitando `UPDATE ... FROM` (DuckDB lo degrada a DELETE+INSERT fila por
+        fila que mantiene los índices ART). Acá el bulk DELETE+INSERT del slice es un
+        append: `etapas` no tiene índices secundarios (política 2026-07-18, ver
+        begin/end_bulk_leg_writes) → sin mantenimiento ART. El ORDER BY dia mantiene el
+        clustering por día (cada corrida appendea sus días como bloque contiguo, y las
+        corridas procesan días ascendentes) → el zonemap sigue podando `WHERE dia=X`
+        downstream. Atómico: DELETE+INSERT en una transacción; ante error, ROLLBACK
+        deja `etapas` intacta. El guard de row-count aborta antes de tocar nada.
         """
-        n_before = self._conn.execute("SELECT count(*) FROM etapas").fetchone()[0]
+        glob_sql = parquet_glob.replace("'", "''")
+        # run-days = días presentes en el parquet staged (infer stagea solo run-days)
+        dias = self._conn.execute(
+            f"SELECT DISTINCT dia FROM read_parquet('{glob_sql}')"
+        ).fetchdf()["dia"].tolist()
+        if not dias:
+            return
+        dias_str = ", ".join(f"'{d}'" for d in dias)
+
+        n_before = self._conn.execute(
+            f"SELECT count(*) FROM etapas WHERE dia IN ({dias_str})"
+        ).fetchone()[0]
         if n_before == 0:
             return
 
         dest = {"h3_d", "od_validado", "etapa_validada"}
-        glob_sql = parquet_glob.replace("'", "''")
         cols = ", ".join(_ETAPAS_COLUMNS)
         select_cols = ", ".join(
             f"COALESCE(u.{c}, e.{c}) AS {c}" if c in dest else f"e.{c}"
             for c in _ETAPAS_COLUMNS
-        )
-        # Fresh-table DDL derived from the canonical schema so column order, types
-        # and the PRIMARY KEY never drift from etapas.
-        new_ddl = schema.ETAPAS.replace(
-            "CREATE TABLE IF NOT EXISTS etapas", "CREATE TABLE etapas_new", 1
         )
 
         prev_mem = self._conn.execute(
@@ -641,41 +648,37 @@ class DuckDBDataAdapter:
         if bump:
             self._conn.execute(f"PRAGMA memory_limit='{bump}'")
         try:
-            self._conn.execute("DROP TABLE IF EXISTS etapas_new")
-            self._conn.execute(new_ddl)
-            # ORDER BY dia clusters the rebuilt table physically by day. etapas is
-            # written ORDER BY batch_id in Phase 2 (a traveler batch spans all 28
-            # days), so every downstream per-day query `WHERE dia = X` scans ~the
-            # whole table — no row-group pruning, cost = n_days × table_size. Since
-            # this rebuild rewrites the entire table anyway, sorting by dia here is
-            # nearly free and makes the dia zonemap per row-group selective, so
-            # assign_gps_origin / assign_time_distances / create_trips / compute_kpi
-            # each touch ~1/n_days of the table. The order survives downstream:
-            # nothing between here and compute_kpi re-sorts etapas (create_trips
-            # rebuilds it per day in sorted order via rebuild+swap).
+            # slice de run-days con los destinos mergeados, ORDER BY dia (clustering)
+            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
             self._conn.execute(
-                f"INSERT INTO etapas_new ({cols}) "
+                f"CREATE TEMP TABLE _ut_dest_new AS "
                 f"SELECT {select_cols} FROM etapas e "
                 f"LEFT JOIN read_parquet('{glob_sql}') u "
                 f"ON e.id = u.id AND e.dia = u.dia "
+                f"WHERE e.dia IN ({dias_str}) "
                 f"ORDER BY e.dia"
             )
             n_after = self._conn.execute(
-                "SELECT count(*) FROM etapas_new"
+                "SELECT count(*) FROM _ut_dest_new"
             ).fetchone()[0]
             if n_after != n_before:
-                self._conn.execute("DROP TABLE IF EXISTS etapas_new")
+                self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
                 raise RuntimeError(
-                    f"etapas rebuild row-count mismatch ({n_after} != {n_before}); "
-                    "aborted, etapas left intact"
+                    f"etapas day-scoped rebuild row-count mismatch "
+                    f"({n_after} != {n_before}); aborted, etapas left intact"
                 )
-            self._conn.execute("DROP TABLE etapas")
-            self._conn.execute("ALTER TABLE etapas_new RENAME TO etapas")
-            # etapas has no PRIMARY KEY; recreate all secondary indexes, incl. id.
-            self._conn.execute(schema.IDX_ETAPAS_ID)
-            self._conn.execute(schema.IDX_ETAPAS_BATCH)
-            self._conn.execute(schema.IDX_ETAPAS_DIA_OD_VALIDADO)
-            self._conn.execute(schema.IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO)
+            # swap del slice, atómico: borrar run-days y re-appendear los actualizados
+            self._conn.execute("BEGIN TRANSACTION")
+            try:
+                self._conn.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+                self._conn.execute(
+                    f"INSERT INTO etapas ({cols}) SELECT {cols} FROM _ut_dest_new"
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
         finally:
             if bump:
                 self._conn.execute(f"PRAGMA memory_limit='{prev_mem}'")
