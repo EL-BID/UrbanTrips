@@ -48,21 +48,35 @@ def _build_ctx() -> StorageContext:
     )
 
 
-def inicializo_ambiente(ctx: StorageContext):
+def _config_corridas() -> list[str]:
+    configs = leer_configs_generales(autogenerado=False)
+    corridas = configs.get("corridas", None)
+    if corridas is None or len(corridas) == 0:
+        raise ValueError("No se han definido corridas en el archivo de configuracion.")
+    return corridas
+
+
+def _config_yaml_name() -> str | None:
+    from urbantrips.utils.paths import get_paths
+    try:
+        return Path(get_paths().config_file).name
+    except Exception:
+        return None
+
+
+def inicializo_ambiente(ctx: StorageContext, reprocesar: list[str] | None = None):
+    """Primera inicialización (rutas/paradas/zonif) + plan de corridas.
+
+    Devuelve el plan (planificar): qué corridas ingestar (nuevas + forzadas por
+    --reprocesar), cuáles resumir desde un step, cuáles saltear."""
     from urbantrips.carto.carto import guardo_zonificaciones
     from urbantrips.carto.routes import process_routes_geoms, process_routes_metadata
     from urbantrips.carto.stops import create_stops_table
-    from urbantrips.utils import utils
     from urbantrips.utils.check_configs import check_config
     from urbantrips.utils.fs import create_directories
+    from urbantrips.utils.run_planner import planificar
 
-    corridas_nuevas = []
-
-    configs_usuario = utils.leer_configs_generales(autogenerado=False)
-    corridas = configs_usuario.get("corridas", None)
-
-    if corridas is None or len(corridas) == 0:
-        raise ValueError("No se han definido corridas en el archivo de configuracion.")
+    corridas = _config_corridas()
 
     if not ctx.insumos.has_routes():
         logger.info("Inicializo ambiente por primera vez")
@@ -73,11 +87,8 @@ def inicializo_ambiente(ctx: StorageContext):
         create_stops_table(ctx)
         guardo_zonificaciones(ctx)
 
-    for alias_db in corridas:
-        if not ctx.general.run_exists(alias_db):
-            corridas_nuevas.append(alias_db)
-
-    return corridas_nuevas
+    log = ctx.general.get_run_log()
+    return planificar(log, corridas, reprocesar=reprocesar)
 
 
 def procesar_transacciones(ctx: StorageContext, corrida: str):
@@ -344,18 +355,32 @@ def _get_parallel_workers(n_batches: int) -> int:
     return n
 
 
-def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
-    """Phase 1: stream every corrida's CSV into transacciones_raw."""
+def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> dict[str, list[str]]:
+    """Phase 1: stream every corrida's CSV into transacciones_raw.
+
+    Devuelve {corrida: [días]} — el mapeo se aprende acá (el `dia` se puebla al
+    estandarizar-al-leer en transacciones_raw) y se usa para registrar el step
+    ingest por corrida en el log. `corridas` vacío → {} (no-op con gracia)."""
     import os
     from urbantrips.datamodel import transactions as trx
     from urbantrips.datamodel.ingestion import ingest_day_csv
     from urbantrips.utils.check_configs import check_config
+
+    corrida_dias: dict[str, list[str]] = {}
+
+    if not corridas:
+        return corrida_dias
+
+    def _dias_en_raw() -> set[str]:
+        df = ctx.data.query("SELECT DISTINCT dia FROM transacciones_raw")
+        return set(df["dia"].astype(str)) if len(df) else set()
 
     gps_corridas = []
     geolocalizar_corridas = []
     lineas_contienen_ramales = True
 
     ctx.data.clear_raw()
+    dias_antes: set[str] = set()
 
     try:
         for corrida in corridas:
@@ -391,6 +416,12 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
                 lineas_contienen_ramales=lineas_contienen_ramales,
                 geolocalizar_trx=geolocalizar_trx,
             )
+            # Días que aportó ESTA corrida = los nuevos en raw desde el snapshot
+            # previo. Supone corridas con días disjuntos (cada corrida es un
+            # período distinto), consistente con el resto del pipeline.
+            dias_ahora = _dias_en_raw()
+            corrida_dias[corrida] = sorted(dias_ahora - dias_antes)
+            dias_antes = dias_ahora
             usa_gps = (
                 configs.get("usa_archivo_gps", False)
                 or configs.get("nombre_archivo_gps") is not None
@@ -413,6 +444,15 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
         run_dias = ctx.data.query(
             "SELECT DISTINCT dia FROM transacciones_raw ORDER BY dia"
         )
+
+        # Borrá-y-generá: antes de re-poblar, limpiar estos días de las 16 tablas
+        # con `dia`. Para días NUEVOS es no-op (no existen aún); para días que se
+        # RE-INGESTAN (--reprocesar, o una corrida forzada) borra la copia vieja
+        # para no duplicar. Sólo toca los días de ESTA ingesta (run_dias): los días
+        # que se resumen desde un step posterior NO se re-ingestan → no se tocan.
+        _run_dias_list = run_dias["dia"].astype(str).tolist()
+        if _run_dias_list:
+            ctx.data.delete_run_days(_run_dias_list)
         ctx.data.save_run_days(run_dias)
 
         # gps must be loaded before standardizing so geocoding (below) and
@@ -470,7 +510,15 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             f"WHERE dia IN ({dias_str}) ORDER BY dia"
         )
         ctx.data.save_run_days(all_dias)
+        # Acotar el mapeo corrida→días a los que SOBREVIVIERON la estandarización
+        # (un día cuyas filas fallaron todas la validación no se marca ingestado).
+        sobreviven = set(all_dias["dia"].astype(str))
+        corrida_dias = {
+            c: [d for d in ds if d in sobreviven] for c, ds in corrida_dias.items()
+        }
     # si no hay días nuevos, run_dias (vacío) ya quedó guardado arriba
+
+    return corrida_dias
 
 
 def _create_legs_for_batch(ctx: StorageContext, batch, trx_order_params: dict) -> None:
@@ -728,21 +776,61 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     # consumidores (persist_indicators, dashboard) leen travel_times_trips.
 
 
-def run_ingest(ctx: StorageContext) -> None:
-    """Phase 1: ingest all pending corridas."""
-    from urbantrips.utils import utils
+def _alias_actual() -> str:
+    configs = leer_configs_generales(autogenerado=False)
+    return configs.get("alias_db", configs.get("alias_db_insumos", ""))
 
-    corridas = inicializo_ambiente(ctx)
-    logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
-    _ingest_all_days(ctx, corridas)
-    # Register each ingested corrida in the general DB so inicializo_ambiente's
-    # run_exists() can skip already-ingested days on a later incremental run.
-    # The legacy monolithic procesar_transacciones did this via
-    # write_transactions_to_db; the phased flow (run_ingest/legs/outputs/dashboard)
-    # is the one run_all uses, so registration must live here or the corridas
-    # table stays empty and every run re-ingests all configured days.
-    for corrida in corridas:
-        ctx.general.register_run(alias=corrida, process="transactions_completed")
+
+def _marcar_step(ctx: StorageContext, step: str) -> None:
+    """Registra `step` como terminado, en el log, para los días del scope actual
+    (dias_ultima_corrida). Agrupa por corrida usando el mapeo día→corrida que dejó
+    el ingest; un día sin corrida en el log se registra con corrida = el día."""
+    run_days = ctx.data.get_run_days()
+    if run_days.empty:
+        return
+    dias = sorted(run_days["dia"].astype(str).tolist())
+    alias = _alias_actual()
+    config_yaml = _config_yaml_name()
+
+    log = ctx.general.get_run_log()
+    dia_a_corrida: dict[str, str] = {}
+    if len(log) and "dia" in log.columns:
+        for _, r in log.dropna(subset=["dia"]).iterrows():
+            dia_a_corrida[str(r["dia"])] = str(r["corrida"])
+
+    por_corrida: dict[str, list[str]] = {}
+    for d in dias:
+        c = dia_a_corrida.get(d, d)
+        por_corrida.setdefault(c, []).append(d)
+    for corrida, ds in por_corrida.items():
+        ctx.general.register_step(alias, corrida, ds, step, config_yaml=config_yaml)
+
+
+def run_ingest(ctx: StorageContext, reprocesar: list[str] | None = None) -> None:
+    """Phase 1: ingesta las corridas pendientes (nuevas + forzadas por --reprocesar).
+
+    Corridas completas se saltean; incompletas NO se re-ingestan (se resumen desde
+    su step en run_all). Registra el step ingest por corrida con sus días."""
+    plan = inicializo_ambiente(ctx, reprocesar=reprocesar)
+    alias = _alias_actual()
+    config_yaml = _config_yaml_name()
+
+    # Forzadas (--reprocesar de una corrida ya presente): limpiar su log para que
+    # se re-registre desde cero. Su DATA la limpia _ingest_all_days (borra-y-genera
+    # sobre los días re-ingestados).
+    if plan["forzadas"]:
+        ctx.general.delete_corrida_log(alias, plan["forzadas"])
+
+    to_ingest = plan["to_ingest"]
+    logger.info(
+        "[Phase 1] Corridas: %d a ingestar, %d a resumir, %d completas",
+        len(to_ingest), len(plan["resume"]), len(plan["skip"]),
+    )
+    corrida_dias = _ingest_all_days(ctx, to_ingest)
+    for corrida, dias in corrida_dias.items():
+        if dias:
+            ctx.general.register_step(alias, corrida, dias, "ingest",
+                                      config_yaml=config_yaml)
 
 
 def run_legs(ctx: StorageContext) -> None:
@@ -774,6 +862,7 @@ def run_legs(ctx: StorageContext) -> None:
             ctx.data.end_bulk_leg_writes()
     logger.info("[Phase 3] Enriching legs")
     _enrich_all_legs(ctx, configs, batches=batches)
+    _marcar_step(ctx, "legs")
 
 
 def run_outputs(ctx: StorageContext) -> None:
@@ -788,6 +877,7 @@ def run_outputs(ctx: StorageContext) -> None:
     routes.build_routes_from_official_inferred(ctx)
     compute_kpi(ctx)
     persist_indicators(ctx)
+    _marcar_step(ctx, "outputs")
 
 
 def run_dashboard(ctx: StorageContext) -> None:
@@ -795,6 +885,7 @@ def run_dashboard(ctx: StorageContext) -> None:
     from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 
     preparo_indicadores_dash(ctx)
+    _marcar_step(ctx, "dashboard")
 
 
 _STEP_ORDER = ["ingest", "legs", "outputs", "dashboard"]
@@ -824,10 +915,15 @@ def check_prerequisites(step: str, ctx: StorageContext) -> None:
             )
 
 
-def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboard=True):
+def run_all(ctx: StorageContext | None = None, borrar_corrida="",
+            crear_dashboard=True, reprocesar: list[str] | None = None):
+    from urbantrips.utils.run_planner import scope_y_step, STEP_ORDER
+
     inicio = time.time()
     logger.info("borrar_corrida = '%s'", borrar_corrida)
     logger.info("crear_dashboard = %s", crear_dashboard)
+    if reprocesar:
+        logger.info("reprocesar = %s", reprocesar)
 
     if ctx is None and borrar_corrida:
         borrar_corridas(alias_db=borrar_corrida)
@@ -840,10 +936,33 @@ def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboar
     if borrar_corrida:
         ctx = _build_ctx()
 
-    run_ingest(ctx)
-    run_legs(ctx)
-    run_outputs(ctx)
-    if crear_dashboard:
+    run_ingest(ctx, reprocesar=reprocesar)
+
+    # Recomputar el scope desde el log YA actualizado por el ingest: días de las
+    # corridas del config que no están completas, y el step más temprano pendiente.
+    # Días nuevos → arranca en legs; una corrida que crasheó → desde su step; nada
+    # pendiente → no-op con gracia (antes crasheaba al re-correr días presentes).
+    log = ctx.general.get_run_log()
+    start_step, scope_dias = scope_y_step(log, _config_corridas())
+    if not scope_dias:
+        logger.info("No hay días pendientes de procesar — nada que hacer.")
+        fin = time.time()
+        logger.info("tiempo total de la corrida: %.2f min", (fin - inicio) / 60)
+        return
+
+    ctx.data.save_run_days(pd.DataFrame({"dia": scope_dias}))
+    logger.info(
+        "Procesando %d día(s) desde step '%s': %s",
+        len(scope_dias), start_step, scope_dias,
+    )
+
+    # El ingest ya corrió arriba; la Fase 3+ arranca en max(start_step, legs).
+    start_idx = max(STEP_ORDER.index(start_step), STEP_ORDER.index("legs"))
+    if start_idx <= STEP_ORDER.index("legs"):
+        run_legs(ctx)
+    if start_idx <= STEP_ORDER.index("outputs"):
+        run_outputs(ctx)
+    if crear_dashboard and start_idx <= STEP_ORDER.index("dashboard"):
         run_dashboard(ctx)
 
     fin = time.time()

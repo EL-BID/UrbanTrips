@@ -26,7 +26,7 @@ def test_general_port_contract_run_lifecycle(general_adapter):
     runs = general_adapter.get_completed_runs()
     assert len(runs) == 1
     assert runs.iloc[0]["corrida"] == "corrida_01"
-    assert runs.iloc[0]["process"] == "transactions_completed"
+    assert pd.notna(runs.iloc[0]["ingest_ts"])
     assert general_adapter.run_exists("corrida_01")
 
     general_adapter.clear_runs()

@@ -161,6 +161,40 @@ def test_upsert_indicator_sin_historia_escribe_directo():
     assert out["Viajes"].tolist() == [10]
 
 
+def test_viajes_poligonos_acota_chains_a_run_days():
+    """_viajes_poligonos_desde_chains debe leer chains_norm SOLO de los días de la
+    corrida (antes leía all-days → OOM a escala). Se verifica que la query lleva el
+    filtro WHERE dia IN (run_days)."""
+    from unittest.mock import MagicMock
+    from urbantrips.preparo_dashboard.preparo_dashboard import (
+        _viajes_poligonos_desde_chains,
+    )
+
+    ctx = MagicMock()
+    ctx.insumos.query.return_value = pd.DataFrame(
+        {"h3": ["abc"], "zona": ["P1"], "tipo": ["poligono"]}
+    )
+    ctx.data.get_run_days.return_value = pd.DataFrame({"dia": ["2026-03-27"]})
+    captured = {}
+
+    def fake_dash_query(sql):
+        captured["sql"] = sql
+        return pd.DataFrame(columns=[
+            "dia", "mes", "tipo_dia", "id_tarjeta", "id_viaje",
+            "h3_inicio_norm", "h3_fin_norm", "modo_agregado", "rango_hora",
+            "transferencia", "distancia_agregada", "distance_od",
+            "factor_expansion_linea",
+        ])
+
+    ctx.dash.query.side_effect = fake_dash_query
+
+    _viajes_poligonos_desde_chains(ctx)
+
+    sql = captured["sql"].lower()
+    assert "from chains_norm where dia in" in sql
+    assert "2026-03-27" in captured["sql"]
+
+
 def test_upsert_indicator_historia_legacy_sin_dia_reemplaza_entera():
     """Tabla pre-creada por el schema con shape legacy (desc_dia/...): no hay
     columna Día que mergear — se reemplaza entera, sin romper."""

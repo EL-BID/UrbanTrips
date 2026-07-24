@@ -122,6 +122,8 @@ alias_db_insumos: "ciudad_insumos"   # Base de datos compartida de insumos (reco
 
 Para cada nombre de corrida `X` se espera un archivo `data/data_ciudad/X_trx.csv` (y opcionalmente `X_gps.csv`).
 
+La lista es **incremental**: podés agregar corridas nuevas y volver a correr — solo se procesan las nuevas, las ya terminadas se saltean. Ver [Corridas incrementales, recuperación y reprocesamiento](#corridas-incrementales-recuperación-y-reprocesamiento).
+
 ### Mapeo de columnas
 
 ```yaml
@@ -333,6 +335,61 @@ python urbantrips/run_all_urbantrips.py --config configs/otra_ciudad.yaml
 ```bash
 python urbantrips/run_all_urbantrips.py --borrar_corrida all
 ```
+
+### Corridas incrementales, recuperación y reprocesamiento
+
+El pipeline lleva un **registro de progreso por corrida y por paso** en la base
+`{alias}_general.duckdb` (una fila por cada día procesado, con el momento en que
+completó cada paso: ingest, legs, outputs, dashboard). Con ese registro, una
+corrida completa (`run_all_urbantrips.py` sin `--step`/`--through`) decide sola
+qué hacer con cada corrida listada en `corridas:` del config:
+
+- **Nueva** (no está en el registro) → se procesa completa.
+- **Incompleta** (quedó a medias por un crash) → se **retoma desde el paso que
+  faltó**, sin rehacer lo ya hecho.
+- **Completa** → se **saltea**.
+
+Esto hace que sea seguro:
+
+```bash
+# Agregar días nuevos: se corren SOLO los nuevos; los días ya terminados no se tocan.
+# (ampliás la lista `corridas:` del yaml y volvés a correr)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+
+# Retomar una corrida que se cortó (reinicio, crash): volver a correr el mismo
+# comando — retoma desde donde quedó. Ya no crashea al "re-correr" días presentes.
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+```
+
+Si no hay nada pendiente, termina con *"No hay días pendientes de procesar"* sin
+hacer nada (antes esto reventaba).
+
+#### Reprocesar corridas ya terminadas: `--reprocesar`
+
+Para **rehacer de cero** una o más corridas ya completas (p. ej. cambiaron los
+datos de origen), se pasan sus nombres — **ítems de la lista `corridas:`**, no el
+nombre del yaml — separados por coma **sin espacios**. Borra los días de esas
+corridas y los regenera; **el resto de los días queda intacto**.
+
+```bash
+# config con corridas: ['dia1', 'dia2', 'dia3', 'dia4']
+
+# reprocesar solo dia1  (dia2, dia3, dia4 quedan congelados)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1
+
+# reprocesar dos corridas
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1,dia3
+```
+
+Notas:
+
+- La **unidad es la corrida** (un ítem de `corridas:`, que a su vez corresponde a
+  un archivo `<corrida>_trx.csv`). Si una corrida abarca varios días, se
+  reprocesan **todos** sus días.
+- Los nombres deben estar en la lista `corridas:` del config.
+- `--reprocesar` es incompatible con `--borrar_corrida` (ese ya rehace todo).
 
 ### Lanzar el dashboard manualmente
 

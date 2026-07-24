@@ -32,6 +32,12 @@ def test_memory_adapter_satisfies_general_port():
     import pandas as pd
 
     class _MinimalGeneral:
+        def get_run_log(self):
+            return pd.DataFrame()
+        def register_step(self, alias, corrida, dias, step, config_yaml=None):
+            pass
+        def delete_corrida_log(self, alias, corridas):
+            pass
         def get_completed_runs(self):
             return pd.DataFrame()
         def register_run(self, alias, process):

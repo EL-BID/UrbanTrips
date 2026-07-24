@@ -340,19 +340,79 @@ class InMemoryDashAdapter:
 class InMemoryGeneralAdapter:
     """In-process GeneralPort implementation for testing."""
 
+    _LOG_COLUMNS = [
+        "config_yaml", "alias", "corrida", "dia",
+        "ingest_ts", "legs_ts", "outputs_ts", "dashboard_ts", "date",
+    ]
+    _STEP_TS = {
+        "ingest": "ingest_ts", "legs": "legs_ts",
+        "outputs": "outputs_ts", "dashboard": "dashboard_ts",
+    }
+
     def __init__(self) -> None:
-        self._runs: list[dict] = []
+        self._log: list[dict] = []   # filas del log de corridas (formato long)
         self._store: dict[str, pd.DataFrame] = {}
 
+    # ── run log ───────────────────────────────────────────────────────────────
+
+    def get_run_log(self) -> pd.DataFrame:
+        if not self._log:
+            return pd.DataFrame(columns=self._LOG_COLUMNS)
+        return pd.DataFrame(self._log, columns=self._LOG_COLUMNS)
+
+    def _find(self, alias, corrida, dia):
+        for row in self._log:
+            if (row["alias"] == alias and row["corrida"] == corrida
+                    and row["dia"] == dia):
+                return row
+        return None
+
+    def register_step(self, alias, corrida, dias, step, config_yaml=None):
+        ts_col = self._STEP_TS.get(step)
+        if ts_col is None:
+            raise ValueError(f"step desconocido: {step!r}")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # purga del placeholder dia=NULL (legacy) al aparecer los días reales
+        if any(d is not None for d in dias):
+            self._log = [
+                r for r in self._log
+                if not (r["corrida"] == corrida and r["dia"] is None)
+            ]
+        for dia in dias:
+            row = self._find(alias, corrida, dia)
+            if row is not None:
+                row[ts_col] = now
+                row["date"] = now
+            else:
+                new = {c: None for c in self._LOG_COLUMNS}
+                new.update({"config_yaml": config_yaml, "alias": alias,
+                            "corrida": corrida, "dia": dia, ts_col: now,
+                            "date": now})
+                self._log.append(new)
+
+    def delete_corrida_log(self, alias, corridas):
+        # match por corrida (el general DB es por-alias; las legacy tienen alias None)
+        self._log = [r for r in self._log if r["corrida"] not in corridas]
+
+    def clear_runs(self) -> None:
+        self._log.clear()
+
+    # ── compat legacy ─────────────────────────────────────────────────────────
+
     def get_completed_runs(self) -> pd.DataFrame:
-        return pd.DataFrame(self._runs)
+        return self.get_run_log()
 
     def register_run(self, alias: str, process: str) -> None:
-        self._runs.append({
-            "corrida": alias,
-            "process": process,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new = {c: None for c in self._LOG_COLUMNS}
+        new.update({"corrida": alias, "ingest_ts": now, "legs_ts": now,
+                    "outputs_ts": now, "dashboard_ts": now, "date": now})
+        self._log.append(new)
+
+    def run_exists(self, alias: str) -> bool:
+        return any(r["corrida"] == alias for r in self._log)
+
+    # ── genéricos ─────────────────────────────────────────────────────────────
 
     def execute(self, sql: str) -> None:
         pass  # no-op for in-memory adapter
@@ -368,12 +428,3 @@ class InMemoryGeneralAdapter:
     def get_raw(self, table_name: str) -> pd.DataFrame:
         table_name = validate_table_name(table_name)
         return self._store.get(table_name, pd.DataFrame()).copy()
-
-    def run_exists(self, alias: str) -> bool:
-        runs = self.get_completed_runs()
-        if runs.empty or "corrida" not in runs.columns:
-            return False
-        return alias in runs["corrida"].values
-
-    def clear_runs(self) -> None:
-        self._runs.clear()

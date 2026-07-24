@@ -563,13 +563,21 @@ def _viajes_poligonos_desde_chains(ctx: StorageContext):
     if len(equivalencias) == 0:
         return pd.DataFrame([])
 
+    # Day-scope: chains_norm es acumulativa (crece con cada día). Leerla entera a
+    # pandas escala con lo acumulado (a 12 días picó RAM → OOM). Se acota a los días
+    # de la corrida; construyo_indicadores recompone "Todos" desde el histórico de
+    # poly_indicadores (merge-con-historia), igual que el path no-polígono.
+    from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
+    run_days = ctx.data.get_run_days()
+    dias_scope = run_days["dia"].astype(str).tolist() if not run_days.empty else []
+    _where = dias_where_clause(dias_scope)
     try:
         chains = ctx.dash.query(
             "SELECT dia, mes, tipo_dia, id_tarjeta, id_viaje, "
             "h3_inicio_norm, h3_fin_norm, modo_agregado, rango_hora, "
             "transferencia, distancia_agregada, distance_od, "
             "factor_expansion_linea "
-            "FROM chains_norm"
+            f"FROM chains_norm{_where}"
         )
     except Exception:
         logger.warning("construyo_indicadores: la tabla chains_norm no existe en dash.")

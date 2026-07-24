@@ -122,6 +122,8 @@ alias_db_insumos: "city_inputs"      # Shared inputs database (routes, stops, zo
 
 Each run name `X` expects a file `data/data_ciudad/X_trx.csv` (and optionally `X_gps.csv`).
 
+The list is **incremental**: you can add new runs and re-run — only the new ones are processed, already-finished ones are skipped. See [Incremental runs, recovery and reprocessing](#incremental-runs-recovery-and-reprocessing).
+
 ### Column mapping
 
 ```yaml
@@ -333,6 +335,62 @@ python urbantrips/run_all_urbantrips.py --config configs/other_city.yaml
 ```bash
 python urbantrips/run_all_urbantrips.py --borrar_corrida all
 ```
+
+### Incremental runs, recovery and reprocessing
+
+The pipeline keeps a **per-run, per-step progress log** in
+`{alias}_general.duckdb` (one row per processed day, recording when each step —
+ingest, legs, outputs, dashboard — completed). Using that log, a full run
+(`run_all_urbantrips.py` without `--step`/`--through`) decides what to do with
+each run listed under `corridas:` in the config:
+
+- **New** (not in the log) → processed in full.
+- **Incomplete** (interrupted by a crash) → **resumed from the step that was
+  missing**, without redoing completed work.
+- **Complete** → **skipped**.
+
+This makes the following safe:
+
+```bash
+# Add new days: only the NEW ones run; already-finished days are left untouched.
+# (extend the `corridas:` list in the yaml and re-run)
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml
+
+# Resume an interrupted run (reboot, crash): re-run the same command — it picks up
+# where it left off. Re-running already-present days no longer crashes.
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml
+```
+
+With nothing pending it ends with *"No hay días pendientes de procesar"* without
+doing anything (this used to crash).
+
+#### Reprocessing finished runs: `--reprocesar`
+
+To **rebuild from scratch** one or more already-complete runs (e.g. the source
+data changed), pass their names — **items of the `corridas:` list**, not the yaml
+filename — comma-separated **without spaces**. It deletes those runs' days and
+regenerates them; **every other day is left intact**.
+
+```bash
+# config with corridas: ['dia1', 'dia2', 'dia3', 'dia4']
+
+# reprocess only dia1  (dia2, dia3, dia4 stay frozen)
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml \
+  --reprocesar dia1
+
+# reprocess two runs
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml \
+  --reprocesar dia1,dia3
+```
+
+Notes:
+
+- The **unit is the run** (an item of `corridas:`, which maps to a
+  `<corrida>_trx.csv` file). If a run spans several days, **all** of its days are
+  reprocessed.
+- The names must be in the config's `corridas:` list.
+- `--reprocesar` is incompatible with `--borrar_corrida` (that already rebuilds
+  everything).
 
 ### Launching the dashboard manually
 

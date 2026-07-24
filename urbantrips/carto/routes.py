@@ -461,11 +461,41 @@ def infer_routes_geoms(ctx: StorageContext):
         )
         return
 
-    recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
+    # lowess es best-effort POR LÍNEA: para una línea con muy pocos puntos
+    # distintos, lowess_linea devuelve None (imposible de inferir). Se saltean esas
+    # líneas en vez de romper. Antes, `groupby.apply` con algún None producía un
+    # DataFrame plano SIN columna geometry y el `.geometry` de abajo tiraba
+    # AttributeError — cualquier corrida (incremental o --reprocesar) que tocara
+    # una línea no-inferible crasheaba acá.
+    partes = []
+    for id_linea, grupo in etapas.groupby("id_linea"):
+        geom = geo.lowess_linea(grupo)
+        if geom is None or len(geom) == 0:
+            continue
+        geom = geom.copy()
+        geom["id_linea"] = id_linea
+        partes.append(geom)
+
+    if not partes:
+        logger.info(
+            "infer_routes_geoms: ninguna línea nueva pudo inferirse por lowess — "
+            "se conservan las %d ya existentes.", len(ya_inferidas)
+        )
+        return
+
+    recorridos_lowess = gpd.GeoDataFrame(
+        pd.concat(partes, ignore_index=True), geometry="geometry", crs=4326
+    )
 
     # Elminar geometrias invalidas
-    validas = recorridos_lowess.geometry.map(lambda g: g.is_valid)
-    recorridos_lowess = recorridos_lowess.loc[validas, :]
+    validas = recorridos_lowess.geometry.map(lambda g: g is not None and g.is_valid)
+    recorridos_lowess = recorridos_lowess.loc[validas, :].reset_index(drop=True)
+    if recorridos_lowess.empty:
+        logger.info(
+            "infer_routes_geoms: sin geometrías válidas nuevas — "
+            "se conservan las %d ya existentes.", len(ya_inferidas)
+        )
+        return
 
     recorridos_lowess_direction0 = recorridos_lowess.copy()
     recorridos_lowess_direction0["direction"] = 0
