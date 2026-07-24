@@ -130,6 +130,137 @@ def get_library_version(library_name):
     return None
 
 
+def _dias_where(dias, col="dia", prefijo=" where "):
+    """Cláusula de días para los GROUP BY de paradas. Sin días -> sin filtro."""
+    if not dias:
+        return ""
+    lst = ", ".join("'" + str(d).replace("'", "''") + "'" for d in sorted(dias))
+    return f"{prefijo}{col} in ({lst})"
+
+
+def _conteos_paradas_crudos(ctx, dias=None):
+    """GROUP BY crudo de las 2 fuentes de paradas, opcionalmente acotado a `dias`.
+
+    Devuelve los mismos DataFrames que leía update_stations_catchment_area cuando
+    escaneaba el histórico entero, así el resto de la función no cambia.
+    """
+    paradas_etapas = ctx.data.query(
+        "select id_linea, id_ramal, h3_o as parada, count(*) as n "
+        f"from etapas{_dias_where(dias)} group by id_linea, id_ramal, h3_o"
+    )
+    gps = ctx.data.query(
+        "select id_linea, id_ramal, h3 as parada, count(*) as n_pts "
+        f"from gps where h3 is not null{_dias_where(dias, prefijo=' and ')} "
+        "group by id_linea, id_ramal, h3"
+    )
+    return paradas_etapas, gps
+
+
+_CONTEO_KEY = ["id_linea", "id_ramal", "parada"]
+
+
+def _combinar_conteos(paradas_etapas, gps):
+    """Une ambas fuentes en una grilla (id_linea, id_ramal, parada) con n_trx/n_gps."""
+    a = paradas_etapas.rename(columns={"n": "n_trx"})
+    b = gps.rename(columns={"n_pts": "n_gps"})
+    if len(a) == 0 and len(b) == 0:
+        return pd.DataFrame(columns=_CONTEO_KEY + ["n_trx", "n_gps"])
+    out = a.merge(b, how="outer", on=_CONTEO_KEY)
+    out["n_trx"] = out["n_trx"].fillna(0).astype("int64")
+    out["n_gps"] = out["n_gps"].fillna(0).astype("int64")
+    return out
+
+
+def _sumar_conteos(previos, nuevos):
+    """Suma los conteos de los días nuevos sobre los acumulados.
+
+    dropna=False para no perder las paradas con id_ramal NULL, que el camino de
+    reconstrucción total sí conserva hasta el id_ramal efectivo.
+    """
+    cols = _CONTEO_KEY + ["n_trx", "n_gps"]
+    previos = previos.reindex(columns=cols) if len(previos) else pd.DataFrame(columns=cols)
+    tot = pd.concat([previos, nuevos.reindex(columns=cols)], ignore_index=True)
+    tot[["n_trx", "n_gps"]] = tot[["n_trx", "n_gps"]].fillna(0)
+    out = tot.groupby(_CONTEO_KEY, as_index=False, dropna=False)[["n_trx", "n_gps"]].sum()
+    out[["n_trx", "n_gps"]] = out[["n_trx", "n_gps"]].astype("int64")
+    return out
+
+
+def _separar_conteos(conteos):
+    """Reconstruye los 2 DataFrames por fuente tal como los devolvían los GROUP BY
+    (solo filas con conteo > 0, que es lo que produce un count(*))."""
+    pe = (
+        conteos.loc[conteos["n_trx"] > 0, _CONTEO_KEY + ["n_trx"]]
+        .rename(columns={"n_trx": "n"})
+        .reset_index(drop=True)
+    )
+    g = (
+        conteos.loc[conteos["n_gps"] > 0, _CONTEO_KEY + ["n_gps"]]
+        .rename(columns={"n_gps": "n_pts"})
+        .reset_index(drop=True)
+    )
+    return pe, g
+
+
+def _dias_en_datos(ctx):
+    """Todos los días presentes en las fuentes de paradas (etapas + gps)."""
+    df = ctx.data.query(
+        "select dia from etapas union select dia from gps"
+    )
+    if len(df) == 0:
+        return []
+    return sorted(str(d) for d in df["dia"].dropna().unique())
+
+
+def _run_days_list(ctx):
+    df = ctx.data.get_run_days()
+    if df is None or len(df) == 0:
+        return []
+    col = "dia" if "dia" in df.columns else df.columns[0]
+    return [str(d) for d in df[col].dropna().unique()]
+
+
+def _guardar_matriz_paradas(ctx, conteos, paradas, metadata_lineas, modos_ramal, dias):
+    """Persiste los conteos crudos con el flag `valido`.
+
+    `conteos` está en claves CRUDAS (id_linea, id_ramal) y `paradas` en la clave
+    EFECTIVA (id_linea_agg, id_ramal efectivo), que es la que usa el filtro. Se mapea
+    una a otra para marcar qué candidatas quedaron dentro de matriz_validacion.
+    """
+    if len(conteos) == 0:
+        ctx.insumos.save_matriz_paradas(
+            pd.DataFrame(columns=_CONTEO_KEY + ["n_trx", "n_gps", "valido"]), dias
+        )
+        return
+
+    ef = conteos.merge(metadata_lineas, how="left", on="id_linea")
+    ef["id_ramal_ef"] = id_ramal_efectivo(ef["modo"], ef["id_ramal"], modos_ramal)
+
+    if len(paradas) > 0:
+        validas = paradas.reindex(columns=["id_linea_agg", "id_ramal", "parada"]).rename(
+            columns={"id_ramal": "id_ramal_ef"}
+        )
+        validas = validas.drop_duplicates()
+        validas["_v"] = 1
+        marcado = ef.merge(
+            validas, how="left", on=["id_linea_agg", "id_ramal_ef", "parada"]
+        )
+        valido = marcado["_v"].fillna(0).astype("int64").values
+    else:
+        valido = np.zeros(len(ef), dtype="int64")
+
+    out = conteos.reindex(columns=_CONTEO_KEY + ["n_trx", "n_gps"]).copy()
+    out["valido"] = valido
+    ctx.insumos.save_matriz_paradas(out, dias)
+    logger.info(
+        "matriz_paradas: %d candidatas (%d válidas, %d descartadas), %d día(s)",
+        len(out),
+        int(out["valido"].sum()),
+        int((out["valido"] == 0).sum()),
+        len(dias),
+    )
+
+
 @duracion
 def update_stations_catchment_area(ring_size, ctx: StorageContext):
     """
@@ -152,8 +283,16 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     los modos sin ramal usan un centinela (RAMAL_SENTINEL) para que el merge por
     [id_linea_agg, id_ramal] funcione uniforme; se persiste NULL.
 
-    Es reconstruccion total: etapas y gps son acumulativas y se leen completas,
-    asi que la matriz se reescribe entera en cada corrida (re-evalua outliers).
+    Los conteos crudos por (id_linea, id_ramal, parada) se acumulan en matriz_paradas
+    junto con un flag `valido`: ninguna candidata se borra, solo cambia su flag, y una
+    parada descartada vuelve a calificar sola si acumula puntos. Cuando todos los dias
+    de la corrida son nuevos solo se leen ESOS dias y sus conteos se suman a los
+    acumulados; si se reprocesa un dia ya incorporado se reconstruye desde el historico
+    (volver a sumarlo duplicaria sus conteos). El resultado es identico al de la
+    reconstruccion total: el filtro opera sobre los mismos conteos acumulados.
+
+    matriz_validacion se deriva solo de las paradas con valido=1. El area de influencia
+    es el anillo H3 de cada parada, que depende unicamente de la parada.
 
     Parametros leidos de configuraciones_generales.yaml:
       - frac_mediana_gps (default 0.25): umbral de outliers GPS como fraccion de la
@@ -196,11 +335,42 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         ["id_linea", "id_linea_agg", "modo"]
     ]
 
-    # --- Fuente A: paradas desde transacciones (etapas) ---
-    paradas_etapas = ctx.data.query(
-        "select id_linea, id_ramal, h3_o as parada, count(*) as n "
-        "from etapas group by id_linea, id_ramal, h3_o"
+    # --- Conteos crudos acumulados (matriz_paradas) ---
+    # matriz_paradas guarda la evidencia de CADA parada candidata (n_trx, n_gps) y su
+    # flag `valido`; nunca se borra una fila. Si todos los días de la corrida son
+    # nuevos alcanza con sumarles sus conteos; si se reprocesa un día ya incorporado
+    # se reconstruye desde el histórico (volver a sumarlo duplicaría sus conteos).
+    conteos_previos = ctx.insumos.get_matriz_paradas()
+    dias_incorporados = list(ctx.insumos.get_matriz_paradas_dias())
+    run_days = _run_days_list(ctx)
+    ya = set(dias_incorporados)
+    dias_nuevos = [d for d in run_days if d not in ya]
+    incremental = (
+        len(conteos_previos) > 0
+        and len(ya) > 0
+        and len(run_days) > 0
+        and len(dias_nuevos) == len(run_days)
     )
+
+    if incremental:
+        nuevos = _combinar_conteos(*_conteos_paradas_crudos(ctx, dias_nuevos))
+        conteos = _sumar_conteos(conteos_previos, nuevos)
+        dias_matriz = sorted(ya | set(dias_nuevos))
+        logger.info(
+            "matriz_paradas: incremental (+%d día(s) sobre %d ya incorporados)",
+            len(dias_nuevos),
+            len(dias_incorporados),
+        )
+    else:
+        conteos = _combinar_conteos(*_conteos_paradas_crudos(ctx, None))
+        dias_matriz = _dias_en_datos(ctx)
+        logger.info(
+            "matriz_paradas: reconstrucción total sobre %d día(s)", len(dias_matriz)
+        )
+
+    paradas_etapas, gps = _separar_conteos(conteos)
+
+    # --- Fuente A: paradas desde transacciones (etapas) ---
     paradas_etapas = paradas_etapas[paradas_etapas["parada"].map(_es_h3_valido)].copy()
     paradas_etapas = paradas_etapas.merge(metadata_lineas, how="left", on="id_linea")
     paradas_etapas["id_ramal"] = id_ramal_efectivo(
@@ -216,10 +386,6 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # Se detecta GPS por presencia de datos en la tabla (mas robusto que el flag
     # de config, que puede quedar en None aunque la tabla este poblada).
     # gps no tiene columna modo: se trae del merge con metadata_lineas.
-    gps = ctx.data.query(
-        "select id_linea, id_ramal, h3 as parada, count(*) as n_pts "
-        "from gps where h3 is not null group by id_linea, id_ramal, h3"
-    )
     usa_gps = len(gps) > 0
     if usa_gps:
         gps = gps[gps["parada"].map(_es_h3_valido)].copy()
@@ -265,10 +431,15 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # transacciones en lineas con GPS escaso o no representativo (p.ej. FFCC Roca:
     # 93 -> 35 paradas), perdiendo estaciones reales; por eso se elimina.
 
-    # --- Reconstruccion total: se recalcula la matriz entera en cada corrida ---
-    # etapas y gps son acumulativas y se leen completas, asi que el estado actual ya
-    # refleja todo el historico. Reconstruir (en vez de append-only) re-evalua los
-    # outliers y saca paradas que ya no califican, y simplifica la funcion.
+    # --- Persistir la evidencia (matriz_paradas) ---
+    # Se guardan TODAS las candidatas con sus conteos crudos y un flag valido: las
+    # descartadas no se pierden, y si mas adelante acumulan puntos vuelven a calificar
+    # solas. matriz_validacion se deriva unicamente de las que tienen valido=1.
+    _guardar_matriz_paradas(ctx, conteos, paradas, metadata_lineas, modos_ramal, dias_matriz)
+
+    # --- matriz_validacion: areas de influencia SOLO de las paradas validas ---
+    # El anillo depende unicamente de la parada (geometria H3), no del conjunto ni de
+    # los dias, asi que recalcularlo para las validas da siempre el mismo resultado.
     if len(paradas) > 0:
         areas_influencia = pd.concat(
             map(

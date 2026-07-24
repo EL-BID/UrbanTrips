@@ -21,6 +21,23 @@ CREATE TABLE IF NOT EXISTS matriz_validacion (
 )
 """
 
+MATRIZ_PARADAS = """
+CREATE TABLE IF NOT EXISTS matriz_paradas (
+    id_linea BIGINT,
+    id_ramal BIGINT,
+    parada   TEXT,
+    n_trx    BIGINT,
+    n_gps    BIGINT,
+    valido   INTEGER
+)
+"""
+
+MATRIZ_PARADAS_DIAS = """
+CREATE TABLE IF NOT EXISTS matriz_paradas_dias (
+    dia TEXT
+)
+"""
+
 POLIGONOS = """
 CREATE TABLE IF NOT EXISTS poligonos (
     id              TEXT PRIMARY KEY NOT NULL,
@@ -170,6 +187,8 @@ CREATE TABLE IF NOT EXISTS travel_times_stations (
 ALL_TABLES = [
     DISTANCIAS,
     MATRIZ_VALIDACION,
+    MATRIZ_PARADAS,
+    MATRIZ_PARADAS_DIAS,
     POLIGONOS,
     METADATA_LINEAS,
     METADATA_RAMALES,

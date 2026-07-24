@@ -100,6 +100,25 @@ class DuckDBInsumoAdapter:
     def get_matrix_validation(self) -> pd.DataFrame:
         return self._conn.execute("SELECT * FROM matriz_validacion").fetchdf()
 
+    def get_matriz_paradas(self) -> pd.DataFrame:
+        """Conteos crudos acumulados por (id_linea, id_ramal, parada) y su flag valido.
+
+        Es la evidencia que respalda cada parada candidata: nunca se borra una fila,
+        solo cambia su `valido`. matriz_validacion se deriva de las que tienen valido=1.
+        """
+        try:
+            return self._conn.execute("SELECT * FROM matriz_paradas").fetchdf()
+        except Exception:
+            return pd.DataFrame()
+
+    def get_matriz_paradas_dias(self) -> list[str]:
+        """Días ya sumados a matriz_paradas (evita el doble conteo al reprocesar)."""
+        try:
+            rows = self._conn.execute("SELECT dia FROM matriz_paradas_dias").fetchall()
+        except Exception:
+            return []
+        return [r[0] for r in rows]
+
     def get_travel_times_stations(self) -> pd.DataFrame:
         try:
             return self._conn.execute("SELECT * FROM travel_times_stations").fetchdf()
@@ -145,6 +164,33 @@ class DuckDBInsumoAdapter:
             self._conn.execute("INSERT INTO matriz_validacion SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
+
+    def save_matriz_paradas(self, df: pd.DataFrame, dias: list[str]) -> None:
+        """Reemplaza los conteos acumulados y la lista de días incorporados.
+
+        La tabla es chica (~450k filas), así que DELETE+INSERT evita tener que
+        resolver NULLs de id_ramal en un upsert por clave.
+        """
+        self._conn.execute("DELETE FROM matriz_paradas")
+        self._conn.register("_df", df)
+        try:
+            self._conn.execute(
+                "INSERT INTO matriz_paradas "
+                "SELECT id_linea, id_ramal, parada, n_trx, n_gps, valido FROM _df"
+            )
+        finally:
+            self._conn.unregister("_df")
+
+        self._conn.execute("DELETE FROM matriz_paradas_dias")
+        if dias:
+            dias_df = pd.DataFrame({"dia": list(dias)})
+            self._conn.register("_dias", dias_df)
+            try:
+                self._conn.execute(
+                    "INSERT INTO matriz_paradas_dias SELECT dia FROM _dias"
+                )
+            finally:
+                self._conn.unregister("_dias")
 
     def save_travel_times_stations(self, df: pd.DataFrame) -> None:
         self._conn.execute("DELETE FROM travel_times_stations")

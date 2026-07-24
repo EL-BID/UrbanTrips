@@ -262,6 +262,16 @@ class InMemoryInsumoAdapter:
     def get_travel_times_stations(self) -> pd.DataFrame:
         return self._store.get("travel_times_stations", pd.DataFrame())  # type: ignore[return-value]
 
+    def get_matriz_paradas(self) -> pd.DataFrame:
+        return self._store.get("matriz_paradas", pd.DataFrame())  # type: ignore[return-value]
+
+    def get_matriz_paradas_dias(self) -> list[str]:
+        return list(self._store.get("matriz_paradas_dias", []))  # type: ignore[arg-type]
+
+    def save_matriz_paradas(self, df: pd.DataFrame, dias: list[str]) -> None:
+        self._store["matriz_paradas"] = df.copy()
+        self._store["matriz_paradas_dias"] = list(dias)
+
     def save_routes(self, df: gpd.GeoDataFrame) -> None:
         self._store["routes"] = df.copy()
 
