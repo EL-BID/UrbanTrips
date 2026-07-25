@@ -76,9 +76,36 @@ def process_routes_into_h3_parallel(routes_gdf, route_id_column, res=10):
         )
 
     # Concatenate all results
-    routes_h3 = pd.concat(results, ignore_index=True)
+    routes_h3 = pd.concat([df for df, _ in results], ignore_index=True)
+
+    _log_resumen_rutas_h3([s for _, s in results])
 
     return routes_h3
+
+
+def _log_resumen_rutas_h3(stats_por_ruta):
+    """Loguea UNA linea con el diagnostico agregado de todas las rutas.
+
+    Los workers no heredan el FileHandler del main, asi que los print() por ruta no
+    llegaban al log y solo ensuciaban el stdout. Agregado queda registrado y es
+    comparable entre corridas.
+    """
+    agg = {}
+    for s in stats_por_ruta:
+        for k, v in s.items():
+            agg[k] = agg.get(k, 0) + v
+
+    logger.info(
+        "Rutas a H3: %d procesadas | %d circulares normalizadas (%d celdas) | "
+        "%d con gaps rellenados | %d gaps remanentes | %d gaps >2 celdas | %d con error",
+        agg.get("rutas", 0),
+        agg.get("circulares", 0),
+        agg.get("celdas_circulares", 0),
+        agg.get("con_gaps", 0),
+        agg.get("gaps_remanentes", 0),
+        agg.get("gaps_largos", 0),
+        agg.get("error", 0),
+    )
 
 
 def turn_route_geom_into_h3_cells_wrapper(row_data, route_id_column, res):
@@ -97,23 +124,25 @@ def turn_route_geom_into_h3_cells_wrapper(row_data, route_id_column, res):
 
     Returns
     -------
-    pandas.DataFrame
-        DataFrame with H3 cells for the route
+    tuple[pandas.DataFrame, dict]
+        DataFrame with H3 cells for the route y sus contadores de diagnostico, que el
+        caller agrega para loguear un resumen unico (los prints por ruta no llegaban
+        al archivo de log).
     """
     idx, row = row_data
     try:
-        result = turn_route_geom_into_h3_cells(
+        return turn_route_geom_into_h3_cells(
             row=row, route_id_column=route_id_column, res=res
         )
-        return result
     except Exception as e:
         logger.error(
             "Error procesando ruta %s: %s", row.get(route_id_column, idx), str(e)
         )
         # Return empty DataFrame with expected columns
-        return pd.DataFrame(
+        vacio = pd.DataFrame(
             columns=[route_id_column, "direction", "section_id", "h3", "wkt"]
         )
+        return vacio, {"rutas": 1, "error": 1}
 
 
 def process_parent_h3_parallel(
@@ -1160,6 +1189,20 @@ def turn_route_geom_into_h3_cells(
             print(f"  ... and {len(cells_with_shift) - 10} more")
     """
 
+    # Diagnostico AGREGADO: los contadores viajan al main, que loguea una sola linea
+    # al terminar todas las rutas. Antes esto eran print() por ruta: con miles de rutas
+    # y N workers inundaban el stdout y, al ser prints de subproceso, no llegaban al
+    # archivo de log (los workers no heredan el FileHandler) — el diagnostico se perdia.
+    stats = {
+        "rutas": 1,
+        "con_gaps": 0,
+        "gaps_rellenados": 0,
+        "gaps_largos": 0,
+        "gaps_remanentes": 0,
+        "circulares": 0,
+        "celdas_circulares": 0,
+    }
+
     # First, check how many gaps exist
     gaps = []
     for i in range(len(geom_h3) - 1):
@@ -1169,15 +1212,14 @@ def turn_route_geom_into_h3_cells(
             distance = h3.grid_distance(current_cell, next_cell)
             gaps.append({"from_idx": i, "to_idx": i + 1, "distance": distance})
 
-    # print(f"Found {len(gaps)} gaps in the route:")
     if len(gaps) > 0:
-        print(f"Found {len(gaps)} gaps ")
+        stats["con_gaps"] = 1
+        stats["gaps_rellenados"] = len(gaps)
 
     only_one_cell_gaps = [g["distance"] <= 2 for g in gaps]
     if not all(only_one_cell_gaps):
-        print(
-            f"⚠️  Warning: {sum(not d for d in only_one_cell_gaps)} gaps have distance greater than 2, which may indicate significant route discontinuities."
-        )
+        # gaps de mas de 2 celdas: posible discontinuidad real del recorrido
+        stats["gaps_largos"] = sum(not d for d in only_one_cell_gaps)
 
     if len(gaps) > 0:
         geom_h3_filled = fill_h3_gaps(
@@ -1193,10 +1235,10 @@ def turn_route_geom_into_h3_cells(
         next_cell = geom_h3_filled.iloc[i + 1]["h3_id"]
         if not h3.are_neighbor_cells(current_cell, next_cell):
             non_adjacent_count += 1
-            print(f"❌ Cells at positions {i} and {i+1} are still NOT adjacent")
 
-    if non_adjacent_count != 0:
-        print(f"\n⚠️  Warning: {non_adjacent_count} gaps remain")
+    # gaps que quedaron sin rellenar: es la senal que realmente importa (el recorrido
+    # queda discontinuo), por eso se agrega y se reporta en el log del main.
+    stats["gaps_remanentes"] = non_adjacent_count
 
     geom_h3_filled[route_id_column] = route_id
     geom_h3_filled["direction"] = direction
@@ -1224,16 +1266,17 @@ def turn_route_geom_into_h3_cells(
                 break  # Stop at the first non-overlapping cell from the end
 
         if cells_to_remove > 0:
-            print(
-                f"⚠️  Warning: Detected circular route with {cells_to_remove} overlapping cell(s) at the end. Removing them."
-            )
+            # Ruta circular: el cierre del anillo pisa el arranque. Se normaliza
+            # quitando el solape para que section_id quede sin celdas repetidas.
+            stats["circulares"] = 1
+            stats["celdas_circulares"] = cells_to_remove
             # Remove overlapping cells from the end
             geom_h3_filled = geom_h3_filled.iloc[:-cells_to_remove].copy()
 
             # Re-sequence section_id to be sequential
             geom_h3_filled["section_id"] = range(len(geom_h3_filled))
 
-    return geom_h3_filled
+    return geom_h3_filled, stats
 
 
 def fill_h3_gaps(geom_h3, line_geom, h3_column="h3_id", verbose=True):

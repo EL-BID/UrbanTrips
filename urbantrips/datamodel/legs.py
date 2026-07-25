@@ -723,8 +723,13 @@ def _gps_destino_y_tiempos_dia(
     Función PURA respecto de la DB: recibe gps y legs_to_gps_o ya leídos
     (_fetch_time_distance_inputs_dia) para poder ejecutarse en un worker process.
 
-    Devuelve (travel_times, travel_times_trips, legs_to_gps_d) ya armados para el día.
-    legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+    Devuelve (travel_times, travel_times_trips, legs_to_gps_d, diag) ya armados para el
+    día. legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+
+    `diag` son escalares de diagnóstico que el CALLER loguea: cuando esta función corre
+    en un worker process sus propios logger.info() no llegan al FileHandler del main
+    (los subprocesos no lo heredan), así que el % de GPS imputado se perdía en el camino
+    paralelo y solo aparecía cuando el autotune daba 1 worker.
     """
     logger.info("[_gps_destino_y_tiempos_dia] día %s", dia)
     # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
@@ -768,7 +773,7 @@ def _gps_destino_y_tiempos_dia(
         travel_times_trips = travel_times.groupby(
             ["dia", "id_tarjeta", "id_viaje"], as_index=False
         )[["distance_od"]].sum(min_count=1)
-        return travel_times, travel_times_trips, None
+        return travel_times, travel_times_trips, None, {"pct_gps_imputado": None}
 
     etapas_result = pd.concat(etapas_result_list, ignore_index=True)
     legs_to_gps_d = etapas_result.reindex(columns=["dia", "id_legs", "id_gps"])
@@ -876,7 +881,8 @@ def _gps_destino_y_tiempos_dia(
 
     tot_gps = len(travel_times)
     tot_gps_asig = travel_times.travel_time_min.notna().sum()
-    logger.info("GPS imputado (%s): %.1f%%", dia, tot_gps_asig / max(tot_gps, 1) * 100)
+    pct_gps_imputado = tot_gps_asig / max(tot_gps, 1) * 100
+    logger.info("GPS imputado (%s): %.1f%%", dia, pct_gps_imputado)
 
     travel_times["kmh_route"] = (
         travel_times["distance_route"] / (travel_times["travel_time_min"] / 60)
@@ -954,7 +960,12 @@ def _gps_destino_y_tiempos_dia(
             col,
         ] = np.nan
 
-    return travel_times, travel_times_trips, legs_to_gps_d
+    return (
+        travel_times,
+        travel_times_trips,
+        legs_to_gps_d,
+        {"pct_gps_imputado": pct_gps_imputado},
+    )
 
 
 def _duckdb_memory_limit_gb() -> float:
@@ -1107,6 +1118,7 @@ def _save_travel_times_dia(ctx, dia, travel_times, travel_times_trips, legs_to_g
     ctx.data.append_raw(travel_times_trips, "travel_times_trips")
 
 
+@duracion
 def assign_time_distances(ctx: StorageContext):
     """
     Lee las etapas DIA POR DIA y, si hay tabla gps, imputa el gps de destino y
@@ -1170,7 +1182,7 @@ def assign_time_distances(ctx: StorageContext):
                 gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
                     ctx, dia, dia_to_next.get(dia)
                 )
-                travel_times, travel_times_trips, legs_to_gps_d = (
+                travel_times, travel_times_trips, legs_to_gps_d, _diag = (
                     _gps_destino_y_tiempos_dia(
                         dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
                         metadata_lineas, matriz, modos_ramal, legs_h3_res,
@@ -1219,7 +1231,13 @@ def assign_time_distances(ctx: StorageContext):
 
             for future in as_completed(futures):
                 dia = futures[future]
-                travel_times, travel_times_trips, legs_to_gps_d = future.result()
+                travel_times, travel_times_trips, legs_to_gps_d, diag = future.result()
+                # El worker no puede loguear al archivo (no hereda el FileHandler), asi
+                # que su diagnostico se emite aca, en el main.
+                if diag.get("pct_gps_imputado") is not None:
+                    logger.info(
+                        "GPS imputado (%s): %.1f%%", dia, diag["pct_gps_imputado"]
+                    )
                 _save_travel_times_dia(
                     ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
                 )
