@@ -214,13 +214,18 @@ def test_assign_gps_origin_uses_narrow_sql_reads(monkeypatch):
     monkeypatch.setattr(
         legs_module,
         "leer_configs_generales",
-        lambda: {"nombre_archivo_gps": "gps.csv"},
+        # acepta kwargs: assign_gps_origin llama leer_configs_generales(autogenerado=False)
+        lambda *a, **k: {"nombre_archivo_gps": "gps.csv", "usa_archivo_gps": True},
     )
 
     class _Data:
         def __init__(self):
             self.queries = []
             self.saved = {}
+
+        def get_run_days(self):
+            # assign_gps_origin procesa día por día acotado a la corrida
+            return pd.DataFrame({"dia": ["2024-01-01"]})
 
         def query(self, sql):
             self.queries.append(sql)
@@ -256,6 +261,17 @@ def test_assign_gps_origin_uses_narrow_sql_reads(monkeypatch):
 
         def save_raw(self, df, table_name):
             self.saved[table_name] = df.copy()
+
+        def append_raw(self, df, table_name):
+            # el write pasó a ser append por día (día-scoping incremental)
+            prev = self.saved.get(table_name)
+            self.saved[table_name] = (
+                pd.concat([prev, df], ignore_index=True) if prev is not None
+                else df.copy()
+            )
+
+        def execute(self, sql):
+            pass
 
     data = _Data()
     assign_gps_origin(SimpleNamespace(data=data))

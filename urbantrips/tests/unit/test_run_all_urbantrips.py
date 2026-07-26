@@ -136,6 +136,11 @@ def test_ingest_all_days_uploads_gps_before_standardizing(monkeypatch):
         def save_run_days(self, days):
             calls.append(("save_run_days", days["dia"].tolist()))
 
+        def delete_run_days(self, dias):
+            # borrá-y-generá: limpia esos días de las tablas con `dia` antes de
+            # re-poblarlos (no-op para días nuevos, evita duplicar al reprocesar)
+            calls.append(("delete_run_days", list(dias)))
+
     class _Ctx:
         data = _Data()
 
@@ -178,6 +183,11 @@ def test_ingest_all_days_uploads_gps_before_standardizing(monkeypatch):
     # ...and must run before raw rows are promoted out of transacciones_raw.
     assert gps_idx < standardize_idx
 
+    # borrá-y-generá: los días de esta ingesta se limpian ANTES de re-poblarlos,
+    # para que un reproceso no duplique filas de un día ya presente.
+    delete_idx = calls.index(("delete_run_days", ["2025-10-15"]))
+    assert delete_idx < first_save_run_days_idx
+
 
 def test_run_all_splits_batch_and_global_phases(monkeypatch):
     from urbantrips.storage.ports import BatchSpec
@@ -199,16 +209,35 @@ def test_run_all_splits_batch_and_global_phases(monkeypatch):
     }
 
     monkeypatch.setattr(run_process, "borrar_corridas", lambda *args, **kwargs: None)
-    monkeypatch.setattr(run_process, "inicializo_ambiente", lambda ctx: ["run01"])
+    # inicializo_ambiente devuelve el PLAN de la corrida (to_ingest / resume / skip /
+    # forzadas) y acepta `reprocesar`; _ingest_all_days devuelve {corrida: [días]}.
+    monkeypatch.setattr(
+        run_process,
+        "inicializo_ambiente",
+        lambda ctx, reprocesar=None: {
+            "to_ingest": ["run01"], "resume": [], "skip": [], "forzadas": [],
+        },
+    )
     monkeypatch.setattr(
         "urbantrips.utils.utils.leer_configs_generales",
         lambda *args, **kwargs: config,
     )
+    # run_all recomputa el scope desde el log con las corridas DEL CONFIG; sin esto
+    # leería el yaml real del proyecto, el scope quedaría vacío y haría no-op.
+    monkeypatch.setattr(run_process, "_config_corridas", lambda: ["run01"])
+    # Aislar del yaml en disco: otros tests reapuntan los paths del proyecto a un
+    # tmp_path y no los restauran, así que leerlo haría fallar este test según el
+    # orden de ejecución (pasa aislado, falla en la suite).
+    monkeypatch.setattr(run_process, "_alias_actual", lambda: "alias_test")
+    monkeypatch.setattr(run_process, "_config_yaml_name", lambda: "config_test.yaml")
     monkeypatch.setattr(run_process, "_resolve_n_batches", lambda ctx: 2)
     monkeypatch.setattr(
         run_process,
         "_ingest_all_days",
-        lambda ctx, corridas: calls.append(("ingest", tuple(corridas))),
+        lambda ctx, corridas: (
+            calls.append(("ingest", tuple(corridas))),
+            {c: ["2025-10-15"] for c in corridas},
+        )[1],
     )
     monkeypatch.setattr(
         ctx.data,
@@ -333,6 +362,11 @@ def test_create_legs_for_batches_uses_parallel_workers(monkeypatch):
         "save_legs",
         lambda df, batch=None: saved.append((batch.batch_id, df["id_tarjeta"].iloc[0])),
     )
+
+    # La Fase 2 acota la lectura de transacciones a los días de la corrida (sin esto
+    # cada worker cargaría todo el histórico → OOM incremental), así que necesita
+    # dias_ultima_corrida poblada.
+    ctx.data.save_run_days(pd.DataFrame({"dia": ["2025-10-15"]}))
 
     run_process._create_legs_for_batches(ctx, batches, {}, parallel_workers=2)
 

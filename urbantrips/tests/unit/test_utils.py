@@ -117,9 +117,17 @@ def test_create_branch_ids_sql_filter_none():
 # --- normalize_vars ---
 
 def test_normalize_vars_weekday():
+    """La etiqueta viva es "Hábil", no "Día hábil".
+
+    OJO: hay DOS normalize_vars. utils/utils.py importa el de utils/dataframe.py
+    (que pone "Día hábil") en la línea 22, pero en la 545 vuelve a importar desde
+    dashboard/dash_storage.py y ese SOMBREA al anterior. El que se exporta —y el que
+    usa el resto del dashboard, aggregation.py y sql_queries.py— es el de
+    dash_storage, que normaliza a "Hábil".
+    """
     df = pd.DataFrame({"day_type": ["weekday", "weekend"]})
     result = normalize_vars(df)
-    assert result["day_type"].tolist() == ["Día hábil", "Fin de semana"]
+    assert result["day_type"].tolist() == ["Hábil", "Fin de semana"]
 
 
 def test_normalize_vars_no_target_columns_unchanged():
