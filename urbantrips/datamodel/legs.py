@@ -1037,12 +1037,21 @@ def _parallel_day_workers(n_days: int) -> int:
     reserve_gb = _duckdb_memory_limit_gb()
     per_day_gb = 12.0
     budget_gb = avail_gb - reserve_gb
-    workers = int(max(0.0, budget_gb) // per_day_gb)
+    # El floor duro sobre un divisor que es una ESTIMACIÓN (~12 GB por día) hacía
+    # que 1,95 diera 1 worker y 2,05 diera 2: se perdía la mitad del paralelismo
+    # por ~1 GB, y como psutil.available fluctúa, una misma corrida daba 1, 2 y 1.
+    # La tolerancia redondea hacia arriba sólo cuando faltan menos del 10% de un
+    # día (≈1,2 GB) — dentro del error del propio estimador, no un sobre-commit
+    # real. Se mantiene conservador a propósito: sobre-committear fue lo que
+    # produjo el thrashing de la corrida 2026-07-17.
+    tolerancia = 0.1
+    workers = int(max(0.0, budget_gb) / per_day_gb + tolerancia)
     n = max(1, min(3, workers, n_days))
     logger.info(
         "[parallel_day_workers] autotune: %d worker(s) — RAM libre %.1f GB "
-        "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día (tope 3)",
-        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb,
+        "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día "
+        "(tolerancia %.0f%%, tope 3)",
+        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb, tolerancia * 100,
     )
     return n
 
@@ -1149,9 +1158,21 @@ def assign_time_distances(ctx: StorageContext):
             ["id_linea_agg", "id_ramal", "parada", "area_influencia"]
         ].drop_duplicates()
         matriz["id_ramal"] = matriz["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64")
-        matriz["ring"] = matriz.apply(
-            lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
-        )
+        if matriz.empty:
+            # apply(axis=1) sobre un DataFrame vacío devuelve un DataFrame (no una
+            # Series), y asignarlo a una columna rompe con "Cannot set a DataFrame
+            # with multiple columns to the single column ring". Se arma la columna
+            # a mano y se sigue: sin matriz no hay destinos validables por GPS, que
+            # es un resultado válido (vacío), no un motivo para abortar la corrida.
+            logger.warning(
+                "matriz_validacion está vacía: ninguna etapa va a validar destino "
+                "por GPS. Revisar la construcción de la matriz de paradas."
+            )
+            matriz["ring"] = pd.Series(dtype="int64")
+        else:
+            matriz["ring"] = matriz.apply(
+                lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
+            )
         lado_m = h3.average_hexagon_edge_length(res=legs_h3_res, unit="m")
         ring_max = max(
             1, round(configs.get("tolerancia_destino_gps", 1000) / (lado_m * 2))

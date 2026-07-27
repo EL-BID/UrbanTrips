@@ -49,6 +49,7 @@ from urbantrips.utils.utils import (
     leer_alias,
     modos_con_ramal,
     id_ramal_efectivo,
+    worker_pool,
     RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
@@ -630,7 +631,7 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     n = len(nodes_from)
     chunksize = int(sqrt(n) * 10)
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             partial(get_network_distance_osmnx, G=G),
             zip(nodes_from, nodes_to),

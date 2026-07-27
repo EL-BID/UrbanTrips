@@ -1,9 +1,11 @@
 import datetime
 import logging
 import math
+import multiprocessing
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 
@@ -28,6 +30,32 @@ logger = logging.getLogger(__name__)
 # Values at or above the cap are treated as missing (NaN) and excluded from
 # weighted means. 80 covers commuter-rail door-to-door OD speeds in AMBA.
 VELOCIDAD_MAXIMA_KMH = 80
+
+
+@contextmanager
+def worker_pool(processes: int):
+    """`multiprocessing.Pool` con apagado ordenado.
+
+    `with multiprocessing.Pool(...)` llama a `terminate()` al salir, que mata a
+    los workers sin avisarles. El apagado documentado es `close()` (no hay más
+    tareas) + `join()` (esperar a que salgan); si algo queda a medias, ese
+    `terminate()` puede dejar procesos huérfanos vivos después de que el proceso
+    padre termine.
+
+    En el camino de error sí se termina —no tiene sentido esperar a los workers
+    de un cómputo abortado— pero se hace `join()` en ambos casos, que es lo que
+    garantiza que no queden sueltos.
+    """
+    pool = multiprocessing.Pool(processes=processes)
+    try:
+        yield pool
+    except BaseException:
+        pool.terminate()
+        raise
+    else:
+        pool.close()
+    finally:
+        pool.join()
 
 
 def leer_alias(tipo="data"):

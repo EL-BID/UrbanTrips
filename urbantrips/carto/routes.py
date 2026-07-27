@@ -24,6 +24,7 @@ from urbantrips.storage.context import StorageContext
 from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
+    worker_pool,
 )
 from urbantrips.utils.paths import get_paths
 
@@ -64,7 +65,7 @@ def process_routes_into_h3_parallel(routes_gdf, route_id_column, res=10):
     # Convert rows to list of tuples for parallel processing
     rows_data = [(idx, row) for idx, row in routes_gdf.iterrows()]
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             partial(
                 turn_route_geom_into_h3_cells_wrapper,
@@ -193,7 +194,7 @@ def process_parent_h3_parallel(
         if len(route_geom) > 0:
             tasks.append((route_h3, route_geom, route_id_column, parent_res))
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             turn_child_h3_into_parent_h3_wrapper, tasks, chunksize=chunksize
         )
