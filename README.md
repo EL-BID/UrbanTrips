@@ -393,9 +393,58 @@ Notas:
 
 ### Lanzar el dashboard manualmente
 
+En Windows, con el `.bat`:
+
+```bat
+dashboard.bat                                        REM configuraciones_generales.yaml
+dashboard.bat configuraciones_generales_2024.yaml     REM lo busca en configs/
+dashboard.bat configs\otro.yaml                      REM ruta relativa o absoluta
+```
+
+O directamente:
+
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --config configs/configuraciones_generales_2024.yaml
 ```
+
+El `--` suelto **es obligatorio**: sin él, streamlit se queda con el argumento en
+vez de pasárselo al script. El `.bat` se encarga de eso.
+
+El config elegido determina qué bases se abren (vía `alias_db_insumos`) y de él
+salen `resolucion_h3`, `epsg_m` y `lineas_contienen_ramales`.
+
+#### Cambiar de corrida sin reiniciar
+
+Para alternar entre corridas desde el propio dashboard, se crea
+`configs/corridas.yaml` con los alias que se quieran ver:
+
+```yaml
+corridas:
+  - corrida_2024
+  - corrida_2025
+```
+
+Con ese archivo aparece un **selector en el sidebar**. Al elegir otra corrida, el
+dashboard reapunta la configuración y recarga: es equivalente a haberlo lanzado
+con otro `--config`, pero sin reiniciar el proceso.
+
+El archivo es **opcional**: si no existe, no hay selector y el dashboard abre la
+corrida del config con el que se lo lanzó, como siempre. Hay una plantilla en
+`configs/corridas.yaml.example`.
+
+Alcanza con el alias porque el dashboard encuentra solo su configuración:
+
+1. **De la copia que la propia corrida dejó guardada** en `{alias}_general.duckdb`.
+   Cada corrida archiva ahí el yaml con el que se procesó, así que esa es la
+   configuración que realmente generó esos datos — aunque el archivo original se
+   haya editado o borrado después.
+2. Si esa base es anterior a esa función, del yaml de `configs/` que declare ese
+   alias.
+
+En el sidebar se indica de cuál de las dos salió. Una corrida que no se pueda
+resolver, o a la que le falte alguna de las cuatro bases, aparece igual en la
+lista pero deshabilitada y con el motivo, en vez de desaparecer.
 
 #### Acceso concurrente a las bases
 

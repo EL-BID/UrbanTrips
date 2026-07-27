@@ -64,6 +64,43 @@ def _config_yaml_name() -> str | None:
         return None
 
 
+def _config_yaml_contenido() -> str | None:
+    """El yaml en uso, entero, para guardarlo junto a los datos que produce."""
+    from urbantrips.utils.paths import get_paths
+    try:
+        return Path(get_paths().config_file).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            return Path(get_paths().config_file).read_text(encoding="latin-1")
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _guardar_config_snapshot(ctx: StorageContext, alias: str, corrida: str) -> None:
+    """Deja copia del yaml dentro de la base general de la corrida.
+
+    Así la base queda auto-descriptiva: con el alias alcanza para saber con qué
+    config se generaron los datos, aunque después se edite o se borre el archivo
+    de `configs/`. Lo consume el selector de corridas del dashboard.
+
+    Best-effort a propósito: que no se pueda guardar la copia nunca debe hacer
+    fallar una corrida.
+    """
+    contenido = _config_yaml_contenido()
+    if not contenido:
+        return
+    try:
+        ctx.general.save_config_snapshot(
+            alias, corrida, _config_yaml_name(), contenido
+        )
+    except Exception as e:
+        logger.debug(
+            "[config_snapshot] no se pudo guardar para %s: %s", corrida, e
+        )
+
+
 def inicializo_ambiente(ctx: StorageContext, reprocesar: list[str] | None = None):
     """Primera inicialización (rutas/paradas/zonif) + plan de corridas.
 
@@ -804,6 +841,7 @@ def _marcar_step(ctx: StorageContext, step: str) -> None:
         por_corrida.setdefault(c, []).append(d)
     for corrida, ds in por_corrida.items():
         ctx.general.register_step(alias, corrida, ds, step, config_yaml=config_yaml)
+        _guardar_config_snapshot(ctx, alias, corrida)
 
 
 def run_ingest(ctx: StorageContext, reprocesar: list[str] | None = None) -> None:
@@ -831,6 +869,7 @@ def run_ingest(ctx: StorageContext, reprocesar: list[str] | None = None) -> None
         if dias:
             ctx.general.register_step(alias, corrida, dias, "ingest",
                                       config_yaml=config_yaml)
+            _guardar_config_snapshot(ctx, alias, corrida)
 
 
 def run_legs(ctx: StorageContext) -> None:

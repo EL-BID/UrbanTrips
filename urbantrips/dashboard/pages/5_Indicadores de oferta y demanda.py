@@ -20,7 +20,7 @@ from dash_utils import (
     get_epsg_m,
     extract_hex_colors_from_cmap,
     levanto_tabla_sql_local,
-    configurar_selector_dia,
+    configurar_selector_corrida,
 )
 from urbantrips.utils import utils
 # except ImportError as e:
@@ -799,7 +799,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 try:
     # --- Cargar configuraciones y conexiones en session_state ---

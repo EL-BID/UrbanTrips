@@ -54,6 +54,10 @@ def test_memory_adapter_satisfies_general_port():
             return False
         def clear_runs(self):
             pass
+        def save_config_snapshot(self, alias, corrida, archivo, contenido):
+            pass
+        def get_config_snapshot(self):
+            return pd.DataFrame()
 
     obj = _MinimalGeneral()
     assert isinstance(obj, GeneralPort)

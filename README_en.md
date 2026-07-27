@@ -394,9 +394,58 @@ Notes:
 
 ### Launching the dashboard manually
 
+On Windows, via the `.bat`:
+
+```bat
+dashboard.bat                                        REM configuraciones_generales.yaml
+dashboard.bat configuraciones_generales_2024.yaml     REM looked up in configs/
+dashboard.bat configs\other.yaml                     REM relative or absolute path
+```
+
+Or directly:
+
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --config configs/configuraciones_generales_2024.yaml
 ```
+
+The bare `--` is **required**: without it, streamlit keeps the argument instead of
+forwarding it to the script. The `.bat` handles that for you.
+
+The chosen config determines which databases are opened (via `alias_db_insumos`),
+and supplies `resolucion_h3`, `epsg_m` and `lineas_contienen_ramales`.
+
+#### Switching runs without restarting
+
+To switch between runs from within the dashboard, create `configs/corridas.yaml`
+listing the aliases you want to see:
+
+```yaml
+corridas:
+  - corrida_2024
+  - corrida_2025
+```
+
+With that file, a **selector appears in the sidebar**. Picking another run
+repoints the configuration and reloads: the effect is the same as having launched
+the dashboard with a different `--config`, but without restarting the process.
+
+The file is **optional**: without it there is no selector and the dashboard opens
+the run of the config it was launched with, as before. See the
+`configs/corridas.yaml.example` template.
+
+The alias alone is enough because the dashboard finds its configuration on its own:
+
+1. **From the copy the run itself stored** in `{alias}_general.duckdb`. Every run
+   archives the yaml it was processed with, so that is the configuration that
+   actually produced the data — even if the original file was later edited or
+   deleted.
+2. If that database predates this feature, from the yaml in `configs/` declaring
+   that alias.
+
+The sidebar shows which of the two it came from. A run that cannot be resolved, or
+that is missing any of its four databases, still appears in the list but disabled
+and with the reason, instead of silently vanishing.
 
 ---
 

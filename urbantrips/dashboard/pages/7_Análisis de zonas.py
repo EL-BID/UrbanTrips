@@ -12,7 +12,7 @@ from dash_storage import leer_configs_generales
 from dash_utils import (
     get_logo,
     bring_latlon,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     traer_dias_chains,
     get_h3_indices_in_geometry,
     h3_to_polygon,
@@ -145,7 +145,7 @@ def main():
     logo = get_logo()
     st.image(logo)
 
-    alias_seleccionado = configurar_selector_dia()
+    alias_seleccionado = configurar_selector_corrida()
 
     latlon = bring_latlon()
 

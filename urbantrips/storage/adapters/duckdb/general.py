@@ -137,6 +137,47 @@ class DuckDBGeneralAdapter:
                      vals["dashboard_ts"], now],
                 )
 
+    def save_config_snapshot(
+        self, alias: str | None, corrida: str, archivo: str | None, contenido: str
+    ) -> None:
+        """Guarda el yaml que produjo esta corrida dentro de la propia base.
+
+        Deja la base auto-descriptiva: con el alias alcanza para saber con qué
+        config se generaron los datos, sin depender de que el archivo siga
+        existiendo (ni sin editar) en `configs/`. Lo consume el selector de
+        corridas del dashboard.
+
+        Es un upsert por (alias, corrida): re-correr la misma corrida actualiza
+        la copia en vez de acumular filas.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._conn.execute(
+            "DELETE FROM config_snapshot "
+            "WHERE alias IS NOT DISTINCT FROM ? AND corrida = ?",
+            [alias, corrida],
+        )
+        self._conn.execute(
+            "INSERT INTO config_snapshot (alias, corrida, archivo, contenido, date) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [alias, corrida, archivo, contenido, now],
+        )
+
+    def get_config_snapshot(self) -> pd.DataFrame:
+        """Snapshots de config guardados, el más reciente primero.
+
+        Devuelve vacío (no rompe) si la tabla no existe: las bases anteriores a
+        esta feature no la tienen y sólo se crea al abrir en escritura.
+        """
+        try:
+            return self._conn.execute(
+                "SELECT alias, corrida, archivo, contenido, date "
+                "FROM config_snapshot ORDER BY date DESC"
+            ).fetchdf()
+        except duckdb.CatalogException:
+            return pd.DataFrame(
+                columns=["alias", "corrida", "archivo", "contenido", "date"]
+            )
+
     def delete_corrida_log(self, alias: str, corridas: list[str]) -> None:
         """Borra del log TODAS las filas de esas corridas — usado al reprocesar
         para que se re-registren desde cero. Match por nombre de corrida (el

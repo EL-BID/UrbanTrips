@@ -28,4 +28,22 @@ CREATE TABLE IF NOT EXISTS corridas (
 )
 """
 
-ALL_TABLES = [CORRIDAS]
+# Copia del yaml que produjo cada corrida. `corridas.config_yaml` guarda sólo el
+# NOMBRE del archivo, que no alcanza: el yaml puede editarse (o cambiar de alias)
+# después de la corrida, y entonces el dashboard mostraría esos datos con flags
+# que no son los que los generaron. Guardando el contenido, la config viaja con
+# los datos y la base queda auto-descriptiva: alcanza el alias para saber todo.
+#
+# Se guarda el yaml ENTERO y no las claves sueltas (~12 KB por corrida, nada) para
+# no tener que volver a tocar el esquema si mañana hace falta una clave más.
+CONFIG_SNAPSHOT = """
+CREATE TABLE IF NOT EXISTS config_snapshot (
+    alias     TEXT,
+    corrida   TEXT NOT NULL,
+    archivo   TEXT,
+    contenido TEXT,
+    date      TEXT NOT NULL
+)
+"""
+
+ALL_TABLES = [CORRIDAS, CONFIG_SNAPSHOT]

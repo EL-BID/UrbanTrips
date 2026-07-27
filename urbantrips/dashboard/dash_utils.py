@@ -37,15 +37,19 @@ from urbantrips.storage.access import (
 )
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.utils.dataframe import calculate_weighted_means  # noqa: F401 — used by callers via this module
-from urbantrips.utils.paths import get_paths
+from urbantrips.utils.paths import get_paths, reset_paths
 from urbantrips.dashboard.dash_storage import (
     _load_yaml_simple,
-    _find_first_valid_yaml,
     leer_configs_generales,
     resolve_db_aliases,
     normalize_vars,
     _fetch_sql_dataframe,
     get_project_root,
+    leer_corridas_registradas,
+    resolver_config_de_alias,
+    describir_corrida,
+    bases_faltantes,
+    declara_alias_obsoletos,
 )
 
 # def leer_configs_generales(autogenerado=True):
@@ -215,7 +219,15 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
         tabla_sql = validate_table_name(tabla_sql)
         query = f"SELECT * FROM {tabla_sql}"
 
-    conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    try:
+        conn = iniciar_conexion_db(tipo=tabla_tipo, alias_db=alias_db)
+    except FileNotFoundError as e:
+        # La corrida no tiene esta base (get_db_path lanza si el archivo falta).
+        # Degradar a vacío en vez de tirar traceback: con el selector de corridas
+        # es esperable elegir una corrida con bases incompletas, y la mitad de las
+        # páginas moría acá. Es el mismo criterio que utils/utils.py:591.
+        logger.warning("No se pudo abrir la base '%s': %s", tabla_tipo, e)
+        return normalize_vars(pd.DataFrame([]))
 
     try:
         tabla = _fetch_sql_dataframe(conn, query, params=params)
@@ -2373,48 +2385,143 @@ def traer_dias_disponibles():
     return configs.get("corridas", [])
 
 
-def configurar_selector_dia():
+# Claves de session_state que SOBREVIVEN al cambio de corrida. Todo lo demás se
+# borra. Es al revés de enumerar qué limpiar a propósito: hay ~10 cachés manuales
+# repartidos por las páginas (configs, cargar_tabla_sql, kpis, last_filters, …) y
+# con una lista de "qué borrar" cualquier caché nuevo quedaría afuera en silencio,
+# mostrando datos de la corrida anterior.
+_CLAVES_QUE_SOBREVIVEN = frozenset({
+    "corrida_seleccionada",
+    "corrida_anterior",
+    "__selector_corrida",
+})
 
-    # dias_disponibles = traer_dias_disponibles()
 
-    # if len(dias_disponibles) > 1:
+def _limpiar_session_state() -> None:
+    """Vacía st.session_state salvo las claves del propio selector.
 
-    #     # Inicialización una única vez
-    #     if "dia_seleccionado" not in st.session_state:
-    #         st.session_state.dia_seleccionado = dias_disponibles[0]
-    #         st.session_state.dia_anterior = dias_disponibles[0]
+    `st.cache_data.clear()` NO toca session_state, así que sin esto las páginas
+    que cachean ahí a mano seguirían sirviendo la corrida vieja.
+    """
+    for clave in [k for k in st.session_state.keys()
+                  if k not in _CLAVES_QUE_SOBREVIVEN]:
+        del st.session_state[clave]
 
-    #     # Sidebar con lógica aislada, sin pisar valores
-    #     with st.sidebar:
-    #         seleccion = st.selectbox(
-    #             "Seleccioná un día",
-    #             dias_disponibles,
-    #             index=dias_disponibles.index(st.session_state.dia_seleccionado),
-    #             key="__selector_dia",  # distinto del nombre en session_state
-    #         )
 
-    #     # Si la selección cambió, actualizar estado y reiniciar app
-    #     if seleccion != st.session_state.dia_anterior:
-    #         st.session_state.dia_seleccionado = seleccion
-    #         st.session_state.dia_anterior = seleccion
-    #         st.cache_data.clear()
-    #         st.rerun()
-    # else:
-    #     seleccion = dias_disponibles[0]
+def _aplicar_corrida(config_path) -> None:
+    """Apunta el proceso a otra corrida, igual que haría `--config` al arrancar.
 
-    # base_path = Path() / 'configs'
-    # autogen_dir = base_path / "autogenerados"
-    # archivo_autogen = autogen_dir /  f"configuraciones_generales_autogenerado_{seleccion}.yaml"
-    
-    # # Verificar que existan el directorio y el archivo
-    # if autogen_dir.exists() and archivo_autogen.exists():
-    #     destino = base_path / "configuraciones_generales_autogenerado.yaml"
-    #     shutil.copy(archivo_autogen, destino)
-    #     logger.info("Archivo %s copiado", archivo_autogen)
-    # else:
-    #     logger.warning("No existe el directorio 'autogenerados' o el archivo especificado.")
-    seleccion = ''
-    return seleccion
+    `URBANTRIPS_CONFIG` es el mismo mecanismo que usa dashboard.py para el flag
+    `--config`; la diferencia es que acá lo cambia el selector en caliente. Por
+    eso hay que invalidar lo que quedó calculado con la config anterior:
+    `get_paths()` cachea un singleton que no relee la env var, y los cachés de
+    Streamlit no están keyeados por alias.
+    """
+    os.environ["URBANTRIPS_CONFIG"] = str(config_path)
+    reset_paths()
+
+
+def _etiqueta_corrida(alias: str, resuelta: dict) -> str:
+    """Texto de la opción: alias + días + aviso si no se puede abrir."""
+    if not resuelta["ok"]:
+        return f"⚠ {alias} (sin configuración)"
+    faltan = bases_faltantes(alias)
+    if faltan:
+        return f"⚠ {alias} (faltan bases: {', '.join(faltan)})"
+    info = describir_corrida(alias)
+    if info["dias"] and info["desde"] and info["hasta"]:
+        return f"{alias} — {info['dias']} días ({info['desde']} a {info['hasta']})"
+    if info["dias"]:
+        return f"{alias} — {info['dias']} días"
+    return alias
+
+
+def configurar_selector_corrida():
+    """Selector de corrida en el sidebar. Devuelve el alias seleccionado.
+
+    Se llama al principio de cada página. Si no existe `configs/corridas.yaml`
+    devuelve "" y no dibuja nada: el dashboard queda exactamente como antes de
+    esta feature, abriendo la corrida del config con el que se lo lanzó.
+    """
+    alias_registrados = leer_corridas_registradas()
+    if not alias_registrados:
+        return ""
+
+    resueltas = {a: resolver_config_de_alias(a) for a in alias_registrados}
+
+    # Arranque: respetar la corrida con la que se lanzó el dashboard si está en
+    # el registro; si no, la primera que se pueda abrir.
+    if "corrida_seleccionada" not in st.session_state:
+        actual = (leer_configs_generales(autogenerado=False) or {}).get(
+            "alias_db_insumos"
+        )
+        if actual in resueltas and resueltas[actual]["ok"]:
+            inicial = actual
+        else:
+            abribles = [a for a in alias_registrados if resueltas[a]["ok"]]
+            inicial = abribles[0] if abribles else alias_registrados[0]
+        st.session_state.corrida_seleccionada = inicial
+        st.session_state.corrida_anterior = inicial
+        if resueltas[inicial]["ok"]:
+            _aplicar_corrida(resueltas[inicial]["config"])
+
+    with st.sidebar:
+        seleccion = st.selectbox(
+            "Corrida",
+            alias_registrados,
+            index=alias_registrados.index(st.session_state.corrida_seleccionada),
+            format_func=lambda a: _etiqueta_corrida(a, resueltas[a]),
+            key="__selector_corrida",
+        )
+
+    if seleccion != st.session_state.corrida_anterior:
+        elegida = resueltas[seleccion]
+        if not elegida["ok"]:
+            # No se cambia: quedarse en la anterior es mejor que dejar el
+            # dashboard apuntando a una corrida que no se puede abrir.
+            st.sidebar.error(f"No se puede abrir **{seleccion}**: {elegida['motivo']}")
+            st.session_state.__selector_corrida = st.session_state.corrida_anterior
+            return st.session_state.corrida_seleccionada
+
+        st.session_state.corrida_seleccionada = seleccion
+        st.session_state.corrida_anterior = seleccion
+        _aplicar_corrida(elegida["config"])
+        st.cache_data.clear()
+        _limpiar_session_state()
+        st.rerun()
+
+    activa = st.session_state.corrida_seleccionada
+    resuelta = resueltas[activa]
+    if resuelta["ok"]:
+        # En cada script-run: la env var vive en el proceso y sobrevive, pero
+        # re-aplicarla hace que la corrida elegida no dependa de ese detalle.
+        _aplicar_corrida(resuelta["config"])
+        with st.sidebar:
+            st.caption(resuelta["motivo"])
+            obsoletas = declara_alias_obsoletos(resuelta["config"])
+            if obsoletas:
+                st.warning(
+                    f"El config de esta corrida declara {', '.join(obsoletas)}. "
+                    "Las páginas 4 a 8 podrían abrir otra base que el resto del "
+                    "dashboard y mostrar dos corridas mezcladas."
+                )
+            faltan = bases_faltantes(activa)
+            if faltan:
+                st.warning(
+                    f"Faltan bases de esta corrida: {', '.join(faltan)}. "
+                    "Las secciones que las usen van a aparecer vacías."
+                )
+    else:
+        st.sidebar.error(f"**{activa}**: {resuelta['motivo']}")
+
+    return activa
+
+
+# Nombre viejo: la función elegía DÍA cuando había una base por corrida. Hoy los
+# días conviven en la misma base (y hay un selector de día propio en dashboard.py),
+# así que lo que se elige es la corrida. Se mantiene el alias para no romper nada
+# que haya quedado importándolo por el nombre anterior.
+configurar_selector_dia = configurar_selector_corrida
 
 def tabla_existe(conn, table_name):
     try:

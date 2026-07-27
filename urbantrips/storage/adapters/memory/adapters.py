@@ -349,9 +349,34 @@ class InMemoryGeneralAdapter:
         "outputs": "outputs_ts", "dashboard": "dashboard_ts",
     }
 
+    _SNAPSHOT_COLUMNS = ["alias", "corrida", "archivo", "contenido", "date"]
+
     def __init__(self) -> None:
         self._log: list[dict] = []   # filas del log de corridas (formato long)
+        self._snapshots: list[dict] = []   # copias del yaml por corrida
         self._store: dict[str, pd.DataFrame] = {}
+
+    # ── snapshot de config ────────────────────────────────────────────────────
+
+    def save_config_snapshot(self, alias, corrida, archivo, contenido) -> None:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # upsert por (alias, corrida): re-correr actualiza, no acumula
+        self._snapshots = [
+            s for s in self._snapshots
+            if not (s["alias"] == alias and s["corrida"] == corrida)
+        ]
+        self._snapshots.append({
+            "alias": alias, "corrida": corrida, "archivo": archivo,
+            "contenido": contenido, "date": now,
+        })
+
+    def get_config_snapshot(self) -> pd.DataFrame:
+        if not self._snapshots:
+            return pd.DataFrame(columns=self._SNAPSHOT_COLUMNS)
+        return pd.DataFrame(
+            sorted(self._snapshots, key=lambda s: s["date"], reverse=True),
+            columns=self._SNAPSHOT_COLUMNS,
+        )
 
     # ── run log ───────────────────────────────────────────────────────────────
 
