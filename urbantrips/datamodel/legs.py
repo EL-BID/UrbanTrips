@@ -1487,12 +1487,24 @@ def assign_stations_od(ctx: StorageContext):
             # read legs without travel time in gps and distances (un día)
             legs = ctx.data.query(
                 f"""
-                SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d
+                -- Antes había un LEFT JOIN travel_times_gps + WHERE tt.id IS NULL
+                -- para quedarse con las etapas sin tiempo de viaje por GPS. Esa
+                -- tabla se eliminó (nunca tuvo escritor tras el refactor), así
+                -- que el predicado era siempre verdadero: sacar el join es
+                -- semánticamente idéntico.
+                --
+                -- distance_od viene de travel_times_legs (la produce
+                -- assign_time_distances, que corre ANTES que este paso). Antes no
+                -- se traía: el reindex de más abajo la creaba toda-NaN en silencio
+                -- y por eso travel_speed salía siempre NULL. El join por id es
+                -- correcto (id es único global); el predicado por dia está para
+                -- que DuckDB pode por row-group a escala de mes.
+                SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d,
+                       tt.distance_od
                 FROM etapas e
-                LEFT JOIN travel_times_gps tt
-                ON e.dia = tt.dia AND e.id = tt.id
-                WHERE tt.id IS NULL
-                AND e.etapa_validada = 1
+                LEFT JOIN travel_times_legs tt
+                    ON e.id = tt.id AND tt.dia = e.dia
+                WHERE e.etapa_validada = 1
                 AND e.dia = '{dia}'
                 AND e.id_linea IN ({station_lines_str})
                 """
@@ -1612,14 +1624,14 @@ def assign_stations_od(ctx: StorageContext):
                 "kmh_od",
             ] = np.nan
 
-            # upload to db
-            travel_times = travel_times.reindex(
-                columns=["dia", "id", "travel_time_min", "kmh_od"]
-            )
-
-            travel_times = travel_times.reindex(
-                columns=["dia", "id", "travel_time_min", "travel_speed"]
-            )
+            # upload to db. La columna de la tabla se llama travel_speed (el
+            # vocabulario de travel_times_legs/_trips es kmh_*, pero renombrar el
+            # DDL cambiaría una salida documentada). Antes había DOS reindex
+            # encadenados: el segundo tiraba el kmh_od recién calculado y creaba
+            # travel_speed toda-NaN, así que la columna se escribía siempre NULL.
+            travel_times = travel_times.rename(
+                columns={"kmh_od": "travel_speed"}
+            ).reindex(columns=["dia", "id", "travel_time_min", "travel_speed"])
 
             ctx.data.append_raw(travel_times, "travel_times_stations")
 

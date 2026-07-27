@@ -83,7 +83,7 @@ _TABLES_WITH_DIA = [
     "transacciones", "etapas", "viajes", "usuarios", "gps",
     "legs_to_gps_origin", "legs_to_gps_destination",
     "legs_to_station_origin", "legs_to_station_destination",
-    "travel_times_gps", "travel_times_stations",
+    "travel_times_stations",
     "travel_times_legs", "travel_times_trips",
     "transacciones_linea", "tarjetas_duplicadas",
     "dias_ultima_corrida",
@@ -100,16 +100,14 @@ _ETAPAS_COLUMNS = [
     "hora", "modo", "id_linea", "id_ramal", "interno", "genero", "tarifa",
     "latitud", "longitud", "h3_o", "h3_d", "od_validado", "etapa_validada",
     "factor_expansion_original", "factor_expansion_linea",
-    "factor_expansion_tarjeta", "factor_expansion_etapa", "distancia",
-    "travel_time_min",
+    "factor_expansion_tarjeta", "factor_expansion_etapa",
 ]
 
 _VIAJES_COLUMNS = [
     "id_tarjeta", "id_viaje", "dia", "tiempo", "hora", "cant_etapas", "modo",
     "autobus", "tren", "metro", "tranvia", "brt", "cable", "lancha", "otros",
     "h3_o", "h3_d", "genero", "tarifa", "od_validado",
-    "factor_expansion_linea", "factor_expansion_tarjeta", "distancia",
-    "travel_time_min",
+    "factor_expansion_linea", "factor_expansion_tarjeta",
 ]
 
 _DUCKDB_INSERT_CHUNK_ROWS = 250_000
@@ -163,8 +161,6 @@ _ETAPAS_DEFAULTS: dict = {
     "factor_expansion_linea":    np.nan,
     "factor_expansion_tarjeta":  np.nan,
     "factor_expansion_etapa":    np.nan,
-    "distancia":                 np.nan,
-    "travel_time_min":           np.nan,
 }
 
 
@@ -235,6 +231,31 @@ class DuckDBDataAdapter:
                     self._conn.execute(
                         f"ALTER TABLE travel_times_legs ADD COLUMN {col} INT"
                     )
+
+        # Columnas muertas quitadas del esquema el 2026-07-27. CREATE TABLE IF NOT
+        # EXISTS no las saca de una DB ya creada, así que se dropean acá. En DuckDB
+        # el DROP COLUMN es metadata-only (medido: 0,01s sobre 30M filas), no
+        # reescribe la tabla. Todas estaban 100% NULL:
+        #   etapas/viajes.distancia, .travel_time_min → travel_times_legs/_trips
+        #   services_gps_points.id_ramal_gps_point, .node_id → nunca se poblaron
+        for tabla, col in (
+            ("etapas", "distancia"),
+            ("etapas", "travel_time_min"),
+            ("viajes", "distancia"),
+            ("viajes", "travel_time_min"),
+            ("services_gps_points", "id_ramal_gps_point"),
+            ("services_gps_points", "node_id"),
+        ):
+            existe = self._conn.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = ? AND column_name = ?",
+                [tabla, col],
+            ).fetchone()
+            if existe:
+                self._conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {col}")
+
+        # travel_times_gps se eliminó: nunca tuvo escritor tras el refactor.
+        self._conn.execute("DROP TABLE IF EXISTS travel_times_gps")
 
     # ── batch helpers ─────────────────────────────────────────────────────────
 

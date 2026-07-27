@@ -50,8 +50,6 @@ def _sample_legs() -> pd.DataFrame:
         "factor_expansion_linea": [1.0, 1.0],
         "factor_expansion_tarjeta": [1.0, 1.0],
         "factor_expansion_etapa": [1.0, 1.0],
-        "distancia": [500.0, 750.0],
-        "travel_time_min": [15.0, 20.0],
     })
 
 

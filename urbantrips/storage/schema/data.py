@@ -54,11 +54,14 @@ CREATE TABLE IF NOT EXISTS etapas (
     factor_expansion_original FLOAT,
     factor_expansion_linea    FLOAT,
     factor_expansion_tarjeta  FLOAT,
-    factor_expansion_etapa    FLOAT,
-    distancia                 FLOAT,
-    travel_time_min           FLOAT
+    factor_expansion_etapa    FLOAT
 )
 """
+# NOTA: distancia y travel_time_min se quitaron de etapas (2026-07-27). Las
+# métricas por etapa viven en travel_times_legs (distance_od, distance_route,
+# distance_route_gps, travel_time_min, kmh_*), que es de donde ya leían kpi,
+# chains y el dashboard. Las columnas quedaban 100% NULL desde que se eliminó
+# su escritor el 2026-07-17 (ver la nota en datamodel/legs.py).
 
 VIAJES = """
 CREATE TABLE IF NOT EXISTS viajes (
@@ -83,11 +86,12 @@ CREATE TABLE IF NOT EXISTS viajes (
     tarifa                   TEXT,
     od_validado              INT,
     factor_expansion_linea   FLOAT,
-    factor_expansion_tarjeta FLOAT,
-    distancia                FLOAT,
-    travel_time_min          FLOAT
+    factor_expansion_tarjeta FLOAT
 )
 """
+# NOTA: ídem etapas — las métricas por viaje viven en travel_times_trips
+# (2026-07-27). El INSERT INTO viajes de datamodel/trips.py nunca las escribió
+# después del refactor, así que quedaban 100% NULL.
 
 USUARIOS = """
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -163,14 +167,9 @@ CREATE TABLE IF NOT EXISTS legs_to_station_destination (
 )
 """
 
-TRAVEL_TIMES_GPS = """
-CREATE TABLE IF NOT EXISTS travel_times_gps (
-    dia             TEXT,
-    id              INT NOT NULL,
-    travel_time_min FLOAT,
-    travel_speed    FLOAT
-)
-"""
+# NOTA: travel_times_gps se eliminó (2026-07-27). No tenía escritor desde el
+# refactor: assign_time_distances guarda los tiempos y distancias por etapa en
+# travel_times_legs / travel_times_trips.
 
 TRAVEL_TIMES_STATIONS = """
 CREATE TABLE IF NOT EXISTS travel_times_stations (
@@ -273,11 +272,12 @@ CREATE TABLE IF NOT EXISTS services_gps_points (
     dia                TEXT,
     original_service_id INT NOT NULL,
     new_service_id     INT NOT NULL,
-    service_id         INT NOT NULL,
-    id_ramal_gps_point BIGINT,
-    node_id            INT
+    service_id         INT NOT NULL
 )
 """
+# NOTA: id_ramal_gps_point y node_id se quitaron (2026-07-27). El frame que
+# escribe la tabla no las trae — el reindex de datamodel/services.py las creaba
+# todas-NaN — y quedaban 100% NULL (verificado sobre 103,5M filas del mes).
 
 SERVICES = """
 CREATE TABLE IF NOT EXISTS services (
@@ -421,10 +421,6 @@ IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA = (
     "CREATE INDEX IF NOT EXISTS idx_gps_dia_line_ramal_interno_fecha "
     "ON gps(dia, id_linea, id_ramal, interno, fecha)"
 )
-IDX_TRAVEL_TIMES_GPS_ID = (
-    "CREATE INDEX IF NOT EXISTS idx_travel_times_gps_id "
-    "ON travel_times_gps(id)"
-)
 IDX_TRAVEL_TIMES_STATIONS_ID = (
     "CREATE INDEX IF NOT EXISTS idx_travel_times_stations_id "
     "ON travel_times_stations(id)"
@@ -449,7 +445,7 @@ ALL_TABLES = [
     GPS, VEHICLE_EXPANSION_FACTORS,
     LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
-    TRAVEL_TIMES_GPS, TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
+    TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
     TRANSACCIONES_LINEA, TARJETAS_DUPLICADAS, OCUPACION_POR_LINEA_TRAMO,
     OVERLAPPING_BY_ROUTE,
     SERVICES_GPS_POINTS, SERVICES, SERVICES_STATS,

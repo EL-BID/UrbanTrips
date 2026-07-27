@@ -271,9 +271,7 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                     AS factor_expansion_linea,
                 bt.factor_expansion_tarjeta_new AS factor_expansion_tarjeta,
                 COALESCE(bt.factor_expansion_original * fe.ratio_etapa * bt.od_base, 0)
-                    AS factor_expansion_etapa,
-                bt.distancia,
-                bt.travel_time_min
+                    AS factor_expansion_etapa
             FROM base_tarjeta bt
             LEFT JOIN factor_etapa fe USING (dia, id_linea)
             LEFT JOIN factor_linea fl USING (dia, id_linea)
@@ -287,16 +285,14 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                 hora, modo, id_linea, id_ramal, interno, genero, tarifa,
                 latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
                 factor_expansion_original, factor_expansion_linea,
-                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-                travel_time_min
+                factor_expansion_tarjeta, factor_expansion_etapa
             )
             SELECT
                 id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
                 hora, modo, id_linea, id_ramal, interno, genero, tarifa,
                 latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
                 factor_expansion_original, factor_expansion_linea,
-                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-                travel_time_min
+                factor_expansion_tarjeta, factor_expansion_etapa
             FROM _ut_etapas_fex
             """,
         )
@@ -633,36 +629,13 @@ def rearrange_trip_id_same_od(
     ctx.data.update_leg_trip_ids(df, dia=dia)
 
 
-@duracion
-def compute_trips_travel_time(ctx: StorageContext):
-    """
-    This function reads from legs travel time in gps and stations
-    and computes travel times for trips
-    """
-
-    ctx.data.execute(
-        """
-        INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
-        SELECT e.dia, e.id, e.id_tarjeta, e.id_etapa, e.id_viaje,
-        (COALESCE(tg.travel_time_min, 0) + COALESCE(ts.travel_time_min, 0)) AS tt
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        LEFT JOIN travel_times_gps tg ON e.id = tg.id
-        LEFT JOIN travel_times_stations ts ON e.id = ts.id
-        WHERE e.od_validado = 1
-        AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
-        """
-    )
-
-    ctx.data.execute(
-        """
-        INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
-        SELECT tt.dia, tt.id_tarjeta, tt.id_viaje, SUM(tt.travel_time_min) AS travel_time_min
-        FROM travel_times_legs tt
-        JOIN dias_ultima_corrida d ON tt.dia = d.dia
-        GROUP BY tt.dia, tt.id_tarjeta, tt.id_viaje
-        """
-    )
+# NOTA: `compute_trips_travel_time` fue ELIMINADA (2026-07-27). Sumaba los
+# tiempos de travel_times_gps + travel_times_stations hacia travel_times_legs/
+# _trips, pero no la llamaba nadie desde run_all (código muerto ya catalogado en
+# AUDIT_dayscoping_incremental_20260723.md:62-65, donde además se señala que
+# insertaba sin DELETE previo → duplicaría filas en un re-run). Al eliminarse
+# travel_times_gps quedaba referenciando una tabla inexistente. Quien produce
+# travel_times_legs/_trips es assign_time_distances (datamodel/legs.py).
 
 # NOTA: la antigua `add_distance_and_travel_time` (viajes) fue ELIMINADA
 # (2026-07-17). Recalculaba con compute_od_distances la distancia OD directa del

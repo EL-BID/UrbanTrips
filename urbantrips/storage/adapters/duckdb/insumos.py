@@ -35,8 +35,16 @@ class DuckDBInsumoAdapter:
         self.close()
 
     def _apply_schema(self) -> None:
+        self._migrate_schema()
         for ddl in schema.ALL_TABLES:
             self._conn.execute(ddl)
+
+    def _migrate_schema(self) -> None:
+        # `distancias` se eliminó del esquema el 2026-07-27: no tenía productor
+        # (el cache real de distancias OD es el archivo aparte `od_distances`,
+        # ver carto/compute_distances.py) y quedaba vacía en toda base. Se dropea
+        # acá porque CREATE TABLE IF NOT EXISTS no borra tablas ya creadas.
+        self._conn.execute("DROP TABLE IF EXISTS distancias")
 
     # ── geometry helpers ──────────────────────────────────────────────────────
 
@@ -66,19 +74,6 @@ class DuckDBInsumoAdapter:
 
     def get_stops(self) -> pd.DataFrame:
         return self._conn.execute("SELECT * FROM stops").fetchdf()
-
-    def get_distances(self, h3_ids: list[str] | None = None) -> pd.DataFrame:
-        if h3_ids:
-            placeholders = ", ".join("?" for _ in h3_ids)
-            query = (
-                f"SELECT * FROM distancias "
-                f"WHERE h3_o IN ({placeholders}) OR h3_d IN ({placeholders})"
-            )
-            params = h3_ids + h3_ids
-        else:
-            query = "SELECT * FROM distancias"
-            params = None
-        return self._conn.execute(query, params).fetchdf()
 
     def get_zones(self) -> gpd.GeoDataFrame:
         # Zone tables are heterogeneous across configs; returns empty until
@@ -143,13 +138,6 @@ class DuckDBInsumoAdapter:
         self._conn.register("_df", df)
         try:
             self._conn.execute("INSERT INTO stops SELECT * FROM _df")
-        finally:
-            self._conn.unregister("_df")
-
-    def save_distances(self, df: pd.DataFrame) -> None:
-        self._conn.register("_df", df)
-        try:
-            self._conn.execute("INSERT INTO distancias SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
 

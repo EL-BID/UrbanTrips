@@ -1,16 +1,9 @@
 # urbantrips/storage/schema/insumos.py
 
-DISTANCIAS = """
-CREATE TABLE IF NOT EXISTS distancias (
-    h3_o               TEXT NOT NULL,
-    h3_d               TEXT NOT NULL,
-    h3_o_norm          TEXT NOT NULL,
-    h3_d_norm          TEXT NOT NULL,
-    distance_osm_drive FLOAT,
-    distance_osm_walk  FLOAT,
-    distance_h3        FLOAT
-)
-"""
+# NOTA: la tabla `distancias` se eliminó (2026-07-27). El cache real de
+# distancias OD es el archivo aparte `od_distances` (o_norm, d_norm, distance_m),
+# que crea y consulta carto/compute_distances.py. `distancias` no tenía productor
+# fuera de los tests y su único lector estaba en código sin llamadores.
 
 MATRIZ_VALIDACION = """
 CREATE TABLE IF NOT EXISTS matriz_validacion (
@@ -72,6 +65,20 @@ CREATE TABLE IF NOT EXISTS metadata_ramales (
 OFFICIAL_BRANCHES_GEOMS = """
 CREATE TABLE IF NOT EXISTS official_branches_geoms (
     id_ramal  BIGINT NOT NULL,
+    direction INT NOT NULL,
+    wkt       TEXT NOT NULL
+)
+"""
+
+# Faltaba en ALL_TABLES (agregada 2026-07-27): la escribe process_routes_geoms
+# con save_raw (que la autocrea), pero esa función corta antes si el config no
+# trae `recorridos_geojson` (carto/routes.py:270-274). En ese caso la tabla no
+# existía y build_routes_from_official_inferred, que la LEE sin try/except en
+# run_outputs, tiraba CatalogException. Declarándola, _apply_schema la crea vacía
+# y el LEFT JOIN simplemente no aporta filas, que es la semántica buscada.
+OFFICIAL_LINES_GEOMS = """
+CREATE TABLE IF NOT EXISTS official_lines_geoms (
+    id_linea  BIGINT NOT NULL,
     direction INT NOT NULL,
     wkt       TEXT NOT NULL
 )
@@ -185,7 +192,6 @@ CREATE TABLE IF NOT EXISTS travel_times_stations (
 """
 
 ALL_TABLES = [
-    DISTANCIAS,
     MATRIZ_VALIDACION,
     MATRIZ_PARADAS,
     MATRIZ_PARADAS_DIAS,
@@ -193,6 +199,7 @@ ALL_TABLES = [
     METADATA_LINEAS,
     METADATA_RAMALES,
     OFFICIAL_BRANCHES_GEOMS,
+    OFFICIAL_LINES_GEOMS,
     INFERRED_LINES_GEOMS,
     LINES_GEOMS,
     BRANCHES_GEOMS,

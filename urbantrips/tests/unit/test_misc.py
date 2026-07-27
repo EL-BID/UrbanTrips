@@ -65,7 +65,6 @@ def test_persist_indicators_pushdown_outputs_expected_values(tmp_path):
                 "od_validado": [1, 1, 1],
                 "factor_expansion_linea": [2.0, 3.0, 5.0],
                 "factor_expansion_tarjeta": [2.0, 3.0, 5.0],
-                "distancia": [2.0, 8.0, 4.0],
             }
         )
     )
@@ -82,8 +81,8 @@ def test_persist_indicators_pushdown_outputs_expected_values(tmp_path):
         )
     )
     # La distancia OD por viaje vive en travel_times_trips (la produce
-    # assign_time_distances en Fase 3); persist_indicators la lee de ahí, no de
-    # viajes.distancia. distance_od espeja los valores antes en viajes.distancia.
+    # assign_time_distances en Fase 3); persist_indicators la lee de ahí. La
+    # columna viajes.distancia, que espejaba estos valores, ya no existe.
     ctx.data.append_raw(
         pd.DataFrame(
             {

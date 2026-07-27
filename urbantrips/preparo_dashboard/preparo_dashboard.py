@@ -116,9 +116,17 @@ def load_and_process_data(ctx: StorageContext):
     logger.info("load_and_process_data: leyendo viajes desde DB")
     viajes = ctx.data.query(
         """
-        SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
+        SELECT v.id_tarjeta, v.id_viaje, v.dia, v.tiempo, v.hora, v.cant_etapas,
+               v.modo, v.autobus, v.tren, v.metro, v.tranvia, v.brt, v.cable,
+               v.lancha, v.otros, v.h3_o, v.h3_d, v.genero, v.tarifa,
+               v.od_validado, v.factor_expansion_linea, v.factor_expansion_tarjeta,
+               tt.travel_time_min, tt.distance_od, tt.distance_route,
                tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
                CAST(v.cant_etapas > 1 AS INTEGER)                      AS transferencia
+        -- Columnas de v enumeradas explícitamente, igual que la query de etapas
+        -- de arriba. Con `v.*` DuckDB traía el viajes.travel_time_min legacy con
+        -- el nombre limpio y desviaba tt.travel_time_min a un travel_time_min_1
+        -- que nadie leía → travel_time_min quedaba en 0 y kmh_od todo NaN.
         FROM viajes v
         LEFT JOIN travel_times_trips tt
         ON v.dia = tt.dia

@@ -64,8 +64,6 @@ def _make_legs(day: str, n: int = 3, id_offset: int = 0) -> pd.DataFrame:
             "factor_expansion_linea": 1.0,
             "factor_expansion_tarjeta": 1.0,
             "factor_expansion_etapa": 1.0,
-            "distancia": 0.0,
-            "travel_time_min": 0.0,
         })
     return pd.DataFrame(rows)
 

@@ -238,7 +238,6 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
         columns=[
             "id", "id_linea", "id_ramal", "interno", "dia",
             "original_service_id", "new_service_id", "service_id",
-            "id_ramal_gps_point", "node_id",
         ]
     )
     ctx.data.append_raw(services_gps_points, "services_gps_points")

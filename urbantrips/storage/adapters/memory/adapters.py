@@ -241,12 +241,6 @@ class InMemoryInsumoAdapter:
     def get_stops(self) -> pd.DataFrame:
         return self._store.get("stops", pd.DataFrame())  # type: ignore[return-value]
 
-    def get_distances(self, h3_ids: list[str] | None = None) -> pd.DataFrame:
-        df = self._store.get("distancias", pd.DataFrame())
-        if h3_ids and not df.empty and "h3_o" in df.columns:  # type: ignore[union-attr]
-            return df[df["h3_o"].isin(h3_ids) | df["h3_d"].isin(h3_ids)].copy()  # type: ignore[return-value]
-        return df.copy()  # type: ignore[return-value]
-
     def get_zones(self) -> gpd.GeoDataFrame:
         return self._store.get("zones", gpd.GeoDataFrame())  # type: ignore[return-value]
 
@@ -277,10 +271,6 @@ class InMemoryInsumoAdapter:
 
     def save_stops(self, df: pd.DataFrame) -> None:
         self._store["stops"] = df.copy()
-
-    def save_distances(self, df: pd.DataFrame) -> None:
-        existing = self._store.get("distancias", pd.DataFrame())
-        self._store["distancias"] = pd.concat([existing, df], ignore_index=True)  # type: ignore[arg-type]
 
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
         self._store["zones"] = df.copy()
