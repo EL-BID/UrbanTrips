@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS dias_ultima_corrida (
 
 ETAPAS = """
 CREATE TABLE IF NOT EXISTS etapas (
-    id                        INT PRIMARY KEY NOT NULL,
+    id                        INT NOT NULL,
     batch_id                  INT,
     id_tarjeta                TEXT,
     dia                       TEXT,
@@ -54,11 +54,14 @@ CREATE TABLE IF NOT EXISTS etapas (
     factor_expansion_original FLOAT,
     factor_expansion_linea    FLOAT,
     factor_expansion_tarjeta  FLOAT,
-    factor_expansion_etapa    FLOAT,
-    distancia                 FLOAT,
-    travel_time_min           FLOAT
+    factor_expansion_etapa    FLOAT
 )
 """
+# NOTA: distancia y travel_time_min se quitaron de etapas (2026-07-27). Las
+# métricas por etapa viven en travel_times_legs (distance_od, distance_route,
+# distance_route_gps, travel_time_min, kmh_*), que es de donde ya leían kpi,
+# chains y el dashboard. Las columnas quedaban 100% NULL desde que se eliminó
+# su escritor el 2026-07-17 (ver la nota en datamodel/legs.py).
 
 VIAJES = """
 CREATE TABLE IF NOT EXISTS viajes (
@@ -83,11 +86,12 @@ CREATE TABLE IF NOT EXISTS viajes (
     tarifa                   TEXT,
     od_validado              INT,
     factor_expansion_linea   FLOAT,
-    factor_expansion_tarjeta FLOAT,
-    distancia                FLOAT,
-    travel_time_min          FLOAT
+    factor_expansion_tarjeta FLOAT
 )
 """
+# NOTA: ídem etapas — las métricas por viaje viven en travel_times_trips
+# (2026-07-27). El INSERT INTO viajes de datamodel/trips.py nunca las escribió
+# después del refactor, así que quedaban 100% NULL.
 
 USUARIOS = """
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -163,14 +167,9 @@ CREATE TABLE IF NOT EXISTS legs_to_station_destination (
 )
 """
 
-TRAVEL_TIMES_GPS = """
-CREATE TABLE IF NOT EXISTS travel_times_gps (
-    dia             TEXT,
-    id              INT NOT NULL,
-    travel_time_min FLOAT,
-    travel_speed    FLOAT
-)
-"""
+# NOTA: travel_times_gps se eliminó (2026-07-27). No tenía escritor desde el
+# refactor: assign_time_distances guarda los tiempos y distancias por etapa en
+# travel_times_legs / travel_times_trips.
 
 TRAVEL_TIMES_STATIONS = """
 CREATE TABLE IF NOT EXISTS travel_times_stations (
@@ -273,11 +272,12 @@ CREATE TABLE IF NOT EXISTS services_gps_points (
     dia                TEXT,
     original_service_id INT NOT NULL,
     new_service_id     INT NOT NULL,
-    service_id         INT NOT NULL,
-    id_ramal_gps_point BIGINT,
-    node_id            INT
+    service_id         INT NOT NULL
 )
 """
+# NOTA: id_ramal_gps_point y node_id se quitaron (2026-07-27). El frame que
+# escribe la tabla no las trae — el reindex de datamodel/services.py las creaba
+# todas-NaN — y quedaban 100% NULL (verificado sobre 103,5M filas del mes).
 
 SERVICES = """
 CREATE TABLE IF NOT EXISTS services (
@@ -304,8 +304,8 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line (
     id_linea              BIGINT NOT NULL,
     dia                   TEXT NOT NULL,
     tot_veh               INT,
-    tot_km                FLOAT,
-    tot_km_gps            FLOAT,
+    tot_km_route                FLOAT,
+    tot_km_route_gps            FLOAT,
     tot_pax               FLOAT,
     dmt_mean_od           FLOAT,
     dmt_mean_route        FLOAT,
@@ -314,8 +314,8 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line (
     dmt_median_route      FLOAT,
     dmt_median_route_gps  FLOAT,
     pvd                   FLOAT,
-    kvd                   FLOAT,
-    kvd_gps               FLOAT,
+    kvd_route                   FLOAT,
+    kvd_route_gps               FLOAT,
     ipk_route             FLOAT,
     ipk_route_gps         FLOAT,
     fo_mean_od            FLOAT,
@@ -336,8 +336,8 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line_service (
     service_id            INT NOT NULL,
     hora_inicio           TEXT,
     hora_fin              TEXT,
-    tot_km                FLOAT,
-    tot_km_gps            FLOAT,
+    tot_km_route                FLOAT,
+    tot_km_route_gps            FLOAT,
     tot_pax               FLOAT,
     dmt_mean_od           FLOAT,
     dmt_mean_route        FLOAT,
@@ -401,6 +401,11 @@ CREATE TABLE IF NOT EXISTS transacciones_raw (
 
 IDX_TRX_BATCH    = "CREATE INDEX IF NOT EXISTS idx_trx_batch ON transacciones(batch_id)"
 IDX_ETAPAS_BATCH = "CREATE INDEX IF NOT EXISTS idx_etapas_batch ON etapas(batch_id)"
+# Replaces the old PRIMARY KEY on etapas(id): a plain index built once in bulk by
+# end_bulk_leg_writes, so per-batch INSERTs in Phase 2/4 don't maintain a growing
+# unique-key ART row by row. id uniqueness is guaranteed by construction (ROW_NUMBER
+# in standardize_raw_to_transacciones), not by a constraint.
+IDX_ETAPAS_ID    = "CREATE INDEX IF NOT EXISTS idx_etapas_id ON etapas(id)"
 IDX_GPS_LINE_DAY = (
     "CREATE INDEX IF NOT EXISTS idx_gps_line_day ON gps(id_linea, dia)"
 )
@@ -416,10 +421,6 @@ IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA = (
     "CREATE INDEX IF NOT EXISTS idx_gps_dia_line_ramal_interno_fecha "
     "ON gps(dia, id_linea, id_ramal, interno, fecha)"
 )
-IDX_TRAVEL_TIMES_GPS_ID = (
-    "CREATE INDEX IF NOT EXISTS idx_travel_times_gps_id "
-    "ON travel_times_gps(id)"
-)
 IDX_TRAVEL_TIMES_STATIONS_ID = (
     "CREATE INDEX IF NOT EXISTS idx_travel_times_stations_id "
     "ON travel_times_stations(id)"
@@ -429,24 +430,22 @@ IDX_SERVICES_STATS_LINE_DAY = (
     "ON services_stats(id_linea, dia)"
 )
 
-ALL_INDEXES = [
-    IDX_TRX_BATCH,
-    IDX_ETAPAS_BATCH,
-    IDX_GPS_LINE_DAY,
-    IDX_ETAPAS_DIA_OD_VALIDADO,
-    IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO,
-    IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA,
-    IDX_TRAVEL_TIMES_GPS_ID,
-    IDX_TRAVEL_TIMES_STATIONS_ID,
-    IDX_SERVICES_STATS_LINE_DAY,
-]
+# Auditoría empírica 2026-07-18 (tools/audit_indices.py sobre el mes real, 254M etapas):
+# NINGÚN índice ART acelera ninguna query del pipeline — los WHERE dia los sirve el
+# zonemap con la tabla day-clustered, los joins por id son hash joins; varios ENLENTECEN
+# (hasta idx_trx_batch: 0.32s→0.00s sin él) y TODOS se mantienen fila a fila en cada
+# bulk INSERT (el stall de save_legs que crecía 7→18min = ~79min de Phase 2). Decisión:
+# NO crear ninguno. Las constantes IDX_* de arriba quedan sólo para los DROP IF EXISTS
+# defensivos de begin_bulk_leg_writes (limpian DBs legacy que los traigan) y por si
+# alguno hiciera falta a futuro (rescatar sólo con evidencia de EXPLAIN).
+ALL_INDEXES: list = []
 
 ALL_TABLES = [
     TRANSACCIONES, TRANSACCIONES_RAW, DIAS_ULTIMA_CORRIDA, ETAPAS, VIAJES, USUARIOS,
     GPS, VEHICLE_EXPANSION_FACTORS,
     LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
-    TRAVEL_TIMES_GPS, TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
+    TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
     TRANSACCIONES_LINEA, TARJETAS_DUPLICADAS, OCUPACION_POR_LINEA_TRAMO,
     OVERLAPPING_BY_ROUTE,
     SERVICES_GPS_POINTS, SERVICES, SERVICES_STATS,

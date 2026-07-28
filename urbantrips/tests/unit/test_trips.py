@@ -48,7 +48,7 @@ def _make_legs_ctx(legs_df):
         def save_legs(self, df, batch=None):
             saved["result"] = df.copy()
 
-        def update_leg_trip_ids(self, df):
+        def update_leg_trip_ids(self, df, dia=None):
             saved["result"] = df.copy()
 
     return SimpleNamespace(data=_MockData()), saved

@@ -45,7 +45,8 @@ The library uses **DuckDB** for storage (no database server needed) and **H3** h
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ### With uv
@@ -53,7 +54,8 @@ pip install urbantrips
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install urbantrips
+uv git clone https://github.com/EL-BID/UrbanTrips.git
+uv pip install -e .
 ```
 
 ### With conda (avoids GDAL build issues on some platforms)
@@ -61,7 +63,8 @@ uv pip install urbantrips
 ```bash
 conda create -n urbantrips -c conda-forge python=3.12
 conda activate urbantrips
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ---
@@ -121,6 +124,8 @@ alias_db_insumos: "city_inputs"      # Shared inputs database (routes, stops, zo
 ```
 
 Each run name `X` expects a file `data/data_ciudad/X_trx.csv` (and optionally `X_gps.csv`).
+
+The list is **incremental**: you can add new runs and re-run — only the new ones are processed, already-finished ones are skipped. See [Incremental runs, recovery and reprocessing](#incremental-runs-recovery-and-reprocessing).
 
 ### Column mapping
 
@@ -334,11 +339,116 @@ python urbantrips/run_all_urbantrips.py --config configs/other_city.yaml
 python urbantrips/run_all_urbantrips.py --borrar_corrida all
 ```
 
+### Incremental runs, recovery and reprocessing
+
+The pipeline keeps a **per-run, per-step progress log** in
+`{alias}_general.duckdb` (one row per processed day, recording when each step —
+ingest, legs, outputs, dashboard — completed). Using that log, a full run
+(`run_all_urbantrips.py` without `--step`/`--through`) decides what to do with
+each run listed under `corridas:` in the config:
+
+- **New** (not in the log) → processed in full.
+- **Incomplete** (interrupted by a crash) → **resumed from the step that was
+  missing**, without redoing completed work.
+- **Complete** → **skipped**.
+
+This makes the following safe:
+
+```bash
+# Add new days: only the NEW ones run; already-finished days are left untouched.
+# (extend the `corridas:` list in the yaml and re-run)
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml
+
+# Resume an interrupted run (reboot, crash): re-run the same command — it picks up
+# where it left off. Re-running already-present days no longer crashes.
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml
+```
+
+With nothing pending it ends with *"No hay días pendientes de procesar"* without
+doing anything (this used to crash).
+
+#### Reprocessing finished runs: `--reprocesar`
+
+To **rebuild from scratch** one or more already-complete runs (e.g. the source
+data changed), pass their names — **items of the `corridas:` list**, not the yaml
+filename — comma-separated **without spaces**. It deletes those runs' days and
+regenerates them; **every other day is left intact**.
+
+```bash
+# config with corridas: ['dia1', 'dia2', 'dia3', 'dia4']
+
+# reprocess only dia1  (dia2, dia3, dia4 stay frozen)
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml \
+  --reprocesar dia1
+
+# reprocess two runs
+python urbantrips/run_all_urbantrips.py --config configs/my_city.yaml \
+  --reprocesar dia1,dia3
+```
+
+Notes:
+
+- The **unit is the run** (an item of `corridas:`, which maps to a
+  `<corrida>_trx.csv` file). If a run spans several days, **all** of its days are
+  reprocessed.
+- The names must be in the config's `corridas:` list.
+- `--reprocesar` is incompatible with `--borrar_corrida` (that already rebuilds
+  everything).
+
 ### Launching the dashboard manually
+
+On Windows, via the `.bat`:
+
+```bat
+dashboard.bat                                        REM configuraciones_generales.yaml
+dashboard.bat configuraciones_generales_2024.yaml     REM looked up in configs/
+dashboard.bat configs\other.yaml                     REM relative or absolute path
+```
+
+Or directly:
 
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --config configs/configuraciones_generales_2024.yaml
 ```
+
+The bare `--` is **required**: without it, streamlit keeps the argument instead of
+forwarding it to the script. The `.bat` handles that for you.
+
+The chosen config determines which databases are opened (via `alias_db_insumos`),
+and supplies `resolucion_h3`, `epsg_m` and `lineas_contienen_ramales`.
+
+#### Switching runs without restarting
+
+To switch between runs from within the dashboard, create `configs/corridas.yaml`
+listing the aliases you want to see:
+
+```yaml
+corridas:
+  - corrida_2024
+  - corrida_2025
+```
+
+With that file, a **selector appears in the sidebar**. Picking another run
+repoints the configuration and reloads: the effect is the same as having launched
+the dashboard with a different `--config`, but without restarting the process.
+
+The file is **optional**: without it there is no selector and the dashboard opens
+the run of the config it was launched with, as before. See the
+`configs/corridas.yaml.example` template.
+
+The alias alone is enough because the dashboard finds its configuration on its own:
+
+1. **From the copy the run itself stored** in `{alias}_general.duckdb`. Every run
+   archives the yaml it was processed with, so that is the configuration that
+   actually produced the data — even if the original file was later edited or
+   deleted.
+2. If that database predates this feature, from the yaml in `configs/` declaring
+   that alias.
+
+The sidebar shows which of the two it came from. A run that cannot be resolved, or
+that is missing any of its four databases, still appears in the list but disabled
+and with the reason, instead of silently vanishing.
 
 ---
 

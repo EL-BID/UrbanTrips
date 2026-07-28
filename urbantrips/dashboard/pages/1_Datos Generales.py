@@ -12,7 +12,7 @@ from dash_utils import (
     get_logo,
     create_linestring_od,
     extract_hex_colors_from_cmap,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     formatear_columnas_numericas
 )
 
@@ -637,7 +637,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 with st.expander("Partición modal", True):
 

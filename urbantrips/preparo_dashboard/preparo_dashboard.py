@@ -116,9 +116,17 @@ def load_and_process_data(ctx: StorageContext):
     logger.info("load_and_process_data: leyendo viajes desde DB")
     viajes = ctx.data.query(
         """
-        SELECT v.*, tt.travel_time_min, tt.distance_od, tt.distance_route,
+        SELECT v.id_tarjeta, v.id_viaje, v.dia, v.tiempo, v.hora, v.cant_etapas,
+               v.modo, v.autobus, v.tren, v.metro, v.tranvia, v.brt, v.cable,
+               v.lancha, v.otros, v.h3_o, v.h3_d, v.genero, v.tarifa,
+               v.od_validado, v.factor_expansion_linea, v.factor_expansion_tarjeta,
+               tt.travel_time_min, tt.distance_od, tt.distance_route,
                tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
                CAST(v.cant_etapas > 1 AS INTEGER)                      AS transferencia
+        -- Columnas de v enumeradas explícitamente, igual que la query de etapas
+        -- de arriba. Con `v.*` DuckDB traía el viajes.travel_time_min legacy con
+        -- el nombre limpio y desviaba tt.travel_time_min a un travel_time_min_1
+        -- que nadie leía → travel_time_min quedaba en 0 y kmh_od todo NaN.
         FROM viajes v
         LEFT JOIN travel_times_trips tt
         ON v.dia = tt.dia
@@ -563,13 +571,21 @@ def _viajes_poligonos_desde_chains(ctx: StorageContext):
     if len(equivalencias) == 0:
         return pd.DataFrame([])
 
+    # Day-scope: chains_norm es acumulativa (crece con cada día). Leerla entera a
+    # pandas escala con lo acumulado (a 12 días picó RAM → OOM). Se acota a los días
+    # de la corrida; construyo_indicadores recompone "Todos" desde el histórico de
+    # poly_indicadores (merge-con-historia), igual que el path no-polígono.
+    from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
+    run_days = ctx.data.get_run_days()
+    dias_scope = run_days["dia"].astype(str).tolist() if not run_days.empty else []
+    _where = dias_where_clause(dias_scope)
     try:
         chains = ctx.dash.query(
             "SELECT dia, mes, tipo_dia, id_tarjeta, id_viaje, "
             "h3_inicio_norm, h3_fin_norm, modo_agregado, rango_hora, "
             "transferencia, distancia_agregada, distance_od, "
             "factor_expansion_linea "
-            "FROM chains_norm"
+            f"FROM chains_norm{_where}"
         )
     except Exception:
         logger.warning("construyo_indicadores: la tabla chains_norm no existe en dash.")
@@ -848,6 +864,21 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
     replace_dash_partition(ctx, indicadores, tabla_destino, ["dia"])
 
 
+
+
+def _upsert_indicator_por_dia(ctx: StorageContext, df, name, dia_col="Día"):
+    """save_indicator es reemplazo TOTAL de la tabla; con el proc-mat day-scoped
+    el df solo trae los run-days, así que hay que preservar el histórico de los
+    demás días (mismo patrón merge-con-historia de construyo_indicadores). No se
+    usa append_raw: el schema del dash pre-crea estas tablas con columnas legacy
+    (desc_dia/...) que no matchean el df — save_indicator las reemplaza entera.
+    """
+    prev = ctx.dash.get_indicator(name)
+    if len(prev) > 0 and dia_col in prev.columns:
+        prev = prev[~prev[dia_col].isin(df[dia_col].unique())]
+        df = pd.concat([df, prev], ignore_index=True)
+        df = df.sort_values(df.columns[:2].tolist()).reset_index(drop=True)
+    ctx.dash.save_indicator(df, name)
 
 
 def replace_dash_partition(ctx: StorageContext, df, table_name, partition_cols):
@@ -1245,8 +1276,8 @@ def crea_socio_indicadores(ctx: StorageContext):
     dist.columns = ["Día", "Modo", "Distancia (kms)", "Viajes"]
     hora.columns = ["Día", "Modo", "Hora", "Viajes"]
 
-    ctx.dash.save_indicator(dist, "distribucion")
-    ctx.dash.save_indicator(hora, "viajes_hora")
+    _upsert_indicator_por_dia(ctx, dist, "distribucion")
+    _upsert_indicator_por_dia(ctx, hora, "viajes_hora")
 
 
 @duracion
@@ -1340,30 +1371,46 @@ def guarda_particion_modal(ctx: StorageContext):
 @duracion
 def resumen_x_linea(ctx: StorageContext):
     from urbantrips.preparo_dashboard.sql_queries import (
-        materializar_proc_tables, ETAPAS_PROC_MAT,
+        materializar_proc_tables, ETAPAS_PROC_MAT, proc_mat_days, dias_where_clause,
     )
     materializar_proc_tables(ctx)
 
     # Only the columns agrego_lineas reads — gps and transacciones are the two
-    # largest tables in the run; loading them whole multiplies peak RSS.
-    logger.info("resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones")
-    gps = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM gps")
+    # largest tables in the run; loading them whole multiplies peak RSS. Las
+    # lecturas se acotan a los días del proc-mat: las filas de salida se anclan
+    # en el mat (merges left desde `tot`), así que leer días fuera de ese scope
+    # es puro descarte y escala con lo acumulado.
+    dias_mat = proc_mat_days(ctx)
+    _where = dias_where_clause(dias_mat)
+    logger.info(
+        "resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones "
+        "(%s días)", len(dias_mat) if dias_mat else "todos los",
+    )
+    gps = ctx.data.query(f"SELECT dia, id_linea, id_ramal, interno FROM gps{_where}")
     lineas = ctx.insumos.get_metadata_lineas()
-    kpis = ctx.data.get_raw("kpi_by_day_line")
-    servicios = ctx.data.get_raw("services")
+    # try/except: preserva la semántica de get_raw (tabla ausente → df vacío)
+    try:
+        kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
+    except Exception:
+        kpis = pd.DataFrame()
+    try:
+        servicios = ctx.data.query(f"SELECT * FROM services{_where}")
+    except Exception:
+        servicios = pd.DataFrame()
     lineas = lineas[["id_linea", "nombre_linea", "empresa"]].sort_values(["id_linea"])
 
     trx = ctx.data.query(
-        "SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion FROM transacciones"
+        f"SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion "
+        f"FROM transacciones{_where}"
     )
 
     metric_cols = [
         "transacciones",
         "distancia_media", "travel_time_min", "kmh_od",
         "cant_internos_en_trx", "cant_internos_en_gps",
-        "tot_veh", "tot_km", "tot_pax",
+        "tot_veh", "tot_km_route", "tot_pax",
         "dmt_mean_od", "dmt_median_od",
-        "pvd", "kvd", "ipk_route", "fo_mean_od", "fo_median_od",
+        "pvd", "kvd_route", "ipk_route", "fo_mean_od", "fo_median_od",
     ]
 
     # Resumen por línea
@@ -1448,15 +1495,11 @@ def crear_indices_unificados(ctx: StorageContext):
     """
 
     def _maybe_create(port, table, spec_list):
-        if not _table_exists(port, table):
-            return
-        for name, cols in spec_list:
-            if _table_has_cols(port, table, cols):
-                try:
-                    cols_sql = ", ".join(cols)
-                    port.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols_sql});")
-                except Exception as e:
-                    logger.debug("[índice omitido] %s.%s: %s", table, name, e)
+        # Auditoría empírica 2026-07-18: los índices ART son puro costo en DuckDB (no
+        # aceleran ninguna query — los sirve el zonemap/hash join — y se mantienen en
+        # cada escritura). Vestigio SQLite: no se crean más. Se conserva el
+        # ANALYZE/optimize de esta función (sí actualiza estadísticas del optimizador).
+        return
 
     def _speed_pragmas(port):
         for sql in [
@@ -1716,7 +1759,17 @@ def preparo_indicadores_dash(
     from urbantrips.preparo_dashboard.sql_queries import (
         materializar_proc_tables, drop_proc_tables,
     )
-    materializar_proc_tables(ctx, replace=True)
+    # Day-scope incremental: el proc-mat se acota a los días de la corrida, así
+    # cada consumidor escribe SOLO sus particiones run-day (los días congelados
+    # quedan intactos y el costo deja de crecer con lo acumulado). Con
+    # dias_ultima_corrida vacía (bases pre-refactor / uso manual) se materializa
+    # todo, que es el comportamiento previo.
+    _dias_corrida = ctx.data.get_run_days()
+    run_days = (
+        sorted(_dias_corrida["dia"].astype(str).tolist())
+        if not _dias_corrida.empty else []
+    )
+    materializar_proc_tables(ctx, replace=True, run_days=run_days or None)
     try:
         resumen_x_linea(ctx)
 

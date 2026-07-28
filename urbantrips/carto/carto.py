@@ -34,6 +34,7 @@ import warnings
 
 try:
     from pandana.loaders import osm as osm_pandana  # noqa: F401
+
     warnings.filterwarnings(
         "ignore",
         message="Unsigned integer: shortest path distance is trying to be calculated",
@@ -48,6 +49,7 @@ from urbantrips.utils.utils import (
     leer_alias,
     modos_con_ramal,
     id_ramal_efectivo,
+    worker_pool,
     RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
@@ -129,6 +131,137 @@ def get_library_version(library_name):
     return None
 
 
+def _dias_where(dias, col="dia", prefijo=" where "):
+    """Cláusula de días para los GROUP BY de paradas. Sin días -> sin filtro."""
+    if not dias:
+        return ""
+    lst = ", ".join("'" + str(d).replace("'", "''") + "'" for d in sorted(dias))
+    return f"{prefijo}{col} in ({lst})"
+
+
+def _conteos_paradas_crudos(ctx, dias=None):
+    """GROUP BY crudo de las 2 fuentes de paradas, opcionalmente acotado a `dias`.
+
+    Devuelve los mismos DataFrames que leía update_stations_catchment_area cuando
+    escaneaba el histórico entero, así el resto de la función no cambia.
+    """
+    paradas_etapas = ctx.data.query(
+        "select id_linea, id_ramal, h3_o as parada, count(*) as n "
+        f"from etapas{_dias_where(dias)} group by id_linea, id_ramal, h3_o"
+    )
+    gps = ctx.data.query(
+        "select id_linea, id_ramal, h3 as parada, count(*) as n_pts "
+        f"from gps where h3 is not null{_dias_where(dias, prefijo=' and ')} "
+        "group by id_linea, id_ramal, h3"
+    )
+    return paradas_etapas, gps
+
+
+_CONTEO_KEY = ["id_linea", "id_ramal", "parada"]
+
+
+def _combinar_conteos(paradas_etapas, gps):
+    """Une ambas fuentes en una grilla (id_linea, id_ramal, parada) con n_trx/n_gps."""
+    a = paradas_etapas.rename(columns={"n": "n_trx"})
+    b = gps.rename(columns={"n_pts": "n_gps"})
+    if len(a) == 0 and len(b) == 0:
+        return pd.DataFrame(columns=_CONTEO_KEY + ["n_trx", "n_gps"])
+    out = a.merge(b, how="outer", on=_CONTEO_KEY)
+    out["n_trx"] = out["n_trx"].fillna(0).astype("int64")
+    out["n_gps"] = out["n_gps"].fillna(0).astype("int64")
+    return out
+
+
+def _sumar_conteos(previos, nuevos):
+    """Suma los conteos de los días nuevos sobre los acumulados.
+
+    dropna=False para no perder las paradas con id_ramal NULL, que el camino de
+    reconstrucción total sí conserva hasta el id_ramal efectivo.
+    """
+    cols = _CONTEO_KEY + ["n_trx", "n_gps"]
+    previos = previos.reindex(columns=cols) if len(previos) else pd.DataFrame(columns=cols)
+    tot = pd.concat([previos, nuevos.reindex(columns=cols)], ignore_index=True)
+    tot[["n_trx", "n_gps"]] = tot[["n_trx", "n_gps"]].fillna(0)
+    out = tot.groupby(_CONTEO_KEY, as_index=False, dropna=False)[["n_trx", "n_gps"]].sum()
+    out[["n_trx", "n_gps"]] = out[["n_trx", "n_gps"]].astype("int64")
+    return out
+
+
+def _separar_conteos(conteos):
+    """Reconstruye los 2 DataFrames por fuente tal como los devolvían los GROUP BY
+    (solo filas con conteo > 0, que es lo que produce un count(*))."""
+    pe = (
+        conteos.loc[conteos["n_trx"] > 0, _CONTEO_KEY + ["n_trx"]]
+        .rename(columns={"n_trx": "n"})
+        .reset_index(drop=True)
+    )
+    g = (
+        conteos.loc[conteos["n_gps"] > 0, _CONTEO_KEY + ["n_gps"]]
+        .rename(columns={"n_gps": "n_pts"})
+        .reset_index(drop=True)
+    )
+    return pe, g
+
+
+def _dias_en_datos(ctx):
+    """Todos los días presentes en las fuentes de paradas (etapas + gps)."""
+    df = ctx.data.query(
+        "select dia from etapas union select dia from gps"
+    )
+    if len(df) == 0:
+        return []
+    return sorted(str(d) for d in df["dia"].dropna().unique())
+
+
+def _run_days_list(ctx):
+    df = ctx.data.get_run_days()
+    if df is None or len(df) == 0:
+        return []
+    col = "dia" if "dia" in df.columns else df.columns[0]
+    return [str(d) for d in df[col].dropna().unique()]
+
+
+def _guardar_matriz_paradas(ctx, conteos, paradas, metadata_lineas, modos_ramal, dias):
+    """Persiste los conteos crudos con el flag `valido`.
+
+    `conteos` está en claves CRUDAS (id_linea, id_ramal) y `paradas` en la clave
+    EFECTIVA (id_linea_agg, id_ramal efectivo), que es la que usa el filtro. Se mapea
+    una a otra para marcar qué candidatas quedaron dentro de matriz_validacion.
+    """
+    if len(conteos) == 0:
+        ctx.insumos.save_matriz_paradas(
+            pd.DataFrame(columns=_CONTEO_KEY + ["n_trx", "n_gps", "valido"]), dias
+        )
+        return
+
+    ef = conteos.merge(metadata_lineas, how="left", on="id_linea")
+    ef["id_ramal_ef"] = id_ramal_efectivo(ef["modo"], ef["id_ramal"], modos_ramal)
+
+    if len(paradas) > 0:
+        validas = paradas.reindex(columns=["id_linea_agg", "id_ramal", "parada"]).rename(
+            columns={"id_ramal": "id_ramal_ef"}
+        )
+        validas = validas.drop_duplicates()
+        validas["_v"] = 1
+        marcado = ef.merge(
+            validas, how="left", on=["id_linea_agg", "id_ramal_ef", "parada"]
+        )
+        valido = marcado["_v"].fillna(0).astype("int64").values
+    else:
+        valido = np.zeros(len(ef), dtype="int64")
+
+    out = conteos.reindex(columns=_CONTEO_KEY + ["n_trx", "n_gps"]).copy()
+    out["valido"] = valido
+    ctx.insumos.save_matriz_paradas(out, dias)
+    logger.info(
+        "matriz_paradas: %d candidatas (%d válidas, %d descartadas), %d día(s)",
+        len(out),
+        int(out["valido"].sum()),
+        int((out["valido"] == 0).sum()),
+        len(dias),
+    )
+
+
 @duracion
 def update_stations_catchment_area(ring_size, ctx: StorageContext):
     """
@@ -137,10 +270,13 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
       - transacciones (etapas.h3_o), descartando pares con una sola ocurrencia
       - puntos GPS (gps.h3), descartando hexagonos con muy pocos puntos (outliers
         de densidad: glitches de GPS)
-    Aplica un filtro por buffer alrededor del corredor real (footprint de puntos
-    GPS validos; si no hay GPS, el recorrido oficial como fallback) descartando las
-    paradas que caen muy por fuera, y construye el area de influencia (anillo H3 de
-    tamano ring_size) para todas las paradas.
+    El filtro de outliers se aplica SOLO a los puntos GPS (por densidad): las
+    paradas de transacciones (etapas.h3_o con n>1) son verdad de campo y nunca se
+    descartan. El GPS solo AGREGA cobertura donde es denso; no puede eliminar una
+    parada de transacciones. Asi, lineas con GPS escaso o poco representativo
+    (p.ej. FFCC Roca: 582 puntos GPS) no pierden estaciones reales que la gente si
+    usa. Construye el area de influencia (anillo H3 de tamano ring_size) para todas
+    las paradas resultantes.
 
     El uso de ramal se decide por modo (modo_valida_ramal). Para los modos que
     validan por ramal construye por (id_linea_agg, id_ramal); para los que no,
@@ -148,25 +284,25 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     los modos sin ramal usan un centinela (RAMAL_SENTINEL) para que el merge por
     [id_linea_agg, id_ramal] funcione uniforme; se persiste NULL.
 
-    Es reconstruccion total: etapas y gps son acumulativas y se leen completas,
-    asi que la matriz se reescribe entera en cada corrida (re-evalua outliers).
+    Los conteos crudos por (id_linea, id_ramal, parada) se acumulan en matriz_paradas
+    junto con un flag `valido`: ninguna candidata se borra, solo cambia su flag, y una
+    parada descartada vuelve a calificar sola si acumula puntos. Cuando todos los dias
+    de la corrida son nuevos solo se leen ESOS dias y sus conteos se suman a los
+    acumulados; si se reprocesa un dia ya incorporado se reconstruye desde el historico
+    (volver a sumarlo duplicaria sus conteos). El resultado es identico al de la
+    reconstruccion total: el filtro opera sobre los mismos conteos acumulados.
+
+    matriz_validacion se deriva solo de las paradas con valido=1. El area de influencia
+    es el anillo H3 de cada parada, que depende unicamente de la parada.
 
     Parametros leidos de configuraciones_generales.yaml:
-      - resolucion_h3
-      - tolerancia_validacion_recorrido (metros, default 600): buffer del filtro
       - frac_mediana_gps (default 0.25): umbral de outliers GPS como fraccion de la
         mediana de puntos por hexagono
       - lineas_contienen_ramales, modo_valida_ramal
     """
     configs = leer_configs_generales(autogenerado=False)
     modos_ramal = modos_con_ramal(configs)
-    resolucion_h3 = configs["resolucion_h3"]
     frac_mediana_gps = configs.get("frac_mediana_gps", 0.25)
-    tol_filtro = configs.get("tolerancia_validacion_recorrido", 600)
-
-    # Buffer del filtro de recorrido: mas chico que el area de influencia.
-    lado_m = h3.average_hexagon_edge_length(res=resolucion_h3, unit="m")
-    ring_filtro = max(1, round(tol_filtro / (lado_m * 2)))
 
     # Key fija; id_ramal lleva el valor efectivo (real para modos con ramal,
     # RAMAL_SENTINEL para los que no). Se convierte a NULL al persistir.
@@ -181,9 +317,9 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # contra las columnas correctas y los consumidores encuentran id_linea_agg. ---
     from urbantrips.storage.schema.insumos import MATRIZ_VALIDACION
 
-    cols_actuales = set(ctx.insumos.query(
-        "SELECT * FROM matriz_validacion LIMIT 0"
-    ).columns)
+    cols_actuales = set(
+        ctx.insumos.query("SELECT * FROM matriz_validacion LIMIT 0").columns
+    )
     schema_viejo = bool(cols_actuales) and (
         "id_linea_agg" not in cols_actuales or "id_ramal" not in cols_actuales
     )
@@ -200,14 +336,43 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         ["id_linea", "id_linea_agg", "modo"]
     ]
 
-    # --- Fuente A: paradas desde transacciones (etapas) ---
-    paradas_etapas = ctx.data.query(
-        "select id_linea, id_ramal, h3_o as parada, count(*) as n "
-        "from etapas group by id_linea, id_ramal, h3_o"
+    # --- Conteos crudos acumulados (matriz_paradas) ---
+    # matriz_paradas guarda la evidencia de CADA parada candidata (n_trx, n_gps) y su
+    # flag `valido`; nunca se borra una fila. Si todos los días de la corrida son
+    # nuevos alcanza con sumarles sus conteos; si se reprocesa un día ya incorporado
+    # se reconstruye desde el histórico (volver a sumarlo duplicaría sus conteos).
+    conteos_previos = ctx.insumos.get_matriz_paradas()
+    dias_incorporados = list(ctx.insumos.get_matriz_paradas_dias())
+    run_days = _run_days_list(ctx)
+    ya = set(dias_incorporados)
+    dias_nuevos = [d for d in run_days if d not in ya]
+    incremental = (
+        len(conteos_previos) > 0
+        and len(ya) > 0
+        and len(run_days) > 0
+        and len(dias_nuevos) == len(run_days)
     )
-    paradas_etapas = paradas_etapas[
-        paradas_etapas["parada"].map(_es_h3_valido)
-    ].copy()
+
+    if incremental:
+        nuevos = _combinar_conteos(*_conteos_paradas_crudos(ctx, dias_nuevos))
+        conteos = _sumar_conteos(conteos_previos, nuevos)
+        dias_matriz = sorted(ya | set(dias_nuevos))
+        logger.info(
+            "matriz_paradas: incremental (+%d día(s) sobre %d ya incorporados)",
+            len(dias_nuevos),
+            len(dias_incorporados),
+        )
+    else:
+        conteos = _combinar_conteos(*_conteos_paradas_crudos(ctx, None))
+        dias_matriz = _dias_en_datos(ctx)
+        logger.info(
+            "matriz_paradas: reconstrucción total sobre %d día(s)", len(dias_matriz)
+        )
+
+    paradas_etapas, gps = _separar_conteos(conteos)
+
+    # --- Fuente A: paradas desde transacciones (etapas) ---
+    paradas_etapas = paradas_etapas[paradas_etapas["parada"].map(_es_h3_valido)].copy()
     paradas_etapas = paradas_etapas.merge(metadata_lineas, how="left", on="id_linea")
     paradas_etapas["id_ramal"] = id_ramal_efectivo(
         paradas_etapas["modo"], paradas_etapas["id_ramal"], modos_ramal
@@ -222,17 +387,11 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
     # Se detecta GPS por presencia de datos en la tabla (mas robusto que el flag
     # de config, que puede quedar en None aunque la tabla este poblada).
     # gps no tiene columna modo: se trae del merge con metadata_lineas.
-    gps = ctx.data.query(
-        "select id_linea, id_ramal, h3 as parada, count(*) as n_pts "
-        "from gps where h3 is not null group by id_linea, id_ramal, h3"
-    )
     usa_gps = len(gps) > 0
     if usa_gps:
         gps = gps[gps["parada"].map(_es_h3_valido)].copy()
         gps = gps.merge(metadata_lineas, how="left", on="id_linea")
-        gps["id_ramal"] = id_ramal_efectivo(
-            gps["modo"], gps["id_ramal"], modos_ramal
-        )
+        gps["id_ramal"] = id_ramal_efectivo(gps["modo"], gps["id_ramal"], modos_ramal)
         gps = gps.drop(columns=["id_linea", "modo"])
         # Sumar n_pts por la clave efectiva + parada: colapsa los ramales de un modo
         # sin ramal para que el conteo del hexagono sea el total antes del filtro.
@@ -243,7 +402,8 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         gps_validos = gps_validos[key + ["parada"]]
         logger.info(
             "frac_mediana_gps=%s, outliers GPS descartados=%d",
-            frac_mediana_gps, len(gps) - len(gps_validos),
+            frac_mediana_gps,
+            len(gps) - len(gps_validos),
         )
     else:
         gps_validos = pd.DataFrame(columns=key + ["parada"])
@@ -263,71 +423,24 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
             paradas_pre_na - len(paradas),
         )
 
-    # --- Footprint del corredor real por grupo: GPS valido; fallback recorrido ---
-    footprint_por_grupo = {}
-    if usa_gps and len(gps_validos) > 0:
-        for gkey, sub in gps_validos.groupby(key):
-            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
-            footprint_por_grupo[gkey] = set(sub["parada"])
+    # --- Sin filtro por corredor sobre transacciones ---
+    # Las paradas de transacciones (n>1) son verdad de campo: la gente pico la
+    # tarjeta ahi, asi que nunca se descartan por un corredor GPS/recorrido. El GPS
+    # ya viene limpio de outliers por densidad (Fuente B) y solo SUMA cobertura;
+    # como el GPS define su propio corredor, filtrar el GPS por ese corredor seria
+    # un no-op. El unico efecto del viejo filtro por footprint era borrar paradas de
+    # transacciones en lineas con GPS escaso o no representativo (p.ej. FFCC Roca:
+    # 93 -> 35 paradas), perdiendo estaciones reales; por eso se elimina.
 
-    # Recorridos oficiales: se traen id_linea (real) y modo desde metadata_ramales
-    # y se resuelve id_linea_agg via metadata_lineas, para que la clave coincida
-    # con las candidatas de etapas/gps (importante en modos agregados como metro).
-    obgh = ctx.insumos.get_raw("official_branches_geoms_h3")
-    mr = ctx.insumos.get_metadata_ramales()
-    if not obgh.empty and not mr.empty:
-        obgh = obgh.copy()
-        obgh["id_ramal"] = obgh["id_ramal"].astype("int64")
-        h3_recorridos = (
-            obgh[["id_ramal", "h3"]]
-            .merge(mr[["id_ramal", "id_linea", "modo"]], on="id_ramal")
-            .rename(columns={"h3": "parada"})
-        )
-        h3_recorridos = h3_recorridos.merge(
-            metadata_lineas[["id_linea", "id_linea_agg"]], how="left", on="id_linea"
-        )
-        h3_recorridos["id_ramal"] = id_ramal_efectivo(
-            h3_recorridos["modo"], h3_recorridos["id_ramal"], modos_ramal
-        )
-        h3_recorridos = h3_recorridos[key + ["parada"]].drop_duplicates()
-        for gkey, sub in h3_recorridos.groupby(key):
-            gkey = gkey if isinstance(gkey, tuple) else (gkey,)
-            footprint_por_grupo.setdefault(gkey, set(sub["parada"]))
+    # --- Persistir la evidencia (matriz_paradas) ---
+    # Se guardan TODAS las candidatas con sus conteos crudos y un flag valido: las
+    # descartadas no se pierden, y si mas adelante acumulan puntos vuelven a calificar
+    # solas. matriz_validacion se deriva unicamente de las que tienen valido=1.
+    _guardar_matriz_paradas(ctx, conteos, paradas, metadata_lineas, modos_ramal, dias_matriz)
 
-    # --- Filtro por buffer: conservar candidatas dentro del footprint buffereado.
-    # Grupos sin footprint (ni GPS ni recorrido) no se filtran (se confia en trx). ---
-    if len(footprint_por_grupo) > 0:
-        permitidas_rows = []
-        for gkey, hexes in footprint_por_grupo.items():
-            buffered = set()
-            for hx in hexes:
-                buffered.update(h3.grid_disk(hx, ring_filtro))
-            for hx in buffered:
-                permitidas_rows.append((*gkey, hx))
-        permitidas = pd.DataFrame(
-            permitidas_rows, columns=key + ["parada"]
-        ).drop_duplicates()
-
-        grupos_con_footprint = set(footprint_por_grupo.keys())
-        clave_tuplas = list(map(tuple, paradas[key].to_numpy()))
-        mask_con = pd.Series(
-            [t in grupos_con_footprint for t in clave_tuplas], index=paradas.index
-        )
-        paradas_con = paradas[mask_con].merge(
-            permitidas, on=key + ["parada"], how="inner"
-        )
-        paradas_sin = paradas[~mask_con]
-        paradas_pre = len(paradas)
-        paradas = pd.concat([paradas_con, paradas_sin], ignore_index=True)
-        logger.info(
-            "Filtro por recorrido/buffer (ring_filtro=%d): %d -> %d paradas",
-            ring_filtro, paradas_pre, len(paradas),
-        )
-
-    # --- Reconstruccion total: se recalcula la matriz entera en cada corrida ---
-    # etapas y gps son acumulativas y se leen completas, asi que el estado actual ya
-    # refleja todo el historico. Reconstruir (en vez de append-only) re-evalua los
-    # outliers y saca paradas que ya no califican, y simplifica la funcion.
+    # --- matriz_validacion: areas de influencia SOLO de las paradas validas ---
+    # El anillo depende unicamente de la parada (geometria H3), no del conjunto ni de
+    # los dias, asi que recalcularlo para las validas da siempre el mismo resultado.
     if len(paradas) > 0:
         areas_influencia = pd.concat(
             map(
@@ -346,7 +459,8 @@ def update_stations_catchment_area(ring_size, ctx: StorageContext):
         ctx.insumos.save_matrix_validation(matriz)
         logger.info(
             "matriz_validacion reconstruida: %d filas, %d paradas",
-            len(matriz), paradas["parada"].nunique(),
+            len(matriz),
+            paradas["parada"].nunique(),
         )
     else:
         logger.info("Sin paradas candidatas: matriz_validacion no se modifica")
@@ -458,9 +572,7 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
                 ]
                 h3_layers.append(layer)
 
-            zonificaciones = pd.concat(
-                [zonificaciones, *h3_layers], ignore_index=True
-            )
+            zonificaciones = pd.concat([zonificaciones, *h3_layers], ignore_index=True)
 
             logger.info("guardo_zonificaciones: guardando zonificaciones")
             zonificaciones_to_save = _with_wkt_geometry(zonificaciones)
@@ -488,7 +600,9 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
                     ignore_index=True,
                 )
 
-            logger.info("guardo_zonificaciones: guardando polígonos (%d filas)", len(poly))
+            logger.info(
+                "guardo_zonificaciones: guardando polígonos (%d filas)", len(poly)
+            )
             poly_to_save = _with_wkt_geometry(poly)
             ctx.insumos.save_raw(poly_to_save, "poligonos")
             poligonos_para_equivalencias = _as_geodataframe_wkt(poly)
@@ -508,6 +622,7 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
         )
         upsert_equivalencias_zonas(equivalencias, ctx=ctx)
 
+
 def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     """
     This function runs the network distance in parallel
@@ -516,7 +631,7 @@ def run_network_distance_parallel(mode, G, nodes_from, nodes_to):
     n = len(nodes_from)
     chunksize = int(sqrt(n) * 10)
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             partial(get_network_distance_osmnx, G=G),
             zip(nodes_from, nodes_to),
@@ -601,7 +716,11 @@ def upscale_h3_resolution(hexagon_gdf, target_resolution):
     """
     # Validar que la resolución objetivo sea mayor que la resolución actual
     current_resolution = h3.get_resolution(hexagon_gdf["h3_index"].iloc[0])
-    logger.debug("Resolución actual: %s, Resolución objetivo: %s", current_resolution, target_resolution)
+    logger.debug(
+        "Resolución actual: %s, Resolución objetivo: %s",
+        current_resolution,
+        target_resolution,
+    )
     if target_resolution <= current_resolution:
         raise ValueError(
             "La resolución objetivo debe ser mayor que la resolución actual."

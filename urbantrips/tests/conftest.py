@@ -2,12 +2,18 @@ import os
 import pandas as pd
 import pytest
 
-# Legacy test files that require the full UrbanTrips dep stack (osmnx, pandana,
-# statsmodels, libpysal, etc.). They are skipped in environments where those
-# packages aren't installed. Plan 2 (Domain Migration) will migrate these.
-collect_ignore_glob = [
+import importlib.util
+
+# Estos archivos necesitan el stack pesado de UrbanTrips (osmnx, pandana, statsmodels,
+# libpysal). La intención siempre fue saltearlos SOLO donde esas dependencias no están
+# instaladas, pero la lista era incondicional: con el stack presente igual quedaban
+# fuera del collect, así que 11 archivos (legs, destinations, kpi, transactions, utils,
+# geo, orquestación...) nunca corrían y sus regresiones pasaban inadvertidas.
+_DEPS_PESADAS = ("osmnx", "pandana", "statsmodels", "libpysal", "h3")
+_SIN_STACK = any(importlib.util.find_spec(m) is None for m in _DEPS_PESADAS)
+
+_REQUIEREN_STACK = [
     "integration/test_kpi_db.py",
-    "integration/test_legs_db.py",
     "integration/test_transactions_db.py",
     "integration/test_utils_db.py",
     "unit/test_destinations.py",
@@ -17,9 +23,19 @@ collect_ignore_glob = [
     "unit/test_run_all_urbantrips.py",
     "unit/test_transactions.py",
     "unit/test_utils.py",
-    # Domain migration tests require the full dep stack (statsmodels, osmnx, etc.)
     "unit/test_domain_migration.py",
 ]
+
+collect_ignore_glob = [
+    # Legacy de verdad: prueba el camino sqlite + iniciar_conexion_db, anterior al
+    # refactor a puertos/DuckDB. Su rama "combinada" acumula viajes entre días
+    # ([2,4,6] en vez de [2,2,2]) porque asume aquella semántica. Migrarlo es parte
+    # de Domain Migration, no un arreglo puntual.
+    "integration/test_legs_db.py",
+]
+
+if _SIN_STACK:
+    collect_ignore_glob += _REQUIEREN_STACK
 
 
 @pytest.fixture

@@ -45,7 +45,8 @@ La librería utiliza **DuckDB** para almacenamiento (no requiere servidor de bas
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ### Con uv
@@ -53,7 +54,8 @@ pip install urbantrips
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install urbantrips
+uv git clone https://github.com/EL-BID/UrbanTrips.git
+uv pip install -e .
 ```
 
 ### Con conda (útil para evitar problemas con GDAL)
@@ -61,7 +63,8 @@ uv pip install urbantrips
 ```bash
 conda create -n urbantrips -c conda-forge python=3.12
 conda activate urbantrips
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ---
@@ -121,6 +124,8 @@ alias_db_insumos: "ciudad_insumos"   # Base de datos compartida de insumos (reco
 ```
 
 Para cada nombre de corrida `X` se espera un archivo `data/data_ciudad/X_trx.csv` (y opcionalmente `X_gps.csv`).
+
+La lista es **incremental**: podés agregar corridas nuevas y volver a correr — solo se procesan las nuevas, las ya terminadas se saltean. Ver [Corridas incrementales, recuperación y reprocesamiento](#corridas-incrementales-recuperación-y-reprocesamiento).
 
 ### Mapeo de columnas
 
@@ -334,11 +339,137 @@ python urbantrips/run_all_urbantrips.py --config configs/otra_ciudad.yaml
 python urbantrips/run_all_urbantrips.py --borrar_corrida all
 ```
 
+### Corridas incrementales, recuperación y reprocesamiento
+
+El pipeline lleva un **registro de progreso por corrida y por paso** en la base
+`{alias}_general.duckdb` (una fila por cada día procesado, con el momento en que
+completó cada paso: ingest, legs, outputs, dashboard). Con ese registro, una
+corrida completa (`run_all_urbantrips.py` sin `--step`/`--through`) decide sola
+qué hacer con cada corrida listada en `corridas:` del config:
+
+- **Nueva** (no está en el registro) → se procesa completa.
+- **Incompleta** (quedó a medias por un crash) → se **retoma desde el paso que
+  faltó**, sin rehacer lo ya hecho.
+- **Completa** → se **saltea**.
+
+Esto hace que sea seguro:
+
+```bash
+# Agregar días nuevos: se corren SOLO los nuevos; los días ya terminados no se tocan.
+# (ampliás la lista `corridas:` del yaml y volvés a correr)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+
+# Retomar una corrida que se cortó (reinicio, crash): volver a correr el mismo
+# comando — retoma desde donde quedó. Ya no crashea al "re-correr" días presentes.
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+```
+
+Si no hay nada pendiente, termina con *"No hay días pendientes de procesar"* sin
+hacer nada (antes esto reventaba).
+
+#### Reprocesar corridas ya terminadas: `--reprocesar`
+
+Para **rehacer de cero** una o más corridas ya completas (p. ej. cambiaron los
+datos de origen), se pasan sus nombres — **ítems de la lista `corridas:`**, no el
+nombre del yaml — separados por coma **sin espacios**. Borra los días de esas
+corridas y los regenera; **el resto de los días queda intacto**.
+
+```bash
+# config con corridas: ['dia1', 'dia2', 'dia3', 'dia4']
+
+# reprocesar solo dia1  (dia2, dia3, dia4 quedan congelados)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1
+
+# reprocesar dos corridas
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1,dia3
+```
+
+Notas:
+
+- La **unidad es la corrida** (un ítem de `corridas:`, que a su vez corresponde a
+  un archivo `<corrida>_trx.csv`). Si una corrida abarca varios días, se
+  reprocesan **todos** sus días.
+- Los nombres deben estar en la lista `corridas:` del config.
+- `--reprocesar` es incompatible con `--borrar_corrida` (ese ya rehace todo).
+
 ### Lanzar el dashboard manualmente
+
+En Windows, con el `.bat`:
+
+```bat
+dashboard.bat                                        REM configuraciones_generales.yaml
+dashboard.bat configuraciones_generales_2024.yaml     REM lo busca en configs/
+dashboard.bat configs\otro.yaml                      REM ruta relativa o absoluta
+```
+
+O directamente:
 
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --config configs/configuraciones_generales_2024.yaml
 ```
+
+El `--` suelto **es obligatorio**: sin él, streamlit se queda con el argumento en
+vez de pasárselo al script. El `.bat` se encarga de eso.
+
+El config elegido determina qué bases se abren (vía `alias_db_insumos`) y de él
+salen `resolucion_h3`, `epsg_m` y `lineas_contienen_ramales`.
+
+#### Cambiar de corrida sin reiniciar
+
+Para alternar entre corridas desde el propio dashboard, se crea
+`configs/corridas.yaml` con los alias que se quieran ver:
+
+```yaml
+corridas:
+  - corrida_2024
+  - corrida_2025
+```
+
+Con ese archivo aparece un **selector en el sidebar**. Al elegir otra corrida, el
+dashboard reapunta la configuración y recarga: es equivalente a haberlo lanzado
+con otro `--config`, pero sin reiniciar el proceso.
+
+El archivo es **opcional**: si no existe, no hay selector y el dashboard abre la
+corrida del config con el que se lo lanzó, como siempre. Hay una plantilla en
+`configs/corridas.yaml.example`.
+
+Alcanza con el alias porque el dashboard encuentra solo su configuración:
+
+1. **De la copia que la propia corrida dejó guardada** en `{alias}_general.duckdb`.
+   Cada corrida archiva ahí el yaml con el que se procesó, así que esa es la
+   configuración que realmente generó esos datos — aunque el archivo original se
+   haya editado o borrado después.
+2. Si esa base es anterior a esa función, del yaml de `configs/` que declare ese
+   alias.
+
+En el sidebar se indica de cuál de las dos salió. Una corrida que no se pueda
+resolver, o a la que le falte alguna de las cuatro bases, aparece igual en la
+lista pero deshabilitada y con el motivo, en vez de desaparecer.
+
+#### Acceso concurrente a las bases
+
+El dashboard abre las bases DuckDB **en modo solo lectura**, con conexiones de
+vida corta. Eso permite:
+
+- tener **varios dashboards abiertos** sobre la misma base al mismo tiempo;
+- que el pipeline pueda arrancar aunque haya dashboards abiertos.
+
+Las pocas acciones del dashboard que escriben (procesar indicadores de línea en
+*Herramientas interactivas*, comparar líneas, procesar un polígono en *Estimar
+demanda*, guardar escenarios/clusters) abren una **ventana de escritura**
+acotada: se cierran las conexiones de lectura, se escribe, y se vuelve a solo
+lectura. Si en ese momento otra corrida u otro dashboard tiene la base tomada,
+se muestra un aviso y se reintenta, en vez de fallar con un error de DuckDB.
+
+Límite conocido: DuckDB admite un solo escritor por archivo y no permite
+lectores mientras hay un escritor. **Mientras corre el pipeline, los dashboards
+no van a poder leer esa base.**
+
+Para forzar el modo solo lectura en cualquier proceso (por ejemplo un script de
+consulta) se puede exportar `URBANTRIPS_DB_READ_ONLY=1`.
 
 ---
 

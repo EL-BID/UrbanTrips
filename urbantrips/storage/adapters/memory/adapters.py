@@ -57,16 +57,24 @@ class InMemoryDataAdapter:
     def save_run_days(self, df: pd.DataFrame) -> None:
         self._store["dias_ultima_corrida"] = df.copy()
 
-    def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
-        return self._filter_batch(self._get("transacciones"), batch)
+    def get_transactions(
+        self, batch: BatchSpec | None = None, run_days: list[str] | None = None
+    ) -> pd.DataFrame:
+        df = self._filter_batch(self._get("transacciones"), batch)
+        if run_days:
+            df = df[df["dia"].isin(run_days)].reset_index(drop=True)
+        return df
 
-    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int) -> pd.DataFrame:
+    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int, run_days: list[str] | None = None) -> pd.DataFrame:
         df = self._get("transacciones")
         if df.empty:
             return df.assign(_batch_id=pd.Series(dtype="int64"))
         df = df.copy()
         df["_batch_id"] = df["id_tarjeta"].apply(hash) % total_batches
-        return df[df["_batch_id"].isin(batch_ids)].reset_index(drop=True)
+        df = df[df["_batch_id"].isin(batch_ids)]
+        if run_days:
+            df = df[df["dia"].isin(run_days)]
+        return df.reset_index(drop=True)
 
     def save_transactions(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         self._append("transacciones", df)
@@ -77,7 +85,9 @@ class InMemoryDataAdapter:
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         self._append("etapas", df)
 
-    def update_leg_trip_ids(self, df: pd.DataFrame) -> None:
+    def update_leg_trip_ids(self, df: pd.DataFrame, dia: str | None = None) -> None:
+        # `dia` es un hint de pruning para el adapter DuckDB; acá el match por id
+        # (único global) ya determina las filas, así que no altera el resultado.
         existing = self._store.get("etapas", pd.DataFrame())
         if existing.empty or df.empty:
             return
@@ -231,12 +241,6 @@ class InMemoryInsumoAdapter:
     def get_stops(self) -> pd.DataFrame:
         return self._store.get("stops", pd.DataFrame())  # type: ignore[return-value]
 
-    def get_distances(self, h3_ids: list[str] | None = None) -> pd.DataFrame:
-        df = self._store.get("distancias", pd.DataFrame())
-        if h3_ids and not df.empty and "h3_o" in df.columns:  # type: ignore[union-attr]
-            return df[df["h3_o"].isin(h3_ids) | df["h3_d"].isin(h3_ids)].copy()  # type: ignore[return-value]
-        return df.copy()  # type: ignore[return-value]
-
     def get_zones(self) -> gpd.GeoDataFrame:
         return self._store.get("zones", gpd.GeoDataFrame())  # type: ignore[return-value]
 
@@ -252,15 +256,21 @@ class InMemoryInsumoAdapter:
     def get_travel_times_stations(self) -> pd.DataFrame:
         return self._store.get("travel_times_stations", pd.DataFrame())  # type: ignore[return-value]
 
+    def get_matriz_paradas(self) -> pd.DataFrame:
+        return self._store.get("matriz_paradas", pd.DataFrame())  # type: ignore[return-value]
+
+    def get_matriz_paradas_dias(self) -> list[str]:
+        return list(self._store.get("matriz_paradas_dias", []))  # type: ignore[arg-type]
+
+    def save_matriz_paradas(self, df: pd.DataFrame, dias: list[str]) -> None:
+        self._store["matriz_paradas"] = df.copy()
+        self._store["matriz_paradas_dias"] = list(dias)
+
     def save_routes(self, df: gpd.GeoDataFrame) -> None:
         self._store["routes"] = df.copy()
 
     def save_stops(self, df: pd.DataFrame) -> None:
         self._store["stops"] = df.copy()
-
-    def save_distances(self, df: pd.DataFrame) -> None:
-        existing = self._store.get("distancias", pd.DataFrame())
-        self._store["distancias"] = pd.concat([existing, df], ignore_index=True)  # type: ignore[arg-type]
 
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
         self._store["zones"] = df.copy()
@@ -330,19 +340,104 @@ class InMemoryDashAdapter:
 class InMemoryGeneralAdapter:
     """In-process GeneralPort implementation for testing."""
 
+    _LOG_COLUMNS = [
+        "config_yaml", "alias", "corrida", "dia",
+        "ingest_ts", "legs_ts", "outputs_ts", "dashboard_ts", "date",
+    ]
+    _STEP_TS = {
+        "ingest": "ingest_ts", "legs": "legs_ts",
+        "outputs": "outputs_ts", "dashboard": "dashboard_ts",
+    }
+
+    _SNAPSHOT_COLUMNS = ["alias", "corrida", "archivo", "contenido", "date"]
+
     def __init__(self) -> None:
-        self._runs: list[dict] = []
+        self._log: list[dict] = []   # filas del log de corridas (formato long)
+        self._snapshots: list[dict] = []   # copias del yaml por corrida
         self._store: dict[str, pd.DataFrame] = {}
 
+    # ── snapshot de config ────────────────────────────────────────────────────
+
+    def save_config_snapshot(self, alias, corrida, archivo, contenido) -> None:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # upsert por (alias, corrida): re-correr actualiza, no acumula
+        self._snapshots = [
+            s for s in self._snapshots
+            if not (s["alias"] == alias and s["corrida"] == corrida)
+        ]
+        self._snapshots.append({
+            "alias": alias, "corrida": corrida, "archivo": archivo,
+            "contenido": contenido, "date": now,
+        })
+
+    def get_config_snapshot(self) -> pd.DataFrame:
+        if not self._snapshots:
+            return pd.DataFrame(columns=self._SNAPSHOT_COLUMNS)
+        return pd.DataFrame(
+            sorted(self._snapshots, key=lambda s: s["date"], reverse=True),
+            columns=self._SNAPSHOT_COLUMNS,
+        )
+
+    # ── run log ───────────────────────────────────────────────────────────────
+
+    def get_run_log(self) -> pd.DataFrame:
+        if not self._log:
+            return pd.DataFrame(columns=self._LOG_COLUMNS)
+        return pd.DataFrame(self._log, columns=self._LOG_COLUMNS)
+
+    def _find(self, alias, corrida, dia):
+        for row in self._log:
+            if (row["alias"] == alias and row["corrida"] == corrida
+                    and row["dia"] == dia):
+                return row
+        return None
+
+    def register_step(self, alias, corrida, dias, step, config_yaml=None):
+        ts_col = self._STEP_TS.get(step)
+        if ts_col is None:
+            raise ValueError(f"step desconocido: {step!r}")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # purga del placeholder dia=NULL (legacy) al aparecer los días reales
+        if any(d is not None for d in dias):
+            self._log = [
+                r for r in self._log
+                if not (r["corrida"] == corrida and r["dia"] is None)
+            ]
+        for dia in dias:
+            row = self._find(alias, corrida, dia)
+            if row is not None:
+                row[ts_col] = now
+                row["date"] = now
+            else:
+                new = {c: None for c in self._LOG_COLUMNS}
+                new.update({"config_yaml": config_yaml, "alias": alias,
+                            "corrida": corrida, "dia": dia, ts_col: now,
+                            "date": now})
+                self._log.append(new)
+
+    def delete_corrida_log(self, alias, corridas):
+        # match por corrida (el general DB es por-alias; las legacy tienen alias None)
+        self._log = [r for r in self._log if r["corrida"] not in corridas]
+
+    def clear_runs(self) -> None:
+        self._log.clear()
+
+    # ── compat legacy ─────────────────────────────────────────────────────────
+
     def get_completed_runs(self) -> pd.DataFrame:
-        return pd.DataFrame(self._runs)
+        return self.get_run_log()
 
     def register_run(self, alias: str, process: str) -> None:
-        self._runs.append({
-            "corrida": alias,
-            "process": process,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new = {c: None for c in self._LOG_COLUMNS}
+        new.update({"corrida": alias, "ingest_ts": now, "legs_ts": now,
+                    "outputs_ts": now, "dashboard_ts": now, "date": now})
+        self._log.append(new)
+
+    def run_exists(self, alias: str) -> bool:
+        return any(r["corrida"] == alias for r in self._log)
+
+    # ── genéricos ─────────────────────────────────────────────────────────────
 
     def execute(self, sql: str) -> None:
         pass  # no-op for in-memory adapter
@@ -358,12 +453,3 @@ class InMemoryGeneralAdapter:
     def get_raw(self, table_name: str) -> pd.DataFrame:
         table_name = validate_table_name(table_name)
         return self._store.get(table_name, pd.DataFrame()).copy()
-
-    def run_exists(self, alias: str) -> bool:
-        runs = self.get_completed_runs()
-        if runs.empty or "corrida" not in runs.columns:
-            return False
-        return alias in runs["corrida"].values
-
-    def clear_runs(self) -> None:
-        self._runs.clear()

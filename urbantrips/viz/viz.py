@@ -49,7 +49,6 @@ from urbantrips.carto.carto import get_h3_indices_in_geometry
 
 import warnings
 
-
 warnings.filterwarnings("ignore")
 
 logger = logging.getLogger(__name__)
@@ -73,7 +72,9 @@ def plotear_recorrido_lowess(id_linea, etapas, recorridos_lowess, alias):
             ax.set_title(f"Linea {id_linea}", fontsize=6)
             ax.axis("off")
 
-            db_path = str(get_paths().output_dir / "png" / f"{alias}linea_{id_linea}.png")
+            db_path = str(
+                get_paths().output_dir / "png" / f"{alias}linea_{id_linea}.png"
+            )
 
             fig.savefig(db_path, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -134,12 +135,19 @@ def visualize_route_section_load(
         section_meters=section_meters,
     )
 
+    # An empty (column-less) frame has no "id_linea" column and would raise
+    # KeyError at groupby; nothing to visualize in that case.
+    if len(section_load_data) == 0:
+        logger.info("No hay datos de carga por tramo para visualizar.")
+        return
+
     # Explicit loop: DataFrameGroupBy.apply swallows a TypeError raised in the
     # callee and retries without the grouping columns, masking the real error.
     # Create a viz for each route
     for _, df in section_load_data.groupby(["id_linea", "yr_mo"]):
         viz_etapas_x_tramo_recorrido(
-            ctx, df,
+            ctx,
+            df,
             stat=stat,
             factor=factor,
             factor_min=factor_min,
@@ -192,13 +200,23 @@ def get_route_section_load(
         section_meters=section_meters,
     )
 
-    # Read data from section load table
-    section_load_data = ctx.data.query(q)
+    # Read data from section load table. The table only exists once
+    # compute_route_section_load has written rows; tolerate the missing table
+    # (same pattern as get_route_section_supply_data / get_lines_od_matrix_data)
+    # so a line with no legs/route geoms yields "no data" instead of a crash.
+    try:
+        section_load_data = ctx.data.query(q)
+    except duckdb.CatalogException:
+        section_load_data = pd.DataFrame()
 
     if len(section_load_data) == 0:
         logger.info(
             "No hay datos de carga por tramo | id_linea=%s rango_hrs=%s n_sections=%s section_meters=%s day_type=%s",
-            line_ids, hour_range, n_sections, section_meters, day_type,
+            line_ids,
+            hour_range,
+            n_sections,
+            section_meters,
+            day_type,
         )
 
     return section_load_data
@@ -252,14 +270,11 @@ def load_route_section_load_data_q(
         hora_min_filter = "is NULL"
         hora_max_filter = "is NULL"
 
-    q_main_data = (
-        q_main_data
-        + f"""
+    q_main_data = q_main_data + f"""
         and hour_min {hora_min_filter}
         and hour_max {hora_max_filter}
         and day_type = '{day_type}'
         """
-    )
 
     if section_meters:
         q_main_data = q_main_data + f" and section_meters = {section_meters}"
@@ -271,10 +286,14 @@ def load_route_section_load_data_q(
     return q_main_data
 
 
-
-
 def viz_etapas_x_tramo_recorrido(
-    ctx: StorageContext, df, stat="totals", factor=500, factor_min=10, return_gdfs=False, save_gdf=False
+    ctx: StorageContext,
+    df,
+    stat="totals",
+    factor=500,
+    factor_min=10,
+    return_gdfs=False,
+    save_gdf=False,
 ):
     """
     Plots and saves a section load viz for a given route
@@ -365,7 +384,8 @@ def viz_etapas_x_tramo_recorrido(
     # get data
     sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
     sections_geoms = sections_geoms_raw[
-        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+        (sections_geoms_raw.id_linea == line_id)
+        & (sections_geoms_raw.n_sections == n_sections)
     ]
     sections_geoms = geo.create_sections_geoms(sections_geoms, buffer_meters=False)
 
@@ -697,7 +717,13 @@ def viz_etapas_x_tramo_recorrido(
 
 
 def imprimir_matrices_od(
-    ctx: StorageContext, viajes, savefile="viajes", title="Matriz OD", var_fex="", desc_dia="", tipo_dia=""
+    ctx: StorageContext,
+    viajes,
+    savefile="viajes",
+    title="Matriz OD",
+    var_fex="",
+    desc_dia="",
+    tipo_dia="",
 ):
 
     alias = leer_alias()
@@ -1395,9 +1421,7 @@ def imprime_graficos_hora(
         .rename(columns={"factor_expansion_linea": "cant"})
     )
 
-    vi = vi.loc[vi.cant > 0, ["distancias", "cant"]].sort_values(
-        "distancias"
-    )
+    vi = vi.loc[vi.cant > 0, ["distancias", "cant"]].sort_values("distancias")
 
     vi["pc"] = round(vi.cant / vi.cant.sum() * 100, 5)
     vi["csum"] = vi.pc.cumsum()
@@ -1920,14 +1944,21 @@ def imprime_od(
             except Exception:
                 df_ant = pd.DataFrame([])
 
-            df_ant = df_ant[
-                ~(
-                    (df_ant.desc_dia == desc_dia)
-                    & (df_ant.tipo_dia == tipo_dia)
-                    & (df_ant.var_zona == var_zona.replace("h3_r", "H3 Resolucion "))
-                    & (df_ant.filtro1 == filtro1)
-                )
-            ] if len(df_ant) > 0 else df_ant
+            df_ant = (
+                df_ant[
+                    ~(
+                        (df_ant.desc_dia == desc_dia)
+                        & (df_ant.tipo_dia == tipo_dia)
+                        & (
+                            df_ant.var_zona
+                            == var_zona.replace("h3_r", "H3 Resolucion ")
+                        )
+                        & (df_ant.filtro1 == filtro1)
+                    )
+                ]
+                if len(df_ant) > 0
+                else df_ant
+            )
 
             df = pd.concat([df_ant, df], ignore_index=True)
 
@@ -2170,10 +2201,6 @@ def lineas_deseo(
             pass
 
 
-
-
-
-
 def save_zones(ctx: StorageContext):
     """
     Esta función guarda las geografí­as de las zonas para el dashboard
@@ -2328,7 +2355,9 @@ def plot_basic_kpi_wrapper(ctx: StorageContext, top_line_ids):
         )
 
 
-def plot_basic_kpi(ctx: StorageContext, kpi_by_line_hr, standarize_supply_demand=False, *args, **kwargs):
+def plot_basic_kpi(
+    ctx: StorageContext, kpi_by_line_hr, standarize_supply_demand=False, *args, **kwargs
+):
     line_id = kpi_by_line_hr.id_linea.unique().item()
     day = kpi_by_line_hr.dia.unique().item()
     alias = leer_alias()
@@ -2503,9 +2532,8 @@ def get_branch_geoms_from_line(ctx: StorageContext, id_linea):
     ].tolist()
 
     branches_geoms_raw = ctx.insumos.get_raw("branches_geoms")
-    branch_geoms = branches_geoms_raw[
-        branches_geoms_raw.id_ramal.isin(valid_ramales)
-    ]
+    branches_geoms_raw = branches_geoms_raw.loc[branches_geoms_raw.direction == 0, :]
+    branch_geoms = branches_geoms_raw[branches_geoms_raw.id_ramal.isin(valid_ramales)]
 
     branch_geoms = gpd.GeoSeries.from_wkt(
         branch_geoms.wkt.values, index=branch_geoms.id_ramal.values, crs="EPSG:4326"
@@ -2515,10 +2543,6 @@ def get_branch_geoms_from_line(ctx: StorageContext, id_linea):
         branch_geoms = None
 
     return branch_geoms
-
-
-
-
 
 
 def indicadores_dash(ctx: StorageContext):
@@ -2664,8 +2688,6 @@ def indicadores_dash(ctx: StorageContext):
     indicadores.loc[indicadores.orden == 3, "Titulo"] = "Partición modal"
 
     ctx.dash.save_indicator(indicadores, "indicadores")
-
-
 
 
 def viz_travel_times_poly(ctx: StorageContext, polygon):

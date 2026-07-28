@@ -59,15 +59,9 @@ CREATE TABLE IF NOT EXISTS indicadores (
 )
 """
 
-PARTICION_MODAL = """
-CREATE TABLE IF NOT EXISTS particion_modal (
-    desc_dia TEXT,
-    tipo_dia TEXT,
-    tipo     TEXT,
-    modo     TEXT,
-    modal    FLOAT
-)
-"""
+# NOTA: el DDL de `particion_modal` se eliminó (2026-07-27). Nadie la escribía:
+# la tabla real del dashboard es `datos_particion_modal`, que crea
+# preparo_dashboard.py y leen las páginas (1_Datos Generales).
 
 OCUPACION_POR_LINEA_TRAMO = """
 CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo (
@@ -88,21 +82,10 @@ CREATE TABLE IF NOT EXISTS ocupacion_por_linea_tramo (
 )
 """
 
-LINES_OD_MATRIX_BY_SECTION = """
-CREATE TABLE IF NOT EXISTS lines_od_matrix_by_section (
-    id_linea     BIGINT   NOT NULL,
-    yr_mo        TEXT,
-    day_type     TEXT  NOT NULL,
-    n_sections   INT,
-    hour_min     INT,
-    hour_max     INT,
-    Origen       INT   NOT NULL,
-    Destino      INT   NOT NULL,
-    legs         INT   NOT NULL,
-    prop         FLOAT NOT NULL,
-    nombre_linea TEXT
-)
-"""
+# NOTA: el DDL de `lines_od_matrix_by_section` se eliminó del esquema de dash
+# (2026-07-27). Ese nombre existe en la base `data`, pero la copia del dash se
+# llama `matrices_linea` (ver la nota en kpi/line_od_matrix.py), así que acá
+# nunca se escribía nada.
 
 MATRICES_LINEA_CARTO = """
 CREATE TABLE IF NOT EXISTS matrices_linea_carto (
@@ -156,14 +139,14 @@ CREATE TABLE IF NOT EXISTS chains_norm (
 
 ALL_TABLES = [
     MATRICES, LINEAS_DESEO, VIAJES_HORA, DISTRIBUCION, INDICADORES,
-    PARTICION_MODAL, OCUPACION_POR_LINEA_TRAMO, LINES_OD_MATRIX_BY_SECTION,
+    OCUPACION_POR_LINEA_TRAMO,
     MATRICES_LINEA_CARTO, SERVICES_BY_LINE_HOUR, CHAINS_NORM,
 ]
 
 # Explicit set of valid table names for DashPort adapter validation
 VALID_TABLE_NAMES: frozenset[str] = frozenset({
     "matrices", "lineas_deseo", "viajes_hora", "distribucion", "indicadores",
-    "particion_modal", "ocupacion_por_linea_tramo", "lines_od_matrix_by_section",
+    "ocupacion_por_linea_tramo",
     "matrices_linea_carto", "services_by_line_hour", "chains_norm",
     "equivalencias_zonas",
 })

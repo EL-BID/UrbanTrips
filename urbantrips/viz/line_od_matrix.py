@@ -81,7 +81,12 @@ def visualize_lines_od_matrix(
 
 
 def get_lines_od_matrix_data(
-    ctx: StorageContext, line_ids, hour_range=False, day_type="weekday", n_sections=10, section_meters=None
+    ctx: StorageContext,
+    line_ids,
+    hour_range=False,
+    day_type="weekday",
+    n_sections=10,
+    section_meters=None,
 ):
 
     q = """
@@ -140,13 +145,17 @@ def get_lines_od_matrix_data(
         )
 
     if len(od_lines) == 0:
-        logger.info("La consulta para estos id_lineas con estos parametros volvio vacía")
+        logger.info(
+            "La consulta para estos id_lineas con estos parametros volvio vacía"
+        )
         return None
     else:
         return od_lines
 
 
-def get_route_n_sections_from_sections_meters(ctx: StorageContext, line_ids, section_meters):
+def get_route_n_sections_from_sections_meters(
+    ctx: StorageContext, line_ids, section_meters
+):
     """
     For a given section meters param, returns how many sections there is
     in that line route geom
@@ -171,6 +180,9 @@ def get_route_n_sections_from_sections_meters(ctx: StorageContext, line_ids, sec
 
     line_ids_where = create_line_ids_sql_filter(line_ids)
     route_geoms = ctx.insumos.get_raw("lines_geoms")
+    # use only direction 0 for route geom
+    route_geoms = route_geoms.loc[route_geoms.direction == 0, :]
+
     if line_ids:
         if isinstance(line_ids, int):
             route_geoms = route_geoms[route_geoms.id_linea == line_ids]
@@ -220,7 +232,8 @@ def viz_line_od_matrix(ctx: StorageContext, od_line, stat="totals"):
     """
     sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
     sections = sections_geoms_raw[
-        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+        (sections_geoms_raw.id_linea == line_id)
+        & (sections_geoms_raw.n_sections == n_sections)
     ]
 
     metadata_lineas = ctx.insumos.get_metadata_lineas()
@@ -490,7 +503,8 @@ def map_desire_lines(ctx: StorageContext, od_line):
     # get data
     sections_geoms_raw = ctx.insumos.get_raw("routes_section_id_coords")
     sections = sections_geoms_raw[
-        (sections_geoms_raw.id_linea == line_id) & (sections_geoms_raw.n_sections == n_sections)
+        (sections_geoms_raw.id_linea == line_id)
+        & (sections_geoms_raw.n_sections == n_sections)
     ][["id_linea", "n_sections", "section_id", "x", "y"]]
 
     sections = geo.create_sections_geoms(sections, buffer_meters=250)
@@ -556,7 +570,9 @@ def create_folium_desire_lines(
     )
 
     # map branches geoms
-    branch_geoms = get_branch_geoms_from_line(ctx, id_linea=od_line.id_linea.unique().item())
+    branch_geoms = get_branch_geoms_from_line(
+        ctx, id_linea=od_line.id_linea.unique().item()
+    )
 
     if branch_geoms is not None:
         branch_geoms.explore(

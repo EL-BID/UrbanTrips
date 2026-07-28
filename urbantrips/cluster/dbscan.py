@@ -86,6 +86,9 @@ def get_legs_and_route_geoms(ctx: StorageContext, id_linea, rango_hrs, day_type)
     # get data for legs and route geoms
     legs = ctx.data.query(q_etapas)
     route_geom_all = ctx.insumos.get_raw("lines_geoms")
+    # use only direction 0 for route geom
+    route_geom_all = route_geom_all.loc[route_geom_all.direction == 0, :]
+
     if id_linea:
         if type(id_linea) == int:
             route_geom = route_geom_all[route_geom_all.id_linea.isin([id_linea])]
@@ -253,7 +256,9 @@ def _run_grid_search(X, w, type_k: str) -> dict:
     max_silhouette_params = None
     min_noise_params = None
 
-    min_samples_range = [max(1, int(v)) for v in w.sum() * np.linspace(0.01, 0.5, grid_steps)]
+    min_samples_range = [
+        max(1, int(v)) for v in w.sum() * np.linspace(0.01, 0.5, grid_steps)
+    ]
 
     if type_k == "lrs":
         eps_range = np.linspace(0.01, 0.5, grid_steps)
@@ -391,8 +396,6 @@ def classify_legs_into_directions(legs, route_geom):
         "ida" if row.o_proj <= row.d_proj else "vuelta" for _, row in legs.iterrows()
     ]
     return legs
-
-
 
 
 def plot_cluster_legs_lrs(

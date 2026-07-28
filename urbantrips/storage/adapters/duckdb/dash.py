@@ -20,14 +20,19 @@ _DUCKDB_INSERT_CHUNK_ROWS = 250_000
 class DuckDBDashAdapter:
     """Implements DashPort using DuckDB."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, read_only: bool = False) -> None:
         self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = duckdb.connect(str(self._path))
-        self._apply_schema()
+        self._read_only = read_only
+        if not read_only:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
+        if not read_only:
+            self._apply_schema()
 
     def close(self) -> None:
-        if self._conn is not None:
+        # getattr: si duckdb.connect falla en __init__ (base tomada por otro
+        # proceso) el atributo no existe y __del__ no tiene que romper.
+        if getattr(self, "_conn", None) is not None:
             self._conn.close()
             self._conn = None
 
@@ -35,8 +40,17 @@ class DuckDBDashAdapter:
         self.close()
 
     def _apply_schema(self) -> None:
+        self._migrate_schema()
         for ddl in schema.ALL_TABLES:
             self._conn.execute(ddl)
+
+    def _migrate_schema(self) -> None:
+        # DDL muertos quitados del esquema el 2026-07-27: nadie los escribía, las
+        # tablas reales del dashboard se llaman `datos_particion_modal` y
+        # `matrices_linea`. Quedaban siempre vacías, así que dropearlas no pierde
+        # nada; CREATE TABLE IF NOT EXISTS no las borra de bases ya creadas.
+        for tabla in ("particion_modal", "lines_od_matrix_by_section"):
+            self._conn.execute(f"DROP TABLE IF EXISTS {tabla}")
 
     def save_indicator(self, df: pd.DataFrame, name: str) -> None:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):

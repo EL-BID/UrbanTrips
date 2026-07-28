@@ -38,10 +38,16 @@ def cal_velocidad_comercial(servicios):
         servicios["max_datetime"] - servicios["min_datetime"]
     ).dt.total_seconds() / 60
 
-    # Cálculo de velocidad comercial
-    servicios["velocidad_comercial"] = servicios["distance_route"] / (
-        servicios["diff_minutes"] / 60
-    )
+    # Velocidad comercial por servicio, en dos familias homónimas al resto de
+    # los KPIs de distancia:
+    #   _route     -> ping-based   (distance_route,     reconstruida ping-a-ping)
+    #   _route_gps -> odómetro     (distance_route_gps, distancia de servicio)
+    horas = servicios["diff_minutes"] / 60
+    servicios["velocidad_comercial_route"] = servicios["distance_route"] / horas
+    servicios["velocidad_comercial_route_gps"] = servicios["distance_route_gps"] / horas
+
+    _vc_cols = ["velocidad_comercial_route", "velocidad_comercial_route_gps"]
+    _dist_cols = ["distance_route", "distance_route_gps"]
 
     # Extraer hora de finalización del servicio
     servicios["hour"] = servicios["max_datetime"].dt.hour
@@ -52,7 +58,7 @@ def cal_velocidad_comercial(servicios):
     )
     vel_comercial_linea_ramal_pico = (
         servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
     )
@@ -60,12 +66,15 @@ def cal_velocidad_comercial(servicios):
     # Distancia media recorrida por vehículo en ramal
     km_recorridos_ramal = (
         servicios.groupby(["dia", "id_linea", "id_ramal", "interno"], as_index=False)[
-            "distance_route"
+            _dist_cols
         ]
         .sum()
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)["distance_route"]
+        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_dist_cols]
         .mean()
-        .rename(columns={"distance_route": "distancia_media_veh"})
+        .rename(columns={
+            "distance_route": "distancia_media_veh_route",
+            "distance_route_gps": "distancia_media_veh_route_gps",
+        })
         .round(1)
     )
 
@@ -75,7 +84,7 @@ def cal_velocidad_comercial(servicios):
 
     # Velocidad comercial total por línea (todo el día)
     vel_comercial_linea_all = (
-        servicios.groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        servicios.groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
     )
@@ -83,10 +92,13 @@ def cal_velocidad_comercial(servicios):
     # Velocidad comercial AM
     vel_comercial_linea_am = (
         servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
-        .rename(columns={"velocidad_comercial": "velocidad_comercial_am"})
+        .rename(columns={
+            "velocidad_comercial_route": "velocidad_comercial_am_route",
+            "velocidad_comercial_route_gps": "velocidad_comercial_am_route_gps",
+        })
     )
 
     # Velocidad comercial PM (15 a 19 hs)
@@ -95,10 +107,13 @@ def cal_velocidad_comercial(servicios):
     )
     vel_comercial_linea_pm = (
         servicios[filtro_pico_pm]
-        .groupby(["dia", "id_linea"], as_index=False)["velocidad_comercial"]
+        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
         .mean()
         .round(1)
-        .rename(columns={"velocidad_comercial": "velocidad_comercial_pm"})
+        .rename(columns={
+            "velocidad_comercial_route": "velocidad_comercial_pm_route",
+            "velocidad_comercial_route_gps": "velocidad_comercial_pm_route_gps",
+        })
     )
 
     # Consolidar velocidades comerciales
@@ -108,11 +123,14 @@ def cal_velocidad_comercial(servicios):
 
     # Distancia media recorrida por vehículo (total)
     km_recorridos_linea = (
-        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)["distance_route"]
+        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)[_dist_cols]
         .sum()
-        .groupby(["dia", "id_linea"], as_index=False)["distance_route"]
+        .groupby(["dia", "id_linea"], as_index=False)[_dist_cols]
         .mean()
-        .rename(columns={"distance_route": "distancia_media_veh"})
+        .rename(columns={
+            "distance_route": "distancia_media_veh_route",
+            "distance_route_gps": "distancia_media_veh_route_gps",
+        })
         .round(1)
     )
 
@@ -121,22 +139,33 @@ def cal_velocidad_comercial(servicios):
     return vel_comercial_linea
 
 
-def levanto_data(ctx: StorageContext, etapas=[], viajes=[]):
+def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None):
 
     # Only the columns used below — gps and transacciones are the two largest
-    # tables in the run; loading them whole multiplies peak RSS.
-    gps = ctx.data.query("SELECT fecha, id_linea, id_ramal, interno FROM gps")
+    # tables in the run; loading them whole multiplies peak RSS. `dias` acota
+    # las lecturas (tablas acumulativas) a los días del proc-mat: las filas de
+    # salida de agrego_lineas se anclan en el mat, leer más días es descarte.
+    from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
 
-    trx = ctx.data.query("SELECT dia, id_linea, id_ramal, interno FROM transacciones")
+    _where = dias_where_clause(dias)
+    gps = ctx.data.query(f"SELECT fecha, id_linea, id_ramal, interno FROM gps{_where}")
+
+    trx = ctx.data.query(
+        f"SELECT dia, id_linea, id_ramal, interno FROM transacciones{_where}"
+    )
 
     lineas = ctx.insumos.get_metadata_lineas()[
         ["id_linea", "nombre_linea", "empresa"]
     ].drop_duplicates()
 
-    kpis = ctx.data.get_raw("kpi_by_day_line")
-
     try:
-        servicios = ctx.data.query("SELECT * FROM services WHERE valid = 1")
+        kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
+    except Exception:
+        kpis = pd.DataFrame()
+
+    _and = dias_where_clause(dias, prefix="AND")
+    try:
+        servicios = ctx.data.query(f"SELECT * FROM services WHERE valid = 1{_and}")
     except Exception:
         servicios = pd.DataFrame()
 
@@ -299,16 +328,16 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         veh_validos, on=cols, how="left"
     )
 
-    # tot_km: solo km de servicios con valid=1
-    all["tot_km"] = all["serv_distance_route"]
+    # tot_km_route: solo km de servicios con valid=1
+    all["tot_km_route"] = all["serv_distance_route"]
 
     # tot_veh sincronizado con vehiculos_operativos corregido
     all["tot_veh"] = all["vehiculos_operativos"]
 
-    # Recalcular ratios que dependen de tot_veh y tot_km
+    # Recalcular ratios que dependen de tot_veh y tot_km_route
     all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["kvd"] = (all["tot_km"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["ipk_route"] = (all["tot_pax"] / all["tot_km"].replace(0, pd.NA)).round(1)
+    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(1)
+    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(1)
 
     all = all[
         [
@@ -331,11 +360,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "cant_internos_en_trx",
             "flota",
             "vehiculos_operativos",
-            "velocidad_comercial",
-            "velocidad_comercial_am",
-            "velocidad_comercial_pm",
-            "distancia_media_veh",
-            "tot_km",
+            "velocidad_comercial_route",
+            "velocidad_comercial_route_gps",
+            "velocidad_comercial_am_route",
+            "velocidad_comercial_am_route_gps",
+            "velocidad_comercial_pm_route",
+            "velocidad_comercial_pm_route_gps",
+            "distancia_media_veh_route",
+            "distancia_media_veh_route_gps",
+            "tot_km_route",
             "distancia_media_pax",
             "dmt_mean_od",
             "dmt_mean_route",
@@ -344,7 +377,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "dmt_median_route",
             "dmt_median_route_gps",
             "pvd",
-            "kvd",
+            "kvd_route",
             "ipk_route",
             "ipk_route_gps",
             "fo_mean_od",
@@ -383,11 +416,12 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
 @duracion
 def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     from urbantrips.preparo_dashboard.sql_queries import (
-        materializar_proc_tables, ETAPAS_PROC_MAT,
+        materializar_proc_tables, ETAPAS_PROC_MAT, proc_mat_days,
     )
     materializar_proc_tables(ctx)
 
-    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx)
+    dias_mat = proc_mat_days(ctx)
+    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx, dias=dias_mat)
     kpis = agrego_lineas(
         ["dia", "id_linea"], trx, None, gps, servicios, kpis_varios, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,

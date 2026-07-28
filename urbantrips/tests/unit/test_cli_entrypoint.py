@@ -20,7 +20,8 @@ def test_run_all_main_forwards_cli_options(monkeypatch):
 
     run_all_urbantrips.main(borrar_corrida="all", crear_dashboard=False)
 
-    assert calls == [{"borrar_corrida": "all", "crear_dashboard": False}]
+    assert calls == [{"borrar_corrida": "all", "crear_dashboard": False,
+                      "reprocesar": None}]
 
 
 def test_parser_accepts_step_flag():
@@ -65,7 +66,8 @@ def test_main_dispatches_single_step(monkeypatch):
 
     calls = []
     monkeypatch.setattr(run_all_urbantrips, "run_all", lambda **kwargs: calls.append(("run_all", kwargs)))
-    monkeypatch.setattr(run_all_urbantrips, "_run_step", lambda step: calls.append(("step", step)))
+    monkeypatch.setattr(run_all_urbantrips, "_run_step",
+                        lambda step, reprocesar=None: calls.append(("step", step)))
 
     run_all_urbantrips.main(step="dashboard")
     assert calls == [("step", "dashboard")]
@@ -76,7 +78,8 @@ def test_main_dispatches_through(monkeypatch):
 
     calls = []
     monkeypatch.setattr(run_all_urbantrips, "run_all", lambda **kwargs: calls.append(("run_all", kwargs)))
-    monkeypatch.setattr(run_all_urbantrips, "_run_through", lambda through: calls.append(("through", through)))
+    monkeypatch.setattr(run_all_urbantrips, "_run_through",
+                        lambda through, reprocesar=None: calls.append(("through", through)))
 
     run_all_urbantrips.main(through="outputs")
     assert calls == [("through", "outputs")]
@@ -89,7 +92,8 @@ def test_main_default_calls_run_all(monkeypatch):
     monkeypatch.setattr(run_all_urbantrips, "run_all", lambda **kwargs: calls.append(kwargs))
 
     run_all_urbantrips.main()
-    assert calls == [{"borrar_corrida": "", "crear_dashboard": True}]
+    assert calls == [{"borrar_corrida": "", "crear_dashboard": True,
+                      "reprocesar": None}]
 
 
 def test_base_dir_flag_is_accepted():

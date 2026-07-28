@@ -216,11 +216,11 @@ def _build_network(
 
     if verbose:
         logger.debug(
-            f"[od_distances] Red: {len(network.nodes_df):,} nodos | "
+            f"[od_distances] Red cruda: {len(network.nodes_df):,} nodos | "
             f"{len(network.edges_df):,} aristas"
         )
 
-    return network
+    return _to_largest_component_network(network, verbose)
 
 
 def _largest_component(
@@ -247,6 +247,68 @@ def _largest_component(
     return nodes_out, edges_out
 
 
+def _network_to_dfs(network) -> tuple["pd.DataFrame", "pd.DataFrame"]:
+    """
+    Extrae ``(nodes[x,y], edges[from,to,weight])`` de una red pandana.
+
+    Centraliza el manejo del ``edges_df`` de pandana (columnas
+    ['from', 'to', 'distance']): se toma 'distance' como 'weight'. No usar
+    iloc[:,0] porque esa posicion es 'from' (node IDs enteros), no la distancia.
+    """
+    edf = (
+        network.edges_df.reset_index()
+        if network.edges_df.index.names != [None]
+        else network.edges_df
+    )
+    weight_col = (
+        "distance" if "distance" in edf.columns
+        else edf.select_dtypes(include="float").columns[0]
+    )
+    edges_df = pd.DataFrame({
+        "from":   edf["from"],
+        "to":     edf["to"],
+        "weight": edf[weight_col],
+    })
+    return network.nodes_df[["x", "y"]], edges_df
+
+
+def _to_largest_component_network(network, verbose: bool) -> "pandana.Network":
+    """
+    Reconstruye la red pandana filtrada al componente conexo mas grande.
+
+    ``pdna_network_from_bbox`` retorna la red OSM cruda, que incluye sub-grafos
+    aislados. Un origen/destino que snapea (get_node_ids) a un nodo de esos
+    islotes retorna el sentinel de pandana (4294967.295 m -> NaN). Filtrar al
+    componente principal ANTES de computar garantiza que la red usada para
+    ``shortest_path_lengths`` sea la MISMA que ``_save_network`` persiste (que
+    aplica el mismo filtro), evitando NaN espurios que ademas quedarian
+    cacheados en corridas siguientes.
+
+    Se reconstruye siempre con ``twoway=True`` — igual que ``_load_network`` y
+    que el default de ``pdna_network_from_bbox`` — para que el ruteo dirigido no
+    fuerce vueltas espurias (contramano) que inflan las distancias.
+    """
+    import pandana
+
+    nodes_df, edges_df = _network_to_dfs(network)
+    nodes_df, edges_df = _largest_component(nodes_df, edges_df)
+
+    if verbose:
+        logger.debug(
+            f"[od_distances] Red (componente principal): {len(nodes_df):,} nodos | "
+            f"{len(edges_df):,} aristas"
+        )
+
+    return pandana.Network(
+        node_x       = nodes_df["x"],
+        node_y       = nodes_df["y"],
+        edge_from    = edges_df["from"],
+        edge_to      = edges_df["to"],
+        edge_weights = edges_df[["weight"]],
+        twoway       = True,
+    )
+
+
 def _save_network(network, nodes_path: str, edges_path: str) -> None:
     """
     Persiste nodes y edges en parquet para reutilizar entre sesiones.
@@ -260,18 +322,8 @@ def _save_network(network, nodes_path: str, edges_path: str) -> None:
     """
     Path(nodes_path).parent.mkdir(parents=True, exist_ok=True)
 
-    edf = network.edges_df.reset_index() if network.edges_df.index.names != [None] else network.edges_df
-    weight_col = (
-        "distance" if "distance" in edf.columns
-        else edf.select_dtypes(include="float").columns[0]
-    )
-    edges_df = pd.DataFrame({
-        "from"  : edf["from"],
-        "to"    : edf["to"],
-        "weight": edf[weight_col],
-    })
-
-    nodes_df, edges_df = _largest_component(network.nodes_df[["x", "y"]], edges_df)
+    nodes_df, edges_df = _network_to_dfs(network)
+    nodes_df, edges_df = _largest_component(nodes_df, edges_df)
 
     nodes_df.to_parquet(nodes_path)
     edges_df.to_parquet(edges_path)
@@ -1018,10 +1070,12 @@ def compute_od_distances(
         del all_dist
         gc.collect()
 
-        merge_keys  = list(zip(o_norm, d_norm))
-        dist_values = lookup.reindex(merge_keys).values
+        # MultiIndex.from_arrays evita materializar una lista Python de N tuplas
+        # (con el mes entero eran ~107M tuplas). Alinea igual que reindex(list-of-tuples).
+        merge_idx   = pd.MultiIndex.from_arrays([o_norm, d_norm])
+        dist_values = lookup.reindex(merge_idx).values
 
-        del lookup, merge_keys, o_norm, d_norm
+        del lookup, merge_idx, o_norm, d_norm
         gc.collect()
 
     finally:

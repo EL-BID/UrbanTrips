@@ -8,6 +8,27 @@ from urbantrips.storage.context import StorageContext
 logger = logging.getLogger(__name__)
 
 
+def gps_service_distances_to_km(gps_points):
+    """Normaliza las distancias del GPS a km para el nivel servicio.
+
+    - ``distance_km``            -> ``distance_route``     (ya en km, ping-based)
+    - ``distance_servicio_mts``  -> ``distance_route_gps`` (odómetro, viene en
+      METROS -> se divide por 1000 para quedar en km)
+
+    Ambas columnas de servicio quedan así en la MISMA unidad (km), consistente
+    con el nivel etapa (``legs.py``, donde ``distance_route_gps = diff_mts/1000``)
+    y con ``distance_km_gps`` en ``kpi.py`` (que también divide por 1000). Sin
+    esta conversión el nivel servicio quedaba en metros e inflaba 1000x todo lo
+    que se deriva de él (tot_km_route_gps, ipk_route_gps, kvd_route_gps,
+    eko_route_gps, velocidad_comercial_route_gps, distancia_media_veh_route_gps).
+    """
+    out = gps_points.rename(columns={"distance_km": "distance_route"})
+    out["distance_route_gps"] = (
+        pd.to_numeric(out["distance_servicio_mts"], errors="coerce") / 1000
+    )
+    return out.drop(columns=["distance_servicio_mts"])
+
+
 @duracion
 def process_services(ctx: StorageContext, line_ids=None):
     """
@@ -41,14 +62,19 @@ def process_services(ctx: StorageContext, line_ids=None):
         else:
             line_ids_str = None
 
-        delete_old_services_data(ctx, line_ids_str)
+        # En el pipeline (line_ids None) se acota a los días de la corrida: services
+        # es ACUMULATIVA; borrar/re-clasificar el GPS histórico congelado cada corrida
+        # era 3.4× y hacía imposible re-procesar limpio un subconjunto de días.
+        run_days = ctx.data.get_run_days()["dia"].tolist()
+
+        delete_old_services_data(ctx, line_ids_str, run_days=run_days)
 
         if line_ids is not None:
             logger.info("Descargando paradas y puntos gps para id lineas %s", line_ids_str)
         else:
             logger.info("Descargando paradas y puntos gps para todas las lineas")
 
-        gps_points, stops = get_stops_and_gps_data(ctx, line_ids_str)
+        gps_points, stops = get_stops_and_gps_data(ctx, line_ids_str, run_days=run_days)
 
         if gps_points is None:
             logger.info("Todos los puntos gps ya fueron procesados en servicios")
@@ -57,24 +83,34 @@ def process_services(ctx: StorageContext, line_ids=None):
             gps_points.groupby("id_linea").apply(process_line_services, stops=stops, ctx=ctx)
 
 
-def delete_old_services_data(ctx: StorageContext, line_ids_str):
+def delete_old_services_data(ctx: StorageContext, line_ids_str, run_days=None):
     """
-    Deletes data from services tables for all lines or
-    a specified set of line ids
+    Deletes data from services tables for all lines or a specified set of line ids.
+
+    En el pipeline (line_ids_str None) el borrado se acota a `run_days`: services es
+    ACUMULATIVA y borrar TODO en cada corrida re-clasificaba el GPS histórico
+    congelado (3.4×) y hacía imposible re-procesar limpio un subconjunto de días.
     """
     tables = ["services_gps_points", "services", "services_stats"]
     for table in tables:
         if line_ids_str is not None:
             q = f"DELETE FROM {table} WHERE id_linea IN ({line_ids_str})"
+        elif run_days:
+            dias = ", ".join(f"'{d}'" for d in run_days)
+            q = f"DELETE FROM {table} WHERE dia IN ({dias})"
         else:
             q = f"DELETE FROM {table}"
         ctx.data.execute(q)
 
 
-def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
+def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
     """
-    Download unprocessed gps data and stops for all lines
-    or for a specified set of line ids and all days
+    Download gps data and stops for all lines or a specified set of line ids.
+
+    En el pipeline (line_ids_str None) se leen solo los `run_days` (day-scoped): antes
+    un anti-join `gps LEFT JOIN services_stats WHERE ss IS NULL` escaneaba el gps
+    ACUMULADO entero y, tras el wipe total, re-clasificaba todo (3.4×). Con el borrado
+    por run_days ya hecho en delete_old_services_data, alcanza con leer ese gps.
     """
     configs = utils.leer_configs_generales(autogenerado=False)
 
@@ -86,15 +122,21 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
         )
         return None, None
 
-    gps_query = """
-        SELECT g.*
-        FROM gps g
-        LEFT JOIN services_stats ss
-        ON g.id_linea = ss.id_linea AND g.dia = ss.dia
-        WHERE ss.id_linea IS NULL
-    """
-    if line_ids_str is not None:
-        gps_query = gps_query + f" AND g.id_linea IN ({line_ids_str})"
+    if line_ids_str is None and run_days:
+        # pipeline: solo los días de la corrida (el borrado por run_days ya se hizo)
+        dias = ", ".join(f"'{d}'" for d in run_days)
+        gps_query = f"SELECT g.* FROM gps g WHERE g.dia IN ({dias})"
+    else:
+        # interactivo (o sin run_days): anti-join sobre lo aún no procesado
+        gps_query = """
+            SELECT g.*
+            FROM gps g
+            LEFT JOIN services_stats ss
+            ON g.id_linea = ss.id_linea AND g.dia = ss.dia
+            WHERE ss.id_linea IS NULL
+        """
+        if line_ids_str is not None:
+            gps_query = gps_query + f" AND g.id_linea IN ({line_ids_str})"
 
     gps_query = (
         gps_query
@@ -105,10 +147,7 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str):
     if gps_points.empty:
         return None, None
 
-    gps_points = gps_points.rename(columns={
-        "distance_km": "distance_route",
-        "distance_servicio_mts": "distance_route_gps",
-    })
+    gps_points = gps_service_distances_to_km(gps_points)
 
     gps_lines = gps_points.id_linea.drop_duplicates()
     gps_lines_str = ",".join(gps_lines.map(str))
@@ -199,7 +238,6 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
         columns=[
             "id", "id_linea", "id_ramal", "interno", "dia",
             "original_service_id", "new_service_id", "service_id",
-            "id_ramal_gps_point", "node_id",
         ]
     )
     ctx.data.append_raw(services_gps_points, "services_gps_points")

@@ -37,7 +37,7 @@ def _build_ctx() -> StorageContext:
     # If alias_db is absent, fall back to alias_db_insumos so single-alias
     # configs keep working.
     alias_insumos = configs.get("alias_db_insumos", configs.get("alias_db", ""))
-    alias_data    = configs.get("alias_db",          alias_insumos)
+    alias_data = configs.get("alias_db", alias_insumos)
     db_dir = get_paths().db_dir
     db_dir.mkdir(parents=True, exist_ok=True)
     return StorageContext(
@@ -48,21 +48,72 @@ def _build_ctx() -> StorageContext:
     )
 
 
-def inicializo_ambiente(ctx: StorageContext):
+def _config_corridas() -> list[str]:
+    configs = leer_configs_generales(autogenerado=False)
+    corridas = configs.get("corridas", None)
+    if corridas is None or len(corridas) == 0:
+        raise ValueError("No se han definido corridas en el archivo de configuracion.")
+    return corridas
+
+
+def _config_yaml_name() -> str | None:
+    from urbantrips.utils.paths import get_paths
+    try:
+        return Path(get_paths().config_file).name
+    except Exception:
+        return None
+
+
+def _config_yaml_contenido() -> str | None:
+    """El yaml en uso, entero, para guardarlo junto a los datos que produce."""
+    from urbantrips.utils.paths import get_paths
+    try:
+        return Path(get_paths().config_file).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            return Path(get_paths().config_file).read_text(encoding="latin-1")
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _guardar_config_snapshot(ctx: StorageContext, alias: str, corrida: str) -> None:
+    """Deja copia del yaml dentro de la base general de la corrida.
+
+    Así la base queda auto-descriptiva: con el alias alcanza para saber con qué
+    config se generaron los datos, aunque después se edite o se borre el archivo
+    de `configs/`. Lo consume el selector de corridas del dashboard.
+
+    Best-effort a propósito: que no se pueda guardar la copia nunca debe hacer
+    fallar una corrida.
+    """
+    contenido = _config_yaml_contenido()
+    if not contenido:
+        return
+    try:
+        ctx.general.save_config_snapshot(
+            alias, corrida, _config_yaml_name(), contenido
+        )
+    except Exception as e:
+        logger.debug(
+            "[config_snapshot] no se pudo guardar para %s: %s", corrida, e
+        )
+
+
+def inicializo_ambiente(ctx: StorageContext, reprocesar: list[str] | None = None):
+    """Primera inicialización (rutas/paradas/zonif) + plan de corridas.
+
+    Devuelve el plan (planificar): qué corridas ingestar (nuevas + forzadas por
+    --reprocesar), cuáles resumir desde un step, cuáles saltear."""
     from urbantrips.carto.carto import guardo_zonificaciones
     from urbantrips.carto.routes import process_routes_geoms, process_routes_metadata
     from urbantrips.carto.stops import create_stops_table
-    from urbantrips.utils import utils
     from urbantrips.utils.check_configs import check_config
     from urbantrips.utils.fs import create_directories
+    from urbantrips.utils.run_planner import planificar
 
-    corridas_nuevas = []
-
-    configs_usuario = utils.leer_configs_generales(autogenerado=False)
-    corridas = configs_usuario.get("corridas", None)
-
-    if corridas is None or len(corridas) == 0:
-        raise ValueError("No se han definido corridas en el archivo de configuracion.")
+    corridas = _config_corridas()
 
     if not ctx.insumos.has_routes():
         logger.info("Inicializo ambiente por primera vez")
@@ -73,11 +124,8 @@ def inicializo_ambiente(ctx: StorageContext):
         create_stops_table(ctx)
         guardo_zonificaciones(ctx)
 
-    for alias_db in corridas:
-        if not ctx.general.run_exists(alias_db):
-            corridas_nuevas.append(alias_db)
-
-    return corridas_nuevas
+    log = ctx.general.get_run_log()
+    return planificar(log, corridas, reprocesar=reprocesar)
 
 
 def procesar_transacciones(ctx: StorageContext, corrida: str):
@@ -159,15 +207,21 @@ def borrar_corridas(ctx: StorageContext | None = None, alias_db="all"):
     if not alias_db:
         return
 
-    alias_insumos = configs_usuario.get("alias_db_insumos", configs_usuario.get("alias_db", ""))
-    alias_data    = configs_usuario.get("alias_db", alias_insumos)
+    alias_insumos = configs_usuario.get(
+        "alias_db_insumos", configs_usuario.get("alias_db", "")
+    )
+    alias_data = configs_usuario.get("alias_db", alias_insumos)
     base = get_paths().db_dir
 
     if alias_db == "all":
         if ctx is not None:
             ctx.general.clear_runs()
-        for suffix, alias in [("data", alias_data), ("dash", alias_data),
-                               ("insumos", alias_insumos), ("general", alias_data)]:
+        for suffix, alias in [
+            ("data", alias_data),
+            ("dash", alias_data),
+            ("insumos", alias_insumos),
+            ("general", alias_data),
+        ]:
             for ext in [".sqlite", ".duckdb"]:
                 p = base / f"{alias}_{suffix}{ext}"
                 if p.exists():
@@ -196,19 +250,30 @@ def _configured_n_batches() -> int | None:
     return n if n > 0 else None
 
 
-def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
-    """Compute n_batches from RAM and CPU so workers stay saturated."""
+def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.40) -> int:
+    """Compute n_batches from RAM and CPU so workers stay saturated.
+
+    safety_factor = fracción de la RAM DISPONIBLE que puede ocupar el chunk de
+    create_legs (cpu_workers batches simultáneos). El pico de datos ≈
+    safety_factor × RAM_disponible; sumado al memory_limit de DuckDB y al overhead
+    de pandas da el pico total del paso legs. A 0.40 create_legs picó 50.4 GB en la
+    máquina de 68.6 GB y completó sin OOM (corrida validada 7/10); menos batches =
+    menos rondas de workers = menos re-escaneos de `transacciones` en Fase 2. Bajar
+    hacia 0.30 da más headroom a costa de más rondas (Fase 2 más lenta).
+    """
     import psutil
 
     vm = psutil.virtual_memory()
     logger.info(
         "[n_batches] RAM — total: %.1f GB, available: %.1f GB (%.0f%% free)",
-        vm.total / 1e9, vm.available / 1e9, vm.available / vm.total * 100,
+        vm.total / 1e9,
+        vm.available / 1e9,
+        vm.available / vm.total * 100,
     )
 
-    total_rows = ctx.data.query(
-        "SELECT COUNT(*) AS n FROM transacciones_raw"
-    ).iloc[0, 0]
+    total_rows = ctx.data.query("SELECT COUNT(*) AS n FROM transacciones_raw").iloc[
+        0, 0
+    ]
 
     if total_rows == 0:
         logger.info("[n_batches] No raw transactions found — using 1 batch")
@@ -230,9 +295,14 @@ def _auto_n_batches(ctx: StorageContext, safety_factor: float = 0.4) -> int:
         "[n_batches] Auto-tuned: %d rows × %.0f B/row = %.0f MB total"
         " | target %.1f GB/chunk (%d workers × %.1f GB/batch, %.0f%% of available)"
         " → %d batches",
-        total_rows, bytes_per_row, total_mb,
-        target_chunk / 1e9, cpu_workers, target_per_batch / 1e9,
-        safety_factor * 100, ram_batches,
+        total_rows,
+        bytes_per_row,
+        total_mb,
+        target_chunk / 1e9,
+        cpu_workers,
+        target_per_batch / 1e9,
+        safety_factor * 100,
+        ram_batches,
     )
     return ram_batches
 
@@ -258,9 +328,9 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
     import duckdb as _duckdb
 
     try:
-        stamped = ctx.data.query(
-            "SELECT MAX(batch_id) AS m FROM transacciones"
-        ).iloc[0, 0]
+        stamped = ctx.data.query("SELECT MAX(batch_id) AS m FROM transacciones").iloc[
+            0, 0
+        ]
     except _duckdb.CatalogException:
         stamped = None
 
@@ -268,7 +338,8 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
         n = int(stamped) + 1
         logger.info(
             "[n_batches] No n_batches in config — inheriting stamped partition"
-            " count from transacciones: %d batches", n,
+            " count from transacciones: %d batches",
+            n,
         )
         return n
 
@@ -280,26 +351,73 @@ def _resolve_n_batches(ctx: StorageContext) -> int:
 
 
 def _get_parallel_workers(n_batches: int) -> int:
+    """Workers de Fase 2 (create legs). Override manual: `parallel_workers` en config.
+
+    Sin override, AUTOTUNE por RAM (antes: `cpu_count-1` ciego a la memoria → causó el
+    OOM del mes 2026-07-18 con 19 workers). Modelo (mismo criterio que
+    `_parallel_day_workers` de Fase 3): el pico de Fase 2 es `base + per_worker × W`,
+    donde `base` = memory_limit de DuckDB (buffers del main) + OS/main; cada worker
+    cuesta ~el tamaño de su batch (split picklado + copia + legs de salida). Se
+    presupuesta sobre la RAM TOTAL con un factor de seguridad, y se capea por cores y
+    n_batches. Auto-escala: en 64 GB da ~10, en 128 GB sube, en 16 GB cae a serial.
+    """
     configs = leer_configs_generales(autogenerado=False)
     configured = configs.get("parallel_workers")
     if configured is not None:
         return max(min(int(configured), n_batches), 1)
-    cpu_workers = max(multiprocessing.cpu_count() - 1, 1)
-    return max(min(cpu_workers, n_batches), 1)
+
+    cpu_cap = max(multiprocessing.cpu_count() - 1, 1)
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / 2**30
+    except Exception:
+        return max(min(cpu_cap, n_batches), 1)
+
+    try:
+        from urbantrips.datamodel.legs import _duckdb_memory_limit_gb
+        memlimit_gb = _duckdb_memory_limit_gb()
+    except Exception:
+        memlimit_gb = total_gb * 0.25
+
+    os_baseline_gb = 8.0     # OS + working set del main fuera de DuckDB
+    per_worker_gb = 3.0      # batch split + copia en el worker + legs de salida (~1.65 medido + colchón)
+    budget = total_gb * 0.85 - memlimit_gb - os_baseline_gb
+    workers = int(max(0.0, budget) // per_worker_gb)
+    n = max(1, min(cpu_cap, workers, n_batches))
+    logger.info(
+        "[parallel_workers] autotune: %d workers (RAM total %.0f GB − DuckDB %.0f − OS %.0f, "
+        "%.1f GB/worker, cap cores %d, n_batches %d)",
+        n, total_gb, memlimit_gb, os_baseline_gb, per_worker_gb, cpu_cap, n_batches,
+    )
+    return n
 
 
-def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
-    """Phase 1: stream every corrida's CSV into transacciones_raw."""
+def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> dict[str, list[str]]:
+    """Phase 1: stream every corrida's CSV into transacciones_raw.
+
+    Devuelve {corrida: [días]} — el mapeo se aprende acá (el `dia` se puebla al
+    estandarizar-al-leer en transacciones_raw) y se usa para registrar el step
+    ingest por corrida en el log. `corridas` vacío → {} (no-op con gracia)."""
     import os
     from urbantrips.datamodel import transactions as trx
     from urbantrips.datamodel.ingestion import ingest_day_csv
     from urbantrips.utils.check_configs import check_config
+
+    corrida_dias: dict[str, list[str]] = {}
+
+    if not corridas:
+        return corrida_dias
+
+    def _dias_en_raw() -> set[str]:
+        df = ctx.data.query("SELECT DISTINCT dia FROM transacciones_raw")
+        return set(df["dia"].astype(str)) if len(df) else set()
 
     gps_corridas = []
     geolocalizar_corridas = []
     lineas_contienen_ramales = True
 
     ctx.data.clear_raw()
+    dias_antes: set[str] = set()
 
     try:
         for corrida in corridas:
@@ -320,7 +438,10 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
             geolocalizar_trx = configs.get("geolocalizar_trx", False)
             # Prefer an explicit value from the config; fall back to the {corrida}_trx.csv convention
             from urbantrips.utils.paths import get_paths
-            nombre_archivo_trx = configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
+
+            nombre_archivo_trx = (
+                configs.get("nombre_archivo_trx") or f"{corrida}_trx.csv"
+            )
             csv_path = str(get_paths().input_dir / nombre_archivo_trx)
             logger.info("[Phase 1] Ingesting %s from %s", corrida, csv_path)
             ingest_day_csv(
@@ -332,6 +453,12 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
                 lineas_contienen_ramales=lineas_contienen_ramales,
                 geolocalizar_trx=geolocalizar_trx,
             )
+            # Días que aportó ESTA corrida = los nuevos en raw desde el snapshot
+            # previo. Supone corridas con días disjuntos (cada corrida es un
+            # período distinto), consistente con el resto del pipeline.
+            dias_ahora = _dias_en_raw()
+            corrida_dias[corrida] = sorted(dias_ahora - dias_antes)
+            dias_antes = dias_ahora
             usa_gps = (
                 configs.get("usa_archivo_gps", False)
                 or configs.get("nombre_archivo_gps") is not None
@@ -348,17 +475,31 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
         # carries a populated `dia` column at this point (set during
         # standardization-on-read in _standardize_chunk), so we don't need
         # to wait for the raw → transacciones promotion to compute it.
-        all_dias = ctx.data.query(
+        # Días de ESTA corrida: transacciones_raw sólo contiene las corridas nuevas
+        # que se ingieren ahora (inicializo_ambiente filtra las ya corridas). Se
+        # preserva en run_dias para acotar la re-derivación de más abajo.
+        run_dias = ctx.data.query(
             "SELECT DISTINCT dia FROM transacciones_raw ORDER BY dia"
         )
-        ctx.data.save_run_days(all_dias)
+
+        # Borrá-y-generá: antes de re-poblar, limpiar estos días de las 16 tablas
+        # con `dia`. Para días NUEVOS es no-op (no existen aún); para días que se
+        # RE-INGESTAN (--reprocesar, o una corrida forzada) borra la copia vieja
+        # para no duplicar. Sólo toca los días de ESTA ingesta (run_dias): los días
+        # que se resumen desde un step posterior NO se re-ingestan → no se tocan.
+        _run_dias_list = run_dias["dia"].astype(str).tolist()
+        if _run_dias_list:
+            ctx.data.delete_run_days(_run_dias_list)
+        ctx.data.save_run_days(run_dias)
 
         # gps must be loaded before standardizing so geocoding (below) and
         # downstream gps-dependent steps have data to join against.
         for corrida in gps_corridas:
             check_config(corrida)
             configs = leer_configs_generales(autogenerado=False)
-            nombre_archivo_gps = configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
+            nombre_archivo_gps = (
+                configs.get("nombre_archivo_gps") or f"{corrida}_gps.csv"
+            )
             logger.info("[Phase 1] Ingesting GPS for %s", corrida)
             trx.process_and_upload_gps_table(
                 ctx=ctx,
@@ -369,7 +510,8 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
 
         if geolocalizar_corridas:
             logger.info(
-                "[Phase 1] Geolocating %d corrida(s) from gps", len(geolocalizar_corridas)
+                "[Phase 1] Geolocating %d corrida(s) from gps",
+                len(geolocalizar_corridas),
             )
             # lineas_contienen_ramales here is whatever the *last* corrida in the
             # `corridas` loop above set it to, since it's a scalar reused across all
@@ -380,20 +522,40 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> None:
 
         n_batches = _resolve_n_batches(ctx)
         id_offset = ctx.data.get_max_id("transacciones")
-        logger.info("[Phase 1] Standardizing raw → transacciones (n_batches=%d)", n_batches)
-        ctx.data.standardize_raw_to_transacciones(n_batches=n_batches, id_offset=id_offset)
+        logger.info(
+            "[Phase 1] Standardizing raw → transacciones (n_batches=%d)", n_batches
+        )
+        ctx.data.standardize_raw_to_transacciones(
+            n_batches=n_batches, id_offset=id_offset
+        )
     finally:
         ctx.data.clear_raw()
 
-    # transacciones_raw is cleared above; transacciones now holds the
-    # promoted rows for this run, so re-derive the day list once more in
-    # case standardization dropped any day entirely (e.g. all its rows
-    # failed validation). This keeps dias_ultima_corrida accurate for
-    # every step downstream of this function.
-    all_dias = ctx.data.query(
-        "SELECT DISTINCT dia FROM transacciones ORDER BY dia"
-    ).rename(columns={"dia": "dia"})
-    ctx.data.save_run_days(all_dias)
+    # transacciones_raw is cleared above; re-derive the day list once more in case
+    # standardization dropped any day entirely (e.g. all its rows failed validation).
+    # ACOTADO a run_dias: `transacciones` es ACUMULATIVA (contiene los días de todas
+    # las corridas previas, nunca se limpia por corrida), así que SIN el filtro
+    # dias_ultima_corrida se llenaría con todo el histórico y toda la Fase 3
+    # (infer_destinations, assign_*, rearrange, create_trips, compute_kpi, chains)
+    # reprocesaría días ya finalizados. La intersección — días de esta corrida que
+    # sobrevivieron a la estandarización — es lo correcto y CONGELA los días viejos.
+    dias_corrida = run_dias["dia"].tolist()
+    if dias_corrida:
+        dias_str = ", ".join(f"'{d}'" for d in dias_corrida)
+        all_dias = ctx.data.query(
+            f"SELECT DISTINCT dia FROM transacciones "
+            f"WHERE dia IN ({dias_str}) ORDER BY dia"
+        )
+        ctx.data.save_run_days(all_dias)
+        # Acotar el mapeo corrida→días a los que SOBREVIVIERON la estandarización
+        # (un día cuyas filas fallaron todas la validación no se marca ingestado).
+        sobreviven = set(all_dias["dia"].astype(str))
+        corrida_dias = {
+            c: [d for d in ds if d in sobreviven] for c, ds in corrida_dias.items()
+        }
+    # si no hay días nuevos, run_dias (vacío) ya quedó guardado arriba
+
+    return corrida_dias
 
 
 def _create_legs_for_batch(ctx: StorageContext, batch, trx_order_params: dict) -> None:
@@ -440,7 +602,9 @@ def _build_legs_for_batch_worker(
 ):
     from urbantrips.datamodel.legs import build_legs_dataframe
 
-    legs_df, duplicate_cards = build_legs_dataframe(trx, dias_ultima_corrida, trx_order_params, h3_res=h3_res)
+    legs_df, duplicate_cards = build_legs_dataframe(
+        trx, dias_ultima_corrida, trx_order_params, h3_res=h3_res
+    )
     return batch, legs_df, duplicate_cards
 
 
@@ -471,8 +635,10 @@ def _create_legs_for_batches(
     done = 0
 
     logger.info("  using %d worker processes", parallel_workers)
-    with ProcessPoolExecutor(max_workers=parallel_workers) as executor, \
-         ThreadPoolExecutor(max_workers=1) as save_pool:
+    with (
+        ProcessPoolExecutor(max_workers=parallel_workers) as executor,
+        ThreadPoolExecutor(max_workers=1) as save_pool,
+    ):
         save_futures: list = []
         for chunk_start in range(0, n, parallel_workers):
             # Flush previous chunk's saves before touching DuckDB again
@@ -480,15 +646,19 @@ def _create_legs_for_batches(
                 sf.result()
             save_futures.clear()
 
-            chunk = batches[chunk_start: chunk_start + parallel_workers]
+            chunk = batches[chunk_start : chunk_start + parallel_workers]
 
-            # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting
+            # One scan loads this chunk's rows; DuckDB computes _batch_id for splitting.
+            # Acotado a run_days: transacciones es acumulativa, sin este filtro cada
+            # worker cargaría todos los días acumulados en RAM (OOM incremental).
             chunk_trx = ctx.data.get_transactions_for_chunk(
-                [b.batch_id for b in chunk], n
+                [b.batch_id for b in chunk], n,
+                run_days=dias_ultima_corrida["dia"].tolist(),
             )
             splits = {
                 b.batch_id: chunk_trx[chunk_trx["_batch_id"] == b.batch_id]
-                    .drop(columns=["_batch_id"]).reset_index(drop=True)
+                .drop(columns=["_batch_id"])
+                .reset_index(drop=True)
                 for b in chunk
             }
             del chunk_trx
@@ -496,7 +666,11 @@ def _create_legs_for_batches(
             futures = {
                 executor.submit(
                     _build_legs_for_batch_worker,
-                    b, splits[b.batch_id], dias_ultima_corrida, trx_order_params, h3_res,
+                    b,
+                    splits[b.batch_id],
+                    dias_ultima_corrida,
+                    trx_order_params,
+                    h3_res,
                 ): b
                 for b in chunk
             }
@@ -505,7 +679,9 @@ def _create_legs_for_batches(
             for future in as_completed(futures):
                 batch_res, legs_df, duplicate_cards = future.result()
                 save_futures.append(
-                    save_pool.submit(_save_batch_results, ctx, legs_df, batch_res, duplicate_cards)
+                    save_pool.submit(
+                        _save_batch_results, ctx, legs_df, batch_res, duplicate_cards
+                    )
                 )
 
                 done += 1
@@ -513,7 +689,11 @@ def _create_legs_for_batches(
                 eta = (elapsed / done * (n - done)) if done < n else 0.0
                 logger.info(
                     "  [Phase 2] %d/%d batches done (%.0f%%) — %.0fs elapsed, ~%.0fs remaining",
-                    done, n, done / n * 100, elapsed, eta,
+                    done,
+                    n,
+                    done / n * 100,
+                    elapsed,
+                    eta,
                 )
 
         for sf in save_futures:
@@ -528,6 +708,7 @@ def _clear_current_run_legs(ctx: StorageContext) -> None:
     at the time, so a batch_id-based delete would miss them.
     """
     import duckdb as _duckdb
+
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return
@@ -542,6 +723,7 @@ def _clear_current_run_legs(ctx: StorageContext) -> None:
 def _clear_current_run_travel_times(ctx: StorageContext) -> None:
     """Clear derived travel-time tables for the current run days before rebuilding."""
     import duckdb as _duckdb
+
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return
@@ -567,7 +749,10 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     carto.update_stations_catchment_area(ring_size, ctx)
     dest.infer_destinations(ctx)
 
-    usa_archivo_gps = configs.get("usa_archivo_gps", False) or configs.get("nombre_archivo_gps") is not None
+    usa_archivo_gps = (
+        configs.get("usa_archivo_gps", False)
+        or configs.get("nombre_archivo_gps") is not None
+    )
     if usa_archivo_gps:
         services.process_services(ctx, line_ids=None)
         legs.assign_gps_origin(ctx)
@@ -577,14 +762,25 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     if batches is None:
         trips.rearrange_trip_id_same_od(ctx)
     else:
-        n = len(batches)
-        logger.info("Iniciando rearrange_trip_id_same_od (%d batches)", n)
+        # Recorrido por DÍA, no por batch. rearrange es día-separable: todas sus
+        # operaciones agrupan por (dia, id_tarjeta, ...) y ningún cálculo cruza
+        # días, así que particionar por día produce el mismo resultado que por
+        # batch (ambos preservan íntegro cada grupo dia×tarjeta). Motivo del
+        # cambio: tras el rebuild de destinos etapas queda físicamente ordenada
+        # por dia → WHERE dia poda row-groups, mientras que el particionado por
+        # batch_id perdió su soporte físico y cada uno de los ~150 batches
+        # barría la tabla completa (65 min → 414 min a escala de mes, medido).
+        # El UPDATE de vuelta también poda ahora (dia= en update_leg_trip_ids).
+        # RAM: un día (~6M filas) ≈ lo que ya levanta assign_time_distances.
+        dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+        n = len(dias)
+        logger.info("Iniciando rearrange_trip_id_same_od (%d días)", n)
         ts_total = time.perf_counter()
-        for batch in batches:
-            logger.info("  rearrange_trip_id_same_od batch %d/%d ...", batch.batch_id + 1, n)
-            trips.rearrange_trip_id_same_od(ctx, batch=batch, _silent=True)
+        for i, dia in enumerate(dias, 1):
+            logger.info("  [rearrange_trip_id_same_od] día %d/%d (%s)", i, n, dia)
+            trips.rearrange_trip_id_same_od(ctx, dia=dia, _silent=True)
         logger.info(
-            "Finalizado rearrange_trip_id_same_od (%d batches, %.2fs)",
+            "Finalizado rearrange_trip_id_same_od (%d días, %.2fs)",
             n, time.perf_counter() - ts_total,
         )
 
@@ -602,24 +798,78 @@ def _build_final_outputs(ctx: StorageContext) -> None:
     # create_trips_from_legs_and_fex rewrites the whole etapas table
     # (DELETE+INSERT of ~63M rows). With the secondary ART indexes active that
     # rewrite dominates Phase 4 (~68 min of silent tail at full-week scale), so
-    # drop them for the duration and recreate once afterwards.
+    # drop them for the duration and recreate once afterwards. Unlike Phase 2,
+    # nothing in Phase 4 deletes or queries etapas by batch_id, so idx_etapas_batch
+    # is dropped too instead of being maintained row by row across the rewrite.
     if hasattr(ctx.data, "begin_bulk_leg_writes"):
-        ctx.data.begin_bulk_leg_writes()
+        ctx.data.begin_bulk_leg_writes(drop_batch_index=True)
     try:
         trips.create_trips_from_legs_and_fex(ctx)
     finally:
         if hasattr(ctx.data, "end_bulk_leg_writes"):
             ctx.data.end_bulk_leg_writes()
-    trips.add_distance_and_travel_time(ctx)
+    # Las distancias y tiempos por viaje ya están en travel_times_trips (Fase 3,
+    # assign_time_distances). No se recalculan sobre la tabla viajes: los
+    # consumidores (persist_indicators, dashboard) leen travel_times_trips.
 
 
-def run_ingest(ctx: StorageContext) -> None:
-    """Phase 1: ingest all pending corridas."""
-    from urbantrips.utils import utils
+def _alias_actual() -> str:
+    configs = leer_configs_generales(autogenerado=False)
+    return configs.get("alias_db", configs.get("alias_db_insumos", ""))
 
-    corridas = inicializo_ambiente(ctx)
-    logger.info("[Phase 1] Ingesting %d day(s)", len(corridas))
-    _ingest_all_days(ctx, corridas)
+
+def _marcar_step(ctx: StorageContext, step: str) -> None:
+    """Registra `step` como terminado, en el log, para los días del scope actual
+    (dias_ultima_corrida). Agrupa por corrida usando el mapeo día→corrida que dejó
+    el ingest; un día sin corrida en el log se registra con corrida = el día."""
+    run_days = ctx.data.get_run_days()
+    if run_days.empty:
+        return
+    dias = sorted(run_days["dia"].astype(str).tolist())
+    alias = _alias_actual()
+    config_yaml = _config_yaml_name()
+
+    log = ctx.general.get_run_log()
+    dia_a_corrida: dict[str, str] = {}
+    if len(log) and "dia" in log.columns:
+        for _, r in log.dropna(subset=["dia"]).iterrows():
+            dia_a_corrida[str(r["dia"])] = str(r["corrida"])
+
+    por_corrida: dict[str, list[str]] = {}
+    for d in dias:
+        c = dia_a_corrida.get(d, d)
+        por_corrida.setdefault(c, []).append(d)
+    for corrida, ds in por_corrida.items():
+        ctx.general.register_step(alias, corrida, ds, step, config_yaml=config_yaml)
+        _guardar_config_snapshot(ctx, alias, corrida)
+
+
+def run_ingest(ctx: StorageContext, reprocesar: list[str] | None = None) -> None:
+    """Phase 1: ingesta las corridas pendientes (nuevas + forzadas por --reprocesar).
+
+    Corridas completas se saltean; incompletas NO se re-ingestan (se resumen desde
+    su step en run_all). Registra el step ingest por corrida con sus días."""
+    plan = inicializo_ambiente(ctx, reprocesar=reprocesar)
+    alias = _alias_actual()
+    config_yaml = _config_yaml_name()
+
+    # Forzadas (--reprocesar de una corrida ya presente): limpiar su log para que
+    # se re-registre desde cero. Su DATA la limpia _ingest_all_days (borra-y-genera
+    # sobre los días re-ingestados).
+    if plan["forzadas"]:
+        ctx.general.delete_corrida_log(alias, plan["forzadas"])
+
+    to_ingest = plan["to_ingest"]
+    logger.info(
+        "[Phase 1] Corridas: %d a ingestar, %d a resumir, %d completas",
+        len(to_ingest), len(plan["resume"]), len(plan["skip"]),
+    )
+    corrida_dias = _ingest_all_days(ctx, to_ingest)
+    for corrida, dias in corrida_dias.items():
+        if dias:
+            ctx.general.register_step(alias, corrida, dias, "ingest",
+                                      config_yaml=config_yaml)
+            _guardar_config_snapshot(ctx, alias, corrida)
 
 
 def run_legs(ctx: StorageContext) -> None:
@@ -635,7 +885,9 @@ def run_legs(ctx: StorageContext) -> None:
     _clear_current_run_legs(ctx)
     n_batches = _resolve_n_batches(ctx)
     batches = ctx.data.get_user_batches(n_batches)
-    parallel_workers = _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
+    parallel_workers = (
+        _get_parallel_workers(n_batches) if _can_parallelize_batches(ctx) else 1
+    )
     logger.info("[Phase 2] Creating legs for %d traveler batches", n_batches)
     # Drop the secondary etapas indexes for the whole batch-save loop: with them
     # active, DuckDB maintains them row by row on every save_legs INSERT (~40 min
@@ -649,6 +901,7 @@ def run_legs(ctx: StorageContext) -> None:
             ctx.data.end_bulk_leg_writes()
     logger.info("[Phase 3] Enriching legs")
     _enrich_all_legs(ctx, configs, batches=batches)
+    _marcar_step(ctx, "legs")
 
 
 def run_outputs(ctx: StorageContext) -> None:
@@ -663,6 +916,7 @@ def run_outputs(ctx: StorageContext) -> None:
     routes.build_routes_from_official_inferred(ctx)
     compute_kpi(ctx)
     persist_indicators(ctx)
+    _marcar_step(ctx, "outputs")
 
 
 def run_dashboard(ctx: StorageContext) -> None:
@@ -670,6 +924,7 @@ def run_dashboard(ctx: StorageContext) -> None:
     from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 
     preparo_indicadores_dash(ctx)
+    _marcar_step(ctx, "dashboard")
 
 
 _STEP_ORDER = ["ingest", "legs", "outputs", "dashboard"]
@@ -699,10 +954,15 @@ def check_prerequisites(step: str, ctx: StorageContext) -> None:
             )
 
 
-def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboard=True):
+def run_all(ctx: StorageContext | None = None, borrar_corrida="",
+            crear_dashboard=True, reprocesar: list[str] | None = None):
+    from urbantrips.utils.run_planner import scope_y_step, STEP_ORDER
+
     inicio = time.time()
     logger.info("borrar_corrida = '%s'", borrar_corrida)
     logger.info("crear_dashboard = %s", crear_dashboard)
+    if reprocesar:
+        logger.info("reprocesar = %s", reprocesar)
 
     if ctx is None and borrar_corrida:
         borrar_corridas(alias_db=borrar_corrida)
@@ -715,10 +975,33 @@ def run_all(ctx: StorageContext | None = None, borrar_corrida="", crear_dashboar
     if borrar_corrida:
         ctx = _build_ctx()
 
-    run_ingest(ctx)
-    run_legs(ctx)
-    run_outputs(ctx)
-    if crear_dashboard:
+    run_ingest(ctx, reprocesar=reprocesar)
+
+    # Recomputar el scope desde el log YA actualizado por el ingest: días de las
+    # corridas del config que no están completas, y el step más temprano pendiente.
+    # Días nuevos → arranca en legs; una corrida que crasheó → desde su step; nada
+    # pendiente → no-op con gracia (antes crasheaba al re-correr días presentes).
+    log = ctx.general.get_run_log()
+    start_step, scope_dias = scope_y_step(log, _config_corridas())
+    if not scope_dias:
+        logger.info("No hay días pendientes de procesar — nada que hacer.")
+        fin = time.time()
+        logger.info("tiempo total de la corrida: %.2f min", (fin - inicio) / 60)
+        return
+
+    ctx.data.save_run_days(pd.DataFrame({"dia": scope_dias}))
+    logger.info(
+        "Procesando %d día(s) desde step '%s': %s",
+        len(scope_dias), start_step, scope_dias,
+    )
+
+    # El ingest ya corrió arriba; la Fase 3+ arranca en max(start_step, legs).
+    start_idx = max(STEP_ORDER.index(start_step), STEP_ORDER.index("legs"))
+    if start_idx <= STEP_ORDER.index("legs"):
+        run_legs(ctx)
+    if start_idx <= STEP_ORDER.index("outputs"):
+        run_outputs(ctx)
+    if crear_dashboard and start_idx <= STEP_ORDER.index("dashboard"):
         run_dashboard(ctx)
 
     fin = time.time()

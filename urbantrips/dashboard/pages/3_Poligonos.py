@@ -12,7 +12,7 @@ from dash_utils import (
     create_data_folium,
     traigo_indicadores,
     traigo_lista_zonas,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     build_where_clauses,
     traer_dias_chains,
     traer_opciones_chains,
@@ -218,7 +218,7 @@ def hay_cambios_en_filtros(current, last):
 st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 with st.expander("Líneas de Deseo", expanded=True):
 
@@ -340,7 +340,10 @@ with st.expander("Líneas de Deseo", expanded=True):
             desc_etapas = False
 
         tipo_visualizacion = col1.radio(
-            "Tipo de visualización", options=["Líneas", "Arcos"], horizontal=True
+            "Tipo de visualización",
+            options=["Líneas", "Arcos"],
+            index=1,  # default explícito: arcos
+            horizontal=True,
         )
 
         zonas_values_all = ["Todos"] + zonas_values[
@@ -600,7 +603,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                 with col2:
                     st.pydeck_chart(
                         _mapa,
-                        use_container_width=True,
+                        width="stretch",
                         height=800,
                     )
 

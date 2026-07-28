@@ -143,7 +143,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "factor_expansion_original": [1.0] * n,
         "factor_expansion_linea": [1.0] * n,
         "factor_expansion_tarjeta": [1.0] * n,
-        "distancia": [2.5] * n,
+        # travel_time_min/distance_od llegan de travel_times_legs en el JOIN
         "travel_time_min": [15.0] * n,
         "distance_od": [2.5] * n,
         # derived columns now returned by SQL
@@ -175,7 +175,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "od_validado": [1] * n,
         "factor_expansion_linea": [1.0] * n,
         "factor_expansion_tarjeta": [1.0] * n,
-        "distancia": [2.5] * n,
+        # travel_time_min/distance_od llegan de travel_times_trips en el JOIN
         "travel_time_min": [15.0] * n,
         "distance_od": [2.5] * n,
         # derived columns now returned by SQL
