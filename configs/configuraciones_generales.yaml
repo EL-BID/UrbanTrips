@@ -4,6 +4,8 @@ corridas: ['martes', 'miercoles']                                  # Listar los 
 
 alias_db_insumos: "db"                                             # nombre del sqlite donde se guardan los insumos generales
 
+ciudad: "AMBA"                                                     # Nombre de Ciudad o area Metropolitana (necesario para crear directorio de datos en matrices de distancia)
+
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
     id_trx: "id"                                                   # columna con id único del archivo de transacciones
