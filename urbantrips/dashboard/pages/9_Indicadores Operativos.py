@@ -19,7 +19,7 @@ Mejora de presentación (jul‑2025)
 
 import streamlit as st
 import pandas as pd
-from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_dia
+from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_corrida
 
 # -----------------------------------------------------------------------------
 # Configuración global y estilo
@@ -43,7 +43,7 @@ except Exception:
     pass
 
 try:
-    alias_sel = configurar_selector_dia()
+    alias_sel = configurar_selector_corrida()
 except Exception:
     alias_sel = "default"
 
@@ -230,7 +230,7 @@ with st.expander("Totales y promedios del sistema", expanded=False):
 # -----------------------------------------------------------------------------
 
 with st.expander("Base completa", expanded=False):
-    st.dataframe(kpis_df, use_container_width=True, hide_index=True)
+    st.dataframe(kpis_df, width="stretch", hide_index=True)
     st.download_button(
         label="Descargar CSV completo",
         data=kpis_df.to_csv(index=False).encode("utf-8"),

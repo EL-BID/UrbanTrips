@@ -108,6 +108,7 @@ celerybeat.pid
 configs/*
 !configs/configuraciones_generales.yaml
 !configs/tuning.yaml.example
+!configs/corridas.yaml.example
 
 # ── Project: large data files ────────────────────────────────────────────────
 data/db/
@@ -153,3 +154,8 @@ docs/validacion_refactor/informe_refactor_dia9.html
 docs/validacion_refactor/tren_rootcause.py
 tools/audit_indices.py
 urb_refactor.ipynb
+# Snapshots locales de tools/verifica_smoke_incremental.py (estado de la máquina,
+# uno por alias de base). Los .parquet ya los cubre *.parquet más arriba.
+tools/.smoke_*_snapshot_days.txt
+tools/.smoke_inc_2026_snapshot_days.txt
+tools/.smoke_mza_inc_snapshot_days.txt

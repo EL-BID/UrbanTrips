@@ -24,6 +24,7 @@ from urbantrips.storage.context import StorageContext
 from urbantrips.utils.utils import (
     duracion,
     leer_configs_generales,
+    worker_pool,
 )
 from urbantrips.utils.paths import get_paths
 
@@ -64,7 +65,7 @@ def process_routes_into_h3_parallel(routes_gdf, route_id_column, res=10):
     # Convert rows to list of tuples for parallel processing
     rows_data = [(idx, row) for idx, row in routes_gdf.iterrows()]
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             partial(
                 turn_route_geom_into_h3_cells_wrapper,
@@ -76,9 +77,36 @@ def process_routes_into_h3_parallel(routes_gdf, route_id_column, res=10):
         )
 
     # Concatenate all results
-    routes_h3 = pd.concat(results, ignore_index=True)
+    routes_h3 = pd.concat([df for df, _ in results], ignore_index=True)
+
+    _log_resumen_rutas_h3([s for _, s in results])
 
     return routes_h3
+
+
+def _log_resumen_rutas_h3(stats_por_ruta):
+    """Loguea UNA linea con el diagnostico agregado de todas las rutas.
+
+    Los workers no heredan el FileHandler del main, asi que los print() por ruta no
+    llegaban al log y solo ensuciaban el stdout. Agregado queda registrado y es
+    comparable entre corridas.
+    """
+    agg = {}
+    for s in stats_por_ruta:
+        for k, v in s.items():
+            agg[k] = agg.get(k, 0) + v
+
+    logger.info(
+        "Rutas a H3: %d procesadas | %d circulares normalizadas (%d celdas) | "
+        "%d con gaps rellenados | %d gaps remanentes | %d gaps >2 celdas | %d con error",
+        agg.get("rutas", 0),
+        agg.get("circulares", 0),
+        agg.get("celdas_circulares", 0),
+        agg.get("con_gaps", 0),
+        agg.get("gaps_remanentes", 0),
+        agg.get("gaps_largos", 0),
+        agg.get("error", 0),
+    )
 
 
 def turn_route_geom_into_h3_cells_wrapper(row_data, route_id_column, res):
@@ -97,23 +125,25 @@ def turn_route_geom_into_h3_cells_wrapper(row_data, route_id_column, res):
 
     Returns
     -------
-    pandas.DataFrame
-        DataFrame with H3 cells for the route
+    tuple[pandas.DataFrame, dict]
+        DataFrame with H3 cells for the route y sus contadores de diagnostico, que el
+        caller agrega para loguear un resumen unico (los prints por ruta no llegaban
+        al archivo de log).
     """
     idx, row = row_data
     try:
-        result = turn_route_geom_into_h3_cells(
+        return turn_route_geom_into_h3_cells(
             row=row, route_id_column=route_id_column, res=res
         )
-        return result
     except Exception as e:
         logger.error(
             "Error procesando ruta %s: %s", row.get(route_id_column, idx), str(e)
         )
         # Return empty DataFrame with expected columns
-        return pd.DataFrame(
+        vacio = pd.DataFrame(
             columns=[route_id_column, "direction", "section_id", "h3", "wkt"]
         )
+        return vacio, {"rutas": 1, "error": 1}
 
 
 def process_parent_h3_parallel(
@@ -164,7 +194,7 @@ def process_parent_h3_parallel(
         if len(route_geom) > 0:
             tasks.append((route_h3, route_geom, route_id_column, parent_res))
 
-    with multiprocessing.Pool(processes=n_cores) as pool:
+    with worker_pool(n_cores) as pool:
         results = pool.map(
             turn_child_h3_into_parent_h3_wrapper, tasks, chunksize=chunksize
         )
@@ -429,20 +459,73 @@ def check_directions_on_geoms(geojson_data, branches_present):
 def infer_routes_geoms(ctx: StorageContext):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
-    de las lineas y lo guarda en la db
+    de las lineas y lo guarda en la db.
+
+    Incremental: lowess lee TODAS las etapas de cada línea y es caro (escala con lo
+    acumulado). Las líneas que YA tienen geometría inferida de corridas previas no se
+    recalculan — solo se computan las líneas nuevas (o las que quedaron sin geometría,
+    p.ej. porque lowess falló). Como `save_raw` hace CREATE OR REPLACE, se guarda la
+    UNIÓN (existentes + nuevas), no solo las nuevas. En corrida fresca (insumos vacía)
+    calcula todas → idéntico al comportamiento original.
     """
 
-    q = """
+    existentes = ctx.insumos.get_raw("inferred_lines_geoms")
+    ya_inferidas = (
+        set(existentes["id_linea"].tolist()) if not existentes.empty else set()
+    )
+
+    filtro = ""
+    if ya_inferidas:
+        ids = ", ".join(str(int(x)) for x in ya_inferidas)
+        filtro = f"where e.id_linea not in ({ids})"
+    q = f"""
     select e.id_linea,e.longitud,e.latitud
     from etapas e
+    {filtro}
     """
     etapas = ctx.data.query(q)
 
-    recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
+    if etapas.empty:
+        logger.info(
+            "infer_routes_geoms: todas las líneas ya tienen geometría inferida — skip"
+        )
+        return
+
+    # lowess es best-effort POR LÍNEA: para una línea con muy pocos puntos
+    # distintos, lowess_linea devuelve None (imposible de inferir). Se saltean esas
+    # líneas en vez de romper. Antes, `groupby.apply` con algún None producía un
+    # DataFrame plano SIN columna geometry y el `.geometry` de abajo tiraba
+    # AttributeError — cualquier corrida (incremental o --reprocesar) que tocara
+    # una línea no-inferible crasheaba acá.
+    partes = []
+    for id_linea, grupo in etapas.groupby("id_linea"):
+        geom = geo.lowess_linea(grupo)
+        if geom is None or len(geom) == 0:
+            continue
+        geom = geom.copy()
+        geom["id_linea"] = id_linea
+        partes.append(geom)
+
+    if not partes:
+        logger.info(
+            "infer_routes_geoms: ninguna línea nueva pudo inferirse por lowess — "
+            "se conservan las %d ya existentes.", len(ya_inferidas)
+        )
+        return
+
+    recorridos_lowess = gpd.GeoDataFrame(
+        pd.concat(partes, ignore_index=True), geometry="geometry", crs=4326
+    )
 
     # Elminar geometrias invalidas
-    validas = recorridos_lowess.geometry.map(lambda g: g.is_valid)
-    recorridos_lowess = recorridos_lowess.loc[validas, :]
+    validas = recorridos_lowess.geometry.map(lambda g: g is not None and g.is_valid)
+    recorridos_lowess = recorridos_lowess.loc[validas, :].reset_index(drop=True)
+    if recorridos_lowess.empty:
+        logger.info(
+            "infer_routes_geoms: sin geometrías válidas nuevas — "
+            "se conservan las %d ya existentes.", len(ya_inferidas)
+        )
+        return
 
     recorridos_lowess_direction0 = recorridos_lowess.copy()
     recorridos_lowess_direction0["direction"] = 0
@@ -463,6 +546,14 @@ def infer_routes_geoms(ctx: StorageContext):
     recorridos_lowess = recorridos_lowess.reindex(
         columns=["id_linea", "direction", "wkt"]
     )
+
+    # Unir con las líneas ya inferidas: save_raw reemplaza toda la tabla, así que hay
+    # que guardar existentes + nuevas (no solo las nuevas, o se perderían las viejas).
+    if not existentes.empty:
+        recorridos_lowess = pd.concat(
+            [existentes[["id_linea", "direction", "wkt"]], recorridos_lowess],
+            ignore_index=True,
+        )
 
     ctx.insumos.save_raw(recorridos_lowess, "inferred_lines_geoms")
 
@@ -1099,6 +1190,20 @@ def turn_route_geom_into_h3_cells(
             print(f"  ... and {len(cells_with_shift) - 10} more")
     """
 
+    # Diagnostico AGREGADO: los contadores viajan al main, que loguea una sola linea
+    # al terminar todas las rutas. Antes esto eran print() por ruta: con miles de rutas
+    # y N workers inundaban el stdout y, al ser prints de subproceso, no llegaban al
+    # archivo de log (los workers no heredan el FileHandler) — el diagnostico se perdia.
+    stats = {
+        "rutas": 1,
+        "con_gaps": 0,
+        "gaps_rellenados": 0,
+        "gaps_largos": 0,
+        "gaps_remanentes": 0,
+        "circulares": 0,
+        "celdas_circulares": 0,
+    }
+
     # First, check how many gaps exist
     gaps = []
     for i in range(len(geom_h3) - 1):
@@ -1108,15 +1213,14 @@ def turn_route_geom_into_h3_cells(
             distance = h3.grid_distance(current_cell, next_cell)
             gaps.append({"from_idx": i, "to_idx": i + 1, "distance": distance})
 
-    # print(f"Found {len(gaps)} gaps in the route:")
     if len(gaps) > 0:
-        print(f"Found {len(gaps)} gaps ")
+        stats["con_gaps"] = 1
+        stats["gaps_rellenados"] = len(gaps)
 
     only_one_cell_gaps = [g["distance"] <= 2 for g in gaps]
     if not all(only_one_cell_gaps):
-        print(
-            f"⚠️  Warning: {sum(not d for d in only_one_cell_gaps)} gaps have distance greater than 2, which may indicate significant route discontinuities."
-        )
+        # gaps de mas de 2 celdas: posible discontinuidad real del recorrido
+        stats["gaps_largos"] = sum(not d for d in only_one_cell_gaps)
 
     if len(gaps) > 0:
         geom_h3_filled = fill_h3_gaps(
@@ -1132,10 +1236,10 @@ def turn_route_geom_into_h3_cells(
         next_cell = geom_h3_filled.iloc[i + 1]["h3_id"]
         if not h3.are_neighbor_cells(current_cell, next_cell):
             non_adjacent_count += 1
-            print(f"❌ Cells at positions {i} and {i+1} are still NOT adjacent")
 
-    if non_adjacent_count != 0:
-        print(f"\n⚠️  Warning: {non_adjacent_count} gaps remain")
+    # gaps que quedaron sin rellenar: es la senal que realmente importa (el recorrido
+    # queda discontinuo), por eso se agrega y se reporta en el log del main.
+    stats["gaps_remanentes"] = non_adjacent_count
 
     geom_h3_filled[route_id_column] = route_id
     geom_h3_filled["direction"] = direction
@@ -1163,16 +1267,17 @@ def turn_route_geom_into_h3_cells(
                 break  # Stop at the first non-overlapping cell from the end
 
         if cells_to_remove > 0:
-            print(
-                f"⚠️  Warning: Detected circular route with {cells_to_remove} overlapping cell(s) at the end. Removing them."
-            )
+            # Ruta circular: el cierre del anillo pisa el arranque. Se normaliza
+            # quitando el solape para que section_id quede sin celdas repetidas.
+            stats["circulares"] = 1
+            stats["celdas_circulares"] = cells_to_remove
             # Remove overlapping cells from the end
             geom_h3_filled = geom_h3_filled.iloc[:-cells_to_remove].copy()
 
             # Re-sequence section_id to be sequential
             geom_h3_filled["section_id"] = range(len(geom_h3_filled))
 
-    return geom_h3_filled
+    return geom_h3_filled, stats
 
 
 def fill_h3_gaps(geom_h3, line_geom, h3_column="h3_id", verbose=True):

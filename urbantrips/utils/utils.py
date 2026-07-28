@@ -1,9 +1,11 @@
 import datetime
 import logging
 import math
+import multiprocessing
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 
@@ -28,6 +30,32 @@ logger = logging.getLogger(__name__)
 # Values at or above the cap are treated as missing (NaN) and excluded from
 # weighted means. 80 covers commuter-rail door-to-door OD speeds in AMBA.
 VELOCIDAD_MAXIMA_KMH = 80
+
+
+@contextmanager
+def worker_pool(processes: int):
+    """`multiprocessing.Pool` con apagado ordenado.
+
+    `with multiprocessing.Pool(...)` llama a `terminate()` al salir, que mata a
+    los workers sin avisarles. El apagado documentado es `close()` (no hay más
+    tareas) + `join()` (esperar a que salgan); si algo queda a medias, ese
+    `terminate()` puede dejar procesos huérfanos vivos después de que el proceso
+    padre termine.
+
+    En el camino de error sí se termina —no tiene sentido esperar a los workers
+    de un cómputo abortado— pero se hace `join()` en ambos casos, que es lo que
+    garantiza que no queden sueltos.
+    """
+    pool = multiprocessing.Pool(processes=processes)
+    try:
+        yield pool
+    except BaseException:
+        pool.terminate()
+        raise
+    else:
+        pool.close()
+    finally:
+        pool.join()
 
 
 def leer_alias(tipo="data"):
@@ -100,40 +128,13 @@ def iniciar_conexion_db(tipo="data", alias_db="", read_only=None):
     return sqlite3.connect(db_path, timeout=10)
 
 
-def leer_configs_generales(autogenerado=True):
-    """
-    Lee el archivo de configuración YAML, probando primero con UTF-8
-    y luego con latin-1 si es necesario. Devuelve un dict o {} si falla.
-
-    Respeta la variable de entorno URBANTRIPS_CONFIG si está definida
-    (establecida por --config en run_all_urbantrips.py).
-    """
-    from urbantrips.utils.paths import get_paths
-    _p = get_paths()
-    if autogenerado:
-        path = str(_p.configs_dir / "configuraciones_generales_autogenerado.yaml")
-    else:
-        path = str(_p.config_file)
-
-    try:
-        # Primer intento: UTF-8
-        with open(path, "r", encoding="utf-8") as file:
-            return yaml.safe_load(file)
-    except UnicodeDecodeError:
-        # Segundo intento: latin-1
-        try:
-            with open(path, "r", encoding="latin-1") as file:
-                return yaml.safe_load(file)
-        except yaml.YAMLError as error:
-            logger.error("Error de sintaxis YAML con latin-1: %s", error)
-        except Exception as e:
-            logger.error("Error general con latin-1: %s", e)
-    except yaml.YAMLError as error:
-        logger.error("Error de sintaxis YAML con UTF-8: %s", error)
-    except Exception as e:
-        logger.error("Error general leyendo archivo: %s", e)
-
-    return {}
+# NOTA: acá vivía otra `leer_configs_generales`, pero era CÓDIGO MUERTO: el
+# re-import del final de este módulo (`from ...dash_storage import
+# leer_configs_generales, ...`) la sombreaba en import time, así que todo el
+# pipeline venía ejecutando la de dash_storage. Verificado con
+# `inspect.getsourcefile(utils.leer_configs_generales)`. Se eliminó (2026-07-27)
+# junto con el config autogenerado, que era lo único que la diferenciaba.
+# La implementación viva es `dashboard/dash_storage.py`.
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +545,6 @@ def _executemany_df(
 
 from urbantrips.dashboard.dash_storage import (
     _load_yaml_simple,
-    _find_first_valid_yaml,
     leer_configs_generales,
     resolve_db_aliases,
     normalize_vars,

@@ -69,7 +69,10 @@ def build_legs_from_transactions(
     Build legs and duplicated-card records without writing them to storage.
     """
     dias_ultima_corrida = ctx.data.get_run_days()
-    trx = ctx.data.get_transactions(batch)
+    # Acota la lectura a los días de la corrida en el SQL (transacciones es acumulativa);
+    # build_legs_dataframe igual filtra por dia como defensa, pero ya no trae lo acumulado.
+    run_days = dias_ultima_corrida["dia"].tolist()
+    trx = ctx.data.get_transactions(batch, run_days=run_days)
     return build_legs_dataframe(trx, dias_ultima_corrida, trx_order_params)
 
 
@@ -84,12 +87,8 @@ def build_legs_dataframe(
     """
     legs = trx[trx.dia.isin(dias_ultima_corrida.dia)]
 
-    print("Eliminando transacciones con longitud o latitud igual a cero")
-    n_trx_ = len(legs)
-    print(f"Transacciones antes de eliminar: {len(legs)}")
-    legs = legs.loc[(legs.longitud != 0) & (legs.latitud != 0), :]
-    print(f"Transacciones eliminadas: {n_trx_ - len(legs)}")
-
+    # El borrado geográfico se centraliza en eliminar_trx_fuera_bbox (ingesta): las
+    # fuera-de-bbox ya se eliminaron y las lat/lon == 0 llegan conservadas con fex=0.
     # parse dates using local timezone
     legs = legs.copy()
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
@@ -724,8 +723,13 @@ def _gps_destino_y_tiempos_dia(
     Función PURA respecto de la DB: recibe gps y legs_to_gps_o ya leídos
     (_fetch_time_distance_inputs_dia) para poder ejecutarse en un worker process.
 
-    Devuelve (travel_times, travel_times_trips, legs_to_gps_d) ya armados para el día.
-    legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+    Devuelve (travel_times, travel_times_trips, legs_to_gps_d, diag) ya armados para el
+    día. legs_to_gps_d es None si no se imputó ningún destino GPS ese día.
+
+    `diag` son escalares de diagnóstico que el CALLER loguea: cuando esta función corre
+    en un worker process sus propios logger.info() no llegan al FileHandler del main
+    (los subprocesos no lo heredan), así que el % de GPS imputado se perdía en el camino
+    paralelo y solo aparecía cuando el autotune daba 1 worker.
     """
     logger.info("[_gps_destino_y_tiempos_dia] día %s", dia)
     # gps no tiene modo: se trae de metadata_lineas para el id_ramal efectivo.
@@ -769,7 +773,7 @@ def _gps_destino_y_tiempos_dia(
         travel_times_trips = travel_times.groupby(
             ["dia", "id_tarjeta", "id_viaje"], as_index=False
         )[["distance_od"]].sum(min_count=1)
-        return travel_times, travel_times_trips, None
+        return travel_times, travel_times_trips, None, {"pct_gps_imputado": None}
 
     etapas_result = pd.concat(etapas_result_list, ignore_index=True)
     legs_to_gps_d = etapas_result.reindex(columns=["dia", "id_legs", "id_gps"])
@@ -877,7 +881,8 @@ def _gps_destino_y_tiempos_dia(
 
     tot_gps = len(travel_times)
     tot_gps_asig = travel_times.travel_time_min.notna().sum()
-    logger.info("GPS imputado (%s): %.1f%%", dia, tot_gps_asig / max(tot_gps, 1) * 100)
+    pct_gps_imputado = tot_gps_asig / max(tot_gps, 1) * 100
+    logger.info("GPS imputado (%s): %.1f%%", dia, pct_gps_imputado)
 
     travel_times["kmh_route"] = (
         travel_times["distance_route"] / (travel_times["travel_time_min"] / 60)
@@ -955,7 +960,12 @@ def _gps_destino_y_tiempos_dia(
             col,
         ] = np.nan
 
-    return travel_times, travel_times_trips, legs_to_gps_d
+    return (
+        travel_times,
+        travel_times_trips,
+        legs_to_gps_d,
+        {"pct_gps_imputado": pct_gps_imputado},
+    )
 
 
 def _duckdb_memory_limit_gb() -> float:
@@ -1027,12 +1037,21 @@ def _parallel_day_workers(n_days: int) -> int:
     reserve_gb = _duckdb_memory_limit_gb()
     per_day_gb = 12.0
     budget_gb = avail_gb - reserve_gb
-    workers = int(max(0.0, budget_gb) // per_day_gb)
+    # El floor duro sobre un divisor que es una ESTIMACIÓN (~12 GB por día) hacía
+    # que 1,95 diera 1 worker y 2,05 diera 2: se perdía la mitad del paralelismo
+    # por ~1 GB, y como psutil.available fluctúa, una misma corrida daba 1, 2 y 1.
+    # La tolerancia redondea hacia arriba sólo cuando faltan menos del 10% de un
+    # día (≈1,2 GB) — dentro del error del propio estimador, no un sobre-commit
+    # real. Se mantiene conservador a propósito: sobre-committear fue lo que
+    # produjo el thrashing de la corrida 2026-07-17.
+    tolerancia = 0.1
+    workers = int(max(0.0, budget_gb) / per_day_gb + tolerancia)
     n = max(1, min(3, workers, n_days))
     logger.info(
         "[parallel_day_workers] autotune: %d worker(s) — RAM libre %.1f GB "
-        "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día (tope 3)",
-        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb,
+        "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día "
+        "(tolerancia %.0f%%, tope 3)",
+        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb, tolerancia * 100,
     )
     return n
 
@@ -1108,6 +1127,7 @@ def _save_travel_times_dia(ctx, dia, travel_times, travel_times_trips, legs_to_g
     ctx.data.append_raw(travel_times_trips, "travel_times_trips")
 
 
+@duracion
 def assign_time_distances(ctx: StorageContext):
     """
     Lee las etapas DIA POR DIA y, si hay tabla gps, imputa el gps de destino y
@@ -1138,9 +1158,21 @@ def assign_time_distances(ctx: StorageContext):
             ["id_linea_agg", "id_ramal", "parada", "area_influencia"]
         ].drop_duplicates()
         matriz["id_ramal"] = matriz["id_ramal"].fillna(RAMAL_SENTINEL).astype("int64")
-        matriz["ring"] = matriz.apply(
-            lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
-        )
+        if matriz.empty:
+            # apply(axis=1) sobre un DataFrame vacío devuelve un DataFrame (no una
+            # Series), y asignarlo a una columna rompe con "Cannot set a DataFrame
+            # with multiple columns to the single column ring". Se arma la columna
+            # a mano y se sigue: sin matriz no hay destinos validables por GPS, que
+            # es un resultado válido (vacío), no un motivo para abortar la corrida.
+            logger.warning(
+                "matriz_validacion está vacía: ninguna etapa va a validar destino "
+                "por GPS. Revisar la construcción de la matriz de paradas."
+            )
+            matriz["ring"] = pd.Series(dtype="int64")
+        else:
+            matriz["ring"] = matriz.apply(
+                lambda row: h3.grid_distance(row.parada, row.area_influencia), axis=1
+            )
         lado_m = h3.average_hexagon_edge_length(res=legs_h3_res, unit="m")
         ring_max = max(
             1, round(configs.get("tolerancia_destino_gps", 1000) / (lado_m * 2))
@@ -1171,7 +1203,7 @@ def assign_time_distances(ctx: StorageContext):
                 gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
                     ctx, dia, dia_to_next.get(dia)
                 )
-                travel_times, travel_times_trips, legs_to_gps_d = (
+                travel_times, travel_times_trips, legs_to_gps_d, _diag = (
                     _gps_destino_y_tiempos_dia(
                         dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
                         metadata_lineas, matriz, modos_ramal, legs_h3_res,
@@ -1220,7 +1252,13 @@ def assign_time_distances(ctx: StorageContext):
 
             for future in as_completed(futures):
                 dia = futures[future]
-                travel_times, travel_times_trips, legs_to_gps_d = future.result()
+                travel_times, travel_times_trips, legs_to_gps_d, diag = future.result()
+                # El worker no puede loguear al archivo (no hereda el FileHandler), asi
+                # que su diagnostico se emite aca, en el main.
+                if diag.get("pct_gps_imputado") is not None:
+                    logger.info(
+                        "GPS imputado (%s): %.1f%%", dia, diag["pct_gps_imputado"]
+                    )
                 _save_travel_times_dia(
                     ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
                 )
@@ -1445,9 +1483,12 @@ def assign_stations_od(ctx: StorageContext):
         # entero (~63M filas) al DataFrame `legs`. Cada etapa se clasifica por sus
         # h3_o/h3_d contra `stations` (insumo estático) y los tiempos salen de lookups
         # O→D estáticos → sin dependencia inter-día, resultado idéntico por día.
-        # Los días se derivan de todas las etapas presentes (la query original NO
-        # filtraba por dias_ultima_corrida), no de get_run_days.
-        dias = sorted(ctx.data.query("SELECT DISTINCT dia FROM etapas")["dia"].tolist())
+        # Acotado a los días de la corrida (get_run_days): la asignación de estaciones
+        # es separable por día (cada etapa se clasifica por sus h3_o/h3_d contra insumos
+        # estáticos), así que day-scopear es bit-idéntico. Antes derivaba los días de
+        # TODAS las etapas presentes → reprocesaba los días congelados en cada corrida
+        # (∝ acumulado). Los DELETE/loop de abajo quedan acotados a run_days.
+        dias = sorted(ctx.data.get_run_days()["dia"].tolist())
         dias_str = ", ".join(f"'{d}'" for d in dias)
         for _tabla in (
             "legs_to_station_origin",
@@ -1467,12 +1508,24 @@ def assign_stations_od(ctx: StorageContext):
             # read legs without travel time in gps and distances (un día)
             legs = ctx.data.query(
                 f"""
-                SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d
+                -- Antes había un LEFT JOIN travel_times_gps + WHERE tt.id IS NULL
+                -- para quedarse con las etapas sin tiempo de viaje por GPS. Esa
+                -- tabla se eliminó (nunca tuvo escritor tras el refactor), así
+                -- que el predicado era siempre verdadero: sacar el join es
+                -- semánticamente idéntico.
+                --
+                -- distance_od viene de travel_times_legs (la produce
+                -- assign_time_distances, que corre ANTES que este paso). Antes no
+                -- se traía: el reindex de más abajo la creaba toda-NaN en silencio
+                -- y por eso travel_speed salía siempre NULL. El join por id es
+                -- correcto (id es único global); el predicado por dia está para
+                -- que DuckDB pode por row-group a escala de mes.
+                SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d,
+                       tt.distance_od
                 FROM etapas e
-                LEFT JOIN travel_times_gps tt
-                ON e.dia = tt.dia AND e.id = tt.id
-                WHERE tt.id IS NULL
-                AND e.etapa_validada = 1
+                LEFT JOIN travel_times_legs tt
+                    ON e.id = tt.id AND tt.dia = e.dia
+                WHERE e.etapa_validada = 1
                 AND e.dia = '{dia}'
                 AND e.id_linea IN ({station_lines_str})
                 """
@@ -1592,14 +1645,14 @@ def assign_stations_od(ctx: StorageContext):
                 "kmh_od",
             ] = np.nan
 
-            # upload to db
-            travel_times = travel_times.reindex(
-                columns=["dia", "id", "travel_time_min", "kmh_od"]
-            )
-
-            travel_times = travel_times.reindex(
-                columns=["dia", "id", "travel_time_min", "travel_speed"]
-            )
+            # upload to db. La columna de la tabla se llama travel_speed (el
+            # vocabulario de travel_times_legs/_trips es kmh_*, pero renombrar el
+            # DDL cambiaría una salida documentada). Antes había DOS reindex
+            # encadenados: el segundo tiraba el kmh_od recién calculado y creaba
+            # travel_speed toda-NaN, así que la columna se escribía siempre NULL.
+            travel_times = travel_times.rename(
+                columns={"kmh_od": "travel_speed"}
+            ).reindex(columns=["dia", "id", "travel_time_min", "travel_speed"])
 
             ctx.data.append_raw(travel_times, "travel_times_stations")
 

@@ -30,20 +30,6 @@ def _sample_stops() -> pd.DataFrame:
     )
 
 
-def _sample_distances() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "h3_o": ["882a100d2bfffff", "882a100d6bfffff"],
-            "h3_d": ["882a100d3bfffff", "882a100d4bfffff"],
-            "h3_o_norm": ["882a100d2bfffff", "882a100d6bfffff"],
-            "h3_d_norm": ["882a100d3bfffff", "882a100d4bfffff"],
-            "distance_osm_drive": [500.0, 750.0],
-            "distance_osm_walk": [600.0, 900.0],
-            "distance_h3": [450.0, 700.0],
-        }
-    )
-
-
 def _sample_metadata_lineas() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -126,12 +112,6 @@ def test_insumo_port_contract_reference_roundtrips(insumo_adapter):
     stops = _sample_stops()
     insumo_adapter.save_stops(stops)
     assert len(insumo_adapter.get_stops()) == len(stops)
-
-    distances = _sample_distances()
-    insumo_adapter.save_distances(distances)
-    assert len(insumo_adapter.get_distances()) == len(distances)
-    filtered = insumo_adapter.get_distances(h3_ids=["882a100d2bfffff"])
-    assert filtered["h3_o"].tolist() == ["882a100d2bfffff"]
 
 
 def test_insumo_port_contract_metadata_roundtrips(insumo_adapter):

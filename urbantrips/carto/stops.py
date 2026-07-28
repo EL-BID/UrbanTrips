@@ -55,6 +55,14 @@ def upload_stops_table(stops, ctx: StorageContext):
         "node_x",
         "node_y",
     ]
+    # `direction` es una feature nueva (paradas por sentido). Los archivos de
+    # paradas previos a esa feature no la traen (p.ej. stops_amba_2023.csv);
+    # antes había un único sentido por parada. Se defaultea a 0, la dirección
+    # canónica/única del resto del pipeline (misma convención que routes.py
+    # cuando el geojson de recorridos no trae `direction`). Sin esto, el reindex
+    # la crea como NaN y el INSERT viola el NOT NULL de stops.direction.
+    if "direction" not in stops.columns:
+        stops["direction"] = 0
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
 

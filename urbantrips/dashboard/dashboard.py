@@ -31,7 +31,7 @@ from dash_utils import (
     levanto_tabla_sql,
     get_logo,
     traigo_indicadores,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     formatear_columnas_numericas
 )
 
@@ -53,7 +53,7 @@ st.markdown(
 )
 st.text("")
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 
 col1, col2, col3 = st.columns([1, 3, 3])
@@ -95,7 +95,7 @@ def _mostrar(col, titulo, df, ayuda=None, **kwargs):
     if df is None or len(df) == 0:
         col.caption("— sin datos —")
         return
-    col.dataframe(_tabla_indicadores(df, **kwargs), hide_index=True, use_container_width=True)
+    col.dataframe(_tabla_indicadores(df, **kwargs), hide_index=True, width="stretch")
 
 
 if len(indicadores) > 0:

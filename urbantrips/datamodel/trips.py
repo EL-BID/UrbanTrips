@@ -50,17 +50,17 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     # ... dia, JOIN USING(dia, ...); viajes/usuarios agrupan por dia → por día el
     # resultado es bit-idéntico y la RAM se acota a ~1 día).
     #
-    # REBUILD+SWAP en vez de DELETE+INSERT sobre etapas: el patrón anterior
-    # (DELETE WHERE dia + INSERT, día a día sobre la misma tabla) degradaba
-    # progresivamente — con datos idénticos por semana, los scans WHERE dia del
-    # CTAS de factores midieron 56→134→159→207s entre semanas 1→4 (+267%): las
-    # filas borradas sin compactar y la fragmentación por reuso de huecos
-    # encarecen cada lectura siguiente. Acá cada día se APPENDEA a _ut_etapas_new
-    # (tabla fresca, sin índices) y al final un swap atómico la renombra a
-    # etapas. La tabla original queda intacta durante todo el loop (los CTAS
-    # leen de ella a velocidad constante) y la nueva queda clusterizada por día.
-    # Los índices de etapas ya están dropeados (begin_bulk_leg_writes);
-    # end_bulk_leg_writes los recrea sobre la tabla nueva tras el swap.
+    # DAY-SCOPED: los factores de los run-days se computan en _ut_etapas_new (tabla
+    # fresca), y al final se reemplaza SOLO el slice de run-days en etapas (DELETE +
+    # INSERT), dejando los días congelados intactos → O(días de la corrida).
+    # Antes era rebuild+swap de TODA etapas (copiaba los N-2 días congelados) para
+    # evitar la fragmentación del patrón "DELETE WHERE dia + INSERT día a día sobre la
+    # misma tabla", que degradaba 56→207s en 4 semanas RE-PROCESANDO datos idénticos.
+    # Con el congelamiento eso no aplica: cada día se escribe UNA vez (su corrida) y
+    # nunca se re-borra → la fragmentación no se compone. El day-loop deja
+    # _ut_etapas_new ordenado por día → etapas queda dia-clusterizada (append de
+    # bloques por día). etapas no tiene índices (política, ver begin/end_bulk_leg_writes)
+    # → el DELETE+INSERT es append puro sin mantenimiento de ART.
     ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
     ctx.data.execute("CREATE TABLE _ut_etapas_new AS SELECT * FROM etapas LIMIT 0")
 
@@ -77,23 +77,24 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     try:
         _create_trips_day_loop(ctx, dias)
 
-        # Días de otras corridas (si los hay) pasan tal cual a la tabla nueva.
-        # En una corrida fresca copia 0 filas; cuesta un solo scan de etapas.
-        logger.info("  - Copiando días de otras corridas a la tabla nueva...")
-        ctx.data.execute(
-            f"INSERT INTO _ut_etapas_new SELECT * FROM etapas WHERE dia NOT IN ({dias_str})"
-        )
-
-        # Swap atómico: una sola transacción, o queda la etapas vieja o la nueva.
-        logger.info("  - Swap etapas <- _ut_etapas_new...")
-        ctx.data.execute(
-            """
-            BEGIN TRANSACTION;
-            DROP TABLE etapas;
-            ALTER TABLE _ut_etapas_new RENAME TO etapas;
-            COMMIT;
-            """
-        )
+        # Day-scoped: se reescriben SOLO los run-days; los días congelados quedan
+        # INTACTOS. Antes se copiaban los N-2 días congelados a la tabla nueva y se
+        # swapeaba (O(acumulado)); ahora se borra el slice de run-days de etapas y se
+        # re-appendea el nuevo (con factores). El day-loop ya lo dejó ordenado por día
+        # → preserva el dia-clustering (cada corrida appendea sus días como bloque).
+        # etapas no tiene índices (política, ver begin/end_bulk_leg_writes) → el
+        # DELETE+INSERT es append puro sin mantenimiento de ART, no un rebuild.
+        # Atómico: ante error, ROLLBACK deja etapas intacta.
+        logger.info("  - Reemplazo del slice de run-days en etapas <- _ut_etapas_new...")
+        ctx.data.execute("BEGIN TRANSACTION")
+        try:
+            ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+            ctx.data.execute("INSERT INTO etapas SELECT * FROM _ut_etapas_new")
+            ctx.data.execute("COMMIT")
+        except Exception:
+            ctx.data.execute("ROLLBACK")
+            raise
+        ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
     finally:
         ctx.data.execute("SET preserve_insertion_order = true")
 
@@ -270,9 +271,7 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                     AS factor_expansion_linea,
                 bt.factor_expansion_tarjeta_new AS factor_expansion_tarjeta,
                 COALESCE(bt.factor_expansion_original * fe.ratio_etapa * bt.od_base, 0)
-                    AS factor_expansion_etapa,
-                bt.distancia,
-                bt.travel_time_min
+                    AS factor_expansion_etapa
             FROM base_tarjeta bt
             LEFT JOIN factor_etapa fe USING (dia, id_linea)
             LEFT JOIN factor_linea fl USING (dia, id_linea)
@@ -286,16 +285,14 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                 hora, modo, id_linea, id_ramal, interno, genero, tarifa,
                 latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
                 factor_expansion_original, factor_expansion_linea,
-                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-                travel_time_min
+                factor_expansion_tarjeta, factor_expansion_etapa
             )
             SELECT
                 id, batch_id, id_tarjeta, dia, id_viaje, id_etapa, tiempo,
                 hora, modo, id_linea, id_ramal, interno, genero, tarifa,
                 latitud, longitud, h3_o, h3_d, od_validado, etapa_validada,
                 factor_expansion_original, factor_expansion_linea,
-                factor_expansion_tarjeta, factor_expansion_etapa, distancia,
-                travel_time_min
+                factor_expansion_tarjeta, factor_expansion_etapa
             FROM _ut_etapas_fex
             """,
         )
@@ -414,12 +411,35 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
     the dashboard maps (built from etapas). Fix: re-run `--step legs`.
 
     Returns a DataFrame with one row per inconsistent day (empty when OK).
+
+    Se acota a los días de la corrida actual. Los días de corridas previas ya se
+    verificaron en su momento y create_trips los preserva por construcción: copia
+    sus etapas tal cual a la tabla nueva y sólo borra/reinserta `viajes` de los
+    días de la corrida. Sin este filtro el chequeo cuesta un GROUP BY sobre
+    `etapas` entera + FULL OUTER JOIN con `viajes` entera en CADA corrida, o sea
+    proporcional al acumulado y no a lo que se procesó (234s con 7 días).
     """
+    empty = pd.DataFrame(
+        columns=["dia", "viajes_solo_en_etapas", "viajes_solo_en_viajes",
+                 "cant_etapas_distinta"]
+    )
+    run_days = ctx.data.get_run_days()
+    if run_days.empty:
+        return empty
+    dias_str = ", ".join(f"'{d}'" for d in run_days["dia"].tolist())
+
     diff = ctx.data.query(
-        """
+        f"""
         WITH te AS (
             SELECT dia, id_tarjeta, id_viaje, COUNT(*) AS cant_etapas_e
-            FROM etapas GROUP BY 1, 2, 3
+            FROM etapas
+            WHERE dia IN ({dias_str})
+            GROUP BY 1, 2, 3
+        ),
+        tv AS (
+            SELECT dia, id_tarjeta, id_viaje, cant_etapas
+            FROM viajes
+            WHERE dia IN ({dias_str})
         ),
         j AS (
             SELECT COALESCE(te.dia, v.dia) AS dia,
@@ -429,7 +449,7 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
                              AND te.cant_etapas_e != v.cant_etapas
                         THEN 1 ELSE 0 END AS cant_etapas_distinta
             FROM te
-            FULL OUTER JOIN viajes v
+            FULL OUTER JOIN tv v
               ON te.dia = v.dia AND te.id_tarjeta = v.id_tarjeta
              AND te.id_viaje = v.id_viaje
         )
@@ -609,36 +629,13 @@ def rearrange_trip_id_same_od(
     ctx.data.update_leg_trip_ids(df, dia=dia)
 
 
-@duracion
-def compute_trips_travel_time(ctx: StorageContext):
-    """
-    This function reads from legs travel time in gps and stations
-    and computes travel times for trips
-    """
-
-    ctx.data.execute(
-        """
-        INSERT INTO travel_times_legs (dia, id, id_tarjeta, id_etapa, id_viaje, travel_time_min)
-        SELECT e.dia, e.id, e.id_tarjeta, e.id_etapa, e.id_viaje,
-        (COALESCE(tg.travel_time_min, 0) + COALESCE(ts.travel_time_min, 0)) AS tt
-        FROM etapas e
-        JOIN dias_ultima_corrida d ON e.dia = d.dia
-        LEFT JOIN travel_times_gps tg ON e.id = tg.id
-        LEFT JOIN travel_times_stations ts ON e.id = ts.id
-        WHERE e.od_validado = 1
-        AND (tg.travel_time_min IS NOT NULL OR ts.travel_time_min IS NOT NULL)
-        """
-    )
-
-    ctx.data.execute(
-        """
-        INSERT INTO travel_times_trips (dia, id_tarjeta, id_viaje, travel_time_min)
-        SELECT tt.dia, tt.id_tarjeta, tt.id_viaje, SUM(tt.travel_time_min) AS travel_time_min
-        FROM travel_times_legs tt
-        JOIN dias_ultima_corrida d ON tt.dia = d.dia
-        GROUP BY tt.dia, tt.id_tarjeta, tt.id_viaje
-        """
-    )
+# NOTA: `compute_trips_travel_time` fue ELIMINADA (2026-07-27). Sumaba los
+# tiempos de travel_times_gps + travel_times_stations hacia travel_times_legs/
+# _trips, pero no la llamaba nadie desde run_all (código muerto ya catalogado en
+# AUDIT_dayscoping_incremental_20260723.md:62-65, donde además se señala que
+# insertaba sin DELETE previo → duplicaría filas en un re-run). Al eliminarse
+# travel_times_gps quedaba referenciando una tabla inexistente. Quien produce
+# travel_times_legs/_trips es assign_time_distances (datamodel/legs.py).
 
 # NOTA: la antigua `add_distance_and_travel_time` (viajes) fue ELIMINADA
 # (2026-07-17). Recalculaba con compute_od_distances la distancia OD directa del

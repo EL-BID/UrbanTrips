@@ -8,7 +8,7 @@ from dash_utils import (
     get_epsg_m,
     extract_hex_colors_from_cmap,
     levanto_tabla_sql_local,
-    configurar_selector_dia,
+    configurar_selector_corrida,
 )
 
 
@@ -85,7 +85,7 @@ st.set_page_config(layout="wide")
 
 logo = get_logo()
 st.image(logo)
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 # check_config(corrida=alias_seleccionado)
 # st.text(f"Alias seleccionado: {alias_seleccionado}")
 

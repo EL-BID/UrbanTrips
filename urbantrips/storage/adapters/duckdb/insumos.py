@@ -35,8 +35,16 @@ class DuckDBInsumoAdapter:
         self.close()
 
     def _apply_schema(self) -> None:
+        self._migrate_schema()
         for ddl in schema.ALL_TABLES:
             self._conn.execute(ddl)
+
+    def _migrate_schema(self) -> None:
+        # `distancias` se eliminó del esquema el 2026-07-27: no tenía productor
+        # (el cache real de distancias OD es el archivo aparte `od_distances`,
+        # ver carto/compute_distances.py) y quedaba vacía en toda base. Se dropea
+        # acá porque CREATE TABLE IF NOT EXISTS no borra tablas ya creadas.
+        self._conn.execute("DROP TABLE IF EXISTS distancias")
 
     # ── geometry helpers ──────────────────────────────────────────────────────
 
@@ -67,19 +75,6 @@ class DuckDBInsumoAdapter:
     def get_stops(self) -> pd.DataFrame:
         return self._conn.execute("SELECT * FROM stops").fetchdf()
 
-    def get_distances(self, h3_ids: list[str] | None = None) -> pd.DataFrame:
-        if h3_ids:
-            placeholders = ", ".join("?" for _ in h3_ids)
-            query = (
-                f"SELECT * FROM distancias "
-                f"WHERE h3_o IN ({placeholders}) OR h3_d IN ({placeholders})"
-            )
-            params = h3_ids + h3_ids
-        else:
-            query = "SELECT * FROM distancias"
-            params = None
-        return self._conn.execute(query, params).fetchdf()
-
     def get_zones(self) -> gpd.GeoDataFrame:
         # Zone tables are heterogeneous across configs; returns empty until
         # zone storage is standardised in Plan 2.
@@ -99,6 +94,25 @@ class DuckDBInsumoAdapter:
 
     def get_matrix_validation(self) -> pd.DataFrame:
         return self._conn.execute("SELECT * FROM matriz_validacion").fetchdf()
+
+    def get_matriz_paradas(self) -> pd.DataFrame:
+        """Conteos crudos acumulados por (id_linea, id_ramal, parada) y su flag valido.
+
+        Es la evidencia que respalda cada parada candidata: nunca se borra una fila,
+        solo cambia su `valido`. matriz_validacion se deriva de las que tienen valido=1.
+        """
+        try:
+            return self._conn.execute("SELECT * FROM matriz_paradas").fetchdf()
+        except Exception:
+            return pd.DataFrame()
+
+    def get_matriz_paradas_dias(self) -> list[str]:
+        """Días ya sumados a matriz_paradas (evita el doble conteo al reprocesar)."""
+        try:
+            rows = self._conn.execute("SELECT dia FROM matriz_paradas_dias").fetchall()
+        except Exception:
+            return []
+        return [r[0] for r in rows]
 
     def get_travel_times_stations(self) -> pd.DataFrame:
         try:
@@ -127,13 +141,6 @@ class DuckDBInsumoAdapter:
         finally:
             self._conn.unregister("_df")
 
-    def save_distances(self, df: pd.DataFrame) -> None:
-        self._conn.register("_df", df)
-        try:
-            self._conn.execute("INSERT INTO distancias SELECT * FROM _df")
-        finally:
-            self._conn.unregister("_df")
-
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
         # No-op until zone storage is standardised in Plan 2.
         pass
@@ -145,6 +152,33 @@ class DuckDBInsumoAdapter:
             self._conn.execute("INSERT INTO matriz_validacion SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
+
+    def save_matriz_paradas(self, df: pd.DataFrame, dias: list[str]) -> None:
+        """Reemplaza los conteos acumulados y la lista de días incorporados.
+
+        La tabla es chica (~450k filas), así que DELETE+INSERT evita tener que
+        resolver NULLs de id_ramal en un upsert por clave.
+        """
+        self._conn.execute("DELETE FROM matriz_paradas")
+        self._conn.register("_df", df)
+        try:
+            self._conn.execute(
+                "INSERT INTO matriz_paradas "
+                "SELECT id_linea, id_ramal, parada, n_trx, n_gps, valido FROM _df"
+            )
+        finally:
+            self._conn.unregister("_df")
+
+        self._conn.execute("DELETE FROM matriz_paradas_dias")
+        if dias:
+            dias_df = pd.DataFrame({"dia": list(dias)})
+            self._conn.register("_dias", dias_df)
+            try:
+                self._conn.execute(
+                    "INSERT INTO matriz_paradas_dias SELECT dia FROM _dias"
+                )
+            finally:
+                self._conn.unregister("_dias")
 
     def save_travel_times_stations(self, df: pd.DataFrame) -> None:
         self._conn.execute("DELETE FROM travel_times_stations")

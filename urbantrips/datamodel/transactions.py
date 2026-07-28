@@ -408,17 +408,17 @@ def agrego_factor_expansion(trx, ctx: StorageContext):
 
 def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
     """
-    Marca transacciones con geo_valido = 1/0 según si caen
-    dentro del área de estudio. El bbox se obtiene de la tabla
-    zonificaciones (si existe) o del archivo de configuración.
+    Única llave de borrado geográfico de transacciones.
+
+    Marca geo_valido = 1/0 según si caen dentro del área de estudio (bbox de la
+    tabla zonificaciones si existe, si no del archivo de configuración). Luego:
+      - elimina las transacciones fuera del bbox con coordenadas reales;
+      - CONSERVA las de lat/lon == 0 pero con factor_expansion = 0 (inválidas,
+        no ponderan en ninguna métrica);
+      - dropea la columna geo_valido (flag transitorio).
+    Si no hay bbox ni zonificaciones, aborta: no puede filtrar sin área de estudio.
     """
     zonificaciones = ctx.insumos.get_zones()
-    # eliminar trx con 0
-    print("Eliminando transacciones con longitud o latitud igual a cero")
-    n_trx_ = len(trx)
-    print(f"Transacciones antes de eliminar: {len(trx)}")
-    trx = trx.loc[(trx.longitud != 0) & (trx.latitud != 0)]
-    print(f"Transacciones eliminadas: {n_trx_ - len(trx)}")
 
     if len(zonificaciones) > 0:
         minx, miny, maxx, maxy = zonificaciones.total_bounds
@@ -433,11 +433,12 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
                 bbox["maxy"],
             )
         except KeyError:
-            logger.warning(
-                "No se especificó bbox ni zonificaciones. No se puede marcar geo_valido."
+            raise ValueError(
+                "No se especificó 'filtro_latlong_bbox' en configuraciones ni hay "
+                "zonificaciones cargadas. eliminar_trx_fuera_bbox es la única llave "
+                "de borrado geográfico y necesita un bbox del área de estudio para "
+                "filtrar transacciones."
             )
-            trx["geo_valido"] = 1
-            return trx
 
     # aplicar buffer
     buffer_grados = 0.009 * 30
@@ -506,14 +507,21 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
             ctx=ctx,
         )
         agrego_indicador(
-            trx[(trx.geo_valido == 0) | ((trx.latitud == 0) & (trx.longitud == 0))],
-            "Cantidad de transacciones fuera del bounding box",
+            trx[(trx.geo_valido == 0) & (trx.latitud != 0) & (trx.longitud != 0)],
+            "Cantidad de transacciones fuera del bounding box (eliminadas)",
             "transacciones",
             1,
             var_fex="factor_expansion",
             ctx=ctx,
         )
 
+        # lat/lon == 0: se CONSERVAN pero quedan inválidas → factor_expansion = 0
+        # (no ponderan en ninguna métrica). Se setea DESPUÉS de los indicadores
+        # para que el reporte de volumen use el fex original.
+        trx.loc[(trx.latitud == 0) | (trx.longitud == 0), "factor_expansion"] = 0
+
+        # única llave de borrado geográfico: se eliminan las fuera-de-bbox reales;
+        # se conservan las válidas y las lat/lon == 0 (ya con fex=0)
         trx = trx[
             (trx.geo_valido == 1) | ((trx.latitud == 0) & (trx.longitud == 0))
         ].drop(columns=["geo_valido"])
