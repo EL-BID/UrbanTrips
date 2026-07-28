@@ -45,7 +45,8 @@ The library uses **DuckDB** for storage (no database server needed) and **H3** h
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ### With uv
@@ -53,7 +54,8 @@ pip install urbantrips
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install urbantrips
+uv git clone https://github.com/EL-BID/UrbanTrips.git
+uv pip install -e .
 ```
 
 ### With conda (avoids GDAL build issues on some platforms)
@@ -61,7 +63,8 @@ uv pip install urbantrips
 ```bash
 conda create -n urbantrips -c conda-forge python=3.12
 conda activate urbantrips
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ---
