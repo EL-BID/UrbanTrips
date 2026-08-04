@@ -359,7 +359,9 @@ def process_routes_geoms(ctx: StorageContext):
         lines_routes = create_line_geom_from_branches(geojson_data)
 
     else:
-        lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
+        lines_routes = geojson_data.reindex(
+            columns=["id_linea", "direction", "geometry"]
+        )
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 
@@ -484,6 +486,7 @@ def infer_routes_geoms(ctx: StorageContext):
     {filtro}
     """
     etapas = ctx.data.query(q)
+    etapas = etapas.loc[(etapas.longitud != 0) & (etapas.latitud != 0), :]
 
     if etapas.empty:
         logger.info(
@@ -509,7 +512,8 @@ def infer_routes_geoms(ctx: StorageContext):
     if not partes:
         logger.info(
             "infer_routes_geoms: ninguna línea nueva pudo inferirse por lowess — "
-            "se conservan las %d ya existentes.", len(ya_inferidas)
+            "se conservan las %d ya existentes.",
+            len(ya_inferidas),
         )
         return
 
@@ -523,7 +527,8 @@ def infer_routes_geoms(ctx: StorageContext):
     if recorridos_lowess.empty:
         logger.info(
             "infer_routes_geoms: sin geometrías válidas nuevas — "
-            "se conservan las %d ya existentes.", len(ya_inferidas)
+            "se conservan las %d ya existentes.",
+            len(ya_inferidas),
         )
         return
 
