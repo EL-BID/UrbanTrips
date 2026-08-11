@@ -61,6 +61,49 @@ def test_standardize_chunk_produces_transacciones_raw_columns():
     assert expected_cols == set(result.columns)
 
 
+def test_standardize_chunk_keeps_input_id_as_id_original():
+    """El id del archivo de entrada se preserva en id_original (trazabilidad
+    de cada etapa a su fila de origen), no el indice del chunk."""
+    df = make_chunk(3)
+    result = _standardize_chunk(
+        df,
+        nombres_variables=NOMBRES_VARIABLES,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+    )
+    assert list(result["id_original"]) == ["TRX0", "TRX1", "TRX2"]
+
+
+def test_standardize_chunk_id_original_from_float_ids_has_no_decimal_point():
+    """Un id entero leido como float64 (por NaNs en el archivo) no debe quedar
+    como '1.0' en id_original."""
+    df = make_chunk(3)
+    df["id_trx"] = [1.0, 2.0, 3.0]
+    result = _standardize_chunk(
+        df,
+        nombres_variables=NOMBRES_VARIABLES,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+    )
+    assert list(result["id_original"]) == ["1", "2", "3"]
+
+
+def test_standardize_chunk_falls_back_to_index_when_no_id_trx_configured():
+    """Sin id_trx mapeado en el config, id_original cae al indice del chunk."""
+    nombres_sin_id = {k: v for k, v in NOMBRES_VARIABLES.items() if k != "id_trx"}
+    df = make_chunk(3)
+    result = _standardize_chunk(
+        df,
+        nombres_variables=nombres_sin_id,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+    )
+    assert list(result["id_original"]) == ["0", "1", "2"]
+
+
 def test_standardize_chunk_parses_fecha_to_unix_timestamp():
     df = make_chunk(1)
     result = _standardize_chunk(

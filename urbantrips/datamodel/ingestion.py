@@ -30,6 +30,11 @@ def _standardize_chunk(
     if tipo_trx_invalidas:
         df = filtrar_transacciones_invalidas(df, tipo_trx_invalidas)
 
+    # Se decide ACA, por config y no por datos: si se mira chunk por chunk si el
+    # id trae valores, un chunk entero con ids nulos cambiaria de criterio a mitad
+    # de archivo y id_original terminaria mezclando ids reales con indices.
+    id_trx_configurada = bool(nombres_variables.get("id_trx"))
+
     df = renombrar_columnas_tablas(df, nombres_variables, postfijo="_trx")
     if "orden_trx" not in df.columns and "orden" in df.columns:
         df = df.rename(columns={"orden": "orden_trx"})
@@ -90,7 +95,21 @@ def _standardize_chunk(
     df["factor_expansion_raw"] = df[factor_col] if factor_col else 1.0
 
     if "id_original" not in df.columns:
-        df["id_original"] = df.index.astype(str)
+        # renombrar_columnas_tablas deja el id del archivo de entrada en la
+        # columna `id` (viene de nombres_variables_trx["id_trx"]). Preservarlo da
+        # trazabilidad de cada transaccion —y de la etapa que hereda su id— a la
+        # fila del CSV de origen. El indice del chunk queda solo como fallback
+        # para configs sin id_trx mapeado: reinicia por archivo, asi que se
+        # repite entre dias (no importa, nada joinea ni dedupea por id_original).
+        if id_trx_configurada and "id" in df.columns:
+            ids = df["id"]
+            if pd.api.types.is_float_dtype(ids):
+                # pandas lee una columna de enteros con un solo NaN como float64
+                # y astype(str) daria "947242.0" en vez de "947242".
+                ids = ids.astype("Int64")
+            df["id_original"] = ids.astype(str)
+        else:
+            df["id_original"] = df.index.astype(str)
 
     raw_cols = [
         "id_original", "id_tarjeta", "dia", "tiempo", "hora", "modo",

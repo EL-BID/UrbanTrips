@@ -159,3 +159,7 @@ urb_refactor.ipynb
 tools/.smoke_*_snapshot_days.txt
 tools/.smoke_inc_2026_snapshot_days.txt
 tools/.smoke_mza_inc_snapshot_days.txt
+memories/AUDIT_dayscoping_incremental_20260723.md
+memories/DESIGN_etapas_rebuilds_incremental_20260723.md
+memories/HANDOFF_incremental_20260722.md
+memories/PERF_REVIEW.md
