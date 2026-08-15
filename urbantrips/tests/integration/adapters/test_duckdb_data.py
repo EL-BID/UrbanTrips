@@ -257,6 +257,82 @@ def test_update_leg_destinations_from_parquet_es_day_scoped(tmp_path):
     assert res.loc[1, "h3_d"] == a_h3d
 
 
+def test_update_leg_destinations_from_parquet_es_por_dia_y_clusteriza(tmp_path):
+    """Regresión OOM 2026-08-12: el write-back de destinos se arma DÍA POR DÍA (el
+    join del mes entero en una sola sentencia reventaba la RAM con 31 días), leyendo
+    solo el/los parquet de cada día, y deja `etapas` clusterizada por día ascendente
+    — el clustering del que depende el pruning `WHERE dia=X` de todo lo que sigue.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    dias = ["2024-01-01", "2024-01-02", "2024-01-03"]
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    for i, dia in enumerate(dias):
+        legs = _sample_legs()
+        legs["dia"] = dia
+        legs["id"] = [1 + i * 2, 2 + i * 2]
+        adapter.save_legs(legs)
+        # un archivo por día, como los escribe infer_destinations
+        pd.DataFrame({
+            "id": legs["id"],
+            "dia": dia,
+            "h3_d": [f"882a100d{i}afffff", f"882a100d{i}bfffff"],
+            "od_validado": [0, 1],
+            "etapa_validada": [0, 1],
+        }).to_parquet(stage / f"day-{i:04d}.parquet", index=False)
+
+    # una sentencia por día (no una sola con el glob entero)
+    ejecutadas = []
+
+    class _Spy:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, *a, **kw):
+            ejecutadas.append(sql)
+            return self._conn.execute(sql, *a, **kw)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    real = adapter._conn
+    adapter._conn = _Spy(real)
+    try:
+        adapter.update_leg_destinations_from_parquet(str(stage / "*.parquet"))
+    finally:
+        adapter._conn = real
+
+    inserts = [s for s in ejecutadas if "INSERT INTO _ut_dest_new" in s]
+    assert len(inserts) == len(dias), "el llenado debe ser una sentencia por día"
+    for i, (sql, dia) in enumerate(zip(inserts, dias)):
+        assert f"e.dia = '{dia}'" in sql
+        # cada día lee SOLO su archivo, no el glob del stage completo
+        assert f"day-{i:04d}.parquet" in sql
+        assert "*.parquet" not in sql
+
+    res = adapter.get_legs().set_index("id")
+    assert len(res) == 6
+    assert res.loc[1, "h3_d"] == "882a100d0afffff"
+    assert res.loc[6, "od_validado"] == 1
+    assert res.loc[5, "od_validado"] == 0
+
+    # clustering: los días quedan en bloques contiguos y ascendentes
+    orden = adapter._conn.execute("SELECT dia FROM etapas").fetchdf()["dia"]
+    bloques = orden.loc[orden.shift() != orden].tolist()
+    assert bloques == dias, f"clustering por día roto: {bloques}"
+
+    # el toggle de performance no se filtra al resto del pipeline
+    assert adapter._conn.execute(
+        "SELECT current_setting('preserve_insertion_order')"
+    ).fetchone()[0] in (True, "true")
+    # la staging no queda en la DB
+    assert not adapter._conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = '_ut_dest_new'"
+    ).fetchall()
+
+
 def test_replace_legs_for_days_restores_threads_setting(tmp_path):
     from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
 

@@ -15,7 +15,11 @@ without re-running the proc-CTE parity probe):
   clasificar_distancia_agregada(nivel="viaje").
 """
 
+import logging
+
 from urbantrips.utils.utils import VELOCIDAD_MAXIMA_KMH
+
+logger = logging.getLogger(__name__)
 
 # ── shared classification expressions ────────────────────────────────────────
 
@@ -174,8 +178,19 @@ etapas_proc AS (
 # The proc-CTEs join etapas/viajes against travel_times (30.9M / 26.6M rows) and
 # apply the classifier CASEs. The dashboard-prep consumers each scan them several
 # times, so recomputing that join per scan dominates the runtime. These helpers
-# build the proc relations ONCE as DuckDB temp tables (RAM bounded by memory_limit,
-# spills to temp_directory) so every consumer reads pre-joined/classified rows.
+# build the proc relations ONCE y cada consumidor lee filas ya joineadas.
+#
+# TABLAS NORMALES, NO TEMP (fix 2026-08-12). Decían "RAM bounded by memory_limit,
+# spills to temp_directory" — esa premisa es falsa y costó una corrida de 3 h del
+# cliente: una TEMP table vive contra el memory_limit y sus bloques no se evictan
+# como los de una tabla normal, así que materializar el slice de la corrida entera
+# ahí adentro revienta con OutOfMemoryException a escala mes (pasó en
+# update_leg_destinations_from_parquet, que hacía exactamente esto; ver su
+# docstring). Con tablas normales los bloques van al archivo de la DB y el buffer
+# manager los evicta. Costo: el archivo de la DB crece mientras viven; ya se
+# dropean en el `finally` del orquestador (drop_proc_tables) y DuckDB reusa ese
+# espacio. Este paso NUNCA corrió a más de 7 días — la corrida de mes del 21/07 se
+# cortó antes del dashboard.
 
 ETAPAS_PROC_MAT = "etapas_proc_mat"
 VIAJES_PROC_MAT = "viajes_proc_mat"
@@ -194,7 +209,7 @@ def materializar_proc_tables(ctx, replace=False, run_days=None):
     todos los días. El filtro es seguro para diff_time: la window de viajes_proc
     particiona por (dia, id_tarjeta), nunca cruza días.
     """
-    verb = "CREATE OR REPLACE TEMP TABLE" if replace else "CREATE TEMP TABLE IF NOT EXISTS"
+    verb = "CREATE OR REPLACE TABLE" if replace else "CREATE TABLE IF NOT EXISTS"
     where = ""
     if run_days:
         dias = ", ".join("'" + str(d).replace("'", "''") + "'" for d in run_days)
@@ -205,6 +220,13 @@ def materializar_proc_tables(ctx, replace=False, run_days=None):
     ctx.data.execute(
         f"{verb} {VIAJES_PROC_MAT} AS WITH {VIAJES_PROC_CTE} SELECT * FROM viajes_proc{where}"
     )
+    if logger.isEnabledFor(logging.INFO):
+        n_e = ctx.data.query(f"SELECT count(*) AS n FROM {ETAPAS_PROC_MAT}")["n"].iloc[0]
+        n_v = ctx.data.query(f"SELECT count(*) AS n FROM {VIAJES_PROC_MAT}")["n"].iloc[0]
+        logger.info(
+            "[proc_mat] materializado: %s=%d filas, %s=%d filas (%d día(s))",
+            ETAPAS_PROC_MAT, n_e, VIAJES_PROC_MAT, n_v, len(run_days or []),
+        )
 
 
 def proc_mat_days(ctx):

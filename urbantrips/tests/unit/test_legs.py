@@ -46,13 +46,23 @@ def test_crear_viaje_id_acumulada_29min(df_test_id_viaje):
 # --- asignar_id_viaje_etapa_fecha_completa ---
 
 def test_asignar_id_viaje_etapa_fecha_completa(df_test_id_viaje):
+    """El dia es un corte duro: cada dia reinicia la numeracion.
+
+    Los dos dias del fixture tienen los mismos horarios para la tarjeta 1, asi
+    que tienen que dar la misma estructura. Antes del fix de 2026-08-14 el dia 2
+    continuaba la numeracion del dia 1 ([3,3,4,5,5] en vez de [1,1,2,3,3]).
+    """
     trx = df_test_id_viaje.copy().rename(columns={"fecha_dt": "fecha"})
-    result = asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes=120)
-    # With groupby=["id_tarjeta"] trip IDs are continuous across days per card.
-    # card 1: day1=[1,1,2,3,3], day2 (delta=0 extends trip3)=[3,3,4,5,5]
-    # card 2: day1=[1,1], day2 (delta=0 extends trip1)=[1,1]
-    assert (result.id_viaje == [1, 1, 2, 3, 3, 3, 3, 4, 5, 5, 1, 1, 1, 1]).all()
-    assert (result.id_etapa == [1, 2, 1, 1, 2, 3, 4, 1, 1, 2, 1, 2, 3, 4]).all()
+    # se ordena en el test para no depender del sort interno de la funcion
+    result = asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes=120).sort_values(
+        ["dia", "id_tarjeta", "fecha"]
+    )
+    # 08-11: tarjeta 1 [12:00,12:30 | 14:30 | 18:30,19:30], tarjeta 2 [09:30,10:30]
+    # 08-12: idem tarjeta 1; tarjeta 2 [09:30, 09:31]
+    assert result.id_viaje.tolist() == [1, 1, 2, 3, 3, 1, 1,
+                                        1, 1, 2, 3, 3, 1, 1]
+    assert result.id_etapa.tolist() == [1, 2, 1, 1, 2, 1, 2,
+                                        1, 2, 1, 1, 2, 1, 2]
 
 
 # --- asignar_id_viaje_etapa_orden_trx ---
@@ -148,16 +158,16 @@ def test_crear_delta_trx_resets_across_days():
 # --- multi-day correctness contracts ---
 
 def test_multiday_trip_ids_restart_per_day(df_trx_multiday):
-    """id_viaje is continuous per card across days (no longer resets per day).
-    Day 1 starts at 1; day 2 continues from where day 1 left off."""
+    """id_viaje reinicia en 1 en CADA dia. El dia es un corte duro.
+
+    Antes del fix de 2026-08-14 el groupby era solo por id_tarjeta y la
+    numeracion se arrastraba de un dia al siguiente, porque crear_delta_trx deja
+    delta=0 en la primera trx de cada dia y eso hacia invisible la frontera.
+    """
     result = asignar_id_viaje_etapa_fecha_completa(df_trx_multiday.copy(), ventana_viajes=120)
-    # Day 1: trips 1-3 (fixture gaps: 0,45,75min → trip1; 6h → trip2; 90min → trip3)
-    # Day 2: continues from trip 3 (delta=0 from day reset), then trips 4,5
-    # Day 3: continues from trip 5 (delta=0 from day reset), then trips 6,7
-    day1_min = result.loc[result.dia == "2022-08-11"].groupby("id_tarjeta")["id_viaje"].min()
-    assert (day1_min == 1).all(), "First day trips must start at 1"
-    day2_min = result.loc[result.dia == "2022-08-12"].groupby("id_tarjeta")["id_viaje"].min()
-    assert (day2_min > 1).all(), "Subsequent days must continue trip IDs from previous day"
+    for dia in ("2022-08-11", "2022-08-12", "2022-08-13"):
+        minimos = result.loc[result.dia == dia].groupby("id_tarjeta")["id_viaje"].min()
+        assert (minimos == 1).all(), f"{dia}: los viajes deben empezar en 1"
 
 
 def test_multiday_leg_ids_restart_per_trip(df_trx_multiday):
@@ -168,31 +178,40 @@ def test_multiday_leg_ids_restart_per_trip(df_trx_multiday):
 
 
 def test_multiday_trip_count_matches_perday_processing(df_trx_multiday):
-    """With card-level groupby, trips span days and exact window boundaries
-    remain in the current trip. Total unique trips per card: 6."""
-    result = asignar_id_viaje_etapa_fecha_completa(df_trx_multiday.copy(), ventana_viajes=120)
-    total_trips = result.groupby("id_tarjeta")["id_viaje"].max()
-    assert (total_trips == 6).all(), f"Expected 6 trips per card, got: {total_trips.tolist()}"
+    """Procesar N dias juntos da lo mismo que procesarlos de a uno.
+
+    Es el contrato central del fix: el resultado no puede depender de cuantos
+    dias entran en la corrida.
+    """
+    juntos = asignar_id_viaje_etapa_fecha_completa(df_trx_multiday.copy(), ventana_viajes=120)
+    for dia in sorted(df_trx_multiday.dia.unique()):
+        solo = asignar_id_viaje_etapa_fecha_completa(
+            df_trx_multiday[df_trx_multiday.dia == dia].copy(), ventana_viajes=120
+        )
+        a = juntos[juntos.dia == dia].sort_values("id")[["id", "id_viaje", "id_etapa"]]
+        b = solo.sort_values("id")[["id", "id_viaje", "id_etapa"]]
+        assert a.reset_index(drop=True).equals(b.reset_index(drop=True)), (
+            f"{dia}: procesar junto con otros dias cambio el resultado"
+        )
 
 
 def test_multiday_known_trip_structure(df_trx_multiday):
-    """Fixture has 5 trx per (day, card). With card-level groupby, trip IDs are
-    continuous across days. Day 1: [1,1,1,2,2]; day 2 continues from trip 2:
-    [2,3,3,4,4]; day 3 continues from trip 4: [4,5,5,6,6]."""
+    """Fixture: 5 trx por (dia, tarjeta), huecos 0/45/75min, 6h, 90min.
+    Con ventana=120 y corte por dia, TODOS los dias dan [1,1,1,2,2]."""
     result = asignar_id_viaje_etapa_fecha_completa(df_trx_multiday.copy(), ventana_viajes=120)
-    expected = {
-        "2022-08-11": [1, 1, 1, 2, 2],
-        "2022-08-12": [2, 3, 3, 4, 4],
-        "2022-08-13": [4, 5, 5, 6, 6],
-    }
     for (dia, card), group in result.groupby(["dia", "id_tarjeta"]):
         group = group.sort_values(["id_viaje", "id_etapa"])
-        assert group["id_viaje"].tolist() == expected[dia], \
+        assert group["id_viaje"].tolist() == [1, 1, 1, 2, 2], \
             f"Unexpected trip structure for dia={dia}, card={card}"
 
 
-def test_midnight_crossing_trip_stays_unified():
-    """A trip that starts before midnight and continues after should be one trip."""
+def test_midnight_crossing_trip_splits_by_day():
+    """El dia es un corte DURO: un viaje NO cruza la medianoche.
+
+    Decision del usuario (2026-08-14). Antes estos dos taps quedaban en un solo
+    viaje. Ojo: no alcanza con mirar id_viaje —cada dia reinicia en 1, asi que
+    ambos dan 1—; hay que verificar que son viajes DISTINTOS, o sea (dia, id_viaje).
+    """
     df = pd.DataFrame({
         "id": [1, 2],
         "id_tarjeta": ["card_A", "card_A"],
@@ -204,8 +223,32 @@ def test_midnight_crossing_trip_stays_unified():
     df["delta"] = (df["fecha"] - df["hora_shift"]).dt.total_seconds().fillna(0).astype(int)
 
     result = asignar_id_viaje_etapa_fecha_completa(df, ventana_viajes=90)
-    # Both legs should be in trip 1 — 25-minute gap is within 90-minute window
-    assert result["id_viaje"].tolist() == [1, 1]
+    assert result.groupby(["dia", "id_viaje"]).ngroups == 2, \
+        "las dos etapas deben quedar en viajes distintos, uno por dia"
+    assert result["id_etapa"].tolist() == [1, 1], \
+        "cada una es la primera etapa de su propio viaje"
+
+
+def test_trip_ids_ignore_days_outside_the_run_window():
+    """Taps de dias MUY separados nunca pueden caer en el mismo viaje.
+
+    Reproduccion del bug de 2026-08-14: con delta=0 en la primera trx de cada dia
+    y groupby solo por tarjeta, dos taps separados por SIETE DIAS terminaban en el
+    mismo viaje.
+    """
+    filas = []
+    for dia in ("2026-03-09", "2026-03-16"):
+        for hhmm in ("08:00:00", "08:20:00", "18:00:00"):
+            filas.append({"id_tarjeta": "CARD_A", "dia": dia,
+                          "fecha": pd.Timestamp(f"{dia} {hhmm}")})
+    df = pd.DataFrame(filas)
+    df = crear_delta_trx(df)
+
+    result = asignar_id_viaje_etapa_fecha_completa(df, ventana_viajes=60)
+    d1 = result[result.dia == "2026-03-09"].sort_values("fecha")
+    d2 = result[result.dia == "2026-03-16"].sort_values("fecha")
+    assert d1["id_viaje"].tolist() == d2["id_viaje"].tolist() == [1, 1, 2]
+    assert d1["id_etapa"].tolist() == d2["id_etapa"].tolist() == [1, 2, 1]
 
 
 def test_assign_gps_origin_uses_narrow_sql_reads(monkeypatch):

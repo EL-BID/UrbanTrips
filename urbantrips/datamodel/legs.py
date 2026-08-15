@@ -498,13 +498,34 @@ def asignar_id_viaje_etapa_fecha_completa(trx, ventana_viajes):
     # turn into seconds
     ventana_viajes = ventana_viajes * 60
 
-    trx = trx.sort_values(["id_tarjeta", "fecha"])
+    # El dia es un corte DURO: ningun viaje cruza la medianoche (decision del
+    # usuario, 2026-08-14). Por eso `dia` va en el sort y en los dos groupby.
+    #
+    # Sin `dia` la secuencia de la tarjeta se recorria a traves de todos los dias
+    # de la corrida, y como crear_delta_trx pone delta=0 en la primera trx de cada
+    # dia (no hay anterior DENTRO del dia -> fillna(0)), la frontera del dia se
+    # volvia invisible: el algoritmo leia "pasaron 0 segundos" y pegaba el primer
+    # tap del dia N+1 al ultimo viaje del dia N, sin importar el hueco real. Con
+    # eso el cruce de medianoche "funcionaba" por accidente y se colaba cualquier
+    # otra cosa: en la reproduccion minima, taps separados por SIETE DIAS quedaron
+    # en el mismo viaje.
+    #
+    # Medido sobre AMBA marzo (28 dias, ver documentacion/memorias/
+    # discrepancia-viajes-mes-vs-semanas.md): la primera hora de cada dia se
+    # absorbia en el viaje anterior, id_viaje no reiniciaba (max por dia 19 -> 58
+    # en 7 dias, -> 229 en 28) y sobraban ~1.028.947 viajes (+0,49 %) por ~2 M de
+    # etapas que quedaban sueltas. El dia 1 de cada corrida salia bien, por eso las
+    # corridas semanales lo enmascaraban y solo aparecio al correr el mes entero.
+    #
+    # Mismo defecto que 645f2e0 arreglo en rearrange_trip_id_same_od; aca, que es
+    # donde NACE id_viaje, habia quedado.
+    trx = trx.sort_values(["dia", "id_tarjeta", "fecha"])
 
     # Calcular los id_viajes
-    trx["id_viaje"] = trx.groupby(["id_tarjeta"])["delta"].transform(
+    trx["id_viaje"] = trx.groupby(["dia", "id_tarjeta"])["delta"].transform(
         lambda s: _trip_ids_from_deltas(s.to_numpy(dtype=np.float64), ventana_viajes)
     )
-    lista = ["id_tarjeta", "id_viaje"]
+    lista = ["dia", "id_tarjeta", "id_viaje"]
     trx["id_etapa"] = trx.groupby(lista).cumcount() + 1
     return trx
 
@@ -514,7 +535,12 @@ def asignar_id_viaje_etapa_orden_trx(trx):
     Esta funcion toma un DF de trx y asigna id_viaje y id_etapa
     en base al dia, hora y orden_trx
     """
+    # `dia` en todos los sort y groupby: el dia es un corte duro (ver la nota en
+    # asignar_id_viaje_etapa_fecha_completa). El docstring de arriba ya decia "en
+    # base al dia" pero `dia` no aparecia en ninguna clave. Ademas `tiempo` es
+    # HH:MM:SS sin fecha, asi que ordenar por el mezclaba los dias entre si.
     variables_secuencia = [
+        "dia",
         "id_tarjeta",
         "tiempo",
         "hora",
@@ -523,20 +549,20 @@ def asignar_id_viaje_etapa_orden_trx(trx):
         "id_linea",
     ]
     trx = trx.sort_values(variables_secuencia)
-    trx["secuencia"] = trx.groupby(["id_tarjeta"]).cumcount() + 1
+    trx["secuencia"] = trx.groupby(["dia", "id_tarjeta"]).cumcount() + 1
 
     trx["nro_viaje_temp"] = trx.secuencia - trx["orden_trx"]
 
-    temp = trx.groupby(["id_tarjeta", "nro_viaje_temp"]).size().reset_index()
-    temp["id_viaje"] = temp.groupby(["id_tarjeta"]).cumcount() + 1
-    temp = temp.reindex(columns=["id_tarjeta", "nro_viaje_temp", "id_viaje"])
+    temp = trx.groupby(["dia", "id_tarjeta", "nro_viaje_temp"]).size().reset_index()
+    temp["id_viaje"] = temp.groupby(["dia", "id_tarjeta"]).cumcount() + 1
+    temp = temp.reindex(columns=["dia", "id_tarjeta", "nro_viaje_temp", "id_viaje"])
 
-    trx = trx.merge(temp, on=["id_tarjeta", "nro_viaje_temp"], how="left")
+    trx = trx.merge(temp, on=["dia", "id_tarjeta", "nro_viaje_temp"], how="left")
     trx = trx.drop(["secuencia", "nro_viaje_temp"], axis=1)
 
-    sort = ["id_tarjeta", "id_viaje", "hora", "orden_trx"]
+    sort = ["dia", "id_tarjeta", "id_viaje", "hora", "orden_trx"]
     trx = trx.sort_values(sort)
-    g = ["id_tarjeta", "id_viaje"]
+    g = ["dia", "id_tarjeta", "id_viaje"]
     trx["id_etapa"] = trx.groupby(g).cumcount() + 1
 
     return trx

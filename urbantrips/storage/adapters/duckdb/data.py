@@ -607,30 +607,6 @@ class DuckDBDataAdapter:
         finally:
             self._conn.unregister("_dest_updates")
 
-    @staticmethod
-    def _rebuild_memory_limit():
-        """Temporary DuckDB memory_limit for the etapas rebuild, adapted to whatever
-        machine this runs on. DuckDB spills to disk past the limit (it never OOM-
-        crashes on it), so the ONLY risk is setting it ABOVE physically-free RAM.
-        We therefore take a fraction of the RAM AVAILABLE right now, keep an OS
-        reserve, and never drop below the pinned 25%-of-RAM default: a big idle
-        machine gets a faster rebuild, a small or busy one just stays at the safe
-        default (worst case = more spill, never a crash). Returns None (→ caller
-        leaves the current limit untouched) if psutil is unavailable.
-        """
-        try:
-            import psutil
-
-            vm = psutil.virtual_memory()
-            # Decimal GB throughout, to match the pinned "25% of RAM" default exactly.
-            reserve = min(6e9, vm.total * 0.25)   # 6 GB, or 25% on tiny machines
-            floor = vm.total * 0.25               # the pinned default; never go below it
-            budget = min(vm.available * 0.6, vm.total - reserve)
-            gb = max(int(budget / 1e9), int(floor / 1e9), 2)
-            return f"{gb}GB"
-        except Exception:
-            return None
-
     def update_leg_destinations_from_parquet(self, parquet_glob: str) -> None:
         """Write the destination columns back for the RUN's days (day-scoped rewrite).
 
@@ -640,26 +616,53 @@ class DuckDBDataAdapter:
         `etapas` (O(acumulado)) para actualizar 3 columnas de destino de solo los
         run-days: la reescritura del slice congelado era puro costo que crecía con lo
         acumulado. Ahora se reescribe SOLO el slice de run-days (derivados del parquet):
-        se materializa el slice actualizado ORDER BY dia y se hace DELETE+INSERT de
-        esos días. Resultado BIT-IDÉNTICO (COALESCE deja igual las columnas sin fila
-        staged; los congelados ni se tocan) y O(días de la corrida).
+        se materializa el slice actualizado y se hace DELETE+INSERT de esos días.
+        Resultado BIT-IDÉNTICO (COALESCE deja igual las columnas sin fila staged; los
+        congelados ni se tocan) y O(días de la corrida).
 
         Se sigue evitando `UPDATE ... FROM` (DuckDB lo degrada a DELETE+INSERT fila por
         fila que mantiene los índices ART). Acá el bulk DELETE+INSERT del slice es un
         append: `etapas` no tiene índices secundarios (política 2026-07-18, ver
-        begin/end_bulk_leg_writes) → sin mantenimiento ART. El ORDER BY dia mantiene el
-        clustering por día (cada corrida appendea sus días como bloque contiguo, y las
-        corridas procesan días ascendentes) → el zonemap sigue podando `WHERE dia=X`
-        downstream. Atómico: DELETE+INSERT en una transacción; ante error, ROLLBACK
-        deja `etapas` intacta. El guard de row-count aborta antes de tocar nada.
+        begin/end_bulk_leg_writes) → sin mantenimiento ART. Atómico: DELETE+INSERT en
+        una transacción; ante error, ROLLBACK deja `etapas` intacta. El guard de
+        row-count aborta antes de tocar nada.
+
+        LA STAGING SE LLENA DÍA POR DÍA (fix OOM 2026-08-12). Antes era UNA sentencia
+        `CREATE TEMP TABLE ... LEFT JOIN read_parquet(<glob del mes>) ... ORDER BY dia`,
+        cuyo pico de RAM escalaba con los DÍAS DE LA CORRIDA, no con el día más grande:
+        el build del join eran las etapas de todos los run-days (infer stagea TODAS las
+        etapas del día, no solo las imputadas → ~250M filas a escala mes) y la salida
+        otras ~250M × 24 columnas, en una TEMP table (que vive contra el memory_limit,
+        a diferencia de una tabla normal). 7 días entraban; 31 reventaron con
+        OutOfMemoryException. Ahora, igual que `create_trips_from_legs_and_fex` (el otro
+        reescritor de `etapas`, validado a escala mes): tabla staging NORMAL (no TEMP)
+        llenada con un INSERT por día → el join es de un día (~10M filas) y el pico es
+        O(1 día) para cualquier largo de corrida. El `ORDER BY dia` ya no hace falta:
+        el clustering por día lo da el propio loop (cada día se appendea como bloque
+        contiguo, en orden ascendente) → el zonemap sigue podando `WHERE dia=X`
+        downstream. Tampoco se toca el `memory_limit`: la operación ya entra en el
+        límite configurado por el operador.
         """
         glob_sql = parquet_glob.replace("'", "''")
-        # run-days = días presentes en el parquet staged (infer stagea solo run-days)
-        dias = self._conn.execute(
-            f"SELECT DISTINCT dia FROM read_parquet('{glob_sql}')"
-        ).fetchdf()["dia"].tolist()
-        if not dias:
+        # run-days = días presentes en el parquet staged (infer stagea solo run-days).
+        # Ordenados: el loop appendea días ascendentes → mismo clustering que el
+        # ORDER BY dia de antes, y el mismo criterio que create_trips.
+        #
+        # Se mapea día → archivo(s) en esta única pasada. Filtrar el glob por día
+        # dentro del loop (`WHERE dia = X`) NO poda: DuckDB abre igual los N archivos
+        # en cada iteración (medido con EXPLAIN ANALYZE: "Total Files Read: 8" con el
+        # filtro puesto), o sea N pasadas sobre el stage entero. Leyendo solo los
+        # archivos del día el pruning es exacto y no depende de estadísticas.
+        staged = self._conn.execute(
+            f"SELECT DISTINCT dia, filename "
+            f"FROM read_parquet('{glob_sql}', filename=true) ORDER BY dia"
+        ).fetchdf()
+        if staged.empty:
             return
+        files_por_dia = {
+            dia: grp["filename"].tolist() for dia, grp in staged.groupby("dia")
+        }
+        dias = sorted(files_por_dia)
         dias_str = ", ".join(f"'{d}'" for d in dias)
 
         n_before = self._conn.execute(
@@ -675,33 +678,58 @@ class DuckDBDataAdapter:
             for c in _ETAPAS_COLUMNS
         )
 
-        prev_mem = self._conn.execute(
-            "SELECT current_setting('memory_limit')"
-        ).fetchone()[0]
-        bump = self._rebuild_memory_limit()
-        if bump:
-            self._conn.execute(f"PRAGMA memory_limit='{bump}'")
         try:
-            # slice de run-days con los destinos mergeados, ORDER BY dia (clustering)
             self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
             self._conn.execute(
-                f"CREATE TEMP TABLE _ut_dest_new AS "
-                f"SELECT {select_cols} FROM etapas e "
-                f"LEFT JOIN read_parquet('{glob_sql}') u "
-                f"ON e.id = u.id AND e.dia = u.dia "
-                f"WHERE e.dia IN ({dias_str}) "
-                f"ORDER BY e.dia"
+                f"CREATE TABLE _ut_dest_new AS SELECT {cols} FROM etapas LIMIT 0"
             )
+            # preserve_insertion_order=true (default) serializa el INSERT...SELECT
+            # para emitir las filas en orden de origen. En el LLENADO ningún orden
+            # intra-día importa (cada día es su propia sentencia → queda como bloque
+            # contiguo igual), así que se desactiva para paralelizar escritura y
+            # compresión de row-groups. OJO: se restaura ANTES del swap — con el flag
+            # en false el `INSERT INTO etapas SELECT ... FROM _ut_dest_new` lee la
+            # staging en paralelo y emite los chunks fuera de orden, INTERCALANDO los
+            # días en `etapas` y matando el clustering del que depende el pruning por
+            # `WHERE dia=X` de todo lo que viene después (medido: los días salían
+            # 07,08,04,05,06,01,02,03).
+            prev_order = self._conn.execute(
+                "SELECT current_setting('preserve_insertion_order')"
+            ).fetchone()[0]
+            self._conn.execute("SET preserve_insertion_order = false")
+            try:
+                for dia in dias:
+                    # El día acota AMBOS lados: en `etapas` el probe (zonemap por dia)
+                    # y en el parquet el BUILD del hash join — que es lo que reventaba,
+                    # porque el build era el mes entero. El `WHERE u.dia` queda igual
+                    # como red de seguridad si un archivo trajera más de un día.
+                    files = ", ".join(
+                        "'" + f.replace("'", "''") + "'" for f in files_por_dia[dia]
+                    )
+                    self._conn.execute(
+                        f"INSERT INTO _ut_dest_new ({cols}) "
+                        f"SELECT {select_cols} FROM etapas e "
+                        f"LEFT JOIN (SELECT * FROM read_parquet([{files}]) "
+                        f"           WHERE dia = '{dia}') u "
+                        f"ON e.id = u.id AND e.dia = u.dia "
+                        f"WHERE e.dia = '{dia}'"
+                    )
+            finally:
+                self._conn.execute(
+                    f"SET preserve_insertion_order = "
+                    f"{'true' if prev_order in (True, 'true', 1) else 'false'}"
+                )
+
             n_after = self._conn.execute(
                 "SELECT count(*) FROM _ut_dest_new"
             ).fetchone()[0]
             if n_after != n_before:
-                self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
                 raise RuntimeError(
                     f"etapas day-scoped rebuild row-count mismatch "
                     f"({n_after} != {n_before}); aborted, etapas left intact"
                 )
             # swap del slice, atómico: borrar run-days y re-appendear los actualizados
+            # (en orden de la staging = días ascendentes → clustering por día)
             self._conn.execute("BEGIN TRANSACTION")
             try:
                 self._conn.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
@@ -712,10 +740,10 @@ class DuckDBDataAdapter:
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise
-            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
         finally:
-            if bump:
-                self._conn.execute(f"PRAGMA memory_limit='{prev_mem}'")
+            # La staging se dropea también si algo falló: es recomputable y ocupa
+            # ~un slice de etapas en disco.
+            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
 
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         """Persist legs to DuckDB via parquet staging to avoid Arrow-registration

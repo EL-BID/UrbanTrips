@@ -67,36 +67,45 @@ def create_trips_from_legs_and_fex(ctx: StorageContext):
     dias = sorted(dias_ultima_corrida["dia"].tolist())
     # preserve_insertion_order=true (default) serializa los INSERT...SELECT para
     # emitir las filas en orden de origen: el reemplazo de etapas escribía con
-    # ~2 de 20 cores (medido a escala mes: 259s/día de los ~360s del día). Acá
-    # ningún orden intra-día importa — el clustering por día que #0 necesita lo
-    # da la propia estructura del loop (cada día se appendea como bloque en su
-    # transacción) — así que se desactiva para paralelizar escritura/compresión
-    # de row-groups, y se restaura SIEMPRE al salir: la Fase 2 sí depende del
-    # ORDER BY batch_id de sus INSERTs.
+    # ~2 de 20 cores (medido a escala mes: 259s/día de los ~360s del día). En el
+    # DAY-LOOP ningún orden importa — cada día es su propia sentencia, así que queda
+    # como bloque contiguo igual — así que ahí se desactiva para paralelizar
+    # escritura/compresión de row-groups.
+    #
+    # PERO SE RESTAURA ANTES DEL SWAP (fix 2026-08-12). El `INSERT INTO etapas SELECT
+    # * FROM _ut_etapas_new` es UNA sentencia sobre una tabla de N días: con el flag
+    # en false DuckDB la lee en paralelo y emite los chunks fuera de orden,
+    # INTERCALANDO los días en `etapas` (medido en el gemelo de esta operación,
+    # update_leg_destinations_from_parquet: los días salían 07,08,04,05,06,01,02,03).
+    # Eso rompe el dia-clustering del que depende el pruning `WHERE dia=X` de todo lo
+    # que sigue (compute_kpi, chains, dashboard), que es lo que hace que el costo de
+    # una corrida vaya con SUS días y no con lo acumulado. No se manifestaba con
+    # threads=1.
     ctx.data.execute("SET preserve_insertion_order = false")
     try:
         _create_trips_day_loop(ctx, dias)
-
-        # Day-scoped: se reescriben SOLO los run-days; los días congelados quedan
-        # INTACTOS. Antes se copiaban los N-2 días congelados a la tabla nueva y se
-        # swapeaba (O(acumulado)); ahora se borra el slice de run-days de etapas y se
-        # re-appendea el nuevo (con factores). El day-loop ya lo dejó ordenado por día
-        # → preserva el dia-clustering (cada corrida appendea sus días como bloque).
-        # etapas no tiene índices (política, ver begin/end_bulk_leg_writes) → el
-        # DELETE+INSERT es append puro sin mantenimiento de ART, no un rebuild.
-        # Atómico: ante error, ROLLBACK deja etapas intacta.
-        logger.info("  - Reemplazo del slice de run-days en etapas <- _ut_etapas_new...")
-        ctx.data.execute("BEGIN TRANSACTION")
-        try:
-            ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
-            ctx.data.execute("INSERT INTO etapas SELECT * FROM _ut_etapas_new")
-            ctx.data.execute("COMMIT")
-        except Exception:
-            ctx.data.execute("ROLLBACK")
-            raise
-        ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
     finally:
+        # la Fase 2 también depende del ORDER BY batch_id de sus INSERTs
         ctx.data.execute("SET preserve_insertion_order = true")
+
+    # Day-scoped: se reescriben SOLO los run-days; los días congelados quedan
+    # INTACTOS. Antes se copiaban los N-2 días congelados a la tabla nueva y se
+    # swapeaba (O(acumulado)); ahora se borra el slice de run-days de etapas y se
+    # re-appendea el nuevo (con factores). El day-loop ya lo dejó ordenado por día
+    # → preserva el dia-clustering (cada corrida appendea sus días como bloque).
+    # etapas no tiene índices (política, ver begin/end_bulk_leg_writes) → el
+    # DELETE+INSERT es append puro sin mantenimiento de ART, no un rebuild.
+    # Atómico: ante error, ROLLBACK deja etapas intacta.
+    logger.info("  - Reemplazo del slice de run-days en etapas <- _ut_etapas_new...")
+    ctx.data.execute("BEGIN TRANSACTION")
+    try:
+        ctx.data.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+        ctx.data.execute("INSERT INTO etapas SELECT * FROM _ut_etapas_new")
+        ctx.data.execute("COMMIT")
+    except Exception:
+        ctx.data.execute("ROLLBACK")
+        raise
+    ctx.data.execute("DROP TABLE IF EXISTS _ut_etapas_new")
 
     n_etapas = ctx.data.query(
         f"SELECT COUNT(*) AS n FROM etapas WHERE dia IN ({dias_str})"
