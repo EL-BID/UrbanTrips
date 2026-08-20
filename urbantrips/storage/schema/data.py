@@ -327,6 +327,38 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line (
 )
 """
 
+# Mismo contenido que kpi_by_day_line pero abierto por ramal. Se escribe solo
+# cuando `lineas_contienen_ramales` es True. Tabla aparte y no una columna más en
+# kpi_by_day_line porque esa la consumen varios módulos que agregan por línea.
+KPI_BY_DAY_BRANCH = """
+CREATE TABLE IF NOT EXISTS kpi_by_day_branch (
+    id_linea              BIGINT NOT NULL,
+    id_ramal              BIGINT,
+    dia                   TEXT NOT NULL,
+    tot_veh               INT,
+    tot_km_route                FLOAT,
+    tot_km_route_gps            FLOAT,
+    tot_pax               FLOAT,
+    dmt_mean_od           FLOAT,
+    dmt_mean_route        FLOAT,
+    dmt_mean_route_gps    FLOAT,
+    dmt_median_od         FLOAT,
+    dmt_median_route      FLOAT,
+    dmt_median_route_gps  FLOAT,
+    pvd                   FLOAT,
+    kvd_route                   FLOAT,
+    kvd_route_gps               FLOAT,
+    ipk_route             FLOAT,
+    ipk_route_gps         FLOAT,
+    fo_mean_od            FLOAT,
+    fo_mean_route         FLOAT,
+    fo_mean_route_gps     FLOAT,
+    fo_median_od          FLOAT,
+    fo_median_route       FLOAT,
+    fo_median_route_gps   FLOAT
+)
+"""
+
 KPI_BY_DAY_LINE_SERVICE = """
 CREATE TABLE IF NOT EXISTS kpi_by_day_line_service (
     id_linea              BIGINT NOT NULL,
@@ -449,5 +481,5 @@ ALL_TABLES = [
     TRANSACCIONES_LINEA, TARJETAS_DUPLICADAS, OCUPACION_POR_LINEA_TRAMO,
     OVERLAPPING_BY_ROUTE,
     SERVICES_GPS_POINTS, SERVICES, SERVICES_STATS,
-    KPI_BY_DAY_LINE, KPI_BY_DAY_LINE_SERVICE,
+    KPI_BY_DAY_LINE, KPI_BY_DAY_BRANCH, KPI_BY_DAY_LINE_SERVICE,
 ]

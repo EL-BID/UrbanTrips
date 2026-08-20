@@ -108,7 +108,28 @@ Para cada etapa, la librería busca el siguiente tap-on de la misma tarjeta y en
 
 ### Líneas y ramales
 
-Una línea puede tener múltiples ramales (variantes de recorrido). Con `lineas_contienen_ramales: True`, la imputación considera las paradas de todos los ramales de una línea, no solo el ramal registrado en la transacción. Esto permite manejar sistemas de metro (donde los egresos no siempre se registran por ramal) y redes de buses donde el ramal registrado puede ser poco confiable.
+Una línea puede tener múltiples ramales (variantes de recorrido). `lineas_contienen_ramales: True` tiene dos efectos:
+
+1. **Imputación de destinos**: se consideran las paradas de todos los ramales de una línea, no solo el ramal registrado en la transacción. Esto permite manejar sistemas de metro (donde los egresos no siempre se registran por ramal) y redes de buses donde el ramal registrado puede ser poco confiable.
+2. **Indicadores por ramal**: además de los KPI por línea se calculan los mismos indicadores abiertos por ramal, en las tablas `kpi_by_day_branch` (base `_data`) y `kpis_ramales` (base `_general`), y el dashboard habilita el selector de ramal. Con `False` esas tablas no se generan: sin ramales reales `id_ramal` es un relleno y serían una copia de las de líneas.
+
+Al leer indicadores por ramal, tener en cuenta que **la cantidad de vehículos no es sumable entre ramales**: un interno que sirve dos ramales cuenta en los dos, así que sumar los ramales de una línea da más vehículos que la línea. Las transacciones y los kilómetros sí suman.
+
+### Indicadores operativos
+
+Los KPI se calculan por línea y día en `kpis_lineas`, y el dashboard los agrega según los filtros elegidos (día, tipo de día, modo, línea, ramal). Tres cosas a tener en cuenta al leerlos:
+
+**Las tres distancias.** Cada indicador de distancia se calcula sobre tres bases distintas, y el dashboard las muestra por separado:
+
+| sufijo | qué mide |
+|---|---|
+| `_od` | camino mínimo entre origen y destino de la etapa sobre la red. Describe el desplazamiento del pasajero: no tiene velocidad comercial, IPK ni kilómetros de oferta. |
+| `_route` | recorrido del vehículo reconstruido sumando los tramos entre pings GPS sucesivos. |
+| `_route_gps` | distancia de servicio informada por el propio equipo GPS (odómetro). **No todos los insumos la traen**: si `distance_route_gps` llega en cero, esa familia queda vacía. |
+
+**Vehículos operativos vs. vehículos con transacciones.** El primero cuenta internos con al menos un servicio GPS válido (oferta observada); el segundo, los que registraron pagos. Difieren cuando un modo no reporta GPS —típicamente subte y ferrocarril—, y por eso el dashboard muestra ambos junto con la **cobertura GPS**, que sirve además como control de calidad del insumo. Un guion significa "sin dato", no cero.
+
+**Los cocientes no se suman.** Al agregar de línea a total de sistema, los indicadores que son ratios (IPK, velocidad comercial, factor de ocupación, distancias medias) se promedian ponderando **por su propio denominador** — kilómetros para el IPK, vehículos para la distancia por vehículo, transacciones para las distancias del pasajero. La velocidad comercial se calcula como kilómetros totales sobre horas totales. Sumar o promediar estos indicadores a mano sobre la tabla exportada da resultados incorrectos, sobre todo mezclando modos.
 
 ---
 

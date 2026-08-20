@@ -176,6 +176,18 @@ def compute_kpi(ctx: StorageContext):
     )
     if gps_present and has_valid_legs:
         _delete_run_days_from(ctx, "kpi_by_day_line")
+        # El KPI por ramal solo se calcula si la red tiene ramales reales: con
+        # lineas_contienen_ramales=False `id_ramal` es un relleno y la tabla
+        # sería una copia exacta de la de líneas.
+        from urbantrips.utils import utils as _utils
+
+        try:
+            _cfg = _utils.leer_configs_generales(autogenerado=False)
+            con_ramales = bool(_cfg.get("lineas_contienen_ramales", False))
+        except Exception:
+            con_ramales = False
+        if con_ramales:
+            _delete_run_days_from(ctx, "kpi_by_day_branch")
         any_line_day = False
         for i, dia in enumerate(dias, 1):
             logger.info("[compute_kpi por línea/día] día %d/%d (%s)", i, len(dias), dia)
@@ -183,6 +195,8 @@ def compute_kpi(ctx: StorageContext):
             if (len(legs) > 0) & (len(gps) > 0):
                 # compute KPI per line and date (append only; el DELETE ya se hizo)
                 compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx, clear_days=False)
+                if con_ramales:
+                    compute_kpi_by_branch_day(legs=legs, ctx=ctx, clear_days=False)
                 any_line_day = True
             del legs, gps
             gc.collect()
@@ -670,7 +684,7 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
     gps = ctx.data.query(q)
 
     q = f"""
-        SELECT e.dia, e.id_linea, e.interno, e.id_tarjeta, e.h3_o,
+        SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.id_tarjeta, e.h3_o,
             e.h3_d, e.factor_expansion_linea,
             tt.travel_time_min, tt.distance_od, tt.distance_route,
             tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
@@ -685,6 +699,148 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
         logger.info("No hay datos sin KPI procesados")
         return pd.DataFrame(), pd.DataFrame()
     return legs, gps
+
+
+def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
+    """Demanda + oferta agregadas por `entidad` + día.
+
+    `entidad` son las columnas que definen la unidad de análisis: `["id_linea"]`
+    para el KPI por línea, `["id_linea", "id_ramal"]` para el KPI por ramal. El
+    cálculo es idéntico en los dos casos —misma demanda desde `etapas`, misma
+    oferta desde `services WHERE valid = 1`—, solo cambia el nivel de agregación,
+    así que vive en una sola función para que las dos vistas no se desincronicen.
+
+    Devuelve None si no hay demanda válida.
+    """
+    claves = entidad + ["dia"]
+
+    # demand data
+    legs_valid = legs.dropna(subset=["distance_od", "factor_expansion_linea"])
+    if len(legs_valid) == 0:
+        logger.info("No hay etapas con distancia OD válida; no se calculan KPI de demanda")
+        return None
+
+    day_stats = (
+        legs_valid
+        .groupby(claves)
+        .apply(demand_stats, include_groups=False)
+        .reset_index()
+    )
+
+    # supply: read from services filtered to valid=1 (no expansion factor)
+    _cols_sel = ", ".join(["dia"] + entidad)
+    services_data = ctx.data.query(
+        f"SELECT {_cols_sel}, interno, distance_route, distance_route_gps"
+        f" FROM services WHERE valid = 1 AND dia IN ({dias_in})"
+    )
+    services_tot_veh = (
+        services_data
+        .groupby(claves, as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "tot_veh"})
+    )
+    services_tot_km = (
+        services_data
+        .groupby(claves, as_index=False)
+        .agg(
+            tot_km_route=("distance_route", "sum"),
+            tot_km_route_gps=("distance_route_gps", "sum"),
+        )
+        .round(2)
+    )
+    return (
+        day_stats
+        .merge(services_tot_veh, on=claves, how="left")
+        .merge(services_tot_km, on=claves, how="left")
+    )
+
+
+def _kpi_ratios_y_orden(day_stats, entidad):
+    """Ratios derivados (pvd, kvd, ipk, fo) y proyección final ordenada.
+
+    Compartido por el KPI por línea y por ramal para que las dos vistas usen
+    exactamente las mismas fórmulas.
+    """
+    # Safe division: replace 0 with NaN in denominators
+    tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
+    tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
+    tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
+
+    day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
+    day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
+    day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
+
+    day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
+    day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
+
+    # EKD y FO para las tres distancias
+    day_stats["ekd_mean_od"] = day_stats.tot_pax * day_stats.dmt_mean_od
+    day_stats["ekd_mean_route"] = day_stats.tot_pax * day_stats.dmt_mean_route
+    day_stats["ekd_mean_route_gps"] = day_stats.tot_pax * day_stats.dmt_mean_route_gps
+    day_stats["ekd_median_od"] = day_stats.tot_pax * day_stats.dmt_median_od
+    day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
+    day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
+
+    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
+    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
+
+    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
+    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
+    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_route_gps
+    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
+    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko_route
+    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_route_gps
+
+    cols = entidad + [
+        "dia",
+        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
+        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
+        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
+        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
+        "fo_median_od", "fo_median_route", "fo_median_route_gps",
+    ]
+    day_stats = day_stats.reindex(columns=cols)
+
+    ratio_cols = [
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
+        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
+        "fo_median_od", "fo_median_route", "fo_median_route_gps",
+    ]
+    for col in ratio_cols:
+        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
+    day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
+    return day_stats
+
+
+@duracion
+def compute_kpi_by_branch_day(legs, ctx: StorageContext, clear_days=True):
+    """KPI por línea, **ramal** y día, en la tabla `kpi_by_day_branch`.
+
+    Misma demanda y misma oferta que `compute_kpi_by_line_day`, un nivel más
+    abajo. Se calcula solo cuando `lineas_contienen_ramales` está en True: sin
+    ramales reales `id_ramal` es un relleno y la tabla sería una copia de la de
+    líneas.
+
+    Va a una tabla aparte a propósito: `kpi_by_day_line` la consumen varios
+    módulos que agregan por línea, y meterle una dimensión más cambiaría todos
+    esos resultados.
+    """
+    dias_presentes = [str(d) for d in pd.unique(legs["dia"])]
+    dias_in = ", ".join(f"'{d}'" for d in dias_presentes) or "''"
+
+    day_stats = _kpi_stats_por_claves(legs, ctx, dias_in, ["id_linea", "id_ramal"])
+    if day_stats is None:
+        return
+
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea", "id_ramal"])
+
+    if clear_days:
+        dias_ultima_corrida = ctx.data.get_run_days()
+        values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+        ctx.data.execute(f"DELETE FROM kpi_by_day_branch WHERE dia IN ({values})")
+
+    ctx.data.append_raw(day_stats, "kpi_by_day_branch")
 
 
 @duracion
@@ -727,97 +883,11 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     )
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
-    # demand data
-    legs_valid = legs.dropna(subset=["distance_od", "factor_expansion_linea"])
-    if len(legs_valid) == 0:
-        logger.info("No hay etapas con distancia OD válida; no se calculan KPI de demanda")
+    day_stats = _kpi_stats_por_claves(legs, ctx, dias_in, ["id_linea"])
+    if day_stats is None:
         return
 
-    day_demand_stats = (
-        legs_valid
-        .groupby(["id_linea", "dia"])
-        .apply(demand_stats, include_groups=False)
-        .reset_index()
-    )
-    day_stats = day_demand_stats.copy()
-        
-    # supply: read from services filtered to valid=1 (no expansion factor)
-    services_data = ctx.data.query(
-        f"SELECT dia, id_linea, interno, distance_route, distance_route_gps"
-        f" FROM services WHERE valid = 1 AND dia IN ({dias_in})"
-    )
-    services_tot_veh = (
-        services_data
-        .groupby(["dia", "id_linea"], as_index=False)["interno"]
-        .nunique()
-        .rename(columns={"interno": "tot_veh"})
-    )
-    services_tot_km = (
-        services_data
-        .groupby(["dia", "id_linea"], as_index=False)
-        .agg(
-            tot_km_route=("distance_route", "sum"),
-            tot_km_route_gps=("distance_route_gps", "sum"),
-        )
-        .round(2)
-    )
-    day_stats = (
-        day_stats
-        .merge(services_tot_veh, on=["dia", "id_linea"], how="left")
-        .merge(services_tot_km, on=["dia", "id_linea"], how="left")
-    )
-
-    # Safe division: replace 0 with NaN in denominators
-    tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
-    tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
-    tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
-
-    # compute KPI
-    day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
-    day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
-    day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
-    
-    day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
-    day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
-
-    # EKD y FO para las tres distancias
-    day_stats["ekd_mean_od"] = day_stats.tot_pax * day_stats.dmt_mean_od
-    day_stats["ekd_mean_route"] = day_stats.tot_pax * day_stats.dmt_mean_route
-    day_stats["ekd_mean_route_gps"] = day_stats.tot_pax * day_stats.dmt_mean_route_gps
-    day_stats["ekd_median_od"] = day_stats.tot_pax * day_stats.dmt_median_od
-    day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
-    day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
-
-    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
-    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
-
-    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
-    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
-    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_route_gps
-    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
-    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko_route
-    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_route_gps
-
-    cols = [
-        "id_linea", "dia",
-        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
-        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
-        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-    ]
-
-    day_stats = day_stats.reindex(columns=cols)
-
-    ratio_cols = [
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-    ]
-    for col in ratio_cols:
-        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
-    day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea"])
 
     # get last processed days
     if clear_days:

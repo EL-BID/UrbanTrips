@@ -127,6 +127,10 @@ data/db-alpha/
 !urbantrips/tests/fixtures/**
 
 # ── Project: temporary & generated files ─────────────────────────────────────
+# Logs de corridas. `*.log` (más arriba) cubre los del pipeline, pero el
+# directorio guarda además los stdout/stderr .txt de cada corrida lanzada
+# en background, así que se ignora entero.
+logs/
 etapas_tmp_1
 etapas_tmp_2
 dead_code_analysis.md

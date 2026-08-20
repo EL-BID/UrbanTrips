@@ -26,7 +26,7 @@ from urbantrips.geo.geo import (
     normalizo_lat_lon,
     point_to_h3,
 )
-from urbantrips.kpi.kpi_lineas import calculo_kpi_lineas
+from urbantrips.kpi.kpi_lineas import calculo_kpi_lineas, calculo_kpi_ramales
 from urbantrips.preparo_dashboard.aggregation import (  # noqa: F401 — re-exported
     agg_matriz,
     agrego_lineas,
@@ -1787,6 +1787,14 @@ def preparo_indicadores_dash(
 
         if kpis:
             kpis = calculo_kpi_lineas(ctx)
+            # vista por ramal: solo si la red tiene ramales reales
+            try:
+                _cfg = leer_configs_generales(autogenerado=False)
+                _con_ramales = bool(_cfg.get("lineas_contienen_ramales", False))
+            except Exception:
+                _con_ramales = False
+            if _con_ramales:
+                calculo_kpi_ramales(ctx)
     finally:
         drop_proc_tables(ctx)
 

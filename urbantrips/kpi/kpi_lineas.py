@@ -16,19 +16,69 @@ def _sql_in_values(values):
     return ", ".join(f"'{value}'" for value in escaped)
 
 
-def _delete_kpis_lineas_if_exists(ctx: StorageContext, dias):
+def _alinear_esquema_kpis_lineas(ctx: StorageContext, df, tabla="kpis_lineas") -> None:
+    """Alinea `tabla` al esquema de `df` antes de insertar.
+
+    `append_raw` hace `INSERT INTO t SELECT * FROM df`, que exige que la tabla
+    tenga exactamente las mismas columnas y en el mismo orden. Al agregar
+    columnas nuevas (`tot_km_route_gps`, `kvd_route_gps`) una corrida
+    incremental sobre una base ya escrita fallaría con un mismatch.
+
+    Se reconstruye la tabla proyectada al esquema nuevo: las columnas que ya
+    existían se conservan con sus datos, las nuevas quedan en NULL para los
+    días viejos, y las que el df ya no produce se descartan. Es no-op cuando el
+    esquema coincide, que es el caso normal.
+    """
+    try:
+        info = ctx.general.query(f"SELECT * FROM {tabla} LIMIT 0")
+    except Exception as exc:
+        if "does not exist" in str(exc) or "not found" in str(exc).lower():
+            return  # tabla nueva: la crea append_raw con el esquema del df
+        raise
+
+    existentes = list(info.columns)
+    nuevas = list(df.columns)
+    # sin columnas la tabla no existe todavía (algunos adapters devuelven un df
+    # vacío en vez de lanzar): la crea append_raw con el esquema del df
+    if not existentes or existentes == nuevas:
+        return
+
+    proyeccion = ", ".join(
+        f'"{c}"' if c in existentes else f'CAST(NULL AS DOUBLE) AS "{c}"'
+        for c in nuevas
+    )
+    logger.info(
+        "Migrando esquema de %s: %s -> %s columnas (nuevas: %s)",
+        tabla, len(existentes), len(nuevas), sorted(set(nuevas) - set(existentes)),
+    )
+    ctx.general.execute(
+        f"CREATE OR REPLACE TABLE {tabla}_mig AS SELECT {proyeccion} FROM {tabla}"
+    )
+    ctx.general.execute(f"DROP TABLE {tabla}")
+    ctx.general.execute(f"ALTER TABLE {tabla}_mig RENAME TO {tabla}")
+
+
+def _delete_kpis_lineas_if_exists(ctx: StorageContext, dias, tabla="kpis_lineas"):
     if len(dias) == 0:
         return
 
     dias_str = _sql_in_values(dias)
     try:
-        ctx.general.execute(f"DELETE FROM kpis_lineas WHERE dia IN ({dias_str})")
+        ctx.general.execute(f"DELETE FROM {tabla} WHERE dia IN ({dias_str})")
     except Exception as exc:
         if "does not exist" not in str(exc):
             raise
 
 
-def cal_velocidad_comercial(servicios):
+def cal_velocidad_comercial(servicios, entidad=None):
+    """Velocidades comerciales y distancia media por vehículo.
+
+    `entidad` son las columnas que definen la unidad de análisis:
+    `["id_linea"]` (default) o `["id_linea", "id_ramal"]` para la vista por
+    ramal. El cálculo es el mismo, solo cambia el nivel de agregación.
+    """
+    entidad = entidad or ["id_linea"]
+    _g = ["dia"] + entidad
     # Conversión de columnas a datetime
     servicios["min_datetime"] = pd.to_datetime(servicios["min_datetime"])
     servicios["max_datetime"] = pd.to_datetime(servicios["max_datetime"])
@@ -52,39 +102,13 @@ def cal_velocidad_comercial(servicios):
     # Extraer hora de finalización del servicio
     servicios["hour"] = servicios["max_datetime"].dt.hour
 
-    # Velocidad comercial por línea y ramal en hora pico AM
     filtro_pico_am = (servicios["diff_minutes"] < 180) & (
         servicios["hour"].between(6, 10)
     )
-    vel_comercial_linea_ramal_pico = (
-        servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_vc_cols]
-        .mean()
-        .round(1)
-    )
 
-    # Distancia media recorrida por vehículo en ramal
-    km_recorridos_ramal = (
-        servicios.groupby(["dia", "id_linea", "id_ramal", "interno"], as_index=False)[
-            _dist_cols
-        ]
-        .sum()
-        .groupby(["dia", "id_linea", "id_ramal"], as_index=False)[_dist_cols]
-        .mean()
-        .rename(columns={
-            "distance_route": "distancia_media_veh_route",
-            "distance_route_gps": "distancia_media_veh_route_gps",
-        })
-        .round(1)
-    )
-
-    vel_comercial_linea_ramal_pico = vel_comercial_linea_ramal_pico.merge(
-        km_recorridos_ramal, how="left"
-    )
-
-    # Velocidad comercial total por línea (todo el día)
+    # Velocidad comercial total (todo el día)
     vel_comercial_linea_all = (
-        servicios.groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
+        servicios.groupby(_g, as_index=False)[_vc_cols]
         .mean()
         .round(1)
     )
@@ -92,7 +116,7 @@ def cal_velocidad_comercial(servicios):
     # Velocidad comercial AM
     vel_comercial_linea_am = (
         servicios[filtro_pico_am]
-        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
+        .groupby(_g, as_index=False)[_vc_cols]
         .mean()
         .round(1)
         .rename(columns={
@@ -107,7 +131,7 @@ def cal_velocidad_comercial(servicios):
     )
     vel_comercial_linea_pm = (
         servicios[filtro_pico_pm]
-        .groupby(["dia", "id_linea"], as_index=False)[_vc_cols]
+        .groupby(_g, as_index=False)[_vc_cols]
         .mean()
         .round(1)
         .rename(columns={
@@ -121,11 +145,12 @@ def cal_velocidad_comercial(servicios):
         vel_comercial_linea_am, how="left"
     ).merge(vel_comercial_linea_pm, how="left")
 
-    # Distancia media recorrida por vehículo (total)
+    # Distancia media recorrida por vehículo: primero km por vehículo, después
+    # el promedio entre vehículos de la entidad
     km_recorridos_linea = (
-        servicios.groupby(["dia", "id_linea", "interno"], as_index=False)[_dist_cols]
+        servicios.groupby(_g + ["interno"], as_index=False)[_dist_cols]
         .sum()
-        .groupby(["dia", "id_linea"], as_index=False)[_dist_cols]
+        .groupby(_g, as_index=False)[_dist_cols]
         .mean()
         .rename(columns={
             "distance_route": "distancia_media_veh_route",
@@ -139,7 +164,16 @@ def cal_velocidad_comercial(servicios):
     return vel_comercial_linea
 
 
-def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None):
+def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=None):
+    """Insumos para `agrego_lineas`, agregados al nivel de `entidad`.
+
+    `entidad` es `["id_linea"]` (default) o `["id_linea", "id_ramal"]`. En el
+    segundo caso la flota, la velocidad comercial y los KPI de demanda se leen
+    y agregan por ramal: los KPI vienen de `kpi_by_day_branch`, que escribe
+    `compute_kpi_by_branch_day` cuando `lineas_contienen_ramales` es True.
+    """
+    entidad = entidad or ["id_linea"]
+    por_ramal = "id_ramal" in entidad
 
     # Only the columns used below — gps and transacciones are the two largest
     # tables in the run; loading them whole multiplies peak RSS. `dias` acota
@@ -158,8 +192,9 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None):
         ["id_linea", "nombre_linea", "empresa"]
     ].drop_duplicates()
 
+    _tabla_kpi = "kpi_by_day_branch" if por_ramal else "kpi_by_day_line"
     try:
-        kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
+        kpis = ctx.data.query(f"SELECT * FROM {_tabla_kpi}{_where}")
     except Exception:
         kpis = pd.DataFrame()
 
@@ -174,13 +209,13 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None):
     gps["dia"] = gps["fecha"].dt.strftime("%Y-%m-%d")
 
     flota = (
-        gps.groupby(["dia", "id_linea"], as_index=False)
+        gps.groupby(["dia"] + entidad, as_index=False)
         .size()
         .rename(columns={"size": "flota"})
     )
 
     # Cálculo de velocidad comercial
-    vel_comercial_linea = cal_velocidad_comercial(servicios)
+    vel_comercial_linea = cal_velocidad_comercial(servicios, entidad=entidad)
 
     # Procesamiento de transacciones
 
@@ -273,18 +308,29 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         .rename(columns={"size": "cant_internos_en_gps"})
     )
 
-    # Agregado de servicios válidos
+    # Agregado de servicios válidos.
+    # `distance_route_gps` (odómetro del equipo) se suma igual que
+    # `distance_route` (recorrido reconstruido ping a ping) para poder guardar
+    # `tot_km_route_gps`: sin ese total no hay forma de agregar correctamente
+    # los ratios de la familia _route_gps (hay que ponderarlos por sus propios
+    # km). Ojo: no todos los insumos traen odómetro — en AMBA 2026-05-14 llega
+    # en 0,0 para los 142.494 servicios válidos, y entonces toda la familia
+    # queda en cero.
+    _serv_aggs = {"interno": "count", "distance_route": "sum", "min_ts": "sum"}
+    _serv_ren = {
+        "interno": "cant_servicios",
+        "distance_route": "serv_distance_route",
+        "min_ts": "serv_min_ts",
+    }
+    if "distance_route_gps" in servicios.columns:
+        _serv_aggs["distance_route_gps"] = "sum"
+        _serv_ren["distance_route_gps"] = "serv_distance_route_gps"
+
     serv_agg = (
         servicios[servicios.valid == 1]
         .groupby(cols, as_index=False)
-        .agg({"interno": "count", "distance_route": "sum", "min_ts": "sum"})
-        .rename(
-            columns={
-                "interno": "cant_servicios",
-                "distance_route": "serv_distance_route",
-                "min_ts": "serv_min_ts",
-            }
-        )
+        .agg(_serv_aggs)
+        .rename(columns=_serv_ren)
     )
 
     # Merge de todos los datasets
@@ -330,6 +376,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
 
     # tot_km_route: solo km de servicios con valid=1
     all["tot_km_route"] = all["serv_distance_route"]
+    # idem para la familia _route_gps (odómetro). Si el insumo no lo trae, la
+    # columna queda en NaN y toda su familia de indicadores se muestra vacía.
+    # Tiene que ser una Serie float y no un escalar pd.NA: un pd.NA escalar deja
+    # la columna en dtype object y el astype(float) de más abajo revienta.
+    all["tot_km_route_gps"] = (
+        all["serv_distance_route_gps"]
+        if "serv_distance_route_gps" in all.columns
+        else pd.Series(np.nan, index=all.index, dtype="float64")
+    )
 
     # tot_veh sincronizado con vehiculos_operativos corregido
     all["tot_veh"] = all["vehiculos_operativos"]
@@ -338,15 +393,24 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
     all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(1)
     all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(1)
+    # los mismos ratios sobre los km del odómetro, para que las dos familias de
+    # recorrido sean simétricas y comparables
+    all["kvd_route_gps"] = (
+        all["tot_km_route_gps"] / all["tot_veh"].replace(0, pd.NA)
+    ).round(1)
+    all["ipk_route_gps"] = (
+        all["tot_pax"] / all["tot_km_route_gps"].replace(0, pd.NA)
+    ).round(1)
+
+    # `id_ramal` solo aparece cuando se está agregando por ramal (cols lo trae)
+    _id_cols = ["dia", "mes", "id_linea"]
+    if "id_ramal" in cols:
+        _id_cols.append("id_ramal")
+    _id_cols += ["nombre_linea", "empresa", "modo"]
 
     all = all[
-        [
-            "dia",
-            "mes",
-            "id_linea",
-            "nombre_linea",
-            "empresa",
-            "modo",
+        _id_cols
+        + [
             "transacciones",
             "Femenino",
             "Masculino",
@@ -369,6 +433,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "distancia_media_veh_route",
             "distancia_media_veh_route_gps",
             "tot_km_route",
+            "tot_km_route_gps",
             "distancia_media_pax",
             "dmt_mean_od",
             "dmt_mean_route",
@@ -378,6 +443,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "dmt_median_route_gps",
             "pvd",
             "kvd_route",
+            "kvd_route_gps",
             "ipk_route",
             "ipk_route_gps",
             "fo_mean_od",
@@ -389,13 +455,14 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         ]
     ]
 
-    for i in ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"]:
+    # los identificadores van como texto (id_ramal incluido cuando está), el
+    # resto a numérico. id_ramal llega como float por ser nullable: pasa por
+    # Int64 para que no quede "1234.0".
+    if "id_ramal" in all.columns:
+        all["id_ramal"] = pd.to_numeric(all["id_ramal"], errors="coerce").astype("Int64")
+    for i in _id_cols:
         all[i] = all[i].fillna("").astype(str)
-    lista = [
-        x
-        for x in all.columns.tolist()
-        if x not in ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"]
-    ]
+    lista = [x for x in all.columns.tolist() if x not in _id_cols]
     for i in lista:
         if i in [
             "transacciones",
@@ -408,7 +475,10 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         ]:
             all[i] = all[i].fillna(0).astype(int)
         else:
-            all[i] = all[i].astype(float).round(1)
+            # to_numeric y no astype(float): una columna que quedó entera en
+            # nulos (p. ej. la familia _route_gps cuando el insumo no trae
+            # odómetro) llega con dtype object y NAType, y astype(float) falla
+            all[i] = pd.to_numeric(all[i], errors="coerce").astype(float).round(1)
 
     return all
 
@@ -433,6 +503,7 @@ def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     # re-appendear (3631 vs 3223 filas). Borrarla acá deja la lectura limpia.
     dias = kpis.dia.unique().tolist()
     _delete_kpis_lineas_if_exists(ctx, dias + ["Promedios"])
+    _alinear_esquema_kpis_lineas(ctx, kpis)
     ctx.general.append_raw(kpis, "kpis_lineas")
 
     df = ctx.general.get_raw("kpis_lineas")
@@ -449,5 +520,71 @@ def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     all_dias = df.dia.unique().tolist()
     _delete_kpis_lineas_if_exists(ctx, all_dias)
     ctx.general.append_raw(df, "kpis_lineas")
+
+    return df
+
+
+@duracion
+def calculo_kpi_ramales(ctx: StorageContext):
+    """Igual que `calculo_kpi_lineas` pero abierto por ramal, en `kpis_ramales`.
+
+    Solo se ejecuta si `lineas_contienen_ramales` está en True; con ramales
+    ficticios la tabla sería una copia de la de líneas. Los KPI de demanda
+    (dmt, fo, ipk, pvd) salen de `kpi_by_day_branch`, que escribe
+    `compute_kpi_by_branch_day` bajo la misma condición: si esa tabla no está,
+    esas columnas quedan vacías y se avisa.
+    """
+    from urbantrips.preparo_dashboard.sql_queries import (
+        materializar_proc_tables, ETAPAS_PROC_MAT, proc_mat_days,
+    )
+
+    entidad = ["id_linea", "id_ramal"]
+    materializar_proc_tables(ctx)
+    dias_mat = proc_mat_days(ctx)
+
+    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(
+        ctx, dias=dias_mat, entidad=entidad
+    )
+    if "id_ramal" not in kpis_varios.columns:
+        logger.warning(
+            "No hay KPI por ramal (falta kpi_by_day_branch); "
+            "kpis_ramales va a quedar sin los indicadores de demanda"
+        )
+
+    kpis = agrego_lineas(
+        ["dia"] + entidad, trx, None, gps, servicios, kpis_varios, lineas,
+        etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+    )
+
+    # nombre del ramal, si la metadata lo tiene
+    try:
+        ramales = ctx.insumos.get_metadata_ramales()
+        if "nombre_ramal" in ramales.columns:
+            ramales = ramales[["id_ramal", "nombre_ramal"]].drop_duplicates("id_ramal")
+            ramales["id_ramal"] = (
+                pd.to_numeric(ramales["id_ramal"], errors="coerce")
+                .astype("Int64").astype(str)
+            )
+            kpis = kpis.merge(ramales, on="id_ramal", how="left")
+            kpis["nombre_ramal"] = kpis["nombre_ramal"].fillna("")
+    except Exception as exc:
+        logger.info("Sin metadata de ramales (%s); se sigue sin nombre_ramal", exc)
+
+    dias = kpis.dia.unique().tolist()
+    _delete_kpis_lineas_if_exists(ctx, dias + ["Promedios"], tabla="kpis_ramales")
+    _alinear_esquema_kpis_lineas(ctx, kpis, tabla="kpis_ramales")
+    ctx.general.append_raw(kpis, "kpis_ramales")
+
+    df = ctx.general.get_raw("kpis_ramales")
+    _claves = [c for c in ["id_linea", "id_ramal", "nombre_linea", "nombre_ramal",
+                           "empresa", "modo"] if c in df.columns]
+    tot = df.drop(["dia", "mes"], axis=1).groupby(_claves, as_index=False).mean()
+    tot["dia"] = "Promedios"
+    tot["mes"] = ""
+    df = pd.concat([df, tot], ignore_index=True)
+
+    all_dias = df.dia.unique().tolist()
+    _delete_kpis_lineas_if_exists(ctx, all_dias, tabla="kpis_ramales")
+    ctx.general.append_raw(df, "kpis_ramales")
 
     return df
