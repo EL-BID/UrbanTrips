@@ -156,7 +156,10 @@ docs/validacion_refactor/documento_metodologico_cliente.docx
 docs/validacion_refactor/drill_imputacion.py
 docs/validacion_refactor/informe_refactor_dia9.html
 docs/validacion_refactor/tren_rootcause.py
-tools/audit_indices.py
+# A/B de un solo uso: lleva adentro una COPIA LITERAL de la version vieja de
+# process_services, asi que envejece con cada cambio a services.py. Su resultado
+# esta en el changelog (2026-08-26); el script no se mantiene.
+tools/ab_services_batching.py
 urb_refactor.ipynb
 # Snapshots locales de tools/verifica_smoke_incremental.py (estado de la máquina,
 # uno por alias de base). Los .parquet ya los cubre *.parquet más arriba.

@@ -1,3 +1,4 @@
+import gc
 import logging
 import pandas as pd
 import geopandas as gpd
@@ -6,6 +7,102 @@ from urbantrips.utils.utils import duracion
 from urbantrips.storage.context import StorageContext
 
 logger = logging.getLogger(__name__)
+
+# Columnas de `gps` que services.py realmente usa. Antes se leia `SELECT g.*` y a
+# escala mes eso costaba ~400 B/fila (~42 GB con 105M pings): la tabla tiene 5
+# columnas TEXT y en pandas cada una es un `str` de Python por fila. `id_original`,
+# `id_servicio`, `velocity`, `distance_servicio_mts_agg` y `h3` no se usan en ningun
+# lado de este modulo; `h3` e `id_original` son ademas las dos mas anchas. Proyectar
+# baja la fila a ~170 B.
+GPS_COLS = [
+    "id", "dia", "id_linea", "id_ramal", "interno", "fecha",
+    "service_type", "distance_km", "distance_servicio_mts",
+]
+# Solo el camino con `utilizar_servicios_gps: False` arma el GeoDataFrame de puntos.
+GPS_COLS_GEO = ["latitud", "longitud"]
+
+# Filas de gps por lote de lineas. A ~170 B/fila son ~0,85 GB de pandas por lote
+# (~2,5 GB de pico contando las copias de DuckDB y Arrow). Override:
+# `services_gps_batch_rows` en configs/tuning.yaml.
+SERVICES_GPS_BATCH_ROWS = 5_000_000
+
+
+def _services_batch_rows() -> int:
+    """Filas de gps por lote (tuning.yaml `services_gps_batch_rows`)."""
+    try:
+        val = utils.leer_configs_tuning().get("services_gps_batch_rows")
+        if val:
+            return max(1, int(val))
+    except Exception as e:
+        logger.debug("services_gps_batch_rows ilegible: %s", e)
+    return SERVICES_GPS_BATCH_ROWS
+
+
+def _gps_scope_sql(line_ids_str, run_days=None, batch_lines=None) -> str:
+    """FROM/WHERE que delimita que puntos gps entran a servicios.
+
+    Dos ramas, que NO deben unificarse:
+
+    - pipeline (`line_ids_str` None y hay `run_days`): solo los dias de la corrida.
+      El borrado en `delete_old_services_data` tambien va por `run_days`, asi que
+      alcanza con releer eso. Antes un anti-join contra `services_stats` escaneaba
+      el gps ACUMULADO entero y re-clasificaba todo (3.4x).
+    - interactivo (`line_ids_str`): anti-join sobre lo aun no procesado, sin acotar
+      por dia. Ahi el borrado es `WHERE id_linea IN (...)` (TODOS los dias de esa
+      linea), asi que acotar la lectura a `run_days` borraria historia de servicios
+      sin regenerarla.
+
+    `batch_lines` es ortogonal a las dos: acota el lote de lineas que se lee de una
+    vez, sin cambiar que dias entran.
+    """
+    if line_ids_str is None and run_days:
+        dias = ", ".join(f"'{d}'" for d in run_days)
+        scope = f"FROM gps g WHERE g.dia IN ({dias})"
+    else:
+        scope = """FROM gps g
+            LEFT JOIN services_stats ss
+            ON g.id_linea = ss.id_linea AND g.dia = ss.dia
+            WHERE ss.id_linea IS NULL"""
+        if line_ids_str is not None:
+            scope += f" AND g.id_linea IN ({line_ids_str})"
+
+    if batch_lines is not None:
+        batch_str = ", ".join(map(str, batch_lines))
+        scope += f" AND g.id_linea IN ({batch_str})"
+
+    return scope
+
+
+def _line_batches(counts: pd.DataFrame, max_rows: int) -> list:
+    """Agrupa lineas en lotes de a lo sumo `max_rows` filas de gps.
+
+    `counts` trae (id_linea, n) ordenado por id_linea; el empaquetado es secuencial
+    y deterministico. Una linea que sola supera el tope va en su propio lote: la
+    linea es la unidad indivisible porque `process_line_services` clasifica sobre
+    la traza completa de la linea.
+    """
+    batches, current, current_rows = [], [], 0
+    for row in counts.itertuples(index=False):
+        n = int(row.n)
+        if n > max_rows:
+            if current:
+                batches.append(current)
+                current, current_rows = [], 0
+            logger.warning(
+                "La linea %s tiene %s puntos gps, por encima del lote de %s: "
+                "se procesa sola",
+                row.id_linea, f"{n:,}", f"{max_rows:,}",
+            )
+            batches.append([row.id_linea])
+            continue
+        if current_rows + n > max_rows and current:
+            batches.append(current)
+            current, current_rows = [], 0
+        current.append(row.id_linea)
+        current_rows += n
+    if current:
+        batches.append(current)
+    return batches
 
 
 def gps_service_distances_to_km(gps_points):
@@ -74,13 +171,50 @@ def process_services(ctx: StorageContext, line_ids=None):
         else:
             logger.info("Descargando paradas y puntos gps para todas las lineas")
 
-        gps_points, stops = get_stops_and_gps_data(ctx, line_ids_str, run_days=run_days)
+        # Se lee POR LOTES DE LINEAS en vez de todo el gps de la corrida de una vez:
+        # a escala mes (105M pings) un solo DataFrame son decenas de GB y el proceso
+        # muere por OOM. Cortar por linea es equivalente porque la clasificacion ya
+        # agrupa por ["dia", "id_ramal", "interno"] dentro de cada linea, y mantiene
+        # la granularidad de escritura de siempre (un append por linea).
+        gps_exists = ctx.data.query("SELECT 1 AS gps_exists FROM gps LIMIT 1")
+        if gps_exists.empty:
+            logger.warning(
+                "La tabla gps no tiene registros. Asegurese de tener datos gps y "
+                "correr datamodel.transactions.process_and_upload_gps_table()"
+            )
+            return
 
-        if gps_points is None:
+        scope = _gps_scope_sql(line_ids_str, run_days=run_days)
+        counts = ctx.data.query(
+            f"SELECT g.id_linea AS id_linea, count(*) AS n {scope} "
+            "GROUP BY 1 ORDER BY 1"
+        )
+        if counts.empty:
             logger.info("Todos los puntos gps ya fueron procesados en servicios")
-        else:
-            logger.info("Clasificando puntos gps en servicios")
-            gps_points.groupby("id_linea").apply(process_line_services, stops=stops, ctx=ctx)
+            return
+
+        batches = _line_batches(counts, _services_batch_rows())
+        logger.info(
+            "Clasificando puntos gps en servicios: %s lineas, %s puntos, %d lote(s)",
+            f"{len(counts):,}", f"{int(counts['n'].sum()):,}", len(batches),
+        )
+
+        # El GeoDataFrame de paradas no depende del lote: se arma una sola vez.
+        all_stops_gdf = build_stops_gdf(ctx) if not configs["utilizar_servicios_gps"] else None
+
+        for i, batch in enumerate(batches, 1):
+            logger.info("Servicios: lote %d/%d (%d lineas)", i, len(batches), len(batch))
+            gps_points, stops = get_stops_and_gps_data(
+                ctx, line_ids_str, run_days=run_days,
+                batch_lines=batch, all_stops_gdf=all_stops_gdf,
+            )
+            if gps_points is None or gps_points.empty:
+                continue
+            gps_points.groupby("id_linea").apply(
+                process_line_services, stops=stops, ctx=ctx
+            )
+            del gps_points, stops
+            gc.collect()
 
 
 def delete_old_services_data(ctx: StorageContext, line_ids_str, run_days=None):
@@ -103,16 +237,48 @@ def delete_old_services_data(ctx: StorageContext, line_ids_str, run_days=None):
         ctx.data.execute(q)
 
 
-def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
+def build_stops_gdf(ctx: StorageContext):
+    """GeoDataFrame de paradas (solo nodos) de TODAS las lineas, en `epsg_m`.
+
+    Se arma una sola vez por corrida y se reusa en cada lote de lineas: antes se
+    reconstruia (dedup + `to_crs`) en cada llamada a `get_stops_and_gps_data`, que
+    con la lectura por lotes pasaria a ser una vez por lote.
+    """
+    configs = utils.leer_configs_generales(autogenerado=False)
+    all_stops = ctx.insumos.get_stops()
+    if all_stops.empty:
+        logger.warning(
+            "No existe la tabla stops. Asegurese de tener datos de "
+            "stops y correr carto.stops.create_stops_table()"
+        )
+        return all_stops
+
+    # use only nodes as stops
+    stops = all_stops.drop_duplicates(subset=["id_linea", "id_ramal", "node_id"])
+    stops = gpd.GeoDataFrame(
+        stops,
+        geometry=gpd.GeoSeries.from_xy(
+            x=stops.node_x, y=stops.node_y, crs="EPSG:4326"
+        ),
+        crs="EPSG:4326",
+    )
+    return stops.to_crs(epsg=configs["epsg_m"])
+
+
+def get_stops_and_gps_data(
+    ctx: StorageContext, line_ids_str, run_days=None,
+    batch_lines=None, all_stops_gdf=None,
+):
     """
     Download gps data and stops for all lines or a specified set of line ids.
 
-    En el pipeline (line_ids_str None) se leen solo los `run_days` (day-scoped): antes
-    un anti-join `gps LEFT JOIN services_stats WHERE ss IS NULL` escaneaba el gps
-    ACUMULADO entero y, tras el wipe total, re-clasificaba todo (3.4×). Con el borrado
-    por run_days ya hecho en delete_old_services_data, alcanza con leer ese gps.
+    El scope de dias/lineas lo resuelve `_gps_scope_sql` (ver ahi por que las dos
+    ramas no se unifican). `batch_lines` acota la lectura a un lote de lineas para
+    que el DataFrame no escale con el largo de la corrida; `all_stops_gdf` permite
+    pasar las paradas ya proyectadas (`build_stops_gdf`) y no rearmarlas por lote.
     """
     configs = utils.leer_configs_generales(autogenerado=False)
+    trust_service_type_gps = configs["utilizar_servicios_gps"]
 
     gps_exists = ctx.data.query("SELECT 1 AS gps_exists FROM gps LIMIT 1")
     if gps_exists.empty:
@@ -122,25 +288,12 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
         )
         return None, None
 
-    if line_ids_str is None and run_days:
-        # pipeline: solo los días de la corrida (el borrado por run_days ya se hizo)
-        dias = ", ".join(f"'{d}'" for d in run_days)
-        gps_query = f"SELECT g.* FROM gps g WHERE g.dia IN ({dias})"
-    else:
-        # interactivo (o sin run_days): anti-join sobre lo aún no procesado
-        gps_query = """
-            SELECT g.*
-            FROM gps g
-            LEFT JOIN services_stats ss
-            ON g.id_linea = ss.id_linea AND g.dia = ss.dia
-            WHERE ss.id_linea IS NULL
-        """
-        if line_ids_str is not None:
-            gps_query = gps_query + f" AND g.id_linea IN ({line_ids_str})"
-
+    cols = GPS_COLS if trust_service_type_gps else GPS_COLS + GPS_COLS_GEO
+    select_cols = ", ".join(f"g.{c}" for c in cols)
+    scope = _gps_scope_sql(line_ids_str, run_days=run_days, batch_lines=batch_lines)
     gps_query = (
-        gps_query
-        + " ORDER BY g.id_linea, g.dia, g.id_ramal, g.interno, g.fecha, g.id"
+        f"SELECT {select_cols} {scope}"
+        " ORDER BY g.id_linea, g.dia, g.id_ramal, g.interno, g.fecha, g.id"
     )
     gps_points = ctx.data.query(gps_query)
 
@@ -155,7 +308,7 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
     if len(gps_lines_str) == 0:
         return None, None
 
-    if configs["utilizar_servicios_gps"]:
+    if trust_service_type_gps:
         return gps_points, None
 
     gps_points = gpd.GeoDataFrame(
@@ -167,14 +320,10 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
     )
     gps_points = gps_points.to_crs(epsg=configs["epsg_m"])
 
-    all_stops = ctx.insumos.get_stops()
-    if all_stops.empty:
-        logger.warning(
-            "No existe la tabla stops. Asegurese de tener datos de "
-            "stops y correr carto.stops.create_stops_table()"
-        )
+    if all_stops_gdf is None:
+        all_stops_gdf = build_stops_gdf(ctx)
 
-    stops = all_stops[all_stops["id_linea"].isin(gps_lines)]
+    stops = all_stops_gdf[all_stops_gdf["id_linea"].isin(gps_lines)]
 
     # check all gps points have stops for that line
     line_no_stops_mask = ~gps_lines.isin(stops.id_linea.drop_duplicates())
@@ -185,19 +334,6 @@ def get_stops_and_gps_data(ctx: StorageContext, line_ids_str, run_days=None):
         logger.warning("Hay lineas con GPS que no tienen paradas: %s — No se procesaran", line_no_stops_str)
 
         gps_points = gps_points.loc[~gps_points.id_linea.isin(line_no_stops)]
-
-    # use only nodes as stops
-    stops = stops.drop_duplicates(subset=["id_linea", "id_ramal", "node_id"])
-
-    stops = gpd.GeoDataFrame(
-        stops,
-        geometry=gpd.GeoSeries.from_xy(
-            x=stops.node_x, y=stops.node_y, crs="EPSG:4326"
-        ),
-        crs="EPSG:4326",
-    )
-
-    stops = stops.to_crs(epsg=configs["epsg_m"])
 
     return gps_points, stops
 

@@ -319,11 +319,17 @@ def test_assign_gps_origin_uses_narrow_sql_reads(monkeypatch):
     data = _Data()
     assign_gps_origin(SimpleNamespace(data=data))
 
-    assert len(data.queries) == 2
-    assert "SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id" in data.queries[0]
-    assert "SELECT g.dia, g.id_linea, g.id_ramal, g.interno, g.fecha, g.id" in data.queries[1]
-    assert "SELECT e.*" not in data.queries[0]
-    assert "SELECT g.*" not in data.queries[1]
+    # Las queries de _estimated_day_footprint_gb (LIMIT 0 para dtypes, count por
+    # día) no leen datos del día: se descartan para chequear las lecturas reales.
+    lecturas = [
+        q for q in data.queries
+        if "LIMIT 0" not in q and "count(*)" not in q
+    ]
+    assert len(lecturas) == 2
+    assert "SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id" in lecturas[0]
+    assert "SELECT g.dia, g.id_linea, g.id_ramal, g.interno, g.fecha, g.id" in lecturas[1]
+    assert "SELECT e.*" not in lecturas[0]
+    assert "SELECT g.*" not in lecturas[1]
     result = data.saved["legs_to_gps_origin"]
     assert result[["id_legs", "id_gps"]].iloc[0].tolist() == [11, 22]
 

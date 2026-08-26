@@ -208,6 +208,13 @@ _TUNING_DEFAULTS: dict = {
         # Accepts DuckDB size strings: "4GB", "512MB", etc.
         "memory_limit": None,
     },
+    # Rows of `gps` read per batch of lines in process_services.
+    # None → 5_000_000 (services.SERVICES_GPS_BATCH_ROWS).
+    "services_gps_batch_rows": None,
+    # Hard override for the per-day RAM cost used by _parallel_day_workers.
+    # None → estimated from the run's actual row counts
+    # (legs._estimated_day_footprint_gb).
+    "parallel_day_gb": None,
 }
 
 

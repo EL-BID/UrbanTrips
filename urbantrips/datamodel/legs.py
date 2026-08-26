@@ -1,5 +1,6 @@
 import gc
 import logging
+from collections import namedtuple
 import multiprocessing
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -667,7 +668,11 @@ def assign_gps_origin(ctx: StorageContext):
         )
         return legs, gps
 
-    n_workers = _parallel_day_workers(len(dias))
+    n_workers = _day_workers_for(ctx, dias, [
+        # las mismas proyecciones flacas que lee _fetch_origin_inputs
+        _tabla("etapas", ["dia", "id_linea", "id_ramal", "interno", "tiempo", "id"]),
+        _tabla("gps", ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]),
+    ])
 
     if n_workers <= 1:
         # ── Camino serial (comportamiento previo, mismos resultados) ──
@@ -1023,13 +1028,196 @@ def _duckdb_memory_limit_gb() -> float:
         return 8.0
 
 
-def _parallel_day_workers(n_days: int) -> int:
+# Bytes que ocupa en pandas una fila de una columna `object`: el puntero (8 B) mas
+# el `str` de Python al que apunta (~50-60 B para las claves cortas de este esquema:
+# dia, h3_o/h3_d, id_tarjeta, modo). DuckDB no dedupica strings al pasar a pandas,
+# asi que hay un objeto por fila.
+_OBJECT_COL_BYTES = 70.0
+
+# Las columnas leidas son el PISO del consumo del dia: el computo arma copias
+# intermedias (merge con la matriz, reindex, groupbys) y, al despachar a un worker,
+# el frame vive a la vez en el main, en el buffer de pickle y en el worker.
+# Calibrado contra dos picos observados a escala AMBA, ambos ~18-22 GB por dia con
+# ~10 GB de insumos leidos: nuestra corrida del 2026-08-12 (2 workers, 64 GB, al
+# limite) y la del cliente del 2026-08-23 (2 workers, 61 GB, OOM).
+_PANDAS_COPY_AMPLIFICATION = 2.0
+
+# Por debajo de esto la estimacion no discrimina nada util.
+_MIN_DAY_FOOTPRINT_GB = 2.0
+
+
+def _tabla(nombre: str, cols=None, dias: int = 1, where: str | None = None,
+           fuente: str = "data", distinct: bool = False):
+    """Describe una lectura para `_estimated_day_footprint_gb`.
+
+    `dias=0` marca una tabla FIJA (no day-scoped): se cuenta entera. Igual pesa por
+    worker, porque los insumos compartidos se picklean a cada uno — medido sobre
+    AMBA, la matriz de validacion del camino min_distancia son 4,25 GB que viajan a
+    cada worker en cada submit, mas que las etapas del dia.
+    """
+    return (nombre, cols, dias, where, fuente, distinct)
+
+
+def _pandas_row_bytes(adapter, table: str, cols=None) -> float:
+    """Ancho en bytes de una fila de `table` (o de `cols`) ya en pandas.
+
+    Se deriva del esquema real: un `LIMIT 0` devuelve el DataFrame vacio con los
+    dtypes que va a tener la lectura completa. Asi la estimacion se reajusta sola
+    si cambian las columnas, en vez de depender de una constante que envejece.
+    """
+    sel = "*" if not cols else ", ".join(cols)
+    try:
+        empty = adapter.query(f"SELECT {sel} FROM {table} LIMIT 0")
+        total = 0.0
+        for dtype in empty.dtypes:
+            if dtype == object:
+                total += _OBJECT_COL_BYTES
+            else:
+                total += float(getattr(dtype, "itemsize", 8))
+        return total
+    except Exception as e:
+        logger.debug("[day_footprint] no se pudo describir %s: %s", table, e)
+        return 0.0
+
+
+def _row_count(adapter, table: str, cols=None, where=None, distinct=False) -> int:
+    """Filas de una tabla fija (no day-scoped), con el DISTINCT que aplique la etapa."""
+    filtro = f" WHERE {where}" if where else ""
+    sel = ", ".join(cols) if (distinct and cols) else "*"
+    inner = (
+        f"SELECT DISTINCT {sel} FROM {table}{filtro}" if distinct
+        else f"SELECT 1 FROM {table}{filtro}"
+    )
+    try:
+        df = adapter.query(f"SELECT count(*) AS n FROM ({inner})")
+        if df.empty or "n" not in df.columns or pd.isna(df["n"].iloc[0]):
+            return 0
+        return int(df["n"].iloc[0])
+    except Exception as e:
+        logger.debug("[day_footprint] no se pudo contar %s: %s", table, e)
+        return 0
+
+
+def _max_rows_per_day(adapter, table: str, dias, where: str | None = None) -> int:
+    """Filas del dia mas grande de `dias` en `table` (0 si no se puede medir).
+
+    `where` acota igual que la lectura real de la etapa (p.ej. `etapa_validada = 1`):
+    contar filas que la etapa nunca trae a memoria sobreestima el consumo.
+    """
+    if not dias:
+        return 0
+    dias_str = ", ".join(f"'{d}'" for d in dias)
+    filtro = f" AND ({where})" if where else ""
+    try:
+        df = adapter.query(
+            f"SELECT max(n) AS n FROM ("
+            f"SELECT count(*) AS n FROM {table} WHERE dia IN ({dias_str}){filtro} "
+            f"GROUP BY dia)"
+        )
+        if df.empty or "n" not in df.columns or pd.isna(df["n"].iloc[0]):
+            return 0
+        return int(df["n"].iloc[0])
+    except Exception as e:
+        logger.debug("[day_footprint] no se pudo contar %s: %s", table, e)
+        return 0
+
+
+_ModeloRam = namedtuple("_ModeloRam", "por_dia main_extra")
+
+
+def _estimated_day_footprint_gb(ctx, dias, tables) -> float:
+    """GB por dia (solo el worker). Wrapper de `_day_memory_model`."""
+    return _day_memory_model(ctx, dias, tables).por_dia
+
+
+def _day_memory_model(ctx, dias, tables) -> _ModeloRam:
+    """GB que consume procesar UN dia, estimados de los datos de la corrida.
+
+    `_parallel_day_workers` resuelve el PRESUPUESTO con la RAM libre real, pero el
+    divisor era la constante 12 GB: el presupuesto se adaptaba a la maquina y la
+    demanda no se adaptaba a los datos. Por eso a 7,5 M etapas/dia (AMBA) elegia 2
+    workers cuando el pico real por dia era 18-22 GB, y el cliente se comio un
+    BrokenProcessPool por OOM el 2026-08-23.
+
+    `tables` describe lo que la etapa sostiene por dia. Se arma con el helper `_tabla`,
+    que refleja la lectura REAL de esa etapa: sus columnas, cuantos dias lee y con que
+    filtro. Importa que sea fiel — medido sobre AMBA, cobrar `etapas` entera cuando la
+    etapa lee 12 de sus 24 columnas sobreestima 1,7x y tira paralelismo a la basura.
+
+    Override duro: `parallel_day_gb` en configs/tuning.yaml (si lo forzas, sos vos
+    quien garantiza que entra en RAM).
+    """
+    try:
+        from urbantrips.utils.utils import leer_configs_tuning
+        override = leer_configs_tuning().get("parallel_day_gb")
+        if override:
+            # Forzado: el operador se hace cargo, no se le suma nada.
+            return _ModeloRam(max(0.1, float(override)), 0.0)
+    except Exception as e:
+        logger.debug("[day_footprint] override ilegible: %s", e)
+
+    fijas_bytes = 0.0
+    dia_bytes = 0.0
+    detalle = []
+    for table, cols, day_factor, where, fuente, distinct in tables:
+        # Es una heuristica: si no se puede medir, se sigue con lo que haya. Que la
+        # estimacion aborte la etapa seria peor que estimar de mas o de menos.
+        try:
+            adapter = ctx.insumos if fuente == "insumos" else ctx.data
+            if day_factor:
+                rows = _max_rows_per_day(adapter, table, dias, where) * day_factor
+            else:
+                rows = _row_count(adapter, table, cols, where, distinct)
+            table_bytes = rows * _pandas_row_bytes(adapter, table, cols)
+        except Exception as e:
+            logger.debug("[day_footprint] %s no medible: %s", table, e)
+            continue
+        if day_factor:
+            dia_bytes += table_bytes
+        else:
+            fijas_bytes += table_bytes
+        detalle.append(f"{table} {rows:,} filas = {table_bytes / 2**30:.1f} GB")
+
+    insumos_gb = (fijas_bytes + dia_bytes) / 2**30
+    por_dia = max(insumos_gb * _PANDAS_COPY_AMPLIFICATION, _MIN_DAY_FOOTPRINT_GB)
+
+    # Lo que el MAIN sostiene ademas del buffer de DuckDB, y que `reserva_main` (que
+    # es solo el memory_limit) ignoraba: los insumos fijos, que se cargan una vez y
+    # viven todo el loop, mas el dia en vuelo con su buffer de pickle (el frame vive
+    # en el main y en la cola del executor hasta que el worker lo recibe). No escala
+    # con la cantidad de workers, por eso va como reserva y no en el divisor.
+    main_extra = (fijas_bytes + 2 * dia_bytes) / 2**30
+
+    logger.info(
+        "[day_footprint] %.1f GB por dia (insumos %.1f GB x%.1f copias) "
+        "+ %.1f GB que retiene el main — %s",
+        por_dia, insumos_gb, _PANDAS_COPY_AMPLIFICATION, main_extra,
+        "; ".join(detalle) or "sin tablas",
+    )
+    return _ModeloRam(por_dia, main_extra)
+
+
+def _day_workers_for(ctx, dias, tables) -> int:
+    """Atajo: mide el dia y decide cuantos workers entran. Lo que usan los call sites."""
+    modelo = _day_memory_model(ctx, dias, tables)
+    return _parallel_day_workers(
+        len(dias), per_day_gb=modelo.por_dia, main_extra_gb=modelo.main_extra
+    )
+
+
+def _parallel_day_workers(
+    n_days: int, per_day_gb: float | None = None, main_extra_gb: float = 0.0
+) -> int:
     """Cantidad de días del enrichment a procesar en paralelo.
 
     Override manual: clave `parallel_day_workers` en configs/tuning.yaml (1 fuerza
     serial, útil para comparar). Sin override, autotune por RAM:
 
-      workers = (RAM_libre_ahora − reserva_main) / (~12 GB por día en vuelo)
+      workers = (RAM_libre_ahora − reserva_main) / (costo por día en vuelo)
+
+    `per_day_gb` lo estima cada call site con `_estimated_day_footprint_gb` a partir
+    del volumen real de la corrida. Sin él se cae al 12 GB histórico, que subestima
+    ciudades grandes (AMBA: 18-22 GB/día) — sirve solo como default de compatibilidad.
 
     `RAM_libre_ahora` (psutil.available) ya refleja OS, apps/IDE y lo que el main
     lleva cargado — por eso es mejor que la RAM total con un factor fijo. `reserva_main`
@@ -1060,8 +1248,9 @@ def _parallel_day_workers(n_days: int) -> int:
         avail_gb = psutil.virtual_memory().available / 2**30
     except Exception:
         return 1
-    reserve_gb = _duckdb_memory_limit_gb()
-    per_day_gb = 12.0
+    reserve_gb = _duckdb_memory_limit_gb() + main_extra_gb
+    if per_day_gb is None:
+        per_day_gb = 12.0
     budget_gb = avail_gb - reserve_gb
     # El floor duro sobre un divisor que es una ESTIMACIÓN (~12 GB por día) hacía
     # que 1,95 diera 1 worker y 2,05 diera 2: se perdía la mitad del paralelismo
@@ -1215,7 +1404,13 @@ def assign_time_distances(ctx: StorageContext):
         except Exception as e:
             logger.debug("[delete omitido] %s: %s", table, e)
 
-    n_workers = _parallel_day_workers(len(dias)) if usa_gps else 1
+    n_workers = _day_workers_for(ctx, dias, [
+        # _fetch_legs_all_dia: SELECT e.* de las etapas VALIDADAS del dia
+        _tabla("etapas", None, where="etapa_validada = 1"),
+        # _fetch_time_distance_inputs_dia lee el gps del dia Y del siguiente
+        _tabla("gps", None, dias=2),
+        _tabla("legs_to_gps_origin", ["id_legs", "id_gps"]),
+    ]) if usa_gps else 1
 
     if n_workers <= 1:
         # ── Camino serial (comportamiento previo, mismos resultados) ──

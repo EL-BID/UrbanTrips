@@ -55,7 +55,9 @@ def test_camino_paralelo_desempaqueta_los_4_valores_del_worker(monkeypatch):
         lambda autogenerado=True: {"usa_archivo_gps": True, "resolucion_h3": 9},
     )
     monkeypatch.setattr(legs, "modos_con_ramal", lambda cfg: set())
-    monkeypatch.setattr(legs, "_parallel_day_workers", lambda n: 2)  # fuerza paralelo
+    monkeypatch.setattr(
+        legs, "_parallel_day_workers", lambda n, per_day_gb=None, main_extra_gb=0.0: 2
+    )  # fuerza paralelo
 
     legs_df = pd.DataFrame({
         "dia": ["2024-01-01"], "id": [1], "id_tarjeta": ["C1"],

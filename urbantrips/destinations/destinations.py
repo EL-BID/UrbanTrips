@@ -539,8 +539,28 @@ def infer_destinations(ctx: StorageContext):
         # propio parquet, sin contención con la DB). Sin stage se mantiene serial.
         import gc as _gc
         from concurrent.futures import ProcessPoolExecutor, as_completed
-        from urbantrips.datamodel.legs import _parallel_day_workers
-        n_workers = _parallel_day_workers(len(dias)) if use_parquet_stage else 1
+        from urbantrips.datamodel.legs import _day_workers_for, _tabla
+        # La matriz de validacion NO es day-scoped pero viaja pickleada a cada worker
+        # en cada submit, y en el camino min_distancia es lo que mas pesa: medido
+        # sobre AMBA, 29,3 M filas x 4 columnas = 4,25 GB, contra 4,0 GB de etapas.
+        # El camino de validacion usa 3 columnas dedupeadas: 0,20 GB (21x menos).
+        matriz_tabla = (
+            _tabla("matriz_validacion",
+                   ["id_linea_agg", "id_ramal", "area_influencia", "parada"],
+                   dias=0, fuente="insumos")
+            if destinos_min_dist else
+            _tabla("matriz_validacion",
+                   ["id_linea_agg", "id_ramal", "area_influencia"],
+                   dias=0, fuente="insumos", distinct=True)
+        )
+        n_workers = _day_workers_for(ctx, dias, [
+            # las 12 columnas que lee _fetch_etapas_dia_infer, no las 24 de etapas
+            _tabla("etapas", [
+                "id", "dia", "id_tarjeta", "id_viaje", "id_etapa", "hora", "tiempo",
+                "modo", "id_linea", "id_ramal", "h3_o", "etapa_validada",
+            ]),
+            matriz_tabla,
+        ]) if use_parquet_stage else 1
 
         if n_workers <= 1:
             # ── Camino SERIAL (comportamiento previo, idéntico) ──

@@ -65,7 +65,9 @@ def _ctx(matriz):
 @pytest.fixture(autouse=True)
 def _config(monkeypatch):
     monkeypatch.setattr(legs_module, "leer_configs_generales", lambda *a, **k: _CONFIG)
-    monkeypatch.setattr(legs_module, "_parallel_day_workers", lambda n: 1)
+    monkeypatch.setattr(
+        legs_module, "_parallel_day_workers", lambda n, per_day_gb=None, main_extra_gb=0.0: 1
+    )
     # sin etapas validadas ese día el loop no hace trabajo real: _fetch_legs_all_dia
     # devuelve None en ese caso, que es lo que el caller espera
     monkeypatch.setattr(legs_module, "_fetch_legs_all_dia", lambda ctx, dia: None)
