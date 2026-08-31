@@ -51,6 +51,7 @@ def test_gps_read_passes_usecols_to_read_csv(tmp_path):
     with patch("urbantrips.datamodel.transactions.pd.read_csv", side_effect=spy_read_csv), \
          patch("urbantrips.datamodel.transactions.leer_configs_generales", return_value=_CONFIGS), \
          patch("urbantrips.datamodel.transactions.eliminar_trx_fuera_bbox", side_effect=lambda df, **kw: df), \
+         patch("urbantrips.datamodel.transactions.bbox_area_estudio", return_value=(-99, -99, 99, 99)), \
          patch("urbantrips.datamodel.transactions.geo"):
         try:
             process_and_upload_gps_table(
@@ -85,6 +86,7 @@ def test_gps_read_usecols_excludes_junk_columns(tmp_path):
     with patch("urbantrips.datamodel.transactions.pd.read_csv", side_effect=spy_read_csv), \
          patch("urbantrips.datamodel.transactions.leer_configs_generales", return_value=_CONFIGS), \
          patch("urbantrips.datamodel.transactions.eliminar_trx_fuera_bbox", side_effect=lambda df, **kw: df), \
+         patch("urbantrips.datamodel.transactions.bbox_area_estudio", return_value=(-99, -99, 99, 99)), \
          patch("urbantrips.datamodel.transactions.geo"):
         try:
             process_and_upload_gps_table(

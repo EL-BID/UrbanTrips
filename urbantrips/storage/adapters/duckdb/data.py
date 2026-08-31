@@ -361,8 +361,18 @@ class DuckDBDataAdapter:
             self._conn.unregister("_chunk")
 
     def clear_raw(self) -> None:
-        """Truncate the staging table after standardization is complete."""
-        self._conn.execute("DELETE FROM transacciones_raw")
+        """Truncate the staging table after standardization is complete.
+
+        DROP + CREATE y no DELETE: en DuckDB `DELETE FROM t` (y su alias `TRUNCATE`)
+        escanea la tabla y materializa el vector de borrado — sobre las 105 M filas de
+        staging del cliente falló con "Out of Memory Error: Allocation failure", y esto
+        corre en un `finally`, o sea justo cuando el proceso puede estar con la RAM al
+        tope por otra excepción. El DROP descarta los bloques sin escanear nada y
+        además libera el espacio en el archivo (el DELETE sólo los marca). La tabla no
+        tiene constraints ni índices, así que recrearla con su DDL la deja idéntica.
+        """
+        self._conn.execute("DROP TABLE IF EXISTS transacciones_raw")
+        self._conn.execute(schema.TRANSACCIONES_RAW)
 
     def geolocate_raw_transactions_from_gps(self, lineas_contienen_ramales: bool) -> None:
         """Fill missing latitud/longitud in transacciones_raw from the
@@ -880,6 +890,151 @@ class DuckDBDataAdapter:
             self._conn.execute(f"INSERT INTO gps ({cols}) SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
+
+    # ── gps: staging del ingest ───────────────────────────────────────────────
+    #
+    # El csv de gps entra por chunks a `gps_raw` (fila a fila, sin agregaciones) y
+    # `prepare_gps_from_raw` resuelve acá lo que necesita ver el archivo entero:
+    # dedup, id interno correlativo y odómetro por vehículo. Así el pico de memoria
+    # del ingest no depende de cuántos días traiga el archivo. Ver
+    # `process_and_upload_gps_table`.
+
+    def reset_gps_raw(self) -> None:
+        """Vacía el staging de gps (y la tabla preparada, si quedó de una corrida
+        anterior que murió a mitad de camino)."""
+        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
+        self._conn.execute("DROP TABLE IF EXISTS gps_raw")
+        self._conn.execute(schema.GPS_RAW)
+
+    def save_gps_raw_chunk(self, df: pd.DataFrame) -> None:
+        """Agrega un chunk del csv de gps ya estandarizado fila a fila."""
+        cols = ", ".join(schema.GPS_RAW_COLUMNS)
+        self._conn.register("_gps_chunk", df)
+        try:
+            self._conn.execute(
+                f"INSERT INTO gps_raw ({cols}) SELECT {cols} FROM _gps_chunk"
+            )
+        finally:
+            self._conn.unregister("_gps_chunk")
+
+    def prepare_gps_from_raw(
+        self,
+        dedup_subset: list[str],
+        id_offset: int,
+        odometro: str | None,
+    ) -> int:
+        """Deriva `gps_prep` desde `gps_raw`: dedup, id interno y odómetro.
+
+        Reproduce, en SQL, exactamente estos tres pasos de la versión que tenía el
+        archivo entero en un DataFrame:
+
+        - `drop_duplicates(subset=dedup_subset)` — se queda con la PRIMERA aparición,
+          de ahí el `ORDER BY orden_archivo` del ROW_NUMBER;
+        - `crear_id_interno` — ids correlativos desde `id_offset` en orden de archivo;
+        - el odómetro por `(id_linea, id_ramal, interno)` ordenado por fecha, con
+          `orden_archivo` desempatando igual que el sort estable de pandas.
+
+        `odometro` es 'diff' (hay columna acumulada, se deriva la incremental),
+        'cumsum' (al revés) o None (el config no trae ninguna de las dos).
+        Devuelve la cantidad de filas de `gps_prep`.
+        """
+        desconocidas = set(dedup_subset) - set(schema.GPS_RAW_COLUMNS)
+        if desconocidas or not dedup_subset:
+            raise ValueError(f"dedup_subset inválido para gps_raw: {dedup_subset!r}")
+        particion = ", ".join(dedup_subset)
+        ventana = (
+            "PARTITION BY id_linea, id_ramal, interno ORDER BY fecha, orden_archivo"
+        )
+
+        if odometro == "diff":
+            # groupby(...).diff() -> fillna(0) -> los negativos a 0
+            delta = (
+                "distance_servicio_mts_agg - lag(distance_servicio_mts_agg) "
+                f"OVER ({ventana})"
+            )
+            calculadas = (
+                f"CASE WHEN ({delta}) IS NULL OR ({delta}) < 0 THEN 0 "
+                f"ELSE ({delta}) END AS distance_servicio_mts, "
+                "distance_servicio_mts_agg"
+            )
+        elif odometro == "cumsum":
+            # groupby(...).cumsum() -> fillna(0) -> los negativos a 0. El CASE del
+            # NULL es lo que replica al cumsum de pandas, que deja NaN en esa fila
+            # (y después la llena con 0) en vez del acumulado que devuelve SUM().
+            acum = (
+                f"SUM(distance_servicio_mts) OVER ({ventana} "
+                "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+            )
+            calculadas = (
+                "distance_servicio_mts, "
+                "CASE WHEN distance_servicio_mts IS NULL THEN 0 "
+                f"ELSE GREATEST({acum}, 0) END AS distance_servicio_mts_agg"
+            )
+        else:
+            calculadas = "distance_servicio_mts, distance_servicio_mts_agg"
+
+        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
+        self._conn.execute(
+            f"""
+            CREATE TABLE gps_prep AS
+            WITH sin_duplicados AS (
+                SELECT * FROM gps_raw
+                QUALIFY ROW_NUMBER() OVER (
+                    PARTITION BY {particion} ORDER BY orden_archivo
+                ) = 1
+            ),
+            con_id AS (
+                SELECT
+                    (ROW_NUMBER() OVER (ORDER BY orden_archivo) - 1 + {int(id_offset)})
+                        AS id,
+                    *
+                FROM sin_duplicados
+            )
+            SELECT
+                id, orden_archivo, id_original, dia, id_linea, id_ramal, interno,
+                fecha, latitud, longitud, velocity, id_servicio, service_type,
+                {calculadas}
+            FROM con_id
+            """
+        )
+        return int(
+            self._conn.execute("SELECT COUNT(*) FROM gps_prep").fetchone()[0]
+        )
+
+    def gps_prep_has_service_start(self) -> bool:
+        """Si se informó un service type, que el inicio de servicio exista."""
+        fila = self._conn.execute(
+            "SELECT 1 FROM gps_prep WHERE service_type = 'start_service' LIMIT 1"
+        ).fetchone()
+        return fila is not None
+
+    def gps_prep_days(self) -> list[str]:
+        """Días de `gps_prep`, en orden de primera aparición en el csv — el mismo
+        orden en que los recorría el `groupby('dia', sort=False)` de la versión que
+        tenía el archivo entero en memoria."""
+        filas = self._conn.execute(
+            "SELECT dia FROM gps_prep GROUP BY dia ORDER BY MIN(orden_archivo)"
+        ).fetchall()
+        return [f[0] for f in filas]
+
+    def get_gps_prep_day(self, dia: str) -> pd.DataFrame:
+        """Un día de `gps_prep`, en orden de archivo (es lo que desempata el sort de
+        `compute_distance_km_gps`)."""
+        return self._conn.execute(
+            """
+            SELECT id, id_original, dia, id_linea, id_ramal, interno, fecha,
+                   latitud, longitud, velocity, id_servicio, service_type,
+                   distance_servicio_mts, distance_servicio_mts_agg
+            FROM gps_prep WHERE dia = ? ORDER BY orden_archivo
+            """,
+            [dia],
+        ).fetchdf()
+
+    def clear_gps_staging(self) -> None:
+        """Descarta staging y tabla preparada una vez subida la tabla gps."""
+        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
+        self._conn.execute("DROP TABLE IF EXISTS gps_raw")
+        self._conn.execute(schema.GPS_RAW)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 

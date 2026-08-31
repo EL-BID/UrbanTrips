@@ -131,6 +131,10 @@ data/db-alpha/
 # directorio guarda además los stdout/stderr .txt de cada corrida lanzada
 # en background, así que se ignora entero.
 logs/
+# Spill de DuckDB. Una conexion sin temp_directory pinneado usa `.tmp` relativo
+# al cwd, asi que una corrida lanzada desde la raiz del repo deja decenas de GB
+# de duckdb_temp_storage_*.tmp aca (54 GB tras el cuelgue del 2026-08-29).
+.tmp/
 etapas_tmp_1
 etapas_tmp_2
 dead_code_analysis.md

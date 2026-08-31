@@ -6,6 +6,7 @@ import warnings
 
 import geopandas as gpd
 import h3
+import numpy as np
 import pandas as pd
 from shapely.geometry import Point
 
@@ -14,6 +15,7 @@ from urbantrips.carto.compute_distances import compute_od_distances
 # from urbantrips.carto.carto import compute_distances_osm
 from urbantrips.geo import geo
 from urbantrips.storage.context import StorageContext
+from urbantrips.storage.schema.data import GPS_RAW_COLUMNS
 from urbantrips.utils.utils import (
     agrego_indicador,
     duracion,
@@ -333,7 +335,19 @@ def convertir_fechas(df, formato_fecha, crear_hora=False):
     # Elminar errores en conversion de fechas
     df = df.dropna(subset=["fecha"], axis=0)
 
-    df.loc[:, ["dia"]] = df.fecha.dt.strftime("%Y-%m-%d")
+    # `dia` con strings COMPARTIDOS entre filas. `dt.strftime` crea un objeto str
+    # nuevo POR FILA: sobre el mes entero del cliente (104,5 M filas, 28 valores
+    # distintos) eso son 5,7 GB de strings idénticos —59 bytes por fila contra los 8
+    # del puntero—, y cada filtro posterior (bbox, dropna, drop_duplicates) copia esa
+    # columna. Con factorize + take hay UNA instancia por día y la columna pasa a
+    # pesar 0,8 GB. Los valores son exactamente los mismos.
+    codigos, dias_unicos = pd.factorize(df["fecha"].dt.floor("D"))
+    etiquetas = pd.DatetimeIndex(dias_unicos).strftime("%Y-%m-%d").to_numpy(dtype=object)
+    if (codigos < 0).any():
+        # factorize marca los NaT con código -1: apuntan al último elemento, así que
+        # se agrega un None al final (mismo resultado que strftime sobre un NaT).
+        etiquetas = np.append(etiquetas, None)
+    df.loc[:, ["dia"]] = etiquetas[codigos]
 
     # Si la hora esta en otra columna, usar esa
     if crear_hora:
@@ -406,17 +420,13 @@ def agrego_factor_expansion(trx, ctx: StorageContext):
     return trx, tmp_trx_inicial
 
 
-def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
-    """
-    Única llave de borrado geográfico de transacciones.
+def bbox_area_estudio(ctx: StorageContext):
+    """Bbox del área de estudio con su buffer: de la tabla zonificaciones si existe,
+    si no del archivo de configuración. Devuelve (minx, miny, maxx, maxy).
 
-    Marca geo_valido = 1/0 según si caen dentro del área de estudio (bbox de la
-    tabla zonificaciones si existe, si no del archivo de configuración). Luego:
-      - elimina las transacciones fuera del bbox con coordenadas reales;
-      - CONSERVA las de lat/lon == 0 pero con factor_expansion = 0 (inválidas,
-        no ponderan en ninguna métrica);
-      - dropea la columna geo_valido (flag transitorio).
-    Si no hay bbox ni zonificaciones, aborta: no puede filtrar sin área de estudio.
+    Está separado de `eliminar_trx_fuera_bbox` para poder resolverlo UNA vez y
+    filtrar después chunk por chunk sin releer las zonificaciones en cada uno (el
+    ingest de gps lee el csv de a pedazos). El filtro sigue viviendo en un solo lado.
     """
     zonificaciones = ctx.insumos.get_zones()
 
@@ -442,18 +452,41 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
 
     # aplicar buffer
     buffer_grados = 0.009 * 30
-    minx -= buffer_grados
-    miny -= buffer_grados
-    maxx += buffer_grados
-    maxy += buffer_grados
-
-    logger.info(
-        "Eliminando transacciones fuera del bbox: xmin=%.5f, ymin=%.5f, xmax=%.5f, ymax=%.5f",
-        minx,
-        miny,
-        maxx,
-        maxy,
+    return (
+        minx - buffer_grados,
+        miny - buffer_grados,
+        maxx + buffer_grados,
+        maxy + buffer_grados,
     )
+
+
+def eliminar_trx_fuera_bbox(trx, ctx: StorageContext, bounds=None):
+    """
+    Única llave de borrado geográfico de transacciones.
+
+    Marca geo_valido = 1/0 según si caen dentro del área de estudio (bbox de la
+    tabla zonificaciones si existe, si no del archivo de configuración). Luego:
+      - elimina las transacciones fuera del bbox con coordenadas reales;
+      - CONSERVA las de lat/lon == 0 pero con factor_expansion = 0 (inválidas,
+        no ponderan en ninguna métrica);
+      - dropea la columna geo_valido (flag transitorio).
+    Si no hay bbox ni zonificaciones, aborta: no puede filtrar sin área de estudio.
+
+    `bounds` permite pasar el bbox ya resuelto por `bbox_area_estudio` cuando se
+    llama en loop sobre chunks del mismo archivo; el filtro es idéntico.
+    """
+    if bounds is None:
+        minx, miny, maxx, maxy = bbox_area_estudio(ctx)
+        logger.info(
+            "Eliminando transacciones fuera del bbox: "
+            "xmin=%.5f, ymin=%.5f, xmax=%.5f, ymax=%.5f",
+            minx,
+            miny,
+            maxx,
+            maxy,
+        )
+    else:
+        minx, miny, maxx, maxy = bounds
 
     trx["geo_valido"] = (
         trx["longitud"].between(minx, maxx) & trx["latitud"].between(miny, maxy)
@@ -552,10 +585,16 @@ def eliminar_NAs_variables_fundamentales(trx, subset):
     return trx
 
 
-def crear_id_interno(ctx: StorageContext, n_rows: int, tipo_tabla: str) -> list:
-    """Returns a list of n_rows sequential integer IDs starting after the current max."""
+def crear_id_interno(ctx: StorageContext, n_rows: int, tipo_tabla: str) -> np.ndarray:
+    """Returns n_rows sequential integer IDs starting after the current max.
+
+    np.arange y no list(range(...)): la lista materializa un objeto int de Python por
+    fila (28 bytes cada uno más el puntero), que sobre las 104,5 M filas gps de una
+    corrida de un mes son ~3,7 GB transitorios antes de que pandas la convierta al
+    array int64 de 0,84 GB. Los valores son los mismos.
+    """
     new_max_id = ctx.data.get_max_id(tipo_tabla)
-    return list(range(new_max_id, new_max_id + n_rows))
+    return np.arange(new_max_id, new_max_id + n_rows, dtype="int64")
 
 
 def geolocalizar_trx(
@@ -751,58 +790,134 @@ def geolocalizar_trx(
     return trx, tmp_trx_inicial
 
 
+# Filas por chunk de lectura del csv de gps. Con 2 M el frame en vuelo son ~0,3 GB,
+# y para una corrida de un día (~4 M pings en AMBA) son 2 o 3 chunks.
+_GPS_CHUNK_ROWS = 2_000_000
+
+_VEH_EXP_CLAVE = ["id_linea", "dia", "interno"]
+
+
+def _veh_exp_acumular(acumulado, gps):
+    """Suma al acumulado los conteos por (id_linea, dia, interno) de este chunk.
+
+    Es la forma incremental de `get_veh_expansion_from_gps`: en vez de aplicar
+    `all_gps_broken` sobre la longitud de cada vehículo —que necesita el archivo
+    entero en memoria— se llevan tres contadores por vehículo (filas, ceros, nulos),
+    que son sumables entre chunks. `_veh_exp_final` reconstruye el mismo resultado:
+    un vehículo está roto si TODAS sus longitudes son 0 o TODAS son nulas, y eso se
+    decide comparando los contadores con el total.
+    """
+    parcial = pd.DataFrame(
+        {
+            "id_linea": gps["id_linea"],
+            "dia": gps["dia"],
+            "interno": gps["interno"],
+            "_cero": (gps["longitud"] == 0),
+            "_na": gps["longitud"].isna(),
+        }
+    )
+    # groupby dropna=True (default): descarta los vehículos con clave nula, igual que
+    # el groupby de get_veh_expansion_from_gps.
+    parcial = parcial.groupby(_VEH_EXP_CLAVE, as_index=False).agg(
+        n=("_cero", "size"), n_cero=("_cero", "sum"), n_na=("_na", "sum")
+    )
+    if acumulado is None:
+        return parcial
+    return (
+        pd.concat([acumulado, parcial], ignore_index=True)
+        .groupby(_VEH_EXP_CLAVE, as_index=False)[["n", "n_cero", "n_na"]]
+        .sum()
+    )
+
+
+def _veh_exp_final(acumulado):
+    """Cierra el acumulado de `_veh_exp_acumular` en la tabla que espera
+    `save_vehicle_expansion_factors` (id_linea, dia, unique_vehicles,
+    broken_gps_veh, veh_exp)."""
+    if acumulado is None or len(acumulado) == 0:
+        return pd.DataFrame(
+            columns=["id_linea", "dia", "unique_vehicles", "broken_gps_veh", "veh_exp"]
+        )
+
+    acumulado = acumulado.copy()
+    acumulado["vehicles_no_gps_lon"] = (
+        (acumulado["n_cero"] == acumulado["n"]) | (acumulado["n_na"] == acumulado["n"])
+    ).astype(int)
+
+    veh_exp = acumulado.groupby(["id_linea", "dia"], as_index=False).agg(
+        unique_vehicles=("interno", "count"),
+        broken_gps_veh=("vehicles_no_gps_lon", "sum"),
+    )
+    veh_exp["veh_exp"] = veh_exp.unique_vehicles / (
+        veh_exp.unique_vehicles - veh_exp.broken_gps_veh
+    )
+    # cap veh_exp
+    veh_exp.loc[veh_exp.veh_exp > 2, "veh_exp"] = 2
+    return veh_exp
+
+
 def process_and_upload_gps_table(
     ctx: StorageContext, nombre_archivo_gps, nombres_variables_gps, formato_fecha
 ):
     """
     Esta función lee el archivo csv de información de gps, lo procesa y sube a la DB.
 
-    La lectura y toda la preparación (renombrar, fechas, factores de expansión, filtro
-    bbox, NAs, dedup, id interno, distancia de servicio) se hacen sobre el mes entero
-    —igual que antes—; el cálculo de distancias de red (lo que agotaba la RAM sobre
-    las ~107M filas) y el h3/guardado se hacen UN DÍA POR VEZ, liberando antes del
-    siguiente, para acotar el pico de memoria sin cambiar los resultados.
+    Lo que se sostiene en pandas NO depende de cuántos días traiga el archivo: como
+    mucho un chunk y un día. Una corrida de un mes en un solo csv son ~105 M pings, y
+    tenerlos todos en un DataFrame pedía ~42 GB. Lo que queda del lado de DuckDB lo
+    acota su `memory_limit`, que derrama a disco al llegar al tope.
+    El reparto es el mismo que usa el ingest de transacciones:
+
+    - lo que se resuelve FILA A FILA (renombrar, fechas, bbox, NAs, epoch) se hace en
+      pandas sobre chunks de `_GPS_CHUNK_ROWS` filas, que van a la tabla de staging
+      `gps_raw` a medida que se leen;
+    - lo que necesita ver el archivo ENTERO (dedup, id interno correlativo y odómetro
+      por vehículo, que cruza la medianoche) se resuelve en SQL sobre el staging, en
+      `prepare_gps_from_raw`;
+    - los factores de expansión se acumulan por chunk (ver `_veh_exp_acumular`), antes
+      del filtro por bbox, igual que antes;
+    - el h3 y las distancias de red siguen siendo UN DÍA POR VEZ.
+
+    El orden de aparición en el csv se preserva en `orden_archivo`, que es lo que
+    desempata el dedup (pandas se queda con la primera), fija el `id` interno y rompe
+    los empates de fecha del odómetro. Los días se recorren en orden de primera
+    aparición, como hacía el `groupby('dia', sort=False)`.
+
+    Diferencias conocidas contra la versión que leía todo junto, las dos sin efecto
+    sobre datos reales pero explícitas para que no sorprendan:
+
+    1. `id_gps` e `id_servicio_gps` se leen como TEXTO. Son ids y se guardan en
+       columnas TEXT; leerlos así los deja idénticos en todos los chunks (dejándolos
+       inferir, un chunk con un faltante daría float y '1768' pasaría a '1768.0' solo
+       en ese chunk). Cambia el valor guardado solo si el csv escribe ids que pandas
+       normalizaría, por ejemplo con ceros a la izquierda ('0001' queda '0001' en vez
+       de '1').
+    2. El "¿hay odómetro?" (`notna().any()`) se evalúa antes del dedup y no después.
+       Difiere solo si TODOS los valores no nulos de la columna acumulada cayeran en
+       filas que el dedup descarta.
     """
     configs = leer_configs_generales(autogenerado=False)
+    lineas_contienen_ramales = configs["lineas_contienen_ramales"]
+    res = configs["resolucion_h3"]
 
     from urbantrips.utils.io import open_csv, resolve_zip
 
     ruta_gps = resolve_zip(str(get_paths().input_dir / nombre_archivo_gps))
     _gps_needed_cols = {v for v in nombres_variables_gps.values() if v}
-    with open_csv(ruta_gps) as f:
-        gps = pd.read_csv(f, usecols=lambda c: c in _gps_needed_cols)
 
-    # Formatear archivos gps
-    gps = renombrar_columnas_tablas(
-        gps,
-        nombres_variables_gps,
-        postfijo="_gps",
-    )
-    # Parsear fechas y crear atributo dia
-    # col_hora false para no crear tiempo y hora
-    gps = convertir_fechas(gps, formato_fecha, crear_hora=False)
+    # ver diferencia conocida (1) en el docstring
+    dtype_texto = {
+        col: str
+        for col in (
+            nombres_variables_gps.get("id_gps"),
+            nombres_variables_gps.get("id_servicio_gps"),
+        )
+        if col
+    }
 
-    # compute expansion factors for gps
-    veh_exp = get_veh_expansion_from_gps(gps)
-    ctx.data.save_vehicle_expansion_factors(veh_exp)
-
-    # parsear fechas
-    gps = eliminar_trx_fuera_bbox(gps, ctx=ctx)
-
-    if configs["lineas_contienen_ramales"]:
-        subset = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
-    else:
-        subset = ["interno", "id_linea", "latitud", "longitud"]
-
-    gps = eliminar_NAs_variables_fundamentales(gps, subset)
-
-    # Convertir fecha en segundos desde 1970 (vectorizado: astype(int64) da
-    # nanosegundos desde epoch UTC; //1e9 da los mismos segundos que
-    # s.timestamp() por fila, pero sin loop Python sobre las ~107M filas).
-    gps["fecha"] = gps["fecha"].astype("int64") // 10**9
-
-    if configs["lineas_contienen_ramales"]:
-        subset = [
+    if lineas_contienen_ramales:
+        subset_na = ["interno", "id_ramal", "id_linea", "latitud", "longitud"]
+        subset_dedup = [
             "dia",
             "id_linea",
             "id_ramal",
@@ -812,59 +927,115 @@ def process_and_upload_gps_table(
             "longitud",
         ]
     else:
-        subset = ["dia", "id_linea", "interno", "fecha", "latitud", "longitud"]
+        subset_na = ["interno", "id_linea", "latitud", "longitud"]
+        subset_dedup = ["dia", "id_linea", "interno", "fecha", "latitud", "longitud"]
 
-    gps = gps.drop_duplicates(subset=subset)
+    bounds = bbox_area_estudio(ctx)
+    logger.info(
+        "Eliminando transacciones fuera del bbox: "
+        "xmin=%.5f, ymin=%.5f, xmax=%.5f, ymax=%.5f",
+        *bounds,
+    )
 
-    # crear un id original del gps
-    gps["id_original"] = gps["id"].copy()
+    ctx.data.reset_gps_raw()
 
-    # crear un id interno de la transaccion
-    n_rows_gps = len(gps)
-    gps["id"] = crear_id_interno(ctx, n_rows=n_rows_gps, tipo_tabla="gps")
+    columnas_gps = None
+    veh_exp_acum = None
+    filas_leidas = 0
+    orden_archivo = 0
+
+    with open_csv(ruta_gps) as f:
+        for chunk in pd.read_csv(
+            f,
+            usecols=lambda c: c in _gps_needed_cols,
+            dtype=dtype_texto,
+            chunksize=_GPS_CHUNK_ROWS,
+        ):
+            filas_leidas += len(chunk)
+
+            # dict nuevo por chunk: renombrar_columnas_tablas hace pop()/update()
+            # sobre el que recibe, así que reusarlo dejaría al segundo chunk sin la
+            # columna service_type.
+            chunk = renombrar_columnas_tablas(
+                chunk, dict(nombres_variables_gps), postfijo="_gps"
+            )
+            if columnas_gps is None:
+                columnas_gps = list(chunk.columns)
+
+            # Parsear fechas y crear atributo dia
+            # col_hora false para no crear tiempo y hora
+            chunk = convertir_fechas(chunk, formato_fecha, crear_hora=False)
+            if "tiempo" in chunk.columns:
+                del chunk["tiempo"]
+
+            # if branches are not present, add branch id as the same as line
+            if not lineas_contienen_ramales:
+                chunk["id_ramal"] = chunk["id_linea"]
+
+            # compute expansion factors for gps: antes del filtro por bbox
+            veh_exp_acum = _veh_exp_acumular(veh_exp_acum, chunk)
+
+            chunk = eliminar_trx_fuera_bbox(chunk, ctx=ctx, bounds=bounds)
+            chunk = eliminar_NAs_variables_fundamentales(chunk, subset_na)
+
+            # Convertir fecha en segundos desde 1970 (vectorizado: astype(int64) da
+            # nanosegundos desde epoch UTC; //1e9 da los mismos segundos que
+            # s.timestamp() por fila, pero sin loop Python).
+            chunk["fecha"] = chunk["fecha"].astype("int64") // 10**9
+
+            # crear un id original del gps
+            chunk["id_original"] = chunk["id"]
+            chunk["orden_archivo"] = np.arange(
+                orden_archivo, orden_archivo + len(chunk), dtype="int64"
+            )
+            orden_archivo += len(chunk)
+
+            ctx.data.save_gps_raw_chunk(chunk.reindex(columns=GPS_RAW_COLUMNS))
+            del chunk
+            gc.collect()
+
+    if columnas_gps is None:
+        logger.warning("El archivo de gps %s no tiene filas", ruta_gps)
+        return
+
+    ctx.data.save_vehicle_expansion_factors(_veh_exp_final(veh_exp_acum))
+    del veh_exp_acum
+
+    # Qué odómetro corresponde es una pregunta del config (qué columnas se informaron)
+    # más "la columna trae algún valor". La incremental se deriva de la acumulada por
+    # diferencias, y al revés por suma acumulada; agrupando por
+    # (id_linea, id_ramal, interno) SIN `dia`, porque la traza cruza la medianoche —
+    # por eso no puede resolverse dentro del loop por día.
+    odometro = None
+    if "distance_servicio_mts_agg" in columnas_gps and ctx.data.has_rows(
+        "gps_raw", where="distance_servicio_mts_agg IS NOT NULL"
+    ):
+        odometro = "diff"
+    elif (
+        "distance_servicio_mts" in columnas_gps
+        and "distance_servicio_mts_agg" not in columnas_gps
+        and ctx.data.has_rows("gps_raw", where="distance_servicio_mts IS NOT NULL")
+    ):
+        odometro = "cumsum"
+
+    id_offset = ctx.data.get_max_id("gps")
+    filas = ctx.data.prepare_gps_from_raw(
+        dedup_subset=subset_dedup, id_offset=id_offset, odometro=odometro
+    )
+    logger.info(
+        "gps: %d filas leídas, %d tras bbox y NAs, %d tras deduplicar (odómetro: %s)",
+        filas_leidas,
+        orden_archivo,
+        filas,
+        odometro or "no informado",
+    )
 
     # si se informa un service type que el start_service exista
-    if "service_type" in gps.columns:
-        if not (gps.service_type == "start_service").any():
-            raise Exception(
-                "No hay valores que indiquen el inicio de un servicio. "
-                "Revisar el configs para servicios_gps"
-            )
-
-    # if branches are not present, add branch id as the same as line
-    if not configs["lineas_contienen_ramales"]:
-        gps.loc[:, "id_ramal"] = gps["id_linea"].copy()
-
-    # Distancia de servicio (odómetro): se computa sobre el mes entero —igual que
-    # antes— porque agrupa por (id_linea, id_ramal, interno) SIN `dia` (la traza del
-    # odómetro cruza días). Es independiente de compute_distance_km_gps (usa columnas
-    # crudas, no distance_km), por eso se puede calcular acá antes del loop por día.
-    # Para AMBA estas columnas no existen y ambos bloques son no-ops.
-    gps = gps.sort_values(["id_linea", "id_ramal", "interno", "fecha"]).copy()
-
-    if (
-        "distance_servicio_mts_agg" in gps.columns
-        and gps["distance_servicio_mts_agg"].notna().any()
-    ):
-        gps["distance_servicio_mts"] = gps.groupby(["id_linea", "id_ramal", "interno"])[
-            "distance_servicio_mts_agg"
-        ].diff()
-
-        # corregir
-        gps["distance_servicio_mts"] = gps["distance_servicio_mts"].fillna(0)
-        gps.loc[gps["distance_servicio_mts"] < 0, "distance_servicio_mts"] = 0
-
-    if (
-        "distance_servicio_mts" in gps.columns
-        and gps["distance_servicio_mts"].notna().any()
-        and "distance_servicio_mts_agg" not in gps.columns
-    ):
-        gps["distance_servicio_mts_agg"] = gps.groupby(
-            ["id_linea", "id_ramal", "interno"]
-        )["distance_servicio_mts"].cumsum()
-        # corregir
-        gps["distance_servicio_mts_agg"] = gps["distance_servicio_mts_agg"].fillna(0)
-        gps.loc[gps["distance_servicio_mts_agg"] < 0, "distance_servicio_mts_agg"] = 0
+    if "service_type" in columnas_gps and not ctx.data.gps_prep_has_service_start():
+        raise Exception(
+            "No hay valores que indiquen el inicio de un servicio. "
+            "Revisar el configs para servicios_gps"
+        )
 
     cols = [
         "id",
@@ -885,8 +1056,6 @@ def process_and_upload_gps_table(
         "h3",
     ]
 
-    res = configs["resolucion_h3"]
-
     # Solo se guardan los días de esta corrida (igual que el filtro previo
     # gps.dia.isin(dias_ultima_corrida)).
     dias_ultima_corrida = ctx.data.get_run_days()
@@ -894,19 +1063,25 @@ def process_and_upload_gps_table(
 
     logger.info("Subiendo tabla gps")
 
-    # El cálculo de distancias de red (lo que agotaba la RAM sobre el mes entero) y el
-    # h3/guardado se hacen UN DÍA POR VEZ, liberando antes del siguiente. Es idéntico
-    # al cálculo mes-entero: las distancias dependen sólo del par (h3, h3_lag) dentro
-    # de la traza de cada vehículo, que nunca cruza el día.
-    for dia, gps_day in gps.groupby("dia", sort=False):
-        if str(dia) not in run_days:
-            continue
-        gps_day = compute_distance_km_gps(gps_day.copy(), ctx)
-        gps_day = gps_day.reindex(columns=cols)
-        gps_day = geo.referenciar_h3(gps_day, res, "h3", lat="latitud", lon="longitud")
-        ctx.data.save_gps(gps_day)
-        del gps_day
-        gc.collect()
+    # El cálculo de distancias de red y el h3/guardado se hacen UN DÍA POR VEZ,
+    # liberando antes del siguiente. Es idéntico al cálculo sobre el archivo entero:
+    # las distancias dependen sólo del par (h3, h3_lag) dentro de la traza de cada
+    # vehículo, que nunca cruza el día.
+    try:
+        for dia in ctx.data.gps_prep_days():
+            if str(dia) not in run_days:
+                continue
+            gps_day = ctx.data.get_gps_prep_day(dia)
+            gps_day = compute_distance_km_gps(gps_day, ctx)
+            gps_day = gps_day.reindex(columns=cols)
+            gps_day = geo.referenciar_h3(
+                gps_day, res, "h3", lat="latitud", lon="longitud"
+            )
+            ctx.data.save_gps(gps_day)
+            del gps_day
+            gc.collect()
+    finally:
+        ctx.data.clear_gps_staging()
 
 
 def count_unique_vehicles(s):

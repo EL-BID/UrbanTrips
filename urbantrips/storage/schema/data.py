@@ -431,6 +431,42 @@ CREATE TABLE IF NOT EXISTS transacciones_raw (
 )
 """
 
+GPS_RAW_COLUMNS = [
+    "orden_archivo", "id_original", "dia", "id_linea", "id_ramal", "interno",
+    "fecha", "latitud", "longitud", "velocity", "id_servicio", "service_type",
+    "distance_servicio_mts", "distance_servicio_mts_agg",
+]
+
+# Staging del ingest de gps, análogo a transacciones_raw: el csv entra por chunks y
+# las operaciones de conjunto (dedup, id interno, odómetro) se resuelven después en
+# SQL, para que el pico de memoria no dependa de cuántos días traiga el archivo.
+#
+# Dos tipos NO son los de la tabla `gps` final, a propósito:
+#   - `latitud`/`longitud` son DOUBLE y no FLOAT: el h3 y las distancias se calculan
+#     sobre estos valores en el loop por día, y con float32 darían distinto.
+#   - `orden_archivo` es el orden de aparición en el csv. Es lo que desempata el dedup
+#     (pandas se queda con la primera), fija el `id` interno y rompe los empates de
+#     fecha en el odómetro, igual que el orden del frame en la versión que leía todo
+#     junto.
+GPS_RAW = """
+CREATE TABLE IF NOT EXISTS gps_raw (
+    orden_archivo             BIGINT,
+    id_original               TEXT,
+    dia                       TEXT,
+    id_linea                  BIGINT,
+    id_ramal                  BIGINT,
+    interno                   BIGINT,
+    fecha                     BIGINT,
+    latitud                   DOUBLE,
+    longitud                  DOUBLE,
+    velocity                  DOUBLE,
+    id_servicio               TEXT,
+    service_type              TEXT,
+    distance_servicio_mts     DOUBLE,
+    distance_servicio_mts_agg DOUBLE
+)
+"""
+
 IDX_TRX_BATCH    = "CREATE INDEX IF NOT EXISTS idx_trx_batch ON transacciones(batch_id)"
 IDX_ETAPAS_BATCH = "CREATE INDEX IF NOT EXISTS idx_etapas_batch ON etapas(batch_id)"
 # Replaces the old PRIMARY KEY on etapas(id): a plain index built once in bulk by
@@ -474,7 +510,7 @@ ALL_INDEXES: list = []
 
 ALL_TABLES = [
     TRANSACCIONES, TRANSACCIONES_RAW, DIAS_ULTIMA_CORRIDA, ETAPAS, VIAJES, USUARIOS,
-    GPS, VEHICLE_EXPANSION_FACTORS,
+    GPS, GPS_RAW, VEHICLE_EXPANSION_FACTORS,
     LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
     TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,

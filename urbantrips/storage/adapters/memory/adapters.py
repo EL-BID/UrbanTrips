@@ -122,6 +122,39 @@ class InMemoryDataAdapter:
     def save_gps(self, df: pd.DataFrame) -> None:
         self._append("gps", df)
 
+    # Staging del ingest de gps: se resuelve con SQL (dedup, ROW_NUMBER, ventanas),
+    # igual que standardize_raw_to_transacciones. El adapter in-memory no lo soporta.
+    def reset_gps_raw(self) -> None:
+        self._store["gps_raw"] = pd.DataFrame()
+
+    def save_gps_raw_chunk(self, df: pd.DataFrame) -> None:
+        self._append("gps_raw", df)
+
+    def prepare_gps_from_raw(
+        self, dedup_subset: list[str], id_offset: int, odometro: str | None
+    ) -> int:
+        raise NotImplementedError(
+            "InMemoryDataAdapter does not support prepare_gps_from_raw"
+        )
+
+    def gps_prep_has_service_start(self) -> bool:
+        raise NotImplementedError(
+            "InMemoryDataAdapter does not support gps_prep_has_service_start"
+        )
+
+    def gps_prep_days(self) -> list[str]:
+        raise NotImplementedError(
+            "InMemoryDataAdapter does not support gps_prep_days"
+        )
+
+    def get_gps_prep_day(self, dia: str) -> pd.DataFrame:
+        raise NotImplementedError(
+            "InMemoryDataAdapter does not support get_gps_prep_day"
+        )
+
+    def clear_gps_staging(self) -> None:
+        self._store["gps_raw"] = pd.DataFrame()
+
     def delete_run_days(self, days: list[str]) -> None:
         for table in list(self._store.keys()):
             df = self._store[table]
