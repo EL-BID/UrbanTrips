@@ -31,7 +31,7 @@ dependencies = [
     "openpyxl==3.2.0b1",
     "osmnx==2.0.0rc2",
     "pandas==2.2.3",
-    "pandana==0.7",
+    "pandana>=0.7",
     "patsy==1.0.1",
     "pillow==12.2.0",
     "plotly==5.24.1",
@@ -53,7 +53,10 @@ dependencies = [
     "unidecode",
     "chardet",
     "palettable",
-    "duckdb",
+    # >=1.5.3: el derrame a disco del operador de ventana mejoró por partes entre
+    # 1.1 y 1.3, y 1.5.3 es la versión contra la que se validó el ingest de gps a
+    # escala mes con memory_limit chico (ver prepare_gps_from_raw, fix 2026-09-02)
+    "duckdb>=1.5.3",
 ]
 
 [project.optional-dependencies]

@@ -900,10 +900,10 @@ class DuckDBDataAdapter:
     # `process_and_upload_gps_table`.
 
     def reset_gps_raw(self) -> None:
-        """Vacía el staging de gps (y la tabla preparada, si quedó de una corrida
+        """Vacía el staging de gps (y las tablas derivadas, si quedaron de una corrida
         anterior que murió a mitad de camino)."""
-        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
-        self._conn.execute("DROP TABLE IF EXISTS gps_raw")
+        for tabla in ("gps_prep", "_gps_prep_ids", "_gps_prep_odo", "gps_raw"):
+            self._conn.execute(f"DROP TABLE IF EXISTS {tabla}")
         self._conn.execute(schema.GPS_RAW)
 
     def save_gps_raw_chunk(self, df: pd.DataFrame) -> None:
@@ -937,6 +937,34 @@ class DuckDBDataAdapter:
         `odometro` es 'diff' (hay columna acumulada, se deriva la incremental),
         'cumsum' (al revés) o None (el config no trae ninguna de las dos).
         Devuelve la cantidad de filas de `gps_prep`.
+
+        VA EN ETAPAS, SIN VENTANAS GLOBALES (fix OOM 2026-09-02, extendido en la
+        misma sesión para funcionar en cualquier versión de duckdb):
+
+        1. dedup por hash (GROUP BY + MIN(orden_archivo), equivalente a "la primera
+           aparición"; ORDER BY dan los ids en Python);
+        2. asignación del id en Python: se trae la columna BIGINT deduplicada
+           ordenada (~8 bytes/fila), se numera con numpy.arange y vuelve por Arrow.
+           Cero ventanas globales — no depende de que el operador de ventana de
+           duckdb sepa derramar a disco;
+        3. el odómetro, si lo hay, sobre la proyección angosta de las columnas que
+           usa su ventana (las particiones por vehículo son chicas);
+        4. el ensamblado final por hash joins sobre orden_archivo (derraman bien en
+           cualquier versión), con ORDER BY orden_archivo para dejar el mismo orden
+           físico que dejaba la sentencia única (clustering por día -> el zonemap
+           poda el WHERE dia=? del loop).
+
+        Medido sobre el mes entero real (103,5 M filas, duckdb 1.5.3;
+        tools/exp_prepare_gps_mem.py): resultado IDÉNTICO por checksum contra la
+        sentencia única. El pico de RSS es el presupuesto de duckdb + ~0,6 GB de
+        Python. A memory_limit=1GB falla igual que las versiones anteriores (el
+        piso no baja; ahí ya revienta el ensamblado, no este paso). Los tiempos de
+        este paso NO son medibles con n=1 en esta máquina: tres corridas idénticas
+        a 4GB dieron 593/157/354 s, así que no se afirma nada de rendimiento.
+
+        Las etapas 1, 2 y 3 corren con preserve_insertion_order=false (el orden
+        físico de las intermedias no significa nada); se restaura antes del
+        ensamblado, cuyo orden lo garantiza el ORDER BY.
         """
         desconocidas = set(dedup_subset) - set(schema.GPS_RAW_COLUMNS)
         if desconocidas or not dedup_subset:
@@ -971,32 +999,90 @@ class DuckDBDataAdapter:
                 f"ELSE GREATEST({acum}, 0) END AS distance_servicio_mts_agg"
             )
         else:
-            calculadas = "distance_servicio_mts, distance_servicio_mts_agg"
+            calculadas = None
 
         self._conn.execute("DROP TABLE IF EXISTS gps_prep")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_ids")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_odo")
+
+        prev_order = self._conn.execute(
+            "SELECT current_setting('preserve_insertion_order')"
+        ).fetchone()[0]
+        self._conn.execute("SET preserve_insertion_order = false")
+        try:
+            # 1) dedup: hash aggregation, sin ventana. MIN(orden_archivo) = primera
+            # aparición por grupo (GROUP BY y PARTITION BY tratan NULL igual que
+            # drop_duplicates keep='first' de pandas cuando orden_archivo es único).
+            self._conn.execute(
+                f"""
+                CREATE TABLE _gps_prep_ids AS
+                SELECT MIN(orden_archivo) AS orden_archivo
+                FROM gps_raw GROUP BY {particion}
+                """
+            )
+            # 2) asignación del id en Python: trae la columna deduplicada ordenada
+            # (~8 bytes/fila; ~0.8 GB para el mes entero), la numera con arange y
+            # la devuelve por registro Arrow. Cero ventanas globales — funciona en
+            # cualquier versión de duckdb independientemente de la capacidad de
+            # derrame del operador de ventana.
+            _oa = self._conn.execute(
+                "SELECT orden_archivo FROM _gps_prep_ids ORDER BY orden_archivo"
+            ).fetchdf()
+            _n = len(_oa)
+            _oa.insert(
+                0, "id", np.arange(int(id_offset), int(id_offset) + _n, dtype=np.int64)
+            )
+            self._conn.execute("DROP TABLE _gps_prep_ids")
+            self._conn.register("_ids_tmp", _oa)
+            self._conn.execute(
+                "CREATE TABLE _gps_prep_ids AS SELECT id, orden_archivo FROM _ids_tmp"
+            )
+            self._conn.unregister("_ids_tmp")
+            del _oa
+            # 2) odómetro sobre las filas deduplicadas, solo las columnas de su
+            # ventana. Las expresiones son las mismas que usaba la sentencia única.
+            if calculadas is not None:
+                self._conn.execute(
+                    f"""
+                    CREATE TABLE _gps_prep_odo AS
+                    SELECT orden_archivo, {calculadas}
+                    FROM (
+                        SELECT r.orden_archivo, r.id_linea, r.id_ramal, r.interno,
+                               r.fecha, r.distance_servicio_mts,
+                               r.distance_servicio_mts_agg
+                        FROM gps_raw r
+                        JOIN _gps_prep_ids i ON i.orden_archivo = r.orden_archivo
+                    )
+                    """
+                )
+        finally:
+            self._conn.execute(
+                f"SET preserve_insertion_order = "
+                f"{'true' if prev_order in (True, 'true', 1) else 'false'}"
+            )
+
+        # 3) ensamblado: hash joins (derraman) + ORDER BY (sort externo, derrama).
+        if calculadas is not None:
+            distancias = "o.distance_servicio_mts, o.distance_servicio_mts_agg"
+            join_odo = "JOIN _gps_prep_odo o ON o.orden_archivo = r.orden_archivo"
+        else:
+            distancias = "r.distance_servicio_mts, r.distance_servicio_mts_agg"
+            join_odo = ""
         self._conn.execute(
             f"""
             CREATE TABLE gps_prep AS
-            WITH sin_duplicados AS (
-                SELECT * FROM gps_raw
-                QUALIFY ROW_NUMBER() OVER (
-                    PARTITION BY {particion} ORDER BY orden_archivo
-                ) = 1
-            ),
-            con_id AS (
-                SELECT
-                    (ROW_NUMBER() OVER (ORDER BY orden_archivo) - 1 + {int(id_offset)})
-                        AS id,
-                    *
-                FROM sin_duplicados
-            )
             SELECT
-                id, orden_archivo, id_original, dia, id_linea, id_ramal, interno,
-                fecha, latitud, longitud, velocity, id_servicio, service_type,
-                {calculadas}
-            FROM con_id
+                i.id, r.orden_archivo, r.id_original, r.dia, r.id_linea, r.id_ramal,
+                r.interno, r.fecha, r.latitud, r.longitud, r.velocity, r.id_servicio,
+                r.service_type, {distancias}
+            FROM gps_raw r
+            JOIN _gps_prep_ids i ON i.orden_archivo = r.orden_archivo
+            {join_odo}
+            ORDER BY r.orden_archivo
             """
         )
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_ids")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_odo")
         return int(
             self._conn.execute("SELECT COUNT(*) FROM gps_prep").fetchone()[0]
         )
@@ -1031,9 +1117,9 @@ class DuckDBDataAdapter:
         ).fetchdf()
 
     def clear_gps_staging(self) -> None:
-        """Descarta staging y tabla preparada una vez subida la tabla gps."""
-        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
-        self._conn.execute("DROP TABLE IF EXISTS gps_raw")
+        """Descarta staging y tablas derivadas una vez subida la tabla gps."""
+        for tabla in ("gps_prep", "_gps_prep_ids", "_gps_prep_odo", "gps_raw"):
+            self._conn.execute(f"DROP TABLE IF EXISTS {tabla}")
         self._conn.execute(schema.GPS_RAW)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
