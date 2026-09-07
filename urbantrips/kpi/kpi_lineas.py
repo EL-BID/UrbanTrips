@@ -4,6 +4,12 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from urbantrips.utils import utils
+from urbantrips.utils.dataframe import (
+    combinar_conteo_distintos,
+    combinar_suma,
+    dias_para_leer_por_dia,
+    leer_dia,
+)
 from urbantrips.utils.utils import duracion
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
@@ -171,22 +177,26 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     segundo caso la flota, la velocidad comercial y los KPI de demanda se leen
     y agregan por ramal: los KPI vienen de `kpi_by_day_branch`, que escribe
     `compute_kpi_by_branch_day` cuando `lineas_contienen_ramales` es True.
+
+    Devuelve `(internos_agg, gps_agg, servicios, kpis_varios, lineas)`: los
+    dos primeros son los agregados de `transacciones` y `gps` ya cerrados
+    (ver abajo), no los frames enteros.
     """
     entidad = entidad or ["id_linea"]
     por_ramal = "id_ramal" in entidad
 
-    # Only the columns used below — gps and transacciones are the two largest
-    # tables in the run; loading them whole multiplies peak RSS. `dias` acota
-    # las lecturas (tablas acumulativas) a los días del proc-mat: las filas de
-    # salida de agrego_lineas se anclan en el mat, leer más días es descarte.
+    # `gps` y `transacciones` son las dos tablas mas grandes de la corrida.
+    # Materializarlas enteras cuesta ~20 GB y ~10 GB a escala de un mes (mas la
+    # columna `dia` que se deriva de `fecha`, otros 62 B/fila) y no entran en la
+    # maquina del cliente. Lo unico que se les pide son tres agregados que
+    # llevan `dia` en la clave -- la flota, los internos con GPS y los internos
+    # con transacciones -- asi que se leen de a un dia y se combinan los
+    # parciales. `dias` acota las lecturas (tablas acumulativas) a los dias del
+    # proc-mat: las filas de salida de agrego_lineas se anclan en el mat, leer
+    # mas dias es descarte.
     from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
 
     _where = dias_where_clause(dias)
-    gps = ctx.data.query(f"SELECT fecha, id_linea, id_ramal, interno FROM gps{_where}")
-
-    trx = ctx.data.query(
-        f"SELECT dia, id_linea, id_ramal, interno FROM transacciones{_where}"
-    )
 
     lineas = ctx.insumos.get_metadata_lineas()[
         ["id_linea", "nombre_linea", "empresa"]
@@ -204,29 +214,62 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     except Exception:
         servicios = pd.DataFrame()
 
-    # Procesamiento de GPS y cálculo de flota
-    gps["fecha"] = pd.to_datetime(gps["fecha"], unit="s")
-    gps["dia"] = gps["fecha"].dt.strftime("%Y-%m-%d")
+    cols = ["dia"] + entidad
 
-    flota = (
-        gps.groupby(["dia"] + entidad, as_index=False)
-        .size()
-        .rename(columns={"size": "flota"})
+    # Procesamiento de GPS y calculo de flota. El `dia` se deriva de `fecha`
+    # (no es la columna `dia` de la tabla, por la que se chunkea), asi que un
+    # grupo puede quedar partido entre dos chunks: combinar_* lo vuelve a unir.
+    flota_parc, gps_parc = [], []
+    for dia in dias_para_leer_por_dia(ctx.data.query, "gps", dias):
+        dia_gps = leer_dia(
+            ctx.data.query, "gps", ["fecha", "id_linea", "id_ramal", "interno"], dia,
+        )
+        dia_gps["fecha"] = pd.to_datetime(dia_gps["fecha"], unit="s")
+        dia_gps["dia"] = dia_gps["fecha"].dt.strftime("%Y-%m-%d")
+        flota_parc.append(dia_gps.groupby(cols, as_index=False).size())
+        gps_parc.append(dia_gps.groupby(cols + ["interno"], as_index=False).size())
+        del dia_gps
+
+    flota = combinar_suma(flota_parc, cols, "size", observed=False).rename(
+        columns={"size": "flota"}
     )
-
-    # Cálculo de velocidad comercial
-    vel_comercial_linea = cal_velocidad_comercial(servicios, entidad=entidad)
+    gps_agg = combinar_conteo_distintos(
+        gps_parc, cols, "cant_internos_en_gps", observed=False
+    )
+    del flota_parc, gps_parc
 
     # Procesamiento de transacciones
+    internos_parc = []
+    for dia in dias_para_leer_por_dia(ctx.data.query, "transacciones", dias):
+        dia_trx = leer_dia(
+            ctx.data.query, "transacciones",
+            ["dia", "id_linea", "id_ramal", "interno"], dia,
+        )
+        internos_parc.append(dia_trx.groupby(cols + ["interno"], as_index=False).size())
+        del dia_trx
+
+    internos_agg = combinar_conteo_distintos(
+        internos_parc, cols, "cant_internos_en_trx", observed=False
+    )
+    del internos_parc
+
+    # Calculo de velocidad comercial
+    vel_comercial_linea = cal_velocidad_comercial(servicios, entidad=entidad)
 
     kpis_varios = flota.merge(vel_comercial_linea, how="left").merge(kpis, how="left")
 
-    return trx, etapas, gps, servicios, kpis_varios, lineas
+    return internos_agg, gps_agg, servicios, kpis_varios, lineas
 
 
 @duracion
 def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
-                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix=""):
+                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix="",
+                  internos_agg=None, gps_agg=None):
+    """`internos_agg`/`gps_agg` permiten pasar los agregados de `trx` y `gps` ya
+    calculados (leidos de a un dia por `levanto_data`) en lugar de los frames
+    enteros, que a escala de un mes no entran en RAM. Sin ellos se calculan aca
+    como siempre.
+    """
 
     if etapas_query_fn is not None:
         # Push-down: transacciones + genero/tarifa pivots in one query over
@@ -291,22 +334,24 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     etapas_agg = tot.merge(etapas_agg, how="left", on=cols + ["modo"])
 
     # Agregado de cantidad de internos en transacciones
-    internos_agg = (
-        trx.groupby(cols + ["interno"], as_index=False)
-        .size()
-        .groupby(cols, as_index=False)
-        .size()
-        .rename(columns={"size": "cant_internos_en_trx"})
-    )
+    if internos_agg is None:
+        internos_agg = (
+            trx.groupby(cols + ["interno"], as_index=False)
+            .size()
+            .groupby(cols, as_index=False)
+            .size()
+            .rename(columns={"size": "cant_internos_en_trx"})
+        )
 
     # Agregado de cantidad de internos con GPS
-    gps_agg = (
-        gps.groupby(cols + ["interno"], as_index=False)
-        .size()
-        .groupby(cols, as_index=False)
-        .size()
-        .rename(columns={"size": "cant_internos_en_gps"})
-    )
+    if gps_agg is None:
+        gps_agg = (
+            gps.groupby(cols + ["interno"], as_index=False)
+            .size()
+            .groupby(cols, as_index=False)
+            .size()
+            .rename(columns={"size": "cant_internos_en_gps"})
+        )
 
     # Agregado de servicios válidos.
     # `distance_route_gps` (odómetro del equipo) se suma igual que
@@ -491,10 +536,13 @@ def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     materializar_proc_tables(ctx)
 
     dias_mat = proc_mat_days(ctx)
-    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(ctx, dias=dias_mat)
+    internos_agg, gps_agg, servicios, kpis_varios, lineas = levanto_data(
+        ctx, dias=dias_mat
+    )
     kpis = agrego_lineas(
-        ["dia", "id_linea"], trx, None, gps, servicios, kpis_varios, lineas,
+        ["dia", "id_linea"], None, None, None, servicios, kpis_varios, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+        internos_agg=internos_agg, gps_agg=gps_agg,
     )
 
     # delete existing rows for these days AND the previous "Promedios" row before
@@ -542,7 +590,7 @@ def calculo_kpi_ramales(ctx: StorageContext):
     materializar_proc_tables(ctx)
     dias_mat = proc_mat_days(ctx)
 
-    trx, _etapas, gps, servicios, kpis_varios, lineas = levanto_data(
+    internos_agg, gps_agg, servicios, kpis_varios, lineas = levanto_data(
         ctx, dias=dias_mat, entidad=entidad
     )
     if "id_ramal" not in kpis_varios.columns:
@@ -552,8 +600,9 @@ def calculo_kpi_ramales(ctx: StorageContext):
         )
 
     kpis = agrego_lineas(
-        ["dia"] + entidad, trx, None, gps, servicios, kpis_varios, lineas,
+        ["dia"] + entidad, None, None, None, servicios, kpis_varios, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+        internos_agg=internos_agg, gps_agg=gps_agg,
     )
 
     # nombre del ramal, si la metadata lo tiene

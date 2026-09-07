@@ -75,3 +75,78 @@ def calculate_weighted_means(
     if pushed_down:
         return query_fn(cte_prefix + query)
     return duckdb.sql(query).df()
+
+
+# ---------------------------------------------------------------------------
+# Lectura de a un dia de las tablas grandes (transacciones, gps)
+# ---------------------------------------------------------------------------
+# `transacciones` y `gps` son las dos tablas mas grandes de una corrida (208M y
+# 104M filas en el mes de AMBA del cliente). DuckDB entrega las columnas TEXT
+# como un objeto `str` por fila --sin compartirlos, aunque haya 31 valores
+# distintos-- asi que un `SELECT` de 6 columnas sobre transacciones cuesta 181
+# B/fila medidos: ~38 GB para el mes, mas que la RAM de la maquina. Todos los
+# agregados que el dashboard hace sobre esas tablas llevan `dia` en la clave, y
+# por eso se pueden calcular leyendo un dia por vez y combinando los parciales.
+# Estas tres funciones son la maquinaria compartida por `resumen_x_linea` y
+# `levanto_data`.
+
+
+def dias_para_leer_por_dia(query_fn, tabla, dias=None, dia_col="dia"):
+    """Dias a recorrer para leer `tabla` de a un dia por vez.
+
+    Con `dias` (el scope de la corrida) se usan esos; sin scope se toman los
+    dias presentes en la tabla, que equivale a leerla entera.
+    """
+    if dias:
+        return [str(d) for d in sorted(dias)]
+    df = query_fn(
+        f"SELECT DISTINCT {dia_col} AS dia FROM {tabla} "
+        f"WHERE {dia_col} IS NOT NULL ORDER BY 1"
+    )
+    if len(df) == 0:
+        return []
+    return df["dia"].astype(str).tolist()
+
+
+def leer_dia(query_fn, tabla, columnas, dia, dia_col="dia", extra_where=""):
+    """Un dia de `tabla`, proyectado a `columnas`."""
+    dia_sql = str(dia).replace("'", "''")
+    where = f"WHERE {dia_col} = '{dia_sql}'"
+    if extra_where:
+        where += f" AND {extra_where}"
+    return query_fn(f"SELECT {', '.join(columnas)} FROM {tabla} {where}")
+
+
+def combinar_suma(parciales, cols, valor, observed=True):
+    """Cierra un `groupby(cols)[valor].sum()` a partir de los parciales por dia.
+
+    Volver a sumar es lo que reune un grupo que haya quedado partido entre dos
+    chunks (pasa cuando la clave de agregacion no es la columna por la que se
+    chunkea, p. ej. el `dia` derivado de `fecha` en gps). Cuando no hay grupos
+    partidos --el caso normal, con `dia` en `cols`-- cada grupo queda con un
+    solo sumando y el resultado es identico al global bit a bit.
+    """
+    if not parciales:
+        return pd.DataFrame(columns=list(cols) + [valor])
+    df = pd.concat(parciales, ignore_index=True)
+    return df.groupby(list(cols), as_index=False, observed=observed)[valor].sum()
+
+
+def combinar_conteo_distintos(parciales, cols, out_col, observed=True):
+    """Cierra un `groupby(cols + [clave]).size().groupby(cols).size()` a partir
+    de los `groupby(cols + [clave]).size()` parciales de cada dia.
+
+    Es exactamente el conteo global: el groupby parcial ya descarto las filas
+    con clave nula igual que lo haria el global, la suma vuelve a unir los
+    grupos partidos entre chunks, y el segundo groupby cuenta grupos.
+    """
+    if not parciales:
+        return pd.DataFrame(columns=list(cols) + [out_col])
+    df = pd.concat(parciales, ignore_index=True)
+    claves = [c for c in df.columns if c != "size"]
+    df = df.groupby(claves, as_index=False, observed=observed)["size"].sum()
+    return (
+        df.groupby(list(cols), as_index=False, observed=observed)
+        .size()
+        .rename(columns={"size": out_col})
+    )

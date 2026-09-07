@@ -162,9 +162,9 @@ def test_upsert_indicator_sin_historia_escribe_directo():
 
 
 def test_viajes_poligonos_acota_chains_a_run_days():
-    """_viajes_poligonos_desde_chains debe leer chains_norm SOLO de los días de la
-    corrida (antes leía all-days → OOM a escala). Se verifica que la query lleva el
-    filtro WHERE dia IN (run_days)."""
+    """_viajes_poligonos_desde_chains lee chains_norm SOLO de los dias de la
+    corrida, y ademas de a un dia por vez: la proyeccion cuesta 717 B/fila
+    medidos, o sea ~72 GB si se levantara el mes entero de una."""
     from unittest.mock import MagicMock
     from urbantrips.preparo_dashboard.preparo_dashboard import (
         _viajes_poligonos_desde_chains,
@@ -174,11 +174,12 @@ def test_viajes_poligonos_acota_chains_a_run_days():
     ctx.insumos.query.return_value = pd.DataFrame(
         {"h3": ["abc"], "zona": ["P1"], "tipo": ["poligono"]}
     )
-    ctx.data.get_run_days.return_value = pd.DataFrame({"dia": ["2026-03-27"]})
-    captured = {}
+    run_days = ["2026-03-27", "2026-03-28"]
+    ctx.data.get_run_days.return_value = pd.DataFrame({"dia": run_days})
+    capturadas = []
 
     def fake_dash_query(sql):
-        captured["sql"] = sql
+        capturadas.append(sql)
         return pd.DataFrame(columns=[
             "dia", "mes", "tipo_dia", "id_tarjeta", "id_viaje",
             "h3_inicio_norm", "h3_fin_norm", "modo_agregado", "rango_hora",
@@ -190,9 +191,13 @@ def test_viajes_poligonos_acota_chains_a_run_days():
 
     _viajes_poligonos_desde_chains(ctx)
 
-    sql = captured["sql"].lower()
-    assert "from chains_norm where dia in" in sql
-    assert "2026-03-27" in captured["sql"]
+    lecturas = [s for s in capturadas if "LIMIT 0" not in s]
+    # una lectura por dia de la corrida, cada una acotada a ese dia
+    assert len(lecturas) == len(run_days), lecturas
+    for dia, sql in zip(run_days, lecturas):
+        assert "from chains_norm where dia = '{}'".format(dia) in sql.lower(), sql
+    # y ninguna lectura sin filtro de dia
+    assert not [s for s in lecturas if "where dia" not in s.lower()]
 
 
 def test_upsert_indicator_historia_legacy_sin_dia_reemplaza_entera():

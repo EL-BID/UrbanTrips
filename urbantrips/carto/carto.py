@@ -84,6 +84,41 @@ def _as_geodataframe_wkt(df, crs_default="EPSG:4326"):
     return gpd.GeoDataFrame(out, geometry="geometry", crs=crs)
 
 
+def _to_wgs84(gdf, file_name):
+    """Devuelve la capa reproyectada a EPSG:4326, validando el CRS declarado.
+
+    Todo lo que sigue (dissolve + buffer en metros, hexágonos H3, WKT guardado
+    sin CRS) asume lat/lon. Un archivo que declara grados pero trae metros
+    —típico GeoJSON exportado sin reproyectar— produce `inf` en `to_crs` y
+    después un access violation dentro de GEOS en `buffer`, que mata el
+    proceso sin traceback. Acá se corta antes, con un mensaje que nombra el
+    archivo.
+    """
+    if gdf.crs is None:
+        raise ValueError(
+            f"La capa '{file_name}' no declara sistema de coordenadas (CRS). "
+            "Reexportarla en EPSG:4326 (lat/lon) o con el CRS correcto."
+        )
+
+    if gdf.crs.is_geographic:
+        minx, miny, maxx, maxy = gdf.total_bounds
+        if not (-180 <= minx <= maxx <= 180 and -90 <= miny <= maxy <= 90):
+            raise ValueError(
+                f"La capa '{file_name}' declara {gdf.crs.to_string()} (grados) pero "
+                f"sus coordenadas no son grados (x en [{minx:.0f}, {maxx:.0f}], "
+                f"y en [{miny:.0f}, {maxy:.0f}]). El archivo está mal etiquetado: "
+                "reexportarlo declarando el CRS real (por ejemplo el epsg_m del "
+                "config) o ya reproyectado a EPSG:4326."
+            )
+
+    if gdf.crs.to_epsg() != 4326:
+        logger.info(
+            "Reproyectando '%s' de %s a EPSG:4326", file_name, gdf.crs.to_string()
+        )
+        gdf = gdf.to_crs(4326)
+    return gdf
+
+
 def _with_wkt_geometry(df):
     """Return a plain DataFrame with geometry values serialized to WKT."""
     out = pd.DataFrame(df.copy())
@@ -483,6 +518,7 @@ def _load_zonificaciones_from_config(configs):
             continue
 
         zonif = gpd.read_file(db_path)[[var_zona, "geometry"]].copy()
+        zonif = _to_wgs84(zonif, file_zona)
         zonif.columns = ["id", "geometry"]
         zonif["zona"] = var_zona
 
@@ -589,7 +625,7 @@ def guardo_zonificaciones(ctx: StorageContext, resoluciones_equivalencias=None):
         poligonos_db = ctx.insumos.get_raw("poligonos")
 
         if os.path.exists(db_path):
-            poly = gpd.read_file(db_path)
+            poly = _to_wgs84(gpd.read_file(db_path), poly_file)
 
             if len(poligonos_db) > 0:
                 poligonos_db = poligonos_db.loc[

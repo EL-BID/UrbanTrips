@@ -55,6 +55,12 @@ from urbantrips.preparo_dashboard.geo import (  # noqa: F401 — re-exported
 from urbantrips.storage.context import StorageContext
 from urbantrips.utils.check_configs import check_config
 from urbantrips.utils.paths import get_paths
+from urbantrips.utils.dataframe import (
+    combinar_conteo_distintos,
+    combinar_suma,
+    dias_para_leer_por_dia,
+    leer_dia,
+)
 from urbantrips.utils.utils import (
     calculate_weighted_means,
     duracion,
@@ -575,39 +581,63 @@ def _viajes_poligonos_desde_chains(ctx: StorageContext):
     # pandas escala con lo acumulado (a 12 días picó RAM → OOM). Se acota a los días
     # de la corrida; construyo_indicadores recompone "Todos" desde el histórico de
     # poly_indicadores (merge-con-historia), igual que el path no-polígono.
-    from urbantrips.preparo_dashboard.sql_queries import dias_where_clause
     run_days = ctx.data.get_run_days()
     dias_scope = run_days["dia"].astype(str).tolist() if not run_days.empty else []
-    _where = dias_where_clause(dias_scope)
+
     try:
-        chains = ctx.dash.query(
-            "SELECT dia, mes, tipo_dia, id_tarjeta, id_viaje, "
-            "h3_inicio_norm, h3_fin_norm, modo_agregado, rango_hora, "
-            "transferencia, distancia_agregada, distance_od, "
-            "factor_expansion_linea "
-            f"FROM chains_norm{_where}"
-        )
+        ctx.dash.query("SELECT * FROM chains_norm LIMIT 0")
     except Exception:
         logger.warning("construyo_indicadores: la tabla chains_norm no existe en dash.")
         return pd.DataFrame([])
 
-    if len(chains) == 0:
-        return pd.DataFrame([])
+    # Esta proyeccion de chains_norm cuesta 717 B/fila medidos (ocho columnas
+    # TEXT, con id_tarjeta de 34 caracteres): ~72 GB para los ~100M viajes de un
+    # mes, mas que cualquier maquina en la que corre esto. Se lee un dia por vez
+    # y de cada dia solo sobrevive lo que cae en algun poligono (5,8M filas en el
+    # mes de AMBA), asi que el pico queda en un dia (~2,3 GB).
+    cols_chains = [
+        "dia", "mes", "tipo_dia", "id_tarjeta", "id_viaje",
+        "h3_inicio_norm", "h3_fin_norm", "modo_agregado", "rango_hora",
+        "transferencia", "distancia_agregada", "distance_od",
+        "factor_expansion_linea",
+    ]
+    poligonos_h3 = {
+        (zona, tipo): set(grupo["h3"])
+        for (zona, tipo), grupo in equivalencias.groupby(["zona", "tipo"], observed=True)
+    }
+    seleccion = {clave: [] for clave in poligonos_h3}
+    conteo = {clave: 0 for clave in poligonos_h3}
+
+    for dia in dias_para_leer_por_dia(ctx.dash.query, "chains_norm", dias_scope):
+        chains = leer_dia(ctx.dash.query, "chains_norm", cols_chains, dia)
+        if len(chains) == 0:
+            continue
+        for clave, h3_poly in poligonos_h3.items():
+            _zona, tipo = clave
+            en_origen = chains["h3_inicio_norm"].isin(h3_poly)
+            en_destino = chains["h3_fin_norm"].isin(h3_poly)
+            mask = (
+                (en_origen & en_destino) if tipo == "cuenca" else (en_origen | en_destino)
+            )
+            if not mask.any():
+                continue
+            conteo[clave] += int(mask.sum())
+            seleccion[clave].append(
+                chains.loc[mask]
+                .drop(columns=["h3_inicio_norm", "h3_fin_norm"])
+                .assign(id_polygon=_zona)
+            )
+        del chains
 
     frames = []
-    for (zona, tipo), grupo in equivalencias.groupby(["zona", "tipo"], observed=True):
-        h3_poly = set(grupo["h3"])
-        en_origen = chains["h3_inicio_norm"].isin(h3_poly)
-        en_destino = chains["h3_fin_norm"].isin(h3_poly)
-        mask = (en_origen & en_destino) if tipo == "cuenca" else (en_origen | en_destino)
-        if not mask.any():
+    for clave, partes in seleccion.items():
+        if not partes:
             continue
-        seleccion = chains.loc[mask].drop(columns=["h3_inicio_norm", "h3_fin_norm"])
-        seleccion = seleccion.assign(id_polygon=zona)
-        frames.append(seleccion)
+        zona, tipo = clave
+        frames.append(pd.concat(partes, ignore_index=True))
         logger.info(
             "construyo_indicadores: polígono %s (%s) — %s viajes.",
-            zona, tipo, f"{int(mask.sum()):,}",
+            zona, tipo, f"{conteo[clave]:,}",
         )
 
     if not frames:
@@ -1021,6 +1051,111 @@ def imprimo_matrices_od(ctx: StorageContext):
         logger.debug("Saved %s --- %s", db_path, db_path2)
 
 
+AGG_COLS_USER_SOCIO = [
+    "dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada",
+]
+
+# El bloque "viajes promedio por usuario" resuelto adentro de la DB. Ver
+# `_socio_userx_por_dia` para por que no baja las filas a pandas.
+_SOCIO_USERX_SQL = """
+WITH dia_mat AS (
+    SELECT dia, mes, tipo_dia, id_tarjeta, genero_agregado, tarifa_agregada,
+           factor_expansion_tarjeta, factor_expansion_linea
+    FROM {source}
+    WHERE dia = '{dia}'
+),
+etiqueta_tarjeta AS (
+    -- la etiqueta se arma por (dia, id_tarjeta) y NO por el resto de las
+    -- claves: es la agrupacion del STRING_AGG original, y respetarla importa
+    -- si alguna vez una tarjeta tuviera dos generos en un mismo dia
+    SELECT dia, id_tarjeta,
+           COALESCE(
+               STRING_AGG(DISTINCT NULLIF(REPLACE(tarifa_agregada, '-', ''), ''), '-'),
+               '-'
+           ) AS etiqueta
+    FROM dia_mat
+    GROUP BY dia, id_tarjeta
+),
+por_tarjeta AS (
+    -- el WHERE reproduce el dropna del groupby de pandas, que descarta la fila
+    -- si CUALQUIERA de las claves es nula; en SQL un GROUP BY las conservaria
+    SELECT m.dia, m.mes, m.tipo_dia, m.genero_agregado, e.etiqueta,
+           COUNT(m.factor_expansion_tarjeta) AS cant_viajes,
+           AVG(m.factor_expansion_linea) AS fex
+    FROM dia_mat m
+    JOIN etiqueta_tarjeta e ON m.dia = e.dia AND m.id_tarjeta = e.id_tarjeta
+    WHERE m.mes IS NOT NULL AND m.tipo_dia IS NOT NULL
+      AND m.id_tarjeta IS NOT NULL AND m.genero_agregado IS NOT NULL
+    GROUP BY m.dia, m.mes, m.tipo_dia, m.id_tarjeta, m.genero_agregado, e.etiqueta
+)
+-- numerador y denominador por separado, sin dividir todavia: la division tiene
+-- que hacerse DESPUES de unir las etiquetas que ordenan igual (ver abajo)
+SELECT dia, mes, tipo_dia, genero_agregado, etiqueta,
+       SUM(CAST(cant_viajes AS DOUBLE) * fex) AS suma_ponderada,
+       SUM(fex) AS suma_fex
+FROM por_tarjeta
+GROUP BY dia, mes, tipo_dia, genero_agregado, etiqueta
+"""
+
+
+def _socio_userx_por_dia(query_fn, source, dias=None):
+    """"Viajes promedio por usuario" por dia, agregado adentro de la DB.
+
+    Bajar el dia a pandas para agrupar por tarjeta costaba ~29 M de objetos
+    `str` por dia (4,8 M filas x 6 columnas TEXT, con `id_tarjeta` de 34
+    caracteres). Medido sobre el mes del cliente, el heap de Python crecia ~2 GB
+    por dia y no volvia al piso: 28,4 GB de pico a los 28 dias, y subiendo con
+    el horizonte de la corrida. Hecho en SQL, cada dia vuelve con unas pocas
+    decenas de filas y el pico deja de depender de cuantos dias tenga la
+    corrida.
+
+    Devuelve el frame por dia listo para el segundo weighted-mean, con las
+    mismas columnas y el mismo redondeo que la version en pandas.
+    """
+    parciales = []
+    for dia in dias_para_leer_por_dia(query_fn, source, dias):
+        parciales.append(
+            query_fn(
+                _SOCIO_USERX_SQL.format(
+                    source=source, dia=str(dia).replace("'", "''")
+                )
+            )
+        )
+    if not parciales:
+        return pd.DataFrame(
+            columns=AGG_COLS_USER_SOCIO + ["cant_viajes", "factor_expansion_linea"]
+        )
+
+    userx = pd.concat(parciales, ignore_index=True)
+    del parciales
+
+    # El STRING_AGG no ordena, asi que una tarjeta multi-tarifa salia etiquetada
+    # "A-B" o "B-A" segun el orden arbitrario del agregado: la misma poblacion
+    # aparecia partida en dos filas y cual tocaba cambiaba entre corridas.
+    # Ordenar los componentes lo vuelve reproducible y une esas filas. Se hace
+    # en Python y no con un ORDER BY adentro del agregado porque ese ORDER BY
+    # cuesta 58,7 s por dia contra 1,0 s (medido sobre 4.197.970 viajes /
+    # 1.804.585 tarjetas, con resultado identico); el mapa tiene 7 entradas.
+    orden = {
+        v: "-".join(sorted(v.split("-"))) for v in userx["etiqueta"].unique()
+    }
+    userx["tarifa_agregada"] = userx["etiqueta"].map(orden)
+
+    # min_count=1 para que un grupo enteramente nulo siga siendo nulo, como el
+    # SUM de SQL, y no se convierta en 0
+    userx = userx.groupby(AGG_COLS_USER_SOCIO, as_index=False, observed=True)[
+        ["suma_ponderada", "suma_fex"]
+    ].sum(min_count=1)
+
+    # la media ponderada, ya unidas las etiquetas equivalentes; el replace(0)
+    # es el NULLIF(..., 0) de calculate_weighted_means
+    userx["cant_viajes"] = userx["suma_ponderada"] / userx["suma_fex"].replace(0, np.nan)
+    userx["factor_expansion_linea"] = userx["suma_fex"]
+    return userx[
+        AGG_COLS_USER_SOCIO + ["cant_viajes", "factor_expansion_linea"]
+    ].round(3)
+
+
 @duracion
 def crea_socio_indicadores(ctx: StorageContext):
     from urbantrips.preparo_dashboard.sql_queries import (
@@ -1142,49 +1277,16 @@ def crea_socio_indicadores(ctx: StorageContext):
 
     # Calculo viajes promedio por día por género y tarifa_agregada
     logger.info("crea_socio_indicadores: calculando viajes promedio por usuario")
-    # Per-card trip counts. The folded single-SQL version over the WIDE materialised
-    # table with STRING_AGG(DISTINCT ... ORDER BY) was ~13x slower (37 min vs ~3 min):
-    # the ORDER BY sort per card-group + scanning the 22-col table twice dominated.
-    # Revert to the original pandas path (STRING_AGG over a NARROW 3-col frame +
-    # pandas groupby), fed by a narrow 8-col projection of the materialised table
-    # (~26M x 8 ≈ 1.5 GB). The multi-tariff label order is non-deterministic again
-    # (as in the legacy); affects only the ~35 multi-tariff rows of this table.
-    viajes_user = ctx.data.query(
-        f"SELECT dia, mes, tipo_dia, id_tarjeta, genero_agregado, tarifa_agregada, "
-        f"factor_expansion_tarjeta, factor_expansion_linea FROM {VIAJES_PROC_MAT}"
-    )
-    _userx_clean = viajes_user[["dia", "id_tarjeta"]].copy()
-    _userx_clean["tarifa_agregada"] = viajes_user["tarifa_agregada"].str.replace("-", "")
-    _tarifa_agg = duckdb.sql("""
-        SELECT dia, id_tarjeta,
-               COALESCE(STRING_AGG(DISTINCT NULLIF(tarifa_agregada, ''), '-'), '-') AS tarifa_agregada_agg
-        FROM _userx_clean
-        GROUP BY dia, id_tarjeta
-    """).df()
-    userx = viajes_user[
-        ["dia", "mes", "tipo_dia", "id_tarjeta", "genero_agregado",
-         "factor_expansion_tarjeta", "factor_expansion_linea"]
-    ].merge(_tarifa_agg, how="left")
-    userx = (
-        userx.groupby(
-            ["dia", "mes", "tipo_dia", "id_tarjeta", "genero_agregado", "tarifa_agregada_agg"],
-            as_index=False, observed=True)
-        .agg({"factor_expansion_tarjeta": "count", "factor_expansion_linea": "mean"})
-        .rename(columns={"factor_expansion_tarjeta": "cant_viajes"})
-        .rename(columns={"tarifa_agregada_agg": "tarifa_agregada"})
-    )
+    # Todo el bloque se resuelve adentro de la DB y vuelve agregado: ver
+    # `_socio_userx_por_dia`. La version anterior bajaba el dia a pandas para
+    # agrupar por tarjeta, y a escala mes eso acumulaba ~2 GB de heap por dia
+    # (28,4 GB de pico a los 28 dias, creciendo con el horizonte de la corrida).
+    userx = _socio_userx_por_dia(ctx.data.query, VIAJES_PROC_MAT)
+    gc.collect()
 
     userx = calculate_weighted_means(
         userx,
-        aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
-        weighted_mean_cols=["cant_viajes"],
-        weight_col="factor_expansion_linea",
-        var_fex_summed=True,
-    ).round(3)
-
-    userx = calculate_weighted_means(
-        userx,
-        aggregate_cols=["dia", "mes", "tipo_dia", "genero_agregado", "tarifa_agregada"],
+        aggregate_cols=AGG_COLS_USER_SOCIO,
         weighted_mean_cols=["cant_viajes"],
         weight_col="factor_expansion_linea",
         var_fex_summed=False,
@@ -1375,20 +1477,25 @@ def resumen_x_linea(ctx: StorageContext):
     )
     materializar_proc_tables(ctx)
 
-    # Only the columns agrego_lineas reads — gps and transacciones are the two
-    # largest tables in the run; loading them whole multiplies peak RSS. Las
-    # lecturas se acotan a los días del proc-mat: las filas de salida se anclan
-    # en el mat (merges left desde `tot`), así que leer días fuera de ese scope
-    # es puro descarte y escala con lo acumulado.
+    # `gps` y `transacciones` son las dos tablas mas grandes de la corrida y ya
+    # no se materializan enteras: a escala de un mes el SELECT de 6 columnas
+    # sobre transacciones cuesta ~38 GB en pandas (181 B/fila medidos - DuckDB
+    # entrega cada TEXT como un objeto str por fila, sin compartirlos) y
+    # reventaba con MemoryError en la maquina del cliente, de 34 GB. Lo unico
+    # que se les pide son tres agregados que llevan `dia` en la clave, asi que
+    # se leen de a un dia y se combinan los parciales: resultado identico, con
+    # el pico acotado a un dia (~1,5 GB).
+    # Las lecturas se acotan a los dias del proc-mat: las filas de salida se
+    # anclan en el mat (merges left desde `tot`), asi que leer dias fuera de ese
+    # scope es puro descarte y escala con lo acumulado.
     dias_mat = proc_mat_days(ctx)
     _where = dias_where_clause(dias_mat)
     logger.info(
         "resumen_x_linea: cargando gps, lineas, kpis, servicios, transacciones "
-        "(%s días)", len(dias_mat) if dias_mat else "todos los",
+        "(%s dias)", len(dias_mat) if dias_mat else "todos los",
     )
-    gps = ctx.data.query(f"SELECT dia, id_linea, id_ramal, interno FROM gps{_where}")
     lineas = ctx.insumos.get_metadata_lineas()
-    # try/except: preserva la semántica de get_raw (tabla ausente → df vacío)
+    # try/except: preserva la semantica de get_raw (tabla ausente -> df vacio)
     try:
         kpis = ctx.data.query(f"SELECT * FROM kpi_by_day_line{_where}")
     except Exception:
@@ -1399,10 +1506,57 @@ def resumen_x_linea(ctx: StorageContext):
         servicios = pd.DataFrame()
     lineas = lineas[["id_linea", "nombre_linea", "empresa"]].sort_values(["id_linea"])
 
-    trx = ctx.data.query(
-        f"SELECT dia, id_linea, id_ramal, modo, interno, factor_expansion "
-        f"FROM transacciones{_where}"
-    )
+    cols_linea = ["dia", "id_linea"]
+    cols_ramal = ["dia", "id_linea", "id_ramal"]
+    niveles = (("linea", cols_linea), ("ramal", cols_ramal))
+
+    trx_parc = {"linea": [], "ramal": []}
+    internos_parc = {"linea": [], "ramal": []}
+    for dia in dias_para_leer_por_dia(ctx.data.query, "transacciones", dias_mat):
+        dia_trx = leer_dia(
+            ctx.data.query, "transacciones",
+            ["dia", "id_linea", "id_ramal", "modo", "interno", "factor_expansion"],
+            dia,
+        )
+        for nivel, cols in niveles:
+            trx_parc[nivel].append(
+                dia_trx.groupby(cols + ["modo"], as_index=False, observed=True)
+                .factor_expansion.sum()
+            )
+            internos_parc[nivel].append(
+                dia_trx.groupby(cols + ["interno"], as_index=False, observed=True)
+                .size()
+            )
+        del dia_trx
+
+    gps_parc = {"linea": [], "ramal": []}
+    for dia in dias_para_leer_por_dia(ctx.data.query, "gps", dias_mat):
+        dia_gps = leer_dia(
+            ctx.data.query, "gps", ["dia", "id_linea", "id_ramal", "interno"], dia,
+        )
+        for nivel, cols in niveles:
+            gps_parc[nivel].append(
+                dia_gps.groupby(cols + ["interno"], as_index=False, observed=True)
+                .size()
+            )
+        del dia_gps
+
+    agregados = {
+        nivel: dict(
+            trx_agg=combinar_suma(
+                trx_parc[nivel], cols + ["modo"], "factor_expansion"
+            ).rename(columns={"factor_expansion": "transacciones"}),
+            internos_agg=combinar_conteo_distintos(
+                internos_parc[nivel], cols, "cant_internos_en_trx"
+            ),
+            gps_agg=combinar_conteo_distintos(
+                gps_parc[nivel], cols, "cant_internos_en_gps"
+            ),
+        )
+        for nivel, cols in niveles
+    }
+    del trx_parc, internos_parc, gps_parc
+    gc.collect()
 
     metric_cols = [
         "transacciones",
@@ -1416,8 +1570,9 @@ def resumen_x_linea(ctx: StorageContext):
     # Resumen por línea
     logger.info("resumen_x_linea: agregando por línea")
     all_linea = agrego_lineas(
-        ["dia", "id_linea"], trx, None, gps, servicios, kpis, lineas,
+        cols_linea, None, None, None, servicios, kpis, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+        **agregados["linea"],
     )
     all_linea["mes"] = all_linea["dia"].str[:7]
     metric_cols_linea = [c for c in metric_cols if c in all_linea.columns]
@@ -1433,8 +1588,9 @@ def resumen_x_linea(ctx: StorageContext):
     # Resumen por línea y ramal
     logger.info("resumen_x_linea: agregando por línea y ramal")
     all_ramal = agrego_lineas(
-        ["dia", "id_linea", "id_ramal"], trx, None, gps, servicios, kpis, lineas,
+        cols_ramal, None, None, None, servicios, kpis, lineas,
         etapas_query_fn=ctx.data.query, etapas_source=ETAPAS_PROC_MAT,
+        **agregados["ramal"],
     )
     all_ramal["mes"] = all_ramal["dia"].str[:7]
     metric_cols_ramal = [c for c in metric_cols if c in all_ramal.columns]
