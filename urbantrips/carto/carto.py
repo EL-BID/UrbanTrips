@@ -135,7 +135,31 @@ def _with_wkt_geometry(df):
     return out
 
 
+# Los cortes se redondean con floor_rounding, o sea a 3 decimales. Con más de
+# 1000 secciones el paso entre cortes cae por debajo de 0,001 y el redondeo los
+# colapsa: pd.cut recibe bordes repetidos y falla con "Bin edges must be
+# unique". Es un límite del algoritmo, no una regla de dominio (esa vive en
+# carto/route_sections.py y es mucho más estricta).
+N_SECTIONS_HARD_MAX = 1000
+
+
 def create_route_section_ids(n_sections):
+    n_sections = int(n_sections)
+
+    if n_sections < 1:
+        raise ValueError(
+            f"No se puede dividir un recorrido en {n_sections} secciones: "
+            "el mínimo es 1."
+        )
+
+    if n_sections > N_SECTIONS_HARD_MAX:
+        raise ValueError(
+            f"No se puede dividir un recorrido en {n_sections} secciones: "
+            f"el máximo es {N_SECTIONS_HARD_MAX}. Los identificadores de "
+            "sección se redondean a 3 decimales, así que por encima de ese "
+            "valor los cortes se repiten."
+        )
+
     step = 1 / n_sections
     sections = np.arange(0, 1 + step, step)
     section_ids = pd.Series(map(floor_rounding, sections))

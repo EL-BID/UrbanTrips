@@ -14,8 +14,15 @@ def _existing(lineas):
     rows = []
     for linea in lineas:
         for d in (0, 1):
+            # Un recorrido plausible sobre el AMBA (~9 km): con una geometría
+            # que no represente una línea real, infer_routes_geoms la marcaría
+            # para recalcular y este test dejaría de probar el salteo.
             rows.append(
-                {"id_linea": linea, "direction": d, "wkt": "LINESTRING(0 0,1 1)"}
+                {
+                    "id_linea": linea,
+                    "direction": d,
+                    "wkt": "LINESTRING(-58.5 -34.6, -58.4 -34.6)",
+                }
             )
     return pd.DataFrame(rows)
 
@@ -25,7 +32,10 @@ def test_infer_routes_geoms_skips_existing_lines():
     por id_linea NOT IN (existentes) y, al no quedar líneas nuevas, saltea sin
     recalcular ni reescribir (lowess es caro)."""
     ctx = MagicMock()
-    ctx.insumos.get_raw.return_value = _existing([10, 20])
+    # Sin recorridos oficiales: acá se prueba el salteo por "ya inferida".
+    ctx.insumos.get_raw.side_effect = lambda tabla: (
+        _existing([10, 20]) if tabla == "inferred_lines_geoms" else pd.DataFrame()
+    )
     captured = {}
 
     def fake_query(q):
@@ -45,7 +55,7 @@ def test_infer_routes_geoms_skips_existing_lines():
 def test_infer_routes_geoms_fresh_computes_all():
     """Corrida fresca (sin inferidas previas): la query NO filtra líneas."""
     ctx = MagicMock()
-    ctx.insumos.get_raw.return_value = pd.DataFrame()
+    ctx.insumos.get_raw.side_effect = lambda tabla: pd.DataFrame()
     captured = {}
 
     def fake_query(q):
@@ -105,7 +115,9 @@ def test_infer_routes_salta_linea_no_inferible(monkeypatch):
 def test_infer_routes_todas_no_inferibles_conserva_existentes(monkeypatch):
     """Si NINGUNA línea nueva infiere, no reescribe (conserva las existentes)."""
     ctx = MagicMock()
-    ctx.insumos.get_raw.return_value = _existing([10])
+    ctx.insumos.get_raw.side_effect = lambda tabla: (
+        _existing([10]) if tabla == "inferred_lines_geoms" else pd.DataFrame()
+    )
     ctx.data.query.return_value = _etapas_dos_lineas()
     monkeypatch.setattr(routes.geo, "lowess_linea", lambda grupo: None)
 

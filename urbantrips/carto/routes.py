@@ -19,6 +19,10 @@ from urbantrips.carto.carto import (
     create_route_section_ids,
     floor_rounding,
 )
+from urbantrips.carto.route_sections import (
+    recorrido_plausible,
+    resolve_route_sections,
+)
 from urbantrips.geo import geo
 from urbantrips.storage.context import StorageContext
 from urbantrips.utils.utils import (
@@ -455,40 +459,218 @@ def check_directions_on_geoms(geojson_data, branches_present):
     return geojson_data
 
 
+# Las transacciones sin coordenada se conservan a propósito con latitud y
+# longitud en 0 y factor de expansión 0 (ver `eliminar_trx_fuera_bbox`): no
+# ponderan en ninguna métrica, pero siguen en la tabla. Para el lowess son
+# veneno — son 3,2 millones de etapas en el mes del AMBA, y una línea puede
+# tener ahí la mayoría de las suyas (la 1056 tenía 3.264 de 4.140). El ajuste
+# terminaba siendo una recta entre el punto (0, 0) y Buenos Aires: 10.600 km de
+# largo, que es exactamente la distancia entre los dos. Filtrándolas, esa misma
+# línea da 45 km.
+SQL_ETAPAS_PARA_INFERIR = """
+    select e.id_linea, e.longitud, e.latitud
+    from etapas e
+    where e.latitud != 0 and e.longitud != 0
+    {filtro}
+"""
+
+
+# Modos donde la gente sube sólo en estaciones o paradas fijas: el recorrido se
+# arma uniéndolas en vez de suavizar una nube de puntos (ver
+# `geo.recorrido_por_estaciones`). Ninguno de estos modos trae gps en los datos
+# que tenemos; con gps habría trayectoria ordenada y no haría falta inferir el
+# orden. La lancha no está por ahora: sus paradas son puertos y no se probó.
+MODOS_ESTACIONES = ("tren", "metro", "tranvia")
+
+
+def modos_por_linea(ctx: StorageContext):
+    """id_linea -> modo, para elegir cómo inferir el recorrido de cada una."""
+    meta = ctx.insumos.get_metadata_lineas()
+    if meta.empty or "modo" not in meta.columns:
+        return {}
+    return {
+        int(fila.id_linea): str(fila.modo).lower()
+        for fila in meta.itertuples()
+        if pd.notna(fila.id_linea)
+    }
+
+
+def inferir_recorrido(grupo, modo):
+    """
+    Infiere el recorrido de una línea con el método que le corresponde.
+
+    El de las líneas ferroviarias une estaciones; el del resto suaviza la nube
+    de orígenes. Aplicar el de estaciones a un colectivo da un recorrido casi
+    3 veces más largo que el real (la gente sube en cualquier lado, así que no
+    son estaciones sino una nube, y el camino serpentea).
+    """
+    if modo in MODOS_ESTACIONES:
+        recorrido = geo.recorrido_por_estaciones(grupo)
+        if recorrido is not None:
+            return recorrido
+        # El modo la hacía candidata pero el dato dice que no: los orígenes son
+        # una nube difusa, no un puñado de estaciones. Pasa con el tranvía de
+        # Mendoza. Se suaviza como cualquier otra.
+    return geo.lowess_linea(grupo)
+
+
+def geometrias_inferidas_utilizables(existentes):
+    """
+    De las geometrías inferidas ya guardadas, cuáles se pueden seguir usando.
+
+    El salteo incremental existe para no repetir un ajuste caro, pero no tiene
+    sentido conservar una geometría que no representa una línea real: cuando la
+    inferencia mejora, esas líneas tienen que recalcularse. Es el caso de las
+    bases procesadas antes de que la inferencia filtrara las etapas sin
+    coordenada, donde el recorrido guardado es una recta de 10.600 km.
+
+    Returns
+    -------
+    set of id_linea
+    """
+    if existentes.empty:
+        return set()
+
+    try:
+        geoms = gpd.GeoDataFrame(
+            existentes.loc[existentes["direction"] == 0, :].copy(),
+            geometry=gpd.GeoSeries.from_wkt(
+                existentes.loc[existentes["direction"] == 0, "wkt"]
+            ),
+            crs=4326,
+        )
+        utilizable = recorrido_plausible(geoms)
+    except Exception:
+        # Ante cualquier problema leyendo lo guardado se conserva el
+        # comportamiento anterior: no recalcular nada.
+        logger.warning(
+            "No se pudieron revisar las geometrías inferidas guardadas; "
+            "se conservan todas.", exc_info=True,
+        )
+        return set(existentes["id_linea"].tolist())
+
+    sirven = set(geoms.loc[utilizable, "id_linea"].tolist())
+    a_rehacer = set(geoms["id_linea"].tolist()) - sirven
+    if a_rehacer:
+        logger.info(
+            "Se van a recalcular %d recorridos inferidos que no representan una "
+            "línea real (largo fuera de rango).", len(a_rehacer),
+        )
+    return sirven
+
+
+def ambas_direcciones(recorridos):
+    """
+    Duplica cada recorrido en las dos direcciones (la 1 con los vértices dados
+    vuelta) y lo deja listo para guardar: id_linea, direction, wkt.
+    """
+    ida = recorridos.copy()
+    ida["direction"] = 0
+    vuelta = recorridos.copy()
+    vuelta["direction"] = 1
+    vuelta["geometry"] = vuelta.geometry.map(
+        lambda g: LineString(list(g.coords)[::-1])
+    )
+
+    ambas = pd.concat([ida, vuelta], ignore_index=True)
+    ambas["wkt"] = ambas.geometry.to_wkt()
+    return ambas.reindex(columns=["id_linea", "direction", "wkt"])
+
+
+def guardar_inferidos(ctx: StorageContext, existentes, conservar, nuevas):
+    """
+    Deja `inferred_lines_geoms` con lo que corresponde y nada más.
+
+    `save_raw` reemplaza la tabla entera, así que hay que escribir lo que se
+    conserva más lo nuevo. Se conserva sólo lo que cumple la regla: un recorrido
+    inferido por línea SIN recorrido oficial, y sólo si es utilizable. Lo demás
+    no se reescribe — o quedó de una inferencia peor (los recorridos de
+    10.600 km), o es de una línea que ya tiene oficial y nadie lo usa.
+
+    Importa que también se limpie cuando no hay nada nuevo que agregar: si se
+    conservara una geometría inservible, el salteo incremental la volvería a
+    marcar para recalcular en todas las corridas siguientes.
+    """
+    columnas = ["id_linea", "direction", "wkt"]
+
+    if existentes.empty:
+        viejas = pd.DataFrame(columns=columnas)
+    else:
+        viejas = existentes.loc[
+            existentes["id_linea"].map(int).isin(conservar), columnas
+        ]
+
+    partes = [viejas] if not viejas.empty else []
+    if nuevas is not None and not nuevas.empty:
+        partes.append(nuevas[columnas])
+
+    resultado = (
+        pd.concat(partes, ignore_index=True)
+        if partes
+        else pd.DataFrame(columns=columnas)
+    )
+
+    descartadas = len(existentes) - len(viejas)
+    hay_nuevas = nuevas is not None and not nuevas.empty
+
+    if not hay_nuevas and descartadas == 0:
+        # Nada para agregar y nada para limpiar: no tiene sentido reescribir.
+        return
+
+    if descartadas > 0:
+        logger.info(
+            "Se descartan %d filas de recorridos inferidos que no correspondían "
+            "(línea con recorrido oficial, o geometría inservible).", descartadas,
+        )
+
+    ctx.insumos.save_raw(resultado, "inferred_lines_geoms")
+
+
 @duracion
 def infer_routes_geoms(ctx: StorageContext):
     """
     Esta funcion crea a partir de las etapas un recorrido simplificado
     de las lineas y lo guarda en la db.
 
+    El recorrido inferido es el reemplazo para las líneas que NO tienen uno oficial:
+    `build_routes_from_official_inferred` se queda con el oficial cuando existe, así
+    que inferir una línea que ya lo tiene es trabajo que se tira. En el mes del AMBA
+    eran 330 de 406 líneas.
+
     Incremental: lowess lee TODAS las etapas de cada línea y es caro (escala con lo
     acumulado). Las líneas que YA tienen geometría inferida de corridas previas no se
     recalculan — solo se computan las líneas nuevas (o las que quedaron sin geometría,
     p.ej. porque lowess falló). Como `save_raw` hace CREATE OR REPLACE, se guarda la
-    UNIÓN (existentes + nuevas), no solo las nuevas. En corrida fresca (insumos vacía)
-    calcula todas → idéntico al comportamiento original.
+    UNIÓN (existentes + nuevas), no solo las nuevas.
     """
 
     existentes = ctx.insumos.get_raw("inferred_lines_geoms")
-    ya_inferidas = (
-        set(existentes["id_linea"].tolist()) if not existentes.empty else set()
+    # El id puede venir como texto según de dónde se haya cargado la capa.
+    ya_inferidas = {int(x) for x in geometrias_inferidas_utilizables(existentes)}
+
+    oficiales = ctx.insumos.get_raw("official_lines_geoms")
+    con_oficial = (
+        {int(x) for x in oficiales["id_linea"].tolist()}
+        if not oficiales.empty
+        else set()
     )
 
+    excluir = ya_inferidas | con_oficial
+    # Lo que se conserva de lo guardado: un recorrido inferido por línea SIN
+    # recorrido oficial, y sólo si es utilizable.
+    conservar = ya_inferidas - con_oficial
+
     filtro = ""
-    if ya_inferidas:
-        ids = ", ".join(str(int(x)) for x in ya_inferidas)
-        filtro = f"where e.id_linea not in ({ids})"
-    q = f"""
-    select e.id_linea,e.longitud,e.latitud
-    from etapas e
-    {filtro}
-    """
-    etapas = ctx.data.query(q)
+    if excluir:
+        ids = ", ".join(str(x) for x in sorted(excluir))
+        filtro = f"and e.id_linea not in ({ids})"
+    etapas = ctx.data.query(SQL_ETAPAS_PARA_INFERIR.format(filtro=filtro))
 
     if etapas.empty:
         logger.info(
             "infer_routes_geoms: todas las líneas ya tienen geometría inferida — skip"
         )
+        guardar_inferidos(ctx, existentes, conservar, None)
         return
 
     # lowess es best-effort POR LÍNEA: para una línea con muy pocos puntos
@@ -497,9 +679,11 @@ def infer_routes_geoms(ctx: StorageContext):
     # DataFrame plano SIN columna geometry y el `.geometry` de abajo tiraba
     # AttributeError — cualquier corrida (incremental o --reprocesar) que tocara
     # una línea no-inferible crasheaba acá.
+    modos = modos_por_linea(ctx)
+
     partes = []
     for id_linea, grupo in etapas.groupby("id_linea"):
-        geom = geo.lowess_linea(grupo)
+        geom = inferir_recorrido(grupo, modos.get(int(id_linea)))
         if geom is None or len(geom) == 0:
             continue
         geom = geom.copy()
@@ -509,8 +693,9 @@ def infer_routes_geoms(ctx: StorageContext):
     if not partes:
         logger.info(
             "infer_routes_geoms: ninguna línea nueva pudo inferirse por lowess — "
-            "se conservan las %d ya existentes.", len(ya_inferidas)
+            "se conservan las %d utilizables ya existentes.", len(conservar)
         )
+        guardar_inferidos(ctx, existentes, conservar, None)
         return
 
     recorridos_lowess = gpd.GeoDataFrame(
@@ -520,42 +705,119 @@ def infer_routes_geoms(ctx: StorageContext):
     # Elminar geometrias invalidas
     validas = recorridos_lowess.geometry.map(lambda g: g is not None and g.is_valid)
     recorridos_lowess = recorridos_lowess.loc[validas, :].reset_index(drop=True)
+
+    # Y las que salen válidas pero no representan una línea real: guardarlas
+    # dejaría a esa línea igual de inservible, y además se recalcularían en cada
+    # corrida, porque el salteo incremental no las conserva. Sin recorrido es
+    # mejor que con uno que no se puede usar.
+    if not recorridos_lowess.empty:
+        plausibles = recorrido_plausible(recorridos_lowess)
+        descartadas = sorted(recorridos_lowess.loc[~plausibles, "id_linea"].tolist())
+        if descartadas:
+            logger.warning(
+                "%d líneas quedan sin recorrido inferido porque el ajuste no dio "
+                "una geometría plausible: %s", len(descartadas), descartadas[:10],
+            )
+        recorridos_lowess = recorridos_lowess.loc[plausibles, :].reset_index(drop=True)
+
     if recorridos_lowess.empty:
         logger.info(
-            "infer_routes_geoms: sin geometrías válidas nuevas — "
-            "se conservan las %d ya existentes.", len(ya_inferidas)
+            "infer_routes_geoms: sin geometrías utilizables nuevas — "
+            "se conservan las %d utilizables ya existentes.", len(conservar)
         )
+        guardar_inferidos(ctx, existentes, conservar, None)
         return
 
-    recorridos_lowess_direction0 = recorridos_lowess.copy()
-    recorridos_lowess_direction0["direction"] = 0
-    recorridos_lowess_direction1 = recorridos_lowess.copy()
-    recorridos_lowess_direction1["direction"] = 1
-    # invert the geometry for direction 1
-    recorridos_lowess_direction1["geometry"] = (
-        recorridos_lowess_direction1.geometry.map(
-            lambda g: LineString(list(g.coords)[::-1])
+    guardar_inferidos(ctx, existentes, conservar, ambas_direcciones(recorridos_lowess))
+
+
+def infer_route_geom_for_line(ctx: StorageContext, id_linea):
+    """
+    Infiere el recorrido de UNA línea y lo deja guardado, para poder pedirlo a
+    demanda desde el dashboard cuando una línea no tiene recorrido.
+
+    `infer_routes_geoms` corre sobre todas las líneas que falten y es caro
+    (lee las etapas de cada una); acá se hace el trabajo de una sola, que va de
+    instantáneo a unos segundos según cuántas etapas tenga.
+
+    Escribe en `inferred_lines_geoms` reemplazando lo que hubiera para esa línea,
+    y refresca `lines_geoms` con la misma regla que
+    `build_routes_from_official_inferred`: si hay recorrido oficial, gana ese.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame or None
+        El recorrido inferido en las dos direcciones, o None si la línea no
+        tiene suficientes etapas con coordenada como para ajustar una curva.
+    """
+    id_linea = int(id_linea)
+
+    etapas = ctx.data.query(
+        SQL_ETAPAS_PARA_INFERIR.format(filtro=f"and e.id_linea = {id_linea}")
+    )
+
+    if len(etapas) < 2:
+        logger.warning(
+            "No se puede inferir el recorrido de la línea %s: tiene %d etapas "
+            "con coordenada válida.", id_linea, len(etapas),
         )
-    )
-    recorridos_lowess = pd.concat(
-        [recorridos_lowess_direction0, recorridos_lowess_direction1], ignore_index=True
-    )
+        return None
 
-    recorridos_lowess["wkt"] = recorridos_lowess.geometry.to_wkt()
-
-    recorridos_lowess = recorridos_lowess.reindex(
-        columns=["id_linea", "direction", "wkt"]
-    )
-
-    # Unir con las líneas ya inferidas: save_raw reemplaza toda la tabla, así que hay
-    # que guardar existentes + nuevas (no solo las nuevas, o se perderían las viejas).
-    if not existentes.empty:
-        recorridos_lowess = pd.concat(
-            [existentes[["id_linea", "direction", "wkt"]], recorridos_lowess],
-            ignore_index=True,
+    geom = inferir_recorrido(etapas, modos_por_linea(ctx).get(id_linea))
+    if geom is None or len(geom) == 0:
+        logger.warning(
+            "El ajuste lowess no pudo generar un recorrido para la línea %s.",
+            id_linea,
         )
+        return None
 
-    ctx.insumos.save_raw(recorridos_lowess, "inferred_lines_geoms")
+    geom = geom.copy()
+    geom["id_linea"] = id_linea
+
+    validas = geom.geometry.map(lambda g: g is not None and g.is_valid)
+    geom = geom.loc[validas, :]
+    if geom.empty:
+        logger.warning(
+            "El recorrido inferido para la línea %s no es una geometría válida.",
+            id_linea,
+        )
+        return None
+
+    if not recorrido_plausible(geom).all():
+        logger.warning(
+            "El recorrido inferido para la línea %s no representa una línea "
+            "real; no se guarda.", id_linea,
+        )
+        return None
+
+    recorrido = ambas_direcciones(
+        gpd.GeoDataFrame(geom, geometry="geometry", crs=4326)
+    )
+
+    for tabla in ("inferred_lines_geoms", "lines_geoms"):
+        try:
+            ctx.insumos.execute(f"DELETE FROM {tabla} WHERE id_linea = {id_linea}")
+        except Exception as exc:
+            # En una base recién creada la tabla puede no existir todavía;
+            # append_raw la crea.
+            if "does not exist" not in str(exc):
+                raise
+
+    ctx.insumos.append_raw(recorrido, "inferred_lines_geoms")
+
+    # Misma regla que build_routes_from_official_inferred: el oficial gana.
+    ctx.insumos.execute(f"""
+        INSERT INTO lines_geoms
+            select i.id_linea, i.direction, coalesce(o.wkt, i.wkt) as wkt
+            from inferred_lines_geoms i
+            left join official_lines_geoms o
+            on i.id_linea = o.id_linea
+            and i.direction = o.direction
+            where i.id_linea = {id_linea}
+        """)
+
+    logger.info("Recorrido inferido y guardado para la línea %s", id_linea)
+    return recorrido
 
 
 @duracion
@@ -567,13 +829,20 @@ def build_routes_from_official_inferred(ctx: StorageContext):
         except Exception:
             pass
 
+    # FULL JOIN y no LEFT desde el inferido: una línea con recorrido oficial pero
+    # sin inferido (porque tiene pocas etapas y el lowess no ajusta) se quedaba
+    # afuera de lines_geoms, perdiendo un recorrido oficial perfectamente bueno.
+    # El oficial no depende de que la inferencia haya funcionado.
     ctx.insumos.execute("""
         INSERT INTO lines_geoms
-            select i.id_linea, i.direction, coalesce(o.wkt, i.wkt) as wkt
-            from inferred_lines_geoms i
-            left join official_lines_geoms o
-            on i.id_linea = o.id_linea
-            and i.direction = o.direction  
+            select
+                coalesce(o.id_linea, i.id_linea)   as id_linea,
+                coalesce(o.direction, i.direction) as direction,
+                coalesce(o.wkt, i.wkt)             as wkt
+            from official_lines_geoms o
+            full outer join inferred_lines_geoms i
+            on o.id_linea = i.id_linea
+            and o.direction = i.direction
         """)
 
     ctx.insumos.execute("""
@@ -943,40 +1212,12 @@ def get_route_geoms_with_sections_data(
         ids = [line_ids] if isinstance(line_ids, int) else list(line_ids)
         route_geoms = route_geoms[route_geoms.id_linea.isin(ids)].copy()
 
-    # Set which parameter to use to split route geoms into sections
-    epsg_m = geo.get_epsg_m()
-
-    # project geoms and get for each geom both n_sections and meter
-    route_geoms = route_geoms.to_crs(epsg=epsg_m)
-
-    if section_meters:
-        # warning if meters params give to many sections
-        # get how many sections given the meters
-        n_sections = (route_geoms.geometry.length / section_meters).astype(int)
-
-    else:
-        section_meters = (route_geoms.geometry.length / n_sections).astype(int)
-
-    if isinstance(n_sections, int):
-        n_sections_check = pd.Series([n_sections])
-    else:
-        n_sections_check = n_sections
-
-    if any(n_sections_check > 1000):
-        warnings.warn(
-            "Algunos recorridos tienen mas de 1000 segmentos"
-            "Puede arrojar resultados imprecisos "
-        )
-
-    route_geoms = route_geoms.to_crs(epsg=4326)
-
-    # set the section length in meters
-    route_geoms["section_meters"] = section_meters
-
-    # set the number of sections
-    route_geoms["n_sections"] = n_sections
-
-    return route_geoms
+    # El recorrido se divide por cantidad de secciones o por metros por
+    # sección, nunca por las dos cosas: resolve_route_sections aplica esa regla,
+    # deriva el parámetro que falta a partir del largo de cada recorrido y corta
+    # con un mensaje claro si el recorrido no se puede dividir (el caso de las
+    # líneas sin recorrido oficial, cuyo recorrido inferido mide miles de km).
+    return resolve_route_sections(route_geoms, n_sections, section_meters)
 
 
 def check_exists_route_section_points_table(route_geoms, ctx: StorageContext):

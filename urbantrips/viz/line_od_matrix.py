@@ -38,6 +38,7 @@ def visualize_lines_od_matrix(
     n_sections=10,
     section_meters=None,
     stat="totals",
+    yr_mos=None,
 ):
     """
     Visualize od matriz for a given set of lines using route sections
@@ -59,6 +60,10 @@ def visualize_lines_od_matrix(
     stat: str
         Tipe of section load to display. 'totals' (amount of legs)
         or `proportion` (proportion of legs)
+    yr_mos: list of str or None
+        year-months ('YYYY-MM') to visualize. If None, every period stored for
+        those parameters is plotted, including ones the user did not just
+        compute.
     """
 
     sns.set_style("whitegrid")
@@ -66,6 +71,11 @@ def visualize_lines_od_matrix(
     od_lines = get_lines_od_matrix_data(
         ctx, line_ids, hour_range, day_type, n_sections, section_meters
     )
+
+    # Las tablas guardan un promedio por período: sin acotar, se grafican también
+    # los meses de corridas anteriores, que el usuario no pidió.
+    if od_lines is not None and yr_mos is not None:
+        od_lines = od_lines.loc[od_lines.yr_mo.isin(yr_mos), :]
 
     if od_lines is not None:
         # Explicit loops: DataFrameGroupBy.apply swallows a TypeError raised in

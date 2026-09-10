@@ -97,6 +97,7 @@ def visualize_route_section_load(
     factor=500,
     factor_min=1,
     save_gdf=False,
+    yr_mos=None,
 ):
     """
     Visualize the load per route section data per route
@@ -122,7 +123,10 @@ def visualize_route_section_load(
         scaling factor to use for line width to plot section load
     factor_min: int
         minimum width of linea for low section loads to be displayed
-
+    yr_mos: list of str or None
+        year-months ('YYYY-MM') to visualize. If None, every period stored for
+        those parameters is plotted, including ones the user did not just
+        compute.
     """
     sns.set_style("whitegrid")
 
@@ -134,6 +138,13 @@ def visualize_route_section_load(
         n_sections=n_sections,
         section_meters=section_meters,
     )
+
+    # Las tablas guardan un promedio por período: sin acotar, se grafican
+    # también los meses de corridas anteriores, que el usuario no pidió.
+    if yr_mos is not None and len(section_load_data) > 0:
+        section_load_data = section_load_data.loc[
+            section_load_data.yr_mo.isin(yr_mos), :
+        ]
 
     # An empty (column-less) frame has no "id_linea" column and would raise
     # KeyError at groupby; nothing to visualize in that case.

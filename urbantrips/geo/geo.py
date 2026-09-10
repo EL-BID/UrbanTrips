@@ -344,6 +344,172 @@ def get_points_over_route(route_geom, distance):
     return points
 
 
+# En tren y subte la gente sube sólo en las estaciones, así que hace falta un
+# puñado de etapas en un punto para considerarlo una estación y no ruido.
+MIN_ETAPAS_POR_ESTACION = 5
+MIN_ESTACIONES = 3
+
+# El modo dice que la línea PODRÍA ser de estaciones; el dato dice si lo es. Una
+# línea de estaciones tiene decenas de puntos, no miles, y casi toda su demanda
+# cae en ellos. Medido sobre el mes: los trenes del AMBA tienen 16 a 23
+# coordenadas distintas y el 100 % de las etapas ahí; el tranvía de Mendoza
+# tiene 11.347 coordenadas y sólo el 3,8 % en las 40 más usadas — es una nube
+# difusa, como un colectivo, y hay que suavizarla.
+MAX_ESTACIONES = 120
+MIN_PROPORCION_EN_ESTACIONES = 0.8
+
+
+def recorrido_por_estaciones(df):
+    """
+    Arma el recorrido de una línea ferroviaria uniendo sus estaciones.
+
+    En tren y subte los orígenes de las etapas no son una nube difusa a lo largo
+    de un corredor sino un puñado de coordenadas exactas: la línea 427
+    (`FFCC SARMIENTO`) tiene 8,1 millones de etapas en **16 coordenadas
+    distintas**. Suavizar eso con una regresión no tiene sentido — de hecho es
+    lo que hacía fallar a `lowess_linea`, que además ajusta la longitud en
+    función de la latitud y se degenera en un corredor este-oeste como ése.
+
+    Lo que hay que recuperar no es la forma sino el **orden**, y el dato no lo
+    trae: son pasajeros sueltos subiendo en distintas estaciones. Pero estas
+    líneas son abiertas (no cierran circuito), así que el orden es el camino más
+    corto que pasa por todas las estaciones una vez. Con 7 a 60 puntos eso se
+    resuelve con vecino más cercano desde una terminal más 2-opt, y es
+    instantáneo.
+
+    Medido sobre el mes: Sarmiento da 36,6 km (Once-Moreno son ~36) y Mitre
+    27,8 km (Retiro-Tigre son ~28), con la relación camino/extensión en 1,02 y
+    1,04 — o sea un corredor recto, sin zigzag.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        etapas de UNA línea, con columnas latitud y longitud.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame or None
+        una fila con el LineString del recorrido, en epsg 4326. None si no hay
+        estaciones suficientes.
+    """
+    id_linea = df.id_linea.unique()[0]
+
+    estaciones = (
+        df.groupby(["longitud", "latitud"], as_index=False)
+        .size()
+        .query(f"size >= {MIN_ETAPAS_POR_ESTACION}")
+    )
+
+    if len(estaciones) < MIN_ESTACIONES:
+        logger.warning(
+            "No se puede armar el recorrido de la línea %s: tiene %d estaciones "
+            "con al menos %d etapas.",
+            id_linea, len(estaciones), MIN_ETAPAS_POR_ESTACION,
+        )
+        return None
+
+    proporcion = estaciones["size"].sum() / len(df)
+    if len(estaciones) > MAX_ESTACIONES or proporcion < MIN_PROPORCION_EN_ESTACIONES:
+        logger.info(
+            "La línea %s no se comporta como una línea de estaciones (%d puntos "
+            "distintos, %.1f %% de las etapas en ellos): se infiere suavizando.",
+            id_linea, len(estaciones), 100 * proporcion,
+        )
+        return None
+
+    epsg_m = get_epsg_m()
+    puntos = gpd.GeoSeries(
+        gpd.points_from_xy(estaciones.longitud, estaciones.latitud), crs=4326
+    ).to_crs(epsg_m)
+    xy = np.column_stack([puntos.x.values, puntos.y.values])
+
+    orden = _camino_mas_corto(xy)
+    geom = LineString([tuple(xy[i]) for i in orden])
+
+    # Dos señales de que la línea no es un corredor único. Se avisa y se
+    # devuelve igual: el recorrido puede seguir sirviendo, y con el mapa del
+    # dashboard se ve de una si tiene sentido.
+    #
+    # Un camino mucho más largo que la extensión delata ramales: el trazado
+    # tiene que saltar de un brazo al otro de la Y (`FFCC BELGRANO SUR`, con
+    # 2 ramales, da 53 km sobre una extensión de 34).
+    extension = np.hypot(np.ptp(xy[:, 0]), np.ptp(xy[:, 1]))
+    if extension > 0 and geom.length / extension > 1.5:
+        logger.warning(
+            "El recorrido armado para la línea %s mide %.1f km sobre una "
+            "extensión de %.1f km: probablemente tenga ramales y el trazado "
+            "salte de uno a otro.",
+            id_linea, geom.length / 1000, extension / 1000,
+        )
+
+    # Y un solo salto que se lleva buena parte del largo delata estaciones
+    # sueltas, no una línea: la 431 (`FFCC MITRE`) tiene 7 estaciones repartidas
+    # en 82 km, con un salto de 27 entre dos de ellas.
+    saltos = np.hypot(np.diff(xy[orden, 0]), np.diff(xy[orden, 1]))
+    if geom.length > 0 and saltos.max() / geom.length > 0.25:
+        logger.warning(
+            "El recorrido armado para la línea %s tiene un salto de %.1f km "
+            "entre estaciones consecutivas, sobre un total de %.1f km: las "
+            "estaciones están demasiado sueltas como para dar un trazado "
+            "confiable.",
+            id_linea, saltos.max() / 1000, geom.length / 1000,
+        )
+
+    return gpd.GeoDataFrame(
+        {"geometry": geom}, geometry="geometry", crs=f"EPSG:{epsg_m}", index=[0]
+    ).to_crs(4326)
+
+
+def _camino_mas_corto(xy):
+    """
+    Orden de los puntos como camino ABIERTO más corto (aproximado).
+
+    Arranca por cada uno de los dos puntos más lejanos entre sí —en una línea
+    abierta son las dos terminales—, encadena por vecino más cercano y desanuda
+    los cruces con 2-opt. Se queda con el mejor de los dos arranques.
+    """
+    n = len(xy)
+    dist = np.hypot(
+        xy[:, 0][:, None] - xy[:, 0][None, :],
+        xy[:, 1][:, None] - xy[:, 1][None, :],
+    )
+    terminales = np.unravel_index(np.argmax(dist), dist.shape)
+
+    mejor_orden, mejor_largo = None, np.inf
+    for arranque in set(terminales):
+        orden = [arranque]
+        faltan = set(range(n)) - {arranque}
+        while faltan:
+            ultimo = orden[-1]
+            orden.append(min(faltan, key=lambda k: dist[ultimo, k]))
+            faltan.discard(orden[-1])
+
+        orden = _desanudar(orden, dist)
+        largo = sum(dist[orden[k], orden[k + 1]] for k in range(n - 1))
+        if largo < mejor_largo:
+            mejor_orden, mejor_largo = orden, largo
+
+    return mejor_orden
+
+
+def _desanudar(orden, dist):
+    """2-opt sobre un camino abierto: da vuelta tramos mientras acorte."""
+    hubo_mejora = True
+    while hubo_mejora:
+        hubo_mejora = False
+        for a in range(len(orden) - 2):
+            for b in range(a + 2, len(orden)):
+                actual = dist[orden[a], orden[a + 1]]
+                nuevo = dist[orden[a], orden[b]]
+                if b + 1 < len(orden):
+                    actual += dist[orden[b], orden[b + 1]]
+                    nuevo += dist[orden[a + 1], orden[b + 1]]
+                if nuevo < actual - 1e-9:
+                    orden[a + 1:b + 1] = reversed(orden[a + 1:b + 1])
+                    hubo_mejora = True
+    return orden
+
+
 def lowess_linea(df):
     """
     Takes a DataFrame with legs and lat long for a given line,

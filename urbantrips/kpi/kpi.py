@@ -20,6 +20,7 @@ from urbantrips.utils.utils import (
     is_date_string,
     check_date_type,
     create_line_ids_sql_filter,
+    create_days_sql_filter,
 )
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
@@ -271,9 +272,10 @@ def compute_route_section_load(
     ctx: StorageContext,
     line_ids=False,
     hour_range=False,
-    n_sections=10,
+    n_sections=None,
     section_meters=None,
     day_type="weekday",
+    dias=None,
 ):
     """
     Computes the load per route section.
@@ -289,26 +291,27 @@ def compute_route_section_load(
         tuple holding hourly range (from,to) and from 0 to 24. Route section
         load will be computed for legs happening within tat time range.
         If False it won't filter by hour.
-    n_sections: int
-        number of sections to split the route geom
-    section_meters: int
-        section lenght in meters to split the route geom. If specified,
-        this will be used instead of n_sections.
+    n_sections: int or None
+        number of sections to split the route geom. Mutually exclusive with
+        section_meters; if neither is given, N_SECTIONS_DEFAULT is used.
+    section_meters: int or None
+        section lenght in meters to split the route geom. Mutually exclusive
+        with n_sections.
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
+    dias: list of str or None
+        specific days ('YYYY-MM-DD') to process. If None, every day in the run.
     """
 
     check_date_type(day_type)
 
     line_ids_where = create_line_ids_sql_filter(line_ids)
 
-    if n_sections is not None:
-        if n_sections > 1000:
-            raise Exception("No se puede utilizar una cantidad de secciones > 1000")
-
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
+    legs = read_legs_data_by_line_hours_and_day(
+        line_ids_where, hour_range, day_type, ctx, dias=dias
+    )
 
     # read routes geoms
     route_geoms = get_route_geoms_with_sections_data(
@@ -445,17 +448,21 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
         table of legs with projected od
 
     """
-    # create Points for origins and destination
-    legs_df["o"] = legs_df["h3_o"].map(geo.create_point_from_h3)
-    legs_df["d"] = legs_df["h3_d"].map(geo.create_point_from_h3)
+    # La proyección depende solo de la celda h3 y del recorrido, y las etapas
+    # repiten muchísimo las mismas celdas: en la línea más cargada del AMBA,
+    # 1.982.279 etapas de un mes usan 828 orígenes y 852 destinos distintos. Se
+    # proyecta una vez por celda y se mapea, en vez de crear un Point y
+    # proyectarlo fila por fila (cuatro pasadas de Python sobre millones de
+    # filas, y millones de geometrías vivas en memoria a la vez).
+    celdas = set(legs_df["h3_o"].unique()) | set(legs_df["h3_d"].unique())
+    lrs_por_celda = {
+        celda: get_route_section_id(geo.create_point_from_h3(celda), route_geom)
+        for celda in celdas
+    }
 
     # Assign a route section id
-    legs_df["o_proj"] = list(
-        map(get_route_section_id, legs_df["o"], itertools.repeat(route_geom))
-    )
-    legs_df["d_proj"] = list(
-        map(get_route_section_id, legs_df["d"], itertools.repeat(route_geom))
-    )
+    legs_df["o_proj"] = legs_df["h3_o"].map(lrs_por_celda)
+    legs_df["d_proj"] = legs_df["h3_d"].map(lrs_por_celda)
 
     return legs_df
 
@@ -1324,7 +1331,7 @@ def _build_speed_aggregates(legs, distance_col, speed_leg_col,
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
-def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
+def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     """
     Reads GPS data and computes average vehicle speed by (day, line, ramal,
     interno, hour) for each day.
@@ -1348,7 +1355,10 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
     """
     # day-scoped: el día viene del loop de run_basic_kpi. Se quitó el guard
     # `dia NOT IN(processed_days)` que impedía re-procesar y escaneaba de más.
-    where = f"WHERE dia = '{dia}'" if dia is not None else ""
+    if dia is not None:
+        where = f"WHERE dia = '{dia}'"
+    else:
+        where = create_days_sql_filter(dias, prefix=" WHERE ")
 
     q = f"""
     SELECT dia, id_linea, id_ramal, fecha, interno, velocity,
@@ -1410,7 +1420,7 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
 
 
 @duracion
-def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
+def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
     # read data from legs. El upsert por corrida (DELETE run-days antes del loop en
     # compute_kpi) reemplaza el viejo guard `dia NOT IN(processed_days)`, que salteaba
     # días ya presentes (no re-procesable) y causaba O(n²) al re-leer la salida creciente.
@@ -1419,10 +1429,15 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
         FROM etapas
         WHERE od_validado = 1
     """
-    # Con dia se procesa un solo día (acota RAM); con None, todos los no procesados.
-    # Los KPI básicos son separables por día (todos los groupby llevan `dia`).
+    # Con dia se procesa un solo día (acota RAM); con dias, el conjunto que
+    # eligió el usuario en el dashboard; con ninguno de los dos, todos los no
+    # procesados. Los KPI básicos son separables por día (todos los groupby
+    # llevan `dia`), así que acotar la lectura no cambia los resultados de los
+    # días que sí entran.
     if dia is not None:
         q += f" AND dia = '{dia}'"
+    else:
+        q += create_days_sql_filter(dias)
     if len(id_linea) > 0:
         id_linea_str = ", ".join(map(str, id_linea))
         q += f" AND id_linea IN ({id_linea_str})"
@@ -1470,7 +1485,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
     # else compute commercial speed based on gps or demand
     else:
         if ctx.data.has_rows("gps"):
-            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx, dia=dia)
+            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx, dia=dia, dias=dias)
         else:
             # compute mean veh speed using demand data
             legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
@@ -1951,7 +1966,9 @@ def compute_dispatched_services_by_line_hour_typeday(ctx: StorageContext):
     return type_of_day_stats
 
 
-def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx: StorageContext):
+def read_legs_data_by_line_hours_and_day(
+    line_ids_where, hour_range, day_type, ctx: StorageContext, dias=None
+):
     """
     Reads legs data by line id, hour range and type of day
 
@@ -1967,6 +1984,9 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, c
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
     ctx : StorageContext
+    dias : list of str or None
+        specific days ('YYYY-MM-DD') to read. If None, every day in the run is
+        read.
 
     Returns
     -------
@@ -1981,6 +2001,10 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, c
     FROM etapas
     """
     q_main_legs = q_main_legs + line_ids_where
+
+    # Acotar los días en el SQL es lo que evita traerse el mes entero a memoria
+    # cuando el dashboard solo necesita algunos días.
+    q_main_legs = q_main_legs + create_days_sql_filter(dias)
 
     if hour_range:
         hour_range_where = f" AND hora >= {hour_range[0]} AND hora <= {hour_range[1]}"

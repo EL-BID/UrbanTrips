@@ -416,6 +416,7 @@ from urbantrips.utils.sql import (  # noqa: F401 — re-exported for compat
     check_date_type,
     create_line_ids_sql_filter,
     create_branch_ids_sql_filter,
+    create_days_sql_filter,
 )
 
 

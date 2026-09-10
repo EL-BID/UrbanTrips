@@ -1,6 +1,5 @@
 import logging
 import os
-import warnings
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils.utils import (
@@ -19,7 +18,7 @@ from urbantrips.kpi.kpi import (
     read_legs_data_by_line_hours_and_day,
     check_exists_route_section_points_table,
 )
-from urbantrips.geo import geo
+from urbantrips.carto.route_sections import resolve_route_sections
 from urbantrips.storage.context import StorageContext
 
 logger = logging.getLogger(__name__)
@@ -30,10 +29,11 @@ def compute_lines_od_matrix(
     ctx: StorageContext,
     line_ids=None,
     hour_range=False,
-    n_sections=10,
+    n_sections=None,
     section_meters=None,
     day_type="weekday",
     save_csv=False,
+    dias=None,
 ):
     """
     Computes leg od matrix for a line or set of lines using route sections
@@ -43,10 +43,16 @@ def compute_lines_od_matrix(
     ctx : StorageContext
     line_ids : int, list of ints or bool
     hour_range : tuple or bool
-    n_sections: int
-    section_meters: int
+    n_sections: int or None
+        number of sections to split the route geom. Mutually exclusive with
+        section_meters; if neither is given, N_SECTIONS_DEFAULT is used.
+    section_meters: int or None
+        section lenght in meters to split the route geom. Mutually exclusive
+        with n_sections.
     day_type: str
     save_csv: bool
+    dias: list of str or None
+        specific days ('YYYY-MM-DD') to process. If None, every day in the run.
     """
 
     # check inputs
@@ -54,13 +60,9 @@ def compute_lines_od_matrix(
 
     line_ids_where = create_line_ids_sql_filter(line_ids)
 
-    if n_sections is not None:
-        if n_sections > 1000:
-            raise Exception("No se puede utilizar una cantidad de secciones > 1000")
-
     # read legs data
     legs = read_legs_data_by_line_hours_and_day(
-        line_ids_where, hour_range, day_type, ctx
+        line_ids_where, hour_range, day_type, ctx, dias=dias
     )
 
     # read routes data from insumos
@@ -74,23 +76,9 @@ def compute_lines_od_matrix(
     else:
         route_geoms = route_geoms_all.copy()
 
-    # Set which parameter to use to slit route geoms
-    if section_meters:
-        epsg_m = geo.get_epsg_m()
-        # project geoms and get for each geom a n_section
-        route_geoms = route_geoms.to_crs(epsg=epsg_m)
-        new_n_sections = (route_geoms.geometry.length / section_meters).astype(int)
-        route_geoms["n_sections"] = new_n_sections
-
-        if (route_geoms.n_sections > 1000).any():
-            warnings.warn(
-                "Algunos recorridos tienen mas de 1000 segmentos"
-                "Puede arrojar resultados imprecisos "
-            )
-        n_sections = new_n_sections
-        route_geoms = route_geoms.to_crs(epsg=4326)
-
-    route_geoms["n_sections"] = n_sections
+    # El recorrido se divide por cantidad de secciones o por metros por sección,
+    # nunca por las dos cosas. Misma regla que usan carga y oferta por sección.
+    route_geoms = resolve_route_sections(route_geoms, n_sections, section_meters)
 
     # check which section geoms are already crated
     new_route_geoms = check_exists_route_section_points_table(route_geoms, ctx)

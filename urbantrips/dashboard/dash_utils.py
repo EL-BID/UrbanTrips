@@ -1306,6 +1306,24 @@ def filtrar_chains_por_poligono(chains, id_polygon, tipo_poligono, od_en_poligon
     return chains[en_o | en_d]
 
 
+def etiqueta_linea(nombre_linea, id_linea):
+    """
+    Cómo se nombra una línea en pantalla: el nombre y el id entre paréntesis.
+
+    `nombre_linea` e `id_linea` son dos cosas distintas y en AMBA no coinciden:
+    la línea que se llama `L152` tiene id 70, y la que tiene id 152 se llama
+    `L074`. Mostrar uno solo de los dos confundía de dos maneras: el buscador
+    filtra por las dos columnas, así que devolvía opciones sin relación
+    aparente con lo escrito, y los mensajes de estado nombraban la línea por el
+    id ("Línea 152") cuando el selector de arriba decía `L074`.
+
+    Además `nombre_linea` no identifica: se repite (`FFCC MITRE` son 5 ids
+    distintos, `L500ZAR` son 9). El id es lo único único, y por eso también
+    hace falta en el texto de las opciones para poder desempatarlas.
+    """
+    return f"{nombre_linea} (id_linea: {id_linea})"
+
+
 @st.cache_data
 def get_logo():
     file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")

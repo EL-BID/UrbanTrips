@@ -16,6 +16,23 @@ def check_date_type(day_type: str) -> None:
         raise Exception("dat_type debe ser `weekday`, `weekend` o fecha 'YYYY-MM-DD'")
 
 
+def create_days_sql_filter(dias, col: str = "dia", prefix: str = " AND ") -> str:
+    """
+    Return a WHERE clause fragment restricting to a list of days.
+
+    Empty or None means no filter: the whole run gets read. Acotar los días es
+    lo que hace viable procesar un mes desde el dashboard, donde el usuario
+    elige qué días le interesan en vez de barrer toda la base.
+    """
+    if not dias:
+        return ""
+    for dia in dias:
+        if not is_date_string(str(dia)):
+            raise Exception(f"El día '{dia}' no tiene formato 'YYYY-MM-DD'")
+    dias_str = ", ".join(f"'{dia}'" for dia in sorted(set(map(str, dias))))
+    return f"{prefix}{col} IN ({dias_str})"
+
+
 def create_line_ids_sql_filter(line_ids) -> str:
     """Return a WHERE clause fragment filtering by id_linea."""
     if line_ids is not None:
