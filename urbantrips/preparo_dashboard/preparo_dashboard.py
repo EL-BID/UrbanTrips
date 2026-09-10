@@ -690,7 +690,13 @@ def construyo_indicadores(ctx: StorageContext, viajes=None, poligonos=False):
         if "id_polygon" not in viajes.columns:
             viajes = viajes.copy()
             viajes["id_polygon"] = "NONE"
+        from urbantrips.storage.adapters.duckdb.data import (
+            _resolve_memory_limit,
+            apply_temp_directory,
+        )
         _con = duckdb.connect()
+        _con.execute(f"SET memory_limit='{_resolve_memory_limit(None)}'")
+        apply_temp_directory(_con)
         _con.register("_vproc", viajes)
         run = lambda body: _con.execute(body).df()  # noqa: E731
 

@@ -6,6 +6,9 @@ alias_db_insumos: "db"                                             # nombre del 
 
 ciudad: "AMBA"                                                     # Nombre de Ciudad o area Metropolitana (necesario para crear directorio de datos en matrices de distancia)
 
+# Directorios (opcionales; en blanco = default). Absolutos o relativos a este archivo. Funcionan igual en Windows y Linux
+tmp_dir:                                                           # directorio para TODOS los archivos temporales (spill de DuckDB y staging parquet). En blanco = temp del sistema. Puede apuntar a otro disco, ej. "D:/urbantrips_tmp" o "/mnt/scratch/urbantrips"
+
 # Nombre de columnas en el archivo de transacciones
 nombres_variables_trx: 
     id_trx: "id"                                                   # columna con id único del archivo de transacciones

@@ -90,3 +90,70 @@ def test_get_paths_lazy_init_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("URBANTRIPS_BASE", str(tmp_path))
     p = get_paths()
     assert p.base == tmp_path
+
+
+# ── tmp_dir: directorio único para todos los temporales ──────────────────────
+
+
+def test_tmp_dir_defaults_to_system_temp(tmp_path):
+    import tempfile
+
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "configuraciones_generales.yaml").write_text("")
+    p = init_paths(tmp_path)
+    assert p.tmp_dir == Path(tempfile.gettempdir()) / "urbantrips_tmp"
+
+
+def test_tmp_dir_blank_in_yaml_falls_back_to_default(tmp_path):
+    import tempfile
+
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "configuraciones_generales.yaml").write_text(
+        "tmp_dir:\nalias_db: test\n"
+    )
+    p = init_paths(tmp_path)
+    assert p.tmp_dir == Path(tempfile.gettempdir()) / "urbantrips_tmp"
+
+
+def test_tmp_dir_absolute_override(tmp_path):
+    abs_tmp = tmp_path / "otro_disco" / "ut_tmp"
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "configuraciones_generales.yaml").write_text(
+        f"tmp_dir: {abs_tmp}\n"
+    )
+    p = init_paths(tmp_path)
+    assert p.tmp_dir == abs_tmp
+
+
+def test_tmp_dir_relative_override_resolves_against_config(tmp_path):
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "configuraciones_generales.yaml").write_text(
+        "tmp_dir: ../scratch\n"
+    )
+    p = init_paths(tmp_path)
+    assert p.tmp_dir == (tmp_path / "configs" / ".." / "scratch").resolve()
+
+
+def test_get_tmp_dir_creates_the_directory(tmp_path):
+    from urbantrips.utils.paths import get_tmp_dir
+
+    abs_tmp = tmp_path / "no_existe_todavia" / "ut_tmp"
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "configuraciones_generales.yaml").write_text(
+        f"tmp_dir: {abs_tmp}\n"
+    )
+    init_paths(tmp_path)
+    assert not abs_tmp.exists()
+    assert get_tmp_dir() == abs_tmp
+    assert abs_tmp.is_dir()
+
+
+def test_lazy_default_paths_honours_tmp_dir_from_config(tmp_path, monkeypatch):
+    """Los workers spawneados no llaman a init_paths: llegan por este camino."""
+    abs_tmp = tmp_path / "ut_tmp"
+    (tmp_path / "configs").mkdir()
+    config = tmp_path / "configs" / "configuraciones_generales.yaml"
+    config.write_text(f"tmp_dir: {abs_tmp}\n")
+    monkeypatch.delenv("URBANTRIPS_BASE", raising=False)
+    monkeypatch.setenv("URBANTRIPS_CONFIG", str(config))
+    assert get_paths().tmp_dir == abs_tmp

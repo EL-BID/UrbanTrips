@@ -16,6 +16,7 @@ from urbantrips.utils.utils import (
     RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
+from urbantrips.utils.paths import get_tmp_dir
 
 logger = logging.getLogger(__name__)
 
@@ -525,7 +526,9 @@ def infer_destinations(ctx: StorageContext):
     use_parquet_stage = has_selective_update and hasattr(
         ctx.data, "update_leg_destinations_from_parquet"
     )
-    stage_dir = tempfile.mkdtemp(prefix="urbantrips_destupd_") if use_parquet_stage else None
+    stage_dir = tempfile.mkdtemp(
+        prefix="urbantrips_destupd_", dir=str(get_tmp_dir())
+    ) if use_parquet_stage else None
     staged_any = False
 
     # Drop the index on (dia, od_validado) while the destination writes run:

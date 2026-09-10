@@ -9,6 +9,7 @@ def create_directories():
     dirs = [
         p.db_dir,
         p.input_dir,
+        p.tmp_dir,
         p.configs_dir,
         p.base / "docs",
         p.output_dir / "tablas",

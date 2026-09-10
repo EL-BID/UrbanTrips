@@ -9,6 +9,7 @@ import pandas as pd
 
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.storage.schema import general as schema
+from urbantrips.storage.adapters.duckdb.data import apply_temp_directory
 
 
 class DuckDBGeneralAdapter:
@@ -20,6 +21,7 @@ class DuckDBGeneralAdapter:
         if not read_only:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
+        apply_temp_directory(self._conn)
         if not read_only:
             self._migrate_corridas_if_legacy()
             self._apply_schema()

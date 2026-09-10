@@ -15,6 +15,28 @@ El primer parámetro ``corridas`` establece los periodos de tiempo a procesar. L
 El segundo parámetro es el alias de las bases de datos con las que trabajará UrbanTips. ``alias_db`` setea el prefijo de los nombres de las diferentes bases datos. El archivo con postfijo ``_data`` guardará todo lo relativo a etapas, viajes y toda información que se actualiza con cada corrida. Así, puede haber una base de ``data`` diferente para cada corrida. A medida que alcance un volumen determinado se puede utilizar un nombre específico para este propósito (``ciudad_2023_semana1``, ``ciudad_2023_semana2``,etc). Por su lado, ``_insumos`` es una base de datos que guardará información que no se actualiza periódicamente y servirá tanto para los datos de la semana 1 como los de la semana 2 (cartografía de recorridos, paradas, distancias entre pares de haxágonos H3 en una ciudad determinada, etc). 
 
 
+Parámetros de directorios
+-------------------------
+
+Por defecto UrbanTrips lee los insumos de ``data/data_ciudad/``, guarda las bases en ``data/db/`` y escribe los resultados en ``resultados/``. Los archivos temporales van al directorio temporal del sistema operativo. Cada uno de estos destinos se puede cambiar desde el archivo de configuración. Todas las claves son opcionales: si están vacías o ausentes, aplica el default. Aceptan una ruta absoluta o una ruta relativa al archivo de configuración, y funcionan igual en Windows y en Linux.
+
+.. code::
+
+	input_dir:                             # default: data/data_ciudad
+	db_dir:                                # default: data/db
+	output_dir:                            # default: resultados
+	tmp_dir:                               # default: directorio temporal del sistema
+
+``tmp_dir`` concentra **todos** los archivos temporales que genera el proceso: el derrame a disco de DuckDB (cuando una consulta excede su ``memory_limit``) y los archivos parquet de staging que usan las escrituras grandes de etapas, chains y destinos. En corridas de gran volumen esto puede alcanzar decenas de GB, por lo que conviene apuntarlo a un disco con espacio suficiente, y preferentemente rápido.
+
+.. code::
+
+	tmp_dir: "D:/urbantrips_tmp"           # Windows
+	tmp_dir: "/mnt/scratch/urbantrips"     # Linux
+
+Los temporales se borran al finalizar cada etapa; el directorio permanece creado.
+
+
 Parámetros de transacciones
 ---------------------------
 

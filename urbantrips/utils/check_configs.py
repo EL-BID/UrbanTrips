@@ -282,8 +282,27 @@ def revise_configs(configs):
     return config_default
 
 
-def write_config(config_default):
+def extra_config_keys(configs_usuario, config_default):
+    """Claves de nivel superior del yaml del usuario que el Excel no conoce.
+
+    `write_config` emite SOLO las filas de docs/configuraciones.xlsx, así que
+    todo lo que no esté en la planilla se pierde en el rewrite. Eso dejó
+    inservibles a `input_dir`/`db_dir`/`output_dir`/`tmp_dir`: duraban una
+    corrida. Con esto sobreviven.
+    """
+    conocidas = set(config_default.variable.astype(str))
+    return {
+        k: v
+        for k, v in (configs_usuario or {}).items()
+        if k not in conocidas
+    }
+
+
+def write_config(config_default, extra_keys=None):
     """Reescribe el config EN USO con los parámetros consolidados del Excel.
+
+    `extra_keys` (ver `extra_config_keys`) se vuelca al final para que las
+    claves que la planilla no conoce no se borren en cada corrida.
 
     Escribe a `get_paths().config_file`, o sea el yaml que se pasó por `--config`.
     Antes usaba el nombre hardcodeado `configuraciones_generales.yaml`: corriendo
@@ -396,6 +415,21 @@ def write_config(config_default):
 
                     file.write("\n")
 
+            file.write("\n")
+
+        if extra_keys:
+            file.write(
+                "# Parámetros adicionales (no presentes en"
+                " docs/configuraciones.xlsx)\n"
+            )
+            file.write(
+                yaml.safe_dump(
+                    extra_keys,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=False,
+                )
+            )
             file.write("\n")
 
 
@@ -979,7 +1013,9 @@ def check_config(corrida):
     configs_base = revise_configs(configs_usuario)
     # Reescribe el config incorporando parámetros nuevos del Excel: es lo que
     # mantiene consistente el yaml en uso a medida que la plantilla suma campos.
-    write_config(configs_base)
+    # Las claves que la planilla no conoce (tmp_dir, input_dir, db_dir,
+    # output_dir, alias_db…) se preservan tal cual: si no, se borraban acá.
+    write_config(configs_base, extra_config_keys(configs_usuario, configs_base))
     alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general

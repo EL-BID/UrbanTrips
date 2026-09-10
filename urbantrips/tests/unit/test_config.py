@@ -147,7 +147,7 @@ def _load_from_temp_yaml(data):
 
 
 def test_path_overrides_are_optional():
-    """input_dir / db_dir / output_dir default to None when absent."""
+    """input_dir / db_dir / output_dir / tmp_dir default to None when absent."""
     from urbantrips.config.config import load_config
 
     minimal = _minimal_config()
@@ -155,6 +155,7 @@ def test_path_overrides_are_optional():
     assert cfg.input_dir is None
     assert cfg.db_dir is None
     assert cfg.output_dir is None
+    assert cfg.tmp_dir is None
 
 
 def test_path_overrides_are_loaded():
@@ -165,8 +166,10 @@ def test_path_overrides_are_loaded():
     minimal["input_dir"] = "/my/input"
     minimal["db_dir"] = "custom/db"
     minimal["output_dir"] = "/out"
+    minimal["tmp_dir"] = "D:/urbantrips_tmp"
 
     cfg = _load_from_temp_yaml(minimal)
     assert cfg.input_dir == "/my/input"
     assert cfg.db_dir == "custom/db"
     assert cfg.output_dir == "/out"
+    assert cfg.tmp_dir == "D:/urbantrips_tmp"

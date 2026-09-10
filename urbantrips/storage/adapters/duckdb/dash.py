@@ -10,6 +10,8 @@ import pandas as pd
 
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.storage.schema import dash as schema
+from urbantrips.storage.adapters.duckdb.data import apply_temp_directory
+from urbantrips.utils.paths import get_tmp_dir
 
 # Same chunking as the data adapter's legs staging: writing big DataFrames
 # through Arrow registration converts mixed-dtype object columns row by row
@@ -26,6 +28,7 @@ class DuckDBDashAdapter:
         if not read_only:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
+        apply_temp_directory(self._conn)
         if not read_only:
             self._apply_schema()
 
@@ -162,7 +165,9 @@ class DuckDBDashAdapter:
 
         placeholders = ", ".join("?" for _ in dias)
 
-        with tempfile.TemporaryDirectory(prefix="urbantrips_chains_") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="urbantrips_chains_", dir=str(get_tmp_dir())
+        ) as tmpdir:
             tmp_path = Path(tmpdir)
             for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
                 chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]

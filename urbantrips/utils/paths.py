@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,10 +17,21 @@ class Paths:
     input_dir: Path
     db_dir: Path
     output_dir: Path
+    tmp_dir: Path
 
     @property
     def configs_dir(self) -> Path:
         return self.config_file.parent
+
+
+def _default_tmp_dir() -> Path:
+    """Scratch dir used when the config leaves ``tmp_dir`` empty.
+
+    The system temp dir, not something under `base`: temporary artifacts
+    (DuckDB spill, parquet staging) can reach tens of GB and the project
+    disk is often the small one. Set `tmp_dir` in the YAML to move them.
+    """
+    return Path(tempfile.gettempdir()) / "urbantrips_tmp"
 
 
 def _find_config(base: Path) -> Path:
@@ -43,10 +55,25 @@ def _resolve_dir(value: str | None, config_file: Path, default: Path) -> Path:
     return p if p.is_absolute() else (config_file.parent / p).resolve()
 
 
+_DIR_OVERRIDE_KEYS = ("input_dir", "db_dir", "output_dir", "tmp_dir")
+
+
+def _read_dir_overrides(config_file: Path) -> dict:
+    """Read the directory-override keys out of the config YAML.
+
+    Raises FileNotFoundError when the file is absent; callers decide whether
+    that is fatal.
+    """
+    with open(config_file, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    return {k: raw[k] for k in _DIR_OVERRIDE_KEYS if raw.get(k)}
+
+
 def init_paths(base_dir: Path | None = None, config_file: Path | None = None) -> Paths:
     """Initialize the path singleton from base_dir.
 
-    Reads input_dir / db_dir / output_dir overrides from the config YAML if present.
+    Reads input_dir / db_dir / output_dir / tmp_dir overrides from the config YAML
+    if present.
     Raises FileNotFoundError if base_dir doesn't exist or no config is found.
     """
     global _paths
@@ -72,15 +99,10 @@ def init_paths(base_dir: Path | None = None, config_file: Path | None = None) ->
     if not base.exists():
         raise FileNotFoundError(f"base_dir does not exist: {base}")
 
-    overrides: dict = {}
     try:
-        with open(config_file, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-        for key in ("input_dir", "db_dir", "output_dir"):
-            if key in raw and raw[key]:
-                overrides[key] = raw[key]
+        overrides = _read_dir_overrides(config_file)
     except FileNotFoundError:
-        pass  # config file optional — defaults apply
+        overrides = {}  # config file optional — defaults apply
     except Exception as exc:
         raise ValueError(f"Could not read config file {config_file}: {exc}") from exc
 
@@ -90,6 +112,7 @@ def init_paths(base_dir: Path | None = None, config_file: Path | None = None) ->
         input_dir=_resolve_dir(overrides.get("input_dir"), config_file, base / "data" / "data_ciudad"),
         db_dir=_resolve_dir(overrides.get("db_dir"), config_file, base / "data" / "db"),
         output_dir=_resolve_dir(overrides.get("output_dir"), config_file, base / "resultados"),
+        tmp_dir=_resolve_dir(overrides.get("tmp_dir"), config_file, _default_tmp_dir()),
     )
     return _paths
 
@@ -104,6 +127,18 @@ def get_paths() -> Paths:
         else:
             _paths = _default_paths()
     return _paths
+
+
+def get_tmp_dir() -> Path:
+    """Return the scratch dir for every temporary artifact, creating it.
+
+    Single entry point for DuckDB spill (``temp_directory``) and for the
+    parquet staging dirs. Honours ``tmp_dir`` in the config YAML; falls back
+    to the system temp dir when it is absent or blank.
+    """
+    tmp = get_paths().tmp_dir
+    tmp.mkdir(parents=True, exist_ok=True)
+    return tmp
 
 
 def reset_paths() -> None:
@@ -125,10 +160,24 @@ def _default_paths() -> Paths:
     else:
         base = Path(".").resolve()
         config_file = base / "configs" / "configuraciones_generales.yaml"
+    # Honour the directory overrides even on this lazy path: spawned workers
+    # (Windows uses spawn, so they re-import and never call init_paths) inherit
+    # URBANTRIPS_CONFIG and land here. Without this they would spill DuckDB and
+    # stage parquet somewhere other than the configured tmp_dir.
+    try:
+        overrides = _read_dir_overrides(config_file)
+    except Exception:
+        overrides = {}  # config missing or unreadable — plain defaults
+
     return Paths(
         base=base,
         config_file=config_file,
-        input_dir=base / "data" / "data_ciudad",
-        db_dir=base / "data" / "db",
-        output_dir=base / "resultados",
+        input_dir=_resolve_dir(
+            overrides.get("input_dir"), config_file, base / "data" / "data_ciudad"
+        ),
+        db_dir=_resolve_dir(overrides.get("db_dir"), config_file, base / "data" / "db"),
+        output_dir=_resolve_dir(
+            overrides.get("output_dir"), config_file, base / "resultados"
+        ),
+        tmp_dir=_resolve_dir(overrides.get("tmp_dir"), config_file, _default_tmp_dir()),
     )

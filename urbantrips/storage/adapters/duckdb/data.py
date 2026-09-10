@@ -12,6 +12,7 @@ import pandas as pd
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.storage.schema import data as schema
+from urbantrips.utils.paths import get_tmp_dir
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,28 @@ def _resolve_memory_limit(configured: str | None) -> str:
     return limit
 
 
-def configure_global_duckdb() -> None:
+def apply_temp_directory(conn) -> None:
+    """Point a DuckDB connection's spill at the configured ``tmp_dir``.
+
+    Without this, a file-backed connection spills next to its own .duckdb
+    (i.e. onto the db_dir disk) and an in-memory one spills to `.tmp`
+    relative to the cwd — which once dumped 54 GB into the repo root.
+    `tmp_dir` in the config YAML moves all of it to a chosen disk; blank
+    means the system temp dir.
+    """
+    from urbantrips.utils.paths import get_tmp_dir
+
+    try:
+        tmp_dir = get_tmp_dir()
+        conn.execute(f"SET temp_directory='{tmp_dir.as_posix()}'")
+    except Exception as exc:  # pragma: no cover — never fail a run over spill config
+        logger.debug("[DuckDB] could not set temp_directory: %s", exc)
+
+
+_global_configured = False
+
+
+def configure_global_duckdb(force: bool = False) -> None:
     """Pin settings on duckdb's module-level default connection.
 
     The pipeline uses ``duckdb.sql(...)`` as a SQL engine over in-memory
@@ -55,15 +77,22 @@ def configure_global_duckdb() -> None:
     never goes through the adapters, so without this it runs with stock
     defaults — memory_limit at 80% of RAM and threads = all cores — making
     peak memory scale with whatever machine the run lands on.
+
+    Idempotent: safe to call from every entry point, including spawned
+    workers, which re-import this module and start with stock defaults.
     """
+    global _global_configured
+    if _global_configured and not force:
+        return
+
     limit = _resolve_memory_limit(None)
     duckdb.sql(f"SET memory_limit='{limit}'")
 
     # In-memory connections cannot spill without a temp_directory; with one,
     # queries that exceed memory_limit offload instead of failing.
-    tmp_dir = Path(tempfile.gettempdir()) / "urbantrips_duckdb_tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    duckdb.sql(f"SET temp_directory='{tmp_dir}'")
+    from urbantrips.utils.paths import get_tmp_dir
+    tmp_dir = get_tmp_dir()
+    duckdb.sql(f"SET temp_directory='{tmp_dir.as_posix()}'")
 
     try:
         from urbantrips.utils.utils import leer_configs_tuning
@@ -73,10 +102,20 @@ def configure_global_duckdb() -> None:
     if threads:
         duckdb.sql(f"SET threads={int(threads)}")
 
+    _global_configured = True
     logger.info(
         "[DuckDB] global connection pinned: memory_limit=%s, temp_directory=%s%s",
         limit, tmp_dir, f", threads={threads}" if threads else "",
     )
+
+
+def ensure_global_duckdb() -> None:
+    """Idempotent guard for call sites that use ``duckdb.sql(...)`` directly.
+
+    Those run inside spawned workers too, where ``configure_global_duckdb``
+    was never called for that process.
+    """
+    configure_global_duckdb()
 
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
@@ -179,6 +218,7 @@ class DuckDBDataAdapter:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
         self._conn.execute(f"SET memory_limit='{_resolve_memory_limit(memory_limit)}'")
+        apply_temp_directory(self._conn)
         if not read_only:
             self._apply_schema()
 
@@ -763,7 +803,9 @@ class DuckDBDataAdapter:
             return
         cols = ", ".join(_ETAPAS_COLUMNS)
 
-        with tempfile.TemporaryDirectory(prefix="urbantrips_legs_") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="urbantrips_legs_", dir=str(get_tmp_dir())
+        ) as tmpdir:
             tmp_path = Path(tmpdir)
             for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
                 chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]
@@ -809,7 +851,9 @@ class DuckDBDataAdapter:
         df = self._prepare_legs_df(df)
         cols = ", ".join(_ETAPAS_COLUMNS)
 
-        with tempfile.TemporaryDirectory(prefix="urbantrips_etapas_") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="urbantrips_etapas_", dir=str(get_tmp_dir())
+        ) as tmpdir:
             tmp_path = Path(tmpdir)
             for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
                 chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]

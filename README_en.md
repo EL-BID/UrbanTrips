@@ -182,6 +182,26 @@ zonificaciones:
 usa_archivo_gps: True
 ```
 
+### Directories
+
+All of these keys are optional: leave them blank (or omit them) to get the default. They accept **absolute** paths or paths **relative to the config file**, and behave the same on Windows and Linux.
+
+```yaml
+input_dir:                                # default: data/data_ciudad
+db_dir:                                   # default: data/db
+output_dir:                               # default: resultados
+tmp_dir: "D:/urbantrips_tmp"              # default: system temp dir
+```
+
+**`tmp_dir`** holds **every** temporary file the pipeline produces: DuckDB's disk spill (when a query exceeds `memory_limit`) and the parquet staging used for large writes (legs, chains, destinations). On high-volume runs this can reach tens of GB, so point it at a disk with room to spare — and a fast one if you have it:
+
+```yaml
+tmp_dir: "D:/urbantrips_tmp"              # Windows
+tmp_dir: "/mnt/scratch/urbantrips"        # Linux
+```
+
+Temporary files are cleaned up as each stage finishes; the directory itself stays.
+
 ### Sample configuration
 
 For the Buenos Aires SUBE sample dataset:

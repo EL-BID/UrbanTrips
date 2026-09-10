@@ -2018,6 +2018,9 @@ def lineas_deseo(
     filtro1="",
 ):
 
+    from urbantrips.storage.adapters.duckdb.data import ensure_global_duckdb
+    ensure_global_duckdb()
+
     _zonas_filt = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
     hexs = duckdb.sql(f"""
         SELECT "{var_zona}",

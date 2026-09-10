@@ -74,6 +74,11 @@ def calculate_weighted_means(
     """
     if pushed_down:
         return query_fn(cte_prefix + query)
+
+    # The implicit duckdb.sql() connection starts with stock defaults in every
+    # process, spawned workers included: pin memory_limit/temp_directory first.
+    from urbantrips.storage.adapters.duckdb.data import ensure_global_duckdb
+    ensure_global_duckdb()
     return duckdb.sql(query).df()
 
 

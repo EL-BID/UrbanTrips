@@ -65,6 +65,9 @@ def extract_hex_colors_from_cmap(cmap, n=5):
 def crea_df_burbujas(df, zonas, h3_o="h3_o", var_fex="", porc_viajes=100, res=7):
     zonas["h3_o_tmp"] = [h3.cell_to_parent(x, res) for x in zonas["h3"]]
 
+    from urbantrips.storage.adapters.duckdb.data import ensure_global_duckdb
+    ensure_global_duckdb()
+
     _zonas_filt = zonas[(zonas.fex.notna()) & (zonas.fex != 0)]
     hexs = duckdb.sql("""
         SELECT h3_o_tmp,

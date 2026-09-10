@@ -142,3 +142,40 @@ def test_write_config_ya_no_acepta_el_flag(proyecto):
 
     with pytest.raises(TypeError):
         write_config(_config_df(), autogenerado=True)
+
+
+# ── write_config no borra las claves que el Excel no conoce ──────────────────
+
+def test_write_config_preserva_claves_ajenas_al_excel(proyecto):
+    """`write_config` emite SOLO las filas de docs/configuraciones.xlsx.
+
+    Sin esto, toda clave fuera de la planilla (tmp_dir, input_dir, db_dir,
+    output_dir, alias_db…) se borraba en cada corrida: duraba una y desaparecía.
+    """
+    from urbantrips.utils.check_configs import extra_config_keys, write_config
+    from urbantrips.dashboard.dash_storage import leer_configs_generales
+
+    en_uso = proyecto / "configs" / "mi_config.yaml"
+    usuario = dict(_CONFIG_MINIMO, tmp_dir="D:/urbantrips_tmp", alias_db="corrida_x")
+    en_uso.write_text(yaml.safe_dump(usuario), encoding="utf-8")
+
+    # Dos pasadas: la clave tiene que seguir ahí después de la segunda corrida.
+    for _ in range(2):
+        actuales = leer_configs_generales()
+        write_config(_config_df(), extra_config_keys(actuales, _config_df()))
+
+    final = yaml.safe_load(en_uso.read_text(encoding="utf-8"))
+    assert final["tmp_dir"] == "D:/urbantrips_tmp"
+    assert final["alias_db"] == "corrida_x"
+    # y lo que sí está en la planilla se sigue consolidando desde ella
+    assert final["alias_db_insumos"] == "mi_corrida"
+
+
+def test_extra_config_keys_excluye_lo_que_esta_en_el_excel():
+    from urbantrips.utils.check_configs import extra_config_keys
+
+    extras = extra_config_keys(
+        {"alias_db_insumos": "x", "resolucion_h3": 9, "tmp_dir": "/scratch"},
+        _config_df(),
+    )
+    assert extras == {"tmp_dir": "/scratch"}

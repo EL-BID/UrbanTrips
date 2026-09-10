@@ -203,6 +203,26 @@ zonificaciones:
 usa_archivo_gps: True
 ```
 
+### Directorios
+
+Todas estas claves son opcionales: en blanco (o ausentes) aplica el default. Aceptan rutas **absolutas** o **relativas al archivo de configuración**, y funcionan igual en Windows y en Linux.
+
+```yaml
+input_dir:                                # default: data/data_ciudad
+db_dir:                                   # default: data/db
+output_dir:                               # default: resultados
+tmp_dir: "D:/urbantrips_tmp"              # default: temp del sistema
+```
+
+**`tmp_dir`** concentra **todos** los archivos temporales del proceso: el derrame a disco de DuckDB (*spill*, cuando una consulta excede `memory_limit`) y el *staging* en parquet de las escrituras grandes (etapas, chains, destinos). En corridas de gran volumen esto puede llegar a decenas de GB, así que conviene apuntarlo a un disco con espacio y, si se puede, rápido:
+
+```yaml
+tmp_dir: "D:/urbantrips_tmp"              # Windows
+tmp_dir: "/mnt/scratch/urbantrips"        # Linux
+```
+
+Los temporales se borran solos al terminar cada etapa; el directorio queda creado.
+
 ### Configuración de ejemplo
 
 Para el dataset de muestra SUBE de Buenos Aires:
