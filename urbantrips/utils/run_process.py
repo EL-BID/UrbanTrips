@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from urbantrips.config import config
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.utils.utils import leer_configs_generales
@@ -321,25 +322,33 @@ def _get_parallel_workers(n_batches: int) -> int:
     cpu_cap = max(multiprocessing.cpu_count() - 1, 1)
     try:
         import psutil
+
         total_gb = psutil.virtual_memory().total / 2**30
     except Exception:
         return max(min(cpu_cap, n_batches), 1)
 
     try:
         from urbantrips.datamodel.legs import _duckdb_memory_limit_gb
+
         memlimit_gb = _duckdb_memory_limit_gb()
     except Exception:
         memlimit_gb = total_gb * 0.25
 
-    os_baseline_gb = 8.0     # OS + working set del main fuera de DuckDB
-    per_worker_gb = 3.0      # batch split + copia en el worker + legs de salida (~1.65 medido + colchón)
+    os_baseline_gb = 8.0  # OS + working set del main fuera de DuckDB
+    per_worker_gb = 3.0  # batch split + copia en el worker + legs de salida (~1.65 medido + colchón)
     budget = total_gb * 0.85 - memlimit_gb - os_baseline_gb
     workers = int(max(0.0, budget) // per_worker_gb)
     n = max(1, min(cpu_cap, workers, n_batches))
     logger.info(
         "[parallel_workers] autotune: %d workers (RAM total %.0f GB − DuckDB %.0f − OS %.0f, "
         "%.1f GB/worker, cap cores %d, n_batches %d)",
-        n, total_gb, memlimit_gb, os_baseline_gb, per_worker_gb, cpu_cap, n_batches,
+        n,
+        total_gb,
+        memlimit_gb,
+        os_baseline_gb,
+        per_worker_gb,
+        cpu_cap,
+        n_batches,
     )
     return n
 
@@ -680,10 +689,18 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
         for i, dia in enumerate(dias, 1):
             logger.info("  [rearrange_trip_id_same_od] día %d/%d (%s)", i, n, dia)
             trips.rearrange_trip_id_same_od(ctx, dia=dia, _silent=True)
+
         logger.info(
             "Finalizado rearrange_trip_id_same_od (%d días, %.2fs)",
-            n, time.perf_counter() - ts_total,
+            n,
+            time.perf_counter() - ts_total,
         )
+
+    # Assign direction and branch/line after rearrange_trip_id completes for all days.
+    # Parallelized by day with auto-tuning (same pattern as assign_gps_origin).
+    if configs.get("procesar_sentido_etapas", False):
+        logger.info("Procesando asignación de sentido y rama/línea de etapas")
+        legs.assign_direction_and_branch_or_line(ctx)
 
     # Compute distances and travel times for all legs; writes travel_times_legs/trips
     legs.assign_time_distances(ctx)
