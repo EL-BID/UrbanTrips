@@ -372,10 +372,39 @@ CREATE TABLE IF NOT EXISTS services_stats (
 )
 """
 
+LEGS_DIRECTION_BRANCH_LINE = """
+CREATE TABLE IF NOT EXISTS legs_direction_branch_line (
+    id                      BIGINT NOT NULL,
+    dia                     TEXT,
+    id_linea                BIGINT,
+    id_ramal                BIGINT,
+    hora                    INT,
+    direction_inferred      INT,
+    confidence              FLOAT,
+    selected_section_id_o   INT,
+    selected_section_id_d   INT,
+    possible_branches       TEXT,
+    selected_branch         BIGINT
+)
+"""
+
 TRANSACCIONES_RAW_COLUMNS = [
-    "id_original", "id_tarjeta", "dia", "tiempo", "hora", "modo",
-    "id_linea", "id_ramal", "interno", "orden_trx", "genero", "tarifa",
-    "latitud", "longitud", "fecha_ts", "factor_expansion_raw",
+    "id_original",
+    "id_tarjeta",
+    "dia",
+    "tiempo",
+    "hora",
+    "modo",
+    "id_linea",
+    "id_ramal",
+    "interno",
+    "orden_trx",
+    "genero",
+    "tarifa",
+    "latitud",
+    "longitud",
+    "fecha_ts",
+    "factor_expansion_raw",
 ]
 
 TRANSACCIONES_RAW = """
@@ -399,16 +428,14 @@ CREATE TABLE IF NOT EXISTS transacciones_raw (
 )
 """
 
-IDX_TRX_BATCH    = "CREATE INDEX IF NOT EXISTS idx_trx_batch ON transacciones(batch_id)"
+IDX_TRX_BATCH = "CREATE INDEX IF NOT EXISTS idx_trx_batch ON transacciones(batch_id)"
 IDX_ETAPAS_BATCH = "CREATE INDEX IF NOT EXISTS idx_etapas_batch ON etapas(batch_id)"
 # Replaces the old PRIMARY KEY on etapas(id): a plain index built once in bulk by
 # end_bulk_leg_writes, so per-batch INSERTs in Phase 2/4 don't maintain a growing
 # unique-key ART row by row. id uniqueness is guaranteed by construction (ROW_NUMBER
 # in standardize_raw_to_transacciones), not by a constraint.
-IDX_ETAPAS_ID    = "CREATE INDEX IF NOT EXISTS idx_etapas_id ON etapas(id)"
-IDX_GPS_LINE_DAY = (
-    "CREATE INDEX IF NOT EXISTS idx_gps_line_day ON gps(id_linea, dia)"
-)
+IDX_ETAPAS_ID = "CREATE INDEX IF NOT EXISTS idx_etapas_id ON etapas(id)"
+IDX_GPS_LINE_DAY = "CREATE INDEX IF NOT EXISTS idx_gps_line_day ON gps(id_linea, dia)"
 IDX_ETAPAS_DIA_OD_VALIDADO = (
     "CREATE INDEX IF NOT EXISTS idx_etapas_dia_od_validado "
     "ON etapas(dia, od_validado)"
@@ -422,8 +449,7 @@ IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA = (
     "ON gps(dia, id_linea, id_ramal, interno, fecha)"
 )
 IDX_TRAVEL_TIMES_GPS_ID = (
-    "CREATE INDEX IF NOT EXISTS idx_travel_times_gps_id "
-    "ON travel_times_gps(id)"
+    "CREATE INDEX IF NOT EXISTS idx_travel_times_gps_id " "ON travel_times_gps(id)"
 )
 IDX_TRAVEL_TIMES_STATIONS_ID = (
     "CREATE INDEX IF NOT EXISTS idx_travel_times_stations_id "
@@ -445,13 +471,30 @@ IDX_SERVICES_STATS_LINE_DAY = (
 ALL_INDEXES: list = []
 
 ALL_TABLES = [
-    TRANSACCIONES, TRANSACCIONES_RAW, DIAS_ULTIMA_CORRIDA, ETAPAS, VIAJES, USUARIOS,
-    GPS, VEHICLE_EXPANSION_FACTORS,
-    LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
-    LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
-    TRAVEL_TIMES_GPS, TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,
-    TRANSACCIONES_LINEA, TARJETAS_DUPLICADAS, OCUPACION_POR_LINEA_TRAMO,
+    TRANSACCIONES,
+    TRANSACCIONES_RAW,
+    DIAS_ULTIMA_CORRIDA,
+    ETAPAS,
+    VIAJES,
+    USUARIOS,
+    GPS,
+    VEHICLE_EXPANSION_FACTORS,
+    LEGS_TO_GPS_ORIGIN,
+    LEGS_TO_GPS_DESTINATION,
+    LEGS_TO_STATION_ORIGIN,
+    LEGS_TO_STATION_DESTINATION,
+    TRAVEL_TIMES_GPS,
+    TRAVEL_TIMES_STATIONS,
+    TRAVEL_TIMES_LEGS,
+    TRAVEL_TIMES_TRIPS,
+    TRANSACCIONES_LINEA,
+    TARJETAS_DUPLICADAS,
+    OCUPACION_POR_LINEA_TRAMO,
     OVERLAPPING_BY_ROUTE,
-    SERVICES_GPS_POINTS, SERVICES, SERVICES_STATS,
-    KPI_BY_DAY_LINE, KPI_BY_DAY_LINE_SERVICE,
+    SERVICES_GPS_POINTS,
+    SERVICES,
+    SERVICES_STATS,
+    KPI_BY_DAY_LINE,
+    KPI_BY_DAY_LINE_SERVICE,
+    LEGS_DIRECTION_BRANCH_LINE,
 ]

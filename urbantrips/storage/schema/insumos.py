@@ -89,12 +89,13 @@ CREATE TABLE IF NOT EXISTS stops (
     id_linea          BIGINT NOT NULL,
     id_ramal          BIGINT NOT NULL,
     direction         INT NOT NULL,
-    node_id           INT NOT NULL,
+    node_id           BIGINT NOT NULL,
     branch_stop_order INT NOT NULL,
     stop_x            FLOAT NOT NULL,
     stop_y            FLOAT NOT NULL,
     node_x            FLOAT NOT NULL,
-    node_y            FLOAT NOT NULL
+    node_y            FLOAT NOT NULL,
+    h3                TEXT
 )
 """
 
