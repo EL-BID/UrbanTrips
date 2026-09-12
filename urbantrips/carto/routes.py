@@ -4,7 +4,7 @@ import os
 import warnings
 from functools import partial
 from itertools import repeat
-from math import sqrt
+from math import cos, radians, sqrt
 
 import h3
 import geopandas as gpd
@@ -437,6 +437,7 @@ def infer_routes_geoms(ctx: StorageContext):
     from etapas e
     """
     etapas = ctx.data.query(q)
+    etapas = etapas.loc[(etapas.longitud != 0) & (etapas.latitud != 0), :]
 
     recorridos_lowess = etapas.groupby("id_linea").apply(geo.lowess_linea).reset_index()
 
@@ -1344,7 +1345,29 @@ def h3_to_polygon(hex_id):
 
 
 def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
-    # parent_res = 9
+    """
+    Convierte celdas H3 de resolución alta (child) a resolución más baja (parent).
+
+    Toma un GeoDataFrame con celdas H3 de resolución alta y las agrupa en celdas
+    de resolución más baja (parent). Elimina las celdas child cuyo parent no
+    intersecta con la geometría de la ruta correspondiente.
+
+    Parameters
+    ----------
+    route_h3 : GeoDataFrame
+        GeoDataFrame con celdas H3 de resolución alta que incluye columnas 'h3',
+        'wkt', 'section_id' y columna de identificación de ruta ('id_ramal' o 'id_linea').
+    parent_res : int
+        Resolución H3 de las celdas parent (menor que la resolución original).
+    route_geom : GeoDataFrame
+        GeoDataFrame con la geometría de la ruta para verificar intersecciones.
+
+    Returns
+    -------
+    GeoDataFrame
+        GeoDataFrame con celdas H3 de resolución parent, incluyendo columnas:
+        id_ramal/id_linea, direction, section_id, parent_h3, resolution, wkt.
+    """
     parent_routes_h3_gdf = route_h3.copy()
     parent_routes_h3_gdf = gpd.GeoDataFrame(
         parent_routes_h3_gdf.drop("wkt", axis=1),
@@ -1418,161 +1441,652 @@ def turn_child_h3_into_parent_h3(route_h3, parent_res, route_geom):
     return parent_routes_h3_gdf
 
 
-def create_edges_between_h3_centroids(parent_ramales_gdf):
-    # Crear directed edges y linestrings entre centroides de H3 para cada ramal
-    edges_data = []
+def _h3_centroid_xy(h3_cell):
+    lat, lng = h3.cell_to_latlng(str(h3_cell))
+    return lng, lat
 
-    # Procesar cada ramal
-    for id_ramal in parent_ramales_gdf["id_ramal"].unique():
-        print(f"Procesando ramal: {id_ramal}")
 
-        # Filtrar y ordenar por section_id
-        ramal_data = (
-            parent_ramales_gdf[parent_ramales_gdf["id_ramal"] == id_ramal]
-            .sort_values("section_id")
-            .reset_index(drop=True)
+def _h3_centroid_distance_m(h3_from, h3_to):
+    from_lat, from_lng = h3.cell_to_latlng(str(h3_from))
+    to_lat, to_lng = h3.cell_to_latlng(str(h3_to))
+
+    earth_radius_m = 6371000
+    dlat = radians(to_lat - from_lat)
+    dlng = radians(to_lng - from_lng)
+    mean_lat = radians((from_lat + to_lat) / 2)
+    return earth_radius_m * sqrt(dlat**2 + (cos(mean_lat) * dlng) ** 2)
+
+
+def _empty_h3_directed_graph():
+    graph = nx.MultiDiGraph()
+    graph.graph["crs"] = "epsg:4326"
+    graph.graph["simplified"] = True
+    return graph
+
+
+def _set_line_h3_graph_attrs(
+    graph, id_linea, h3_res, h3_cell_interval, effective_interval
+):
+    graph.graph["id_linea"] = int(id_linea)
+    graph.graph["h3_res"] = int(h3_res)
+    graph.graph["h3_cell_interval"] = h3_cell_interval
+    graph.graph["effective_h3_cell_interval"] = effective_interval
+    graph.graph["preserve_shared_boundaries"] = True
+    return graph
+
+
+def _build_h3_membership(routes_h3, group_cols, h3_col):
+    h3_groups = routes_h3[group_cols + [h3_col]].drop_duplicates()
+    memberships = {}
+    for h3_cell, h3_data in h3_groups.groupby(h3_col, dropna=False):
+        memberships[str(h3_cell)] = set(
+            tuple(row[col] for col in group_cols) for _, row in h3_data.iterrows()
         )
+    return memberships
 
-        # Crear edges entre celdas consecutivas
-        for i in range(len(ramal_data) - 1):
-            current_row = ramal_data.iloc[i]
-            next_row = ramal_data.iloc[i + 1]
 
-            current_h3 = current_row["parent_h3"]
-            next_h3 = next_row["parent_h3"]
+def _mandatory_shared_boundary_indices(route_cells, memberships, h3_col):
+    if route_cells.empty:
+        return set()
 
-            # Obtener centroides de las celdas H3
-            current_centroid_lat, current_centroid_lng = h3.cell_to_latlng(current_h3)
-            next_centroid_lat, next_centroid_lng = h3.cell_to_latlng(next_h3)
+    mandatory = {0, len(route_cells) - 1}
+    route_memberships = [
+        memberships.get(str(h3_cell), set()) for h3_cell in route_cells[h3_col]
+    ]
 
-            # Crear linestring entre centroides
-            linestring = LineString(
-                [
-                    (current_centroid_lng, current_centroid_lat),
-                    (next_centroid_lng, next_centroid_lat),
-                ]
+    for idx, current_membership in enumerate(route_memberships):
+        if idx > 0 and current_membership != route_memberships[idx - 1]:
+            mandatory.update({idx - 1, idx})
+        if idx < len(route_memberships) - 1:
+            if current_membership != route_memberships[idx + 1]:
+                mandatory.update({idx, idx + 1})
+    return mandatory
+
+
+def _sample_route_cells_by_segments(route_cells, mandatory_indices, interval):
+    if route_cells.empty:
+        return route_cells
+
+    interval = max(1, min(int(interval), 2))
+    mandatory_indices = sorted(set(mandatory_indices))
+    if len(mandatory_indices) == 1:
+        return route_cells.iloc[mandatory_indices].reset_index(drop=True)
+
+    sampled_indices = set(mandatory_indices)
+    for start_idx, end_idx in zip(mandatory_indices[:-1], mandatory_indices[1:]):
+        sampled_indices.update(range(start_idx, end_idx + 1, interval))
+        sampled_indices.add(end_idx)
+
+    return route_cells.iloc[sorted(sampled_indices)].reset_index(drop=True)
+
+
+def _simplify_routes_h3_preserving_shared_boundaries(
+    routes_h3,
+    group_cols,
+    h3_col="h3",
+    section_id_col="section_id",
+    h3_cell_interval=2,
+    direction_col="direction",
+):
+    """
+    Simplify each route/branch sequence, one direction at a time.
+
+    Shared-boundary membership is computed independently per ``direction_col``
+    value, so a stretch shared by all branches of one direction can be
+    thinned even if the opposite direction happens to cross the same H3
+    cells. Directions are simplified separately and then concatenated, so
+    they are effectively joined afterwards (edges/graph merge on shared H3
+    node ids downstream).
+    """
+    routes_h3 = (
+        routes_h3.dropna(subset=[h3_col, section_id_col])
+        .sort_values(group_cols + [section_id_col])
+        .reset_index(drop=True)
+    )
+    membership_cols = [col for col in group_cols if col != direction_col]
+
+    simplified_routes = []
+    for _, direction_cells in routes_h3.groupby(direction_col, dropna=False):
+        memberships = _build_h3_membership(direction_cells, membership_cols, h3_col)
+        for _, route_cells in direction_cells.groupby(group_cols, dropna=False):
+            route_cells = (
+                route_cells.sort_values(section_id_col)
+                .drop_duplicates(subset=[h3_col, section_id_col])
+                .reset_index(drop=True)
+            )
+            mandatory_indices = _mandatory_shared_boundary_indices(
+                route_cells, memberships, h3_col
+            )
+            simplified_routes.append(
+                _sample_route_cells_by_segments(
+                    route_cells,
+                    mandatory_indices,
+                    h3_cell_interval,
+                )
             )
 
-            # Guardar información del edge
-            edges_data.append(
-                {
-                    "id_ramal": id_ramal,
-                    "direction": current_row["direction"],
-                    "section_id_from": current_row["section_id"],
-                    "section_id_to": next_row["section_id"],
-                    "h3_from": current_h3,
-                    "h3_to": next_h3,
-                    "geometry": linestring,
-                }
-            )
-
-    # Crear GeoDataFrame con los edges
-    edges_gdf = gpd.GeoDataFrame(edges_data, geometry="geometry", crs="EPSG:4326")
-
-    print(f"\nTotal de edges creados: {len(edges_gdf)}")
-    return edges_gdf
+    if not simplified_routes:
+        return routes_h3.iloc[0:0].copy()
+    return pd.concat(simplified_routes, ignore_index=True)
 
 
-def turn_edges_into_directed_graph(od_to_graph):
-    # Crear un grafo de NetworkX compatible con OSMnx
-    G = nx.MultiDiGraph()
+def create_edges_between_h3_centroids(
+    routes_h3,
+    h3_col="h3",
+    section_id_col="section_id",
+    h3_cell_interval=1,
+    has_branches=None,
+):
+    """
+    Create directed edges between consecutive H3 route cells.
 
-    # Extraer todos los nodos únicos (celdas H3)
-    unique_h3_cells = set(od_to_graph["h3_1"].unique()) | set(
-        od_to_graph["h3_2"].unique()
+    ``routes_h3`` must be filtered to one route/branch and one direction. The
+    edge direction follows ascending ``section_id_col``. ``h3_cell_interval``
+    keeps one node every n ordered H3 cells, always preserving the last cell.
+    """
+    if has_branches is None:
+        configs = leer_configs_generales(autogenerado=False)
+        has_branches = configs.get("lineas_contienen_ramales", False)
+
+    if int(h3_cell_interval) < 1:
+        raise ValueError("h3_cell_interval debe ser mayor o igual a 1")
+
+    required_cols = {h3_col, section_id_col}
+    route_id_col = "id_ramal" if has_branches else "id_linea"
+    required_cols.add(route_id_col)
+    missing_cols = required_cols - set(routes_h3.columns)
+    if missing_cols:
+        raise ValueError(f"Faltan columnas en routes_h3: {sorted(missing_cols)}")
+
+    route_cells = (
+        routes_h3.dropna(subset=[h3_col, section_id_col])
+        .sort_values(section_id_col)
+        .drop_duplicates(subset=[h3_col, section_id_col])
+        .reset_index(drop=True)
     )
 
-    print(f"Total de nodos únicos: {len(unique_h3_cells)}")
+    h3_cell_interval = int(h3_cell_interval)
+    if h3_cell_interval > 1 and len(route_cells) > 1:
+        sampled_idx = list(range(0, len(route_cells), h3_cell_interval))
+        last_idx = len(route_cells) - 1
+        if sampled_idx[-1] != last_idx:
+            sampled_idx.append(last_idx)
+        route_cells = route_cells.iloc[sampled_idx].reset_index(drop=True)
 
-    # Agregar nodos con sus coordenadas (x=lon, y=lat)
-    for h3_cell in unique_h3_cells:
-        lat, lng = h3.cell_to_latlng(h3_cell)
-        G.add_node(h3_cell, x=lng, y=lat)
+    edge_cols = [
+        "id_linea",
+        "id_ramal",
+        "direction",
+        "section_id_from",
+        "section_id_to",
+        "h3_from",
+        "h3_to",
+        "length",
+        "geometry",
+    ]
+    if len(route_cells) < 2:
+        return gpd.GeoDataFrame(columns=edge_cols, geometry="geometry", crs="EPSG:4326")
 
-    # Agregar edges del grafo
-    for idx, row in od_to_graph.iterrows():
-        h3_from = row["h3_1"]
-        h3_to = row["h3_2"]
+    edge_rows = []
+    for idx in range(len(route_cells) - 1):
+        current_row = route_cells.iloc[idx]
+        next_row = route_cells.iloc[idx + 1]
+        h3_from = str(current_row[h3_col])
+        h3_to = str(next_row[h3_col])
 
-        # Calcular longitud del edge (distancia entre centroides)
-        geom = row["geometry"]
+        if h3_from == h3_to:
+            continue
 
-        # Calcular distancia en metros usando coordenadas
-        from_lat, from_lng = h3.cell_to_latlng(h3_from)
-        to_lat, to_lng = h3.cell_to_latlng(h3_to)
+        from_lng, from_lat = _h3_centroid_xy(h3_from)
+        to_lng, to_lat = _h3_centroid_xy(h3_to)
+        edge_row = {
+            "section_id_from": current_row[section_id_col],
+            "section_id_to": next_row[section_id_col],
+            "h3_from": h3_from,
+            "h3_to": h3_to,
+            "length": _h3_centroid_distance_m(h3_from, h3_to),
+            "geometry": LineString([(from_lng, from_lat), (to_lng, to_lat)]),
+        }
+        for metadata_col in ["id_linea", "id_ramal", "direction"]:
+            if metadata_col in route_cells.columns:
+                edge_row[metadata_col] = current_row[metadata_col]
+        edge_rows.append(edge_row)
 
-        # Usar fórmula simple para distancia
-        from math import radians, cos, sqrt
+    if not edge_rows:
+        return gpd.GeoDataFrame(columns=edge_cols, geometry="geometry", crs="EPSG:4326")
 
-        R = 6371000  # Radio de la Tierra en metros
+    return gpd.GeoDataFrame(edge_rows, geometry="geometry", crs="EPSG:4326")
 
-        dlat = radians(to_lat - from_lat)
-        dlng = radians(to_lng - from_lng)
-        a = dlat**2 + (cos(radians((from_lat + to_lat) / 2)) * dlng) ** 2
-        distance_m = R * sqrt(a)
 
-        # Agregar edge bidireccional (ida y vuelta)
-        G.add_edge(h3_from, h3_to, length=distance_m, geometry=geom)
-        G.add_edge(h3_to, h3_from, length=distance_m, geometry=geom)
+def turn_edges_into_directed_graph(edges_gdf):
+    """Build an OSMnx-compatible directed graph from H3 centroid edges."""
+    required_cols = {"h3_from", "h3_to", "length", "geometry"}
+    missing_cols = required_cols - set(edges_gdf.columns)
+    if missing_cols:
+        raise ValueError(f"Faltan columnas en edges_gdf: {sorted(missing_cols)}")
 
-    # Configurar atributos del grafo para OSMnx
-    G.graph["crs"] = "epsg:4326"
-    G.graph["simplified"] = True
+    graph = nx.MultiDiGraph()
+    graph.graph["crs"] = "epsg:4326"
+    graph.graph["simplified"] = True
 
-    print(f"\nGrafo creado:")
-    print(f"  Nodos: {G.number_of_nodes()}")
-    print(f"  Edges: {G.number_of_edges()}")
+    h3_cells = set(edges_gdf["h3_from"].dropna()) | set(edges_gdf["h3_to"].dropna())
+    for h3_cell in h3_cells:
+        node_x, node_y = _h3_centroid_xy(h3_cell)
+        graph.add_node(str(h3_cell), x=node_x, y=node_y)
 
-    return G
+    for edge_idx, row in edges_gdf.reset_index(drop=True).iterrows():
+        h3_from = str(row["h3_from"])
+        h3_to = str(row["h3_to"])
+        graph.add_edge(
+            h3_from,
+            h3_to,
+            osmid=edge_idx,
+            length=float(row["length"]),
+            geometry=row["geometry"],
+            id_linea=row.get("id_linea"),
+            id_ramal=row.get("id_ramal"),
+            direction=row.get("direction"),
+            section_id_from=row.get("section_id_from"),
+            section_id_to=row.get("section_id_to"),
+        )
+
+    return graph
+
+
+def create_routes_h3_directed_graph(
+    routes_h3,
+    h3_col="h3",
+    section_id_col="section_id",
+    h3_cell_interval=1,
+    has_branches=None,
+):
+    """
+    Build an OSMnx-compatible directed graph for one route/branch direction.
+
+    Parameters
+    ----------
+    routes_h3 : pandas.DataFrame
+        Table filtered to one route/branch and one direction. It must contain
+        one H3 cell column and one section-id column.
+    h3_col : str
+        Column containing the H3 cell id.
+    section_id_col : str
+        Column containing the ordered section id.
+    h3_cell_interval : int
+        Build graph nodes every n ordered H3 cells. The first and last cells
+        are always preserved.
+    has_branches : bool, optional
+        If True, ``routes_h3`` must include ``id_ramal``. If False, it must
+        include ``id_linea``. When None, uses ``lineas_contienen_ramales`` from
+        configs.
+
+    Returns
+    -------
+    networkx.MultiDiGraph
+        Directed graph whose nodes are H3 cells with OSMnx-style ``x``/``y``
+        attributes and whose edges follow ascending section id.
+    """
+    edges_gdf = create_edges_between_h3_centroids(
+        routes_h3,
+        h3_col=h3_col,
+        section_id_col=section_id_col,
+        h3_cell_interval=h3_cell_interval,
+        has_branches=has_branches,
+    )
+    return turn_edges_into_directed_graph(edges_gdf)
+
+
+def create_line_h3_directed_graph(
+    ctx: StorageContext,
+    id_linea,
+    h3_res=None,
+    h3_cell_interval=2,
+    has_branches=None,
+):
+    """
+    Build one directed H3 graph for a full line.
+
+    The graph uses one node per H3 cell and directed edges for every
+    branch/direction or line/direction sequence. Simplification preserves the
+    start/end of every sequence and the boundaries of shared H3 stretches.
+    Inside each segment, the effective interval is capped at 2 cells so at most
+    one of every two H3 cells is removed.
+    """
+    configs = leer_configs_generales(autogenerado=False)
+    if h3_res is None:
+        h3_res = configs.get("resolucion_h3", 10)
+    if has_branches is None:
+        has_branches = configs.get("lineas_contienen_ramales", False)
+
+    h3_cell_interval = int(h3_cell_interval)
+    if h3_cell_interval < 1:
+        raise ValueError("h3_cell_interval debe ser mayor o igual a 1")
+    effective_interval = min(h3_cell_interval, 2)
+
+    if has_branches:
+        source_table_h3 = "branches"
+        id_col = "id_ramal"
+        metadata = ctx.insumos.query(f"""
+            SELECT id_ramal
+            FROM metadata_ramales
+            WHERE id_linea = {int(id_linea)}
+            ORDER BY id_ramal
+        """)
+        if metadata.empty:
+            graph = _empty_h3_directed_graph()
+            return _set_line_h3_graph_attrs(
+                graph, id_linea, h3_res, h3_cell_interval, effective_interval
+            )
+        route_ids = metadata["id_ramal"].dropna().astype(int).tolist()
+        if not route_ids:
+            graph = _empty_h3_directed_graph()
+            return _set_line_h3_graph_attrs(
+                graph, id_linea, h3_res, h3_cell_interval, effective_interval
+            )
+        route_filter = f"id_ramal IN ({','.join(map(str, route_ids))})"
+        group_cols = ["id_ramal", "direction"]
+    else:
+        source_table_h3 = "lines"
+        id_col = "id_linea"
+        route_filter = f"id_linea = {int(id_linea)}"
+        group_cols = ["id_linea", "direction"]
+
+    if int(h3_res) == 10:
+        table_name = f"official_{source_table_h3}_geoms_h3"
+        where_clause = route_filter
+    else:
+        table_name = f"official_{source_table_h3}_geoms_h3_parent"
+        where_clause = f"resolution = {int(h3_res)} AND {route_filter}"
+
+    routes_h3 = ctx.insumos.query(f"""
+        SELECT {id_col}, direction, section_id, h3
+        FROM {table_name}
+        WHERE {where_clause}
+        ORDER BY {id_col}, direction, section_id
+    """)
+    if routes_h3.empty:
+        graph = _empty_h3_directed_graph()
+        return _set_line_h3_graph_attrs(
+            graph, id_linea, h3_res, h3_cell_interval, effective_interval
+        )
+
+    if has_branches and "id_linea" not in routes_h3.columns:
+        routes_h3["id_linea"] = int(id_linea)
+
+    simplified_routes_h3 = _simplify_routes_h3_preserving_shared_boundaries(
+        routes_h3,
+        group_cols=group_cols,
+        h3_col="h3",
+        section_id_col="section_id",
+        h3_cell_interval=effective_interval,
+    )
+
+    edge_frames = []
+    for _, route_h3 in simplified_routes_h3.groupby(group_cols, dropna=False):
+        edges_gdf = create_edges_between_h3_centroids(
+            route_h3,
+            h3_col="h3",
+            section_id_col="section_id",
+            h3_cell_interval=1,
+            has_branches=has_branches,
+        )
+        if not edges_gdf.empty:
+            edge_frames.append(edges_gdf)
+
+    if not edge_frames:
+        graph = _empty_h3_directed_graph()
+    else:
+        graph = turn_edges_into_directed_graph(
+            pd.concat(edge_frames, ignore_index=True)
+        )
+
+    return _set_line_h3_graph_attrs(
+        graph, id_linea, h3_res, h3_cell_interval, effective_interval
+    )
+
+
+def _nodes_by_direction(graph):
+    """Map each edge ``direction`` value to the set of node ids it touches."""
+    nodes_by_direction = {}
+    for u, v, data in graph.edges(data=True):
+        direction = data.get("direction")
+        nodes_by_direction.setdefault(direction, set()).update({u, v})
+    return nodes_by_direction
+
+
+def _match_h3_to_graph_node(h3_cell, node_set, ring_size=1):
+    """
+    Match ``h3_cell`` to the closest node in ``node_set``.
+
+    Checks ring 0 (exact cell) first, then expands ring by ring up to
+    ``ring_size``. Ties within the same ring are broken by centroid distance.
+    Returns ``(node, ring)`` or ``(None, None)`` when nothing matches.
+    """
+    h3_cell = str(h3_cell)
+    for k in range(int(ring_size) + 1):
+        ring_cells = [h3_cell] if k == 0 else h3.grid_ring(h3_cell, k)
+        candidates = [cell for cell in ring_cells if cell in node_set]
+        if not candidates:
+            continue
+        if len(candidates) > 1:
+            candidates.sort(key=lambda cell: _h3_centroid_distance_m(h3_cell, cell))
+        return candidates[0], k
+    return None, None
+
+
+def assign_legs_to_line_h3_graph(
+    graph,
+    legs_df,
+    h3_o_col="h3_o",
+    h3_d_col="h3_d",
+    direction_col="direction_inferred",
+    ring_size=1,
+):
+    """
+    Join already-classified legs (direction + proposed branch) to a line H3
+    directed graph.
+
+    Legs are matched first by ``direction_col`` (restricting candidate nodes
+    to that direction's subgraph) and then by H3 origin/destination against
+    that direction's nodes. For each H3 cell, ring 0 (exact match) is tried
+    first and then expanded up to ``ring_size``; ties within the same ring
+    are broken by centroid distance. Legs without a match for both origin and
+    destination, or without any graph nodes for their direction, are dropped.
+
+    Parameters
+    ----------
+    graph : networkx.MultiDiGraph
+        Graph built by ``create_line_h3_directed_graph``.
+    legs_df : pandas.DataFrame
+        Legs already classified, e.g. by
+        ``leg_direction.identify_legs_direction``. Must contain
+        ``h3_o_col``, ``h3_d_col`` and ``direction_col``.
+    ring_size : int
+        Maximum H3 ring distance to search for a matching graph node.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``legs_df`` restricted to matched legs, with ``graph_node_o``,
+        ``graph_node_d``, ``graph_node_o_ring`` and ``graph_node_d_ring``
+        columns added.
+    """
+    nodes_by_direction = _nodes_by_direction(graph)
+
+    matched_records = []
+    matched_indices = []
+    for idx, row in legs_df.iterrows():
+        node_set = nodes_by_direction.get(row[direction_col], set())
+        if not node_set:
+            continue
+
+        node_o, ring_o = _match_h3_to_graph_node(row[h3_o_col], node_set, ring_size)
+        if node_o is None:
+            continue
+        node_d, ring_d = _match_h3_to_graph_node(row[h3_d_col], node_set, ring_size)
+        if node_d is None:
+            continue
+
+        record = row.to_dict()
+        record["graph_node_o"] = node_o
+        record["graph_node_d"] = node_d
+        record["graph_node_o_ring"] = ring_o
+        record["graph_node_d_ring"] = ring_d
+        matched_records.append(record)
+        matched_indices.append(idx)
+
+    extra_cols = [
+        "graph_node_o",
+        "graph_node_d",
+        "graph_node_o_ring",
+        "graph_node_d_ring",
+    ]
+    if not matched_records:
+        result = legs_df.iloc[0:0].copy()
+        for col in extra_cols:
+            result[col] = pd.Series(dtype="object")
+        return result
+
+    return pd.DataFrame(matched_records, index=matched_indices)
+
+
+def compute_graph_edge_usage(
+    graph,
+    legs_df,
+    h3_o_col="h3_o",
+    h3_d_col="h3_d",
+    direction_col="direction_inferred",
+    weight_col="factor_expansion_linea",
+    ring_size=1,
+):
+    """
+    Route classified legs through a line H3 graph and count edge usage.
+
+    Legs are matched to graph nodes with ``assign_legs_to_line_h3_graph``
+    (unless ``graph_node_o``/``graph_node_d`` columns are already present).
+    Each leg is then routed with the shortest path (by edge ``length``)
+    within its direction's subgraph; every edge along that path (the one
+    leaving the origin, the one reaching the destination, and everything in
+    between) has its usage incremented.
+
+    Parameters
+    ----------
+    graph : networkx.MultiDiGraph
+        Graph built by ``create_line_h3_directed_graph``.
+    legs_df : pandas.DataFrame
+        Classified legs. If it already has ``graph_node_o``/``graph_node_d``
+        columns (e.g. from a previous call to
+        ``assign_legs_to_line_h3_graph``), those are used directly instead
+        of matching again.
+    weight_col : str, optional
+        Column with the expansion factor to weight each leg. Missing or
+        non-numeric values are treated as 1.
+    ring_size : int
+        Passed through to ``assign_legs_to_line_h3_graph`` when matching is
+        needed.
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        One row per used edge (``u``, ``v``, ``direction``) with ``n_legs``
+        (leg count), ``n_legs_expanded`` (sum of ``weight_col``) and the
+        edge's own attributes/geometry.
+    """
+    if "graph_node_o" not in legs_df.columns or "graph_node_d" not in legs_df.columns:
+        legs_df = assign_legs_to_line_h3_graph(
+            graph,
+            legs_df,
+            h3_o_col=h3_o_col,
+            h3_d_col=h3_d_col,
+            direction_col=direction_col,
+            ring_size=ring_size,
+        )
+
+    edge_cols = ["u", "v", "direction", "n_legs", "n_legs_expanded"]
+    if legs_df.empty:
+        return gpd.GeoDataFrame(
+            columns=edge_cols + ["geometry"], geometry="geometry", crs="EPSG:4326"
+        )
+
+    if weight_col in legs_df.columns:
+        weights = pd.to_numeric(legs_df[weight_col], errors="coerce").fillna(1)
+    else:
+        weights = pd.Series(1, index=legs_df.index)
+
+    subgraph_cache = {}
+    usage_counts = {}
+    usage_weights = {}
+
+    for idx, row in legs_df.iterrows():
+        direction = row[direction_col]
+        node_o = row["graph_node_o"]
+        node_d = row["graph_node_d"]
+        if node_o == node_d:
+            continue
+
+        if direction not in subgraph_cache:
+            edge_keys = [
+                (u, v, k)
+                for u, v, k, data in graph.edges(keys=True, data=True)
+                if data.get("direction") == direction
+            ]
+            subgraph_cache[direction] = graph.edge_subgraph(edge_keys)
+        subgraph = subgraph_cache[direction]
+
+        try:
+            path = nx.shortest_path(subgraph, node_o, node_d, weight="length")
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            continue
+
+        weight = weights.loc[idx]
+        for edge_from, edge_to in zip(path[:-1], path[1:]):
+            key = (edge_from, edge_to, direction)
+            usage_counts[key] = usage_counts.get(key, 0) + 1
+            usage_weights[key] = usage_weights.get(key, 0.0) + weight
+
+    if not usage_counts:
+        return gpd.GeoDataFrame(
+            columns=edge_cols + ["geometry"], geometry="geometry", crs="EPSG:4326"
+        )
+
+    edge_attrs_lookup = {}
+    for u, v, data in graph.edges(data=True):
+        key = (u, v, data.get("direction"))
+        if key not in edge_attrs_lookup:
+            edge_attrs_lookup[key] = data
+
+    usage_rows = []
+    for (edge_from, edge_to, direction), count in usage_counts.items():
+        data = edge_attrs_lookup.get((edge_from, edge_to, direction), {})
+        usage_rows.append(
+            {
+                "u": edge_from,
+                "v": edge_to,
+                "direction": direction,
+                "n_legs": count,
+                "n_legs_expanded": usage_weights[(edge_from, edge_to, direction)],
+                "id_ramal": data.get("id_ramal"),
+                "section_id_from": data.get("section_id_from"),
+                "section_id_to": data.get("section_id_to"),
+                "geometry": data.get("geometry"),
+            }
+        )
+
+    usage_df = pd.DataFrame(usage_rows)
+    return gpd.GeoDataFrame(usage_df, geometry="geometry", crs="EPSG:4326")
 
 
 def turn_edges_into_undirected_graph(edges_gdf):
-    # Crear grafo no dirigido desde edges_gdf para evitar duplicación de edges
-    G_undirected = nx.Graph()
+    """Build an undirected H3 graph from H3 centroid edges."""
+    directed_graph = turn_edges_into_directed_graph(edges_gdf)
+    graph = nx.Graph()
+    graph.graph.update(directed_graph.graph)
 
-    # Extraer todos los nodos únicos (celdas H3)
-    unique_h3_cells = set(edges_gdf["h3_from"].unique()) | set(
-        edges_gdf["h3_to"].unique()
-    )
+    for node, attrs in directed_graph.nodes(data=True):
+        graph.add_node(node, **attrs)
 
-    print(f"Total de nodos únicos: {len(unique_h3_cells)}")
+    for h3_from, h3_to, attrs in directed_graph.edges(data=True):
+        if not graph.has_edge(h3_from, h3_to):
+            graph.add_edge(h3_from, h3_to, **attrs)
 
-    # Agregar nodos con sus coordenadas (x=lon, y=lat)
-    for h3_cell in unique_h3_cells:
-        lat, lng = h3.cell_to_latlng(h3_cell)
-        G_undirected.add_node(h3_cell, x=lng, y=lat)
-
-    # Agregar edges del grafo (no dirigidos, se eliminan duplicados automáticamente)
-    for idx, row in edges_gdf.iterrows():
-        h3_from = row["h3_from"]
-        h3_to = row["h3_to"]
-
-        # Solo agregar si el edge no existe ya
-        if not G_undirected.has_edge(h3_from, h3_to):
-            geom = row["geometry"]
-
-            # Calcular distancia en metros
-            from_lat, from_lng = h3.cell_to_latlng(h3_from)
-            to_lat, to_lng = h3.cell_to_latlng(h3_to)
-
-            from math import radians, cos, sqrt
-
-            R = 6371000  # Radio de la Tierra en metros
-
-            dlat = radians(to_lat - from_lat)
-            dlng = radians(to_lng - from_lng)
-            a = dlat**2 + (cos(radians((from_lat + to_lat) / 2)) * dlng) ** 2
-            distance_m = R * sqrt(a)
-
-            # Agregar edge no dirigido
-            G_undirected.add_edge(h3_from, h3_to, length=distance_m, geometry=geom)
-
-    # Configurar atributos del grafo para OSMnx
-    G_undirected.graph["crs"] = "epsg:4326"
-    G_undirected.graph["simplified"] = True
-
-    print(f"\nGrafo no dirigido creado:")
-    print(f"  Nodos: {G_undirected.number_of_nodes()}")
-    print(f"  Edges: {G_undirected.number_of_edges()}")
-
-    return G_undirected
+    return graph

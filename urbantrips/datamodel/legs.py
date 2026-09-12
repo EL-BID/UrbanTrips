@@ -28,6 +28,12 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
+from urbantrips.kpi.leg_direction import (
+    identify_leg_direction,
+    identify_legs_direction,
+    prepare_routes_from_h3,
+    _process_legs_direction_parallel,
+)
 
 # from urbantrips.kpi.kpi import add_distances_to_legs
 from urbantrips.carto.compute_distances import compute_od_distances
@@ -83,13 +89,6 @@ def build_legs_dataframe(
     Build the legs dataframe from transactions and return duplicate-card metadata.
     """
     legs = trx[trx.dia.isin(dias_ultima_corrida.dia)]
-
-    print("Eliminando transacciones con longitud o latitud igual a cero")
-    n_trx_ = len(legs)
-    print(f"Transacciones antes de eliminar: {len(legs)}")
-    legs = legs.loc[(legs.longitud != 0) & (legs.latitud != 0), :]
-    print(f"Transacciones eliminadas: {n_trx_ - len(legs)}")
-
     # parse dates using local timezone
     legs = legs.copy()
     legs["fecha"] = pd.to_datetime(legs.fecha, unit="s", errors="coerce")
@@ -626,20 +625,16 @@ def assign_gps_origin(ctx: StorageContext):
 
     def _fetch_origin_inputs(dia):
         """Lecturas del día (main): etapas y gps mínimos para el merge_asof."""
-        legs = ctx.data.query(
-            f"""
+        legs = ctx.data.query(f"""
             SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.tiempo, e.id
             FROM etapas e
             WHERE e.dia = '{dia}'
-            """
-        )
-        gps = ctx.data.query(
-            f"""
+            """)
+        gps = ctx.data.query(f"""
             SELECT g.dia, g.id_linea, g.id_ramal, g.interno, g.fecha, g.id
             FROM gps g
             WHERE g.dia = '{dia}'
-            """
-        )
+            """)
         return legs, gps
 
     n_workers = _parallel_day_workers(len(dias))
@@ -663,12 +658,14 @@ def assign_gps_origin(ctx: StorageContext):
     logger.info("[assign_gps_origin] paralelizando: %d días en vuelo", n_workers)
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         for chunk_start in range(0, len(dias), n_workers):
-            chunk = dias[chunk_start: chunk_start + n_workers]
+            chunk = dias[chunk_start : chunk_start + n_workers]
             futures = {}
             for offset, dia in enumerate(chunk, 1):
                 logger.info(
                     "[assign_gps_origin] día %d/%d (%s) — leyendo insumos",
-                    chunk_start + offset, len(dias), dia,
+                    chunk_start + offset,
+                    len(dias),
+                    dia,
                 )
                 legs, gps = _fetch_origin_inputs(dia)
                 if gps.empty or legs.empty:
@@ -692,27 +689,30 @@ def _fetch_time_distance_inputs_dia(ctx, dia, next_dia):
     """
     gps_dias = [dia] + ([next_dia] if next_dia else [])
     gps_str = ", ".join(f"'{d}'" for d in gps_dias)
-    gps = ctx.data.query(
-        f"""
+    gps = ctx.data.query(f"""
         SELECT g.* FROM gps g
         WHERE g.dia IN ({gps_str})
         ORDER BY dia, id_linea, id_ramal, interno, fecha
-        """
-    )
-    legs_to_gps_o = ctx.data.query(
-        f"""
+        """)
+    legs_to_gps_o = ctx.data.query(f"""
         SELECT lo.id_legs, lo.id_gps AS id_gps_o
         FROM legs_to_gps_origin lo
         WHERE lo.dia = '{dia}'
-        """
-    )
+        """)
     return gps, legs_to_gps_o
 
 
 @duracion
 def _gps_destino_y_tiempos_dia(
-    dia, next_dia, legs_all, gps, legs_to_gps_o,
-    metadata_lineas, matriz, modos_ramal, legs_h3_res,
+    dia,
+    next_dia,
+    legs_all,
+    gps,
+    legs_to_gps_o,
+    metadata_lineas,
+    matriz,
+    modos_ramal,
+    legs_h3_res,
 ):
     """Imputación de GPS de destino + tiempos/distancias de viaje para UN día.
 
@@ -776,9 +776,9 @@ def _gps_destino_y_tiempos_dia(
 
     # ── distance_route y distance_route_gps: ambas desde GPS ──
     # legs_to_gps_o llega como parámetro (leído en el main por _fetch_time_distance_inputs_dia)
-    legs_to_gps_d_dist = etapas_result.reindex(
-        columns=["id_legs", "id_gps"]
-    ).rename(columns={"id_gps": "id_gps_d"})
+    legs_to_gps_d_dist = etapas_result.reindex(columns=["id_legs", "id_gps"]).rename(
+        columns={"id_gps": "id_gps_d"}
+    )
     gps_anchors = legs_to_gps_o.merge(legs_to_gps_d_dist, on="id_legs")
 
     gps_ranked = gps.reindex(
@@ -970,6 +970,7 @@ def _duckdb_memory_limit_gb() -> float:
     """
     try:
         from urbantrips.utils.utils import leer_configs_tuning
+
         val = (leer_configs_tuning().get("duckdb", {}) or {}).get("memory_limit")
     except Exception:
         val = None
@@ -982,6 +983,7 @@ def _duckdb_memory_limit_gb() -> float:
             pass
     try:
         import psutil
+
         return max(psutil.virtual_memory().total / 2**30 * 0.25, 1.0)
     except Exception:
         return 8.0
@@ -1032,7 +1034,11 @@ def _parallel_day_workers(n_days: int) -> int:
     logger.info(
         "[parallel_day_workers] autotune: %d worker(s) — RAM libre %.1f GB "
         "− reserva main %.1f GB = %.1f GB presupuesto / %.0f GB por día (tope 3)",
-        n, avail_gb, reserve_gb, max(0.0, budget_gb), per_day_gb,
+        n,
+        avail_gb,
+        reserve_gb,
+        max(0.0, budget_gb),
+        per_day_gb,
     )
     return n
 
@@ -1044,14 +1050,12 @@ def _fetch_legs_all_dia(ctx, dia):
     (od_distances) de un solo escritor; llamarlo desde varios workers a la vez
     rompería el file-lock del cache.
     """
-    legs_all = ctx.data.query(
-        f"""
+    legs_all = ctx.data.query(f"""
         SELECT e.*
         FROM etapas e
         WHERE e.etapa_validada = 1 AND e.dia = '{dia}'
         ORDER BY e.dia, e.id_tarjeta, e.id_viaje, e.id_etapa, e.id_linea, e.id_ramal, e.interno
-        """
-    )
+        """)
     if len(legs_all) == 0:
         return None
     return compute_od_distances(
@@ -1073,25 +1077,45 @@ def _travel_times_sin_gps(legs_all):
     travel_times = legs_all.reindex(
         columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "distance_od"]
     ).copy()
-    travel_times_trips = (
-        travel_times.groupby(["dia", "id_tarjeta", "id_viaje"], as_index=False)
-        [["distance_od"]].sum(min_count=1)
-    )
+    travel_times_trips = travel_times.groupby(
+        ["dia", "id_tarjeta", "id_viaje"], as_index=False
+    )[["distance_od"]].sum(min_count=1)
     return travel_times, travel_times_trips
 
 
 def _save_travel_times_dia(ctx, dia, travel_times, travel_times_trips, legs_to_gps_d):
     """Normaliza esquemas y appendea (main) las salidas de un día."""
     travel_times = travel_times.reindex(
-        columns=["dia", "id", "id_tarjeta", "id_viaje", "id_etapa", "travel_time_min",
-                 "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps",
-                 "id_gps_o", "id_gps_d"]
+        columns=[
+            "dia",
+            "id",
+            "id_tarjeta",
+            "id_viaje",
+            "id_etapa",
+            "travel_time_min",
+            "distance_od",
+            "distance_route",
+            "distance_route_gps",
+            "kmh_od",
+            "kmh_route",
+            "kmh_route_gps",
+            "id_gps_o",
+            "id_gps_d",
+        ]
     )
     travel_times_trips = travel_times_trips.reindex(
-        columns=["dia", "id_tarjeta", "id_viaje", "travel_time_min",
-                 "distance_od", "distance_route", "distance_route_gps",
-                 "kmh_od", "kmh_route", "kmh_route_gps"]
+        columns=[
+            "dia",
+            "id_tarjeta",
+            "id_viaje",
+            "travel_time_min",
+            "distance_od",
+            "distance_route",
+            "distance_route_gps",
+            "kmh_od",
+            "kmh_route",
+            "kmh_route_gps",
+        ]
     )
     travel_times["distance_route_gps"] = travel_times["distance_route_gps"].round(2)
 
@@ -1099,7 +1123,9 @@ def _save_travel_times_dia(ctx, dia, travel_times, travel_times_trips, legs_to_g
     pct = travel_times["travel_time_min"].notna().sum() / max(tot, 1) * 100
     logger.info(
         "[assign_time_distances] %s guardado: %d etapas, travel_time imputado %.1f%%",
-        dia, tot, pct,
+        dia,
+        tot,
+        pct,
     )
 
     if legs_to_gps_d is not None:
@@ -1173,8 +1199,15 @@ def assign_time_distances(ctx: StorageContext):
                 )
                 travel_times, travel_times_trips, legs_to_gps_d = (
                     _gps_destino_y_tiempos_dia(
-                        dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
-                        metadata_lineas, matriz, modos_ramal, legs_h3_res,
+                        dia,
+                        dia_to_next.get(dia),
+                        legs_all,
+                        gps,
+                        legs_to_gps_o,
+                        metadata_lineas,
+                        matriz,
+                        modos_ramal,
+                        legs_h3_res,
                     )
                 )
                 del gps, legs_to_gps_o
@@ -1198,12 +1231,14 @@ def assign_time_distances(ctx: StorageContext):
     logger.info("[assign_time_distances] paralelizando: %d días en vuelo", n_workers)
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         for chunk_start in range(0, len(dias), n_workers):
-            chunk = dias[chunk_start: chunk_start + n_workers]
+            chunk = dias[chunk_start : chunk_start + n_workers]
             futures = {}
             for offset, dia in enumerate(chunk, 1):
                 logger.info(
                     "[assign_time_distances] día %d/%d (%s) — leyendo insumos",
-                    chunk_start + offset, len(dias), dia,
+                    chunk_start + offset,
+                    len(dias),
+                    dia,
                 )
                 legs_all = _fetch_legs_all_dia(ctx, dia)
                 if legs_all is None:
@@ -1211,11 +1246,20 @@ def assign_time_distances(ctx: StorageContext):
                 gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
                     ctx, dia, dia_to_next.get(dia)
                 )
-                futures[executor.submit(
-                    _gps_destino_y_tiempos_dia,
-                    dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
-                    metadata_lineas, matriz, modos_ramal, legs_h3_res,
-                )] = dia
+                futures[
+                    executor.submit(
+                        _gps_destino_y_tiempos_dia,
+                        dia,
+                        dia_to_next.get(dia),
+                        legs_all,
+                        gps,
+                        legs_to_gps_o,
+                        metadata_lineas,
+                        matriz,
+                        modos_ramal,
+                        legs_h3_res,
+                    )
+                ] = dia
                 del legs_all, gps, legs_to_gps_o
 
             for future in as_completed(futures):
@@ -1428,7 +1472,9 @@ def assign_stations_od(ctx: StorageContext):
         # sí tienen estaciones evita la conversión h3→latlng + join geométrico sobre el resto
         # (en AMBA el CSV cubre pocas líneas → ~99% de las 177M etapas se salteaban a 0 igual).
         # El resultado (legs_to_station_*, travel_times_stations de salida) es idéntico.
-        station_lines = [int(x) for x in stations["id_linea"].dropna().unique().tolist()]
+        station_lines = [
+            int(x) for x in stations["id_linea"].dropna().unique().tolist()
+        ]
         if not station_lines:
             logger.info(
                 "[assign_stations_od] las estaciones no tienen id_linea válido → nada que "
@@ -1465,8 +1511,7 @@ def assign_stations_od(ctx: StorageContext):
         for i, dia in enumerate(dias, 1):
             logger.info("[assign_stations_od] día %d/%d (%s)", i, len(dias), dia)
             # read legs without travel time in gps and distances (un día)
-            legs = ctx.data.query(
-                f"""
+            legs = ctx.data.query(f"""
                 SELECT e.dia, e.id, e.id_linea, e.id_ramal, e.h3_o, e.h3_d
                 FROM etapas e
                 LEFT JOIN travel_times_gps tt
@@ -1475,8 +1520,7 @@ def assign_stations_od(ctx: StorageContext):
                 AND e.etapa_validada = 1
                 AND e.dia = '{dia}'
                 AND e.id_linea IN ({station_lines_str})
-                """
-            )
+                """)
 
             if len(legs) == 0:
                 del legs
@@ -1559,8 +1603,13 @@ def assign_stations_od(ctx: StorageContext):
                 logger.info(
                     "Día %s — etapas clasificadas en la misma estación OD: %.1f%%",
                     dia,
-                    len(travel_times[travel_times.id_station_o == travel_times.id_station_d])
-                    / len(travel_times) * 100,
+                    len(
+                        travel_times[
+                            travel_times.id_station_o == travel_times.id_station_d
+                        ]
+                    )
+                    / len(travel_times)
+                    * 100,
                 )
 
             travel_times = travel_times.loc[
@@ -1569,7 +1618,9 @@ def assign_stations_od(ctx: StorageContext):
 
             # compute travel time
             travel_times = travel_times.merge(
-                travel_times_stations.reindex(columns=["id_o", "id_d", "travel_time_min"]),
+                travel_times_stations.reindex(
+                    columns=["id_o", "id_d", "travel_time_min"]
+                ),
                 left_on=["id_station_o", "id_station_d"],
                 right_on=["id_o", "id_d"],
                 how="left",
@@ -1588,7 +1639,8 @@ def assign_stations_od(ctx: StorageContext):
             ).round(1)
 
             travel_times.loc[
-                (travel_times.kmh_od == np.inf) | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
+                (travel_times.kmh_od == np.inf)
+                | (travel_times.kmh_od >= VELOCIDAD_MAXIMA_KMH),
                 "kmh_od",
             ] = np.nan
 
@@ -1603,8 +1655,14 @@ def assign_stations_od(ctx: StorageContext):
 
             ctx.data.append_raw(travel_times, "travel_times_stations")
 
-            del legs, legs_with_origin_station, legs_with_destination_station, travel_times
+            del (
+                legs,
+                legs_with_origin_station,
+                legs_with_destination_station,
+                travel_times,
+            )
             gc.collect()
+
 
 # NOTA: la antigua `add_distance_and_travel_time` (etapas) fue ELIMINADA
 # (2026-07-17). Estaba MUERTA desde el commit ebe0789 (2026-05-31), reemplazada
@@ -1612,4 +1670,309 @@ def assign_stations_od(ctx: StorageContext):
 # travel_time_min y los guarda en travel_times_legs/travel_times_trips (de donde
 # los leen kpi, chains y el dashboard). Nadie consumía etapas.distancia.
 
-    
+
+def _fetch_direction_inputs_dia(ctx, dia, route_ids_str, id_col):
+    """Lee (main) las etapas del día que requieren imputación de dirección/ramal.
+
+    Separado del cómputo para despachar el cómputo a workers: DuckDB no es
+    fork/spawn-safe, así que toda lectura/escritura a la DB queda en el main y
+    los workers reciben DataFrames.
+    """
+    legs_query = f"""
+    SELECT id, id_linea, id_ramal, h3_o, h3_d, hora
+    FROM etapas 
+    WHERE od_validado = 1
+    AND modo = 'autobus'
+    AND {id_col} IN ({route_ids_str})
+    AND dia = '{dia}'
+    """
+    return ctx.data.query(legs_query)
+
+
+def _process_direction_dia(legs_data, routes_prepared):
+    """Imputación de dirección y ramal/línea para UN día.
+
+    Función PURA respecto de la DB: recibe legs_data y routes_prepared ya leídos
+    para poder ejecutarse en un worker process. Devuelve el DataFrame de resultados
+    listo para appendear a legs_direction_branch_line.
+
+    Internamente llama a _process_legs_direction_parallel, que ya tiene su propio
+    paralelismo por chunks de legs (multiprocessing.Pool). Esto es deliberado:
+    cada worker day procesa SU día con paralelismo interno (cores compartidos
+    entre los n_workers días en vuelo). La alternativa (un solo pool global)
+    requeriría re-arquitecturar _process_legs_direction_parallel.
+    """
+    if len(legs_data) == 0:
+        return pd.DataFrame()
+
+    legs_with_direction = _process_legs_direction_parallel(
+        legs_data=legs_data, routes_prepared=routes_prepared
+    )
+
+    cols = [
+        "id",
+        "id_linea",
+        "hora",
+        "direction_inferred",
+        "confidence",
+        "selected_section_id_o",
+        "selected_section_id_d",
+        "possible_branches",
+        "selected_branch",
+    ]
+    return legs_with_direction.reindex(columns=cols)
+
+
+@duracion
+def assign_direction_and_branch_or_line(ctx: StorageContext):
+    """
+    Asigna dirección y ramal/línea a las etapas DIA POR DIA en base a los h3 de
+    origen y destino, guardando y liberando antes del siguiente. Acota la RAM
+    (escala a un mes) preservando exactamente la lógica intra-día.
+
+    Con RAM suficiente, el cómputo de cada día corre en workers (_parallel_day_workers);
+    las lecturas/escrituras a la DB quedan en el main. Mismo patrón que assign_gps_origin
+    y assign_time_distances.
+    """
+    configs = leer_configs_generales(autogenerado=False)
+    has_branches = configs.get("lineas_contienen_ramales", False)
+    h3_res = configs.get("resolucion_h3", None)
+
+    if has_branches:
+        source_table_h3 = "branches"
+        source_table_metadata = "ramales"
+        id_col = "id_ramal"
+    else:
+        source_table_h3 = "lines"
+        source_table_metadata = "lineas"
+        id_col = "id_linea"
+
+    # Inputs compartidos (no dependen del día): se cargan UNA sola vez.
+    metadata_query = f"""
+    SELECT * FROM metadata_{source_table_metadata}
+    WHERE modo = 'autobus'
+    """
+    metadata = ctx.insumos.query(metadata_query)
+
+    # Read h3 geoms for the given resolution
+    if h3_res == 10:
+        routes_h3_query = f"""
+            SELECT {id_col}, direction, section_id, h3 
+            FROM official_{source_table_h3}_geoms_h3
+            WHERE resolution = {h3_res}
+        """
+    else:
+        routes_h3_query = f"""
+            SELECT {id_col}, direction, section_id, h3 
+            FROM official_{source_table_h3}_geoms_h3_parent
+            WHERE resolution = {h3_res}
+        """
+    routes_h3 = ctx.insumos.query(routes_h3_query)
+    if len(routes_h3) == 0:
+        logger.info("[assign_direction] No routes found in geoms, skipping")
+        return
+    routes_h3[id_col] = routes_h3[id_col].astype(int)
+
+    # Prepare routes data for the algorithm (shared across all days)
+    routes_prepared = prepare_routes_from_h3(
+        routes_h3, metadata=metadata, has_branches=has_branches
+    )
+    logger.info("[assign_direction] Prepared %d route records", len(routes_prepared))
+
+    route_ids = routes_prepared[id_col].dropna().unique().tolist()
+    if not route_ids:
+        logger.warning("[assign_direction] No routes in routes_prepared, skipping")
+        return
+    route_ids_str = ",".join(map(str, route_ids))
+
+    dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+    dias_str = ", ".join(f"'{d}'" for d in dias)
+
+    # Limpiar la tabla de salida para los días de ESTA corrida una sola vez.
+    # Luego se appendea por día (semántica incremental).
+    if dias_str:
+        try:
+            ctx.data.execute(
+                f"DELETE FROM legs_direction_branch_line WHERE dia IN ({dias_str})"
+            )
+        except Exception as e:
+            logger.debug("[assign_direction] DELETE omitido: %s", e)
+
+    n_workers = _parallel_day_workers(len(dias))
+    if n_workers <= 1:
+        # ── Camino serial (comportamiento previo, mismos resultados) ──
+        for i, dia in enumerate(dias, 1):
+            logger.info("[assign_direction] día %d/%d (%s)", i, len(dias), dia)
+            legs_data = _fetch_direction_inputs_dia(ctx, dia, route_ids_str, id_col)
+            if len(legs_data) == 0:
+                logger.info("[assign_direction] %s sin etapas a procesar", dia)
+                continue
+
+            logger.info(
+                "[assign_direction] %s procesando %d etapas", dia, len(legs_data)
+            )
+            legs_with_direction = _process_direction_dia(legs_data, routes_prepared)
+
+            if len(legs_with_direction) > 0:
+                legs_with_direction["dia"] = dia
+                ctx.data.append_raw(legs_with_direction, "legs_direction_branch_line")
+                pct = len(legs_with_direction) / len(legs_data) * 100
+                logger.info(
+                    "[assign_direction] %s guardado: %d etapas con dirección (%.1f%%)",
+                    dia,
+                    len(legs_with_direction),
+                    pct,
+                )
+
+            del legs_data, legs_with_direction
+            gc.collect()
+        return
+
+    # ── Camino paralelo: el cómputo de cada día (_process_direction_dia) corre en
+    # worker processes; el main hace TODAS las lecturas y escrituras a DuckDB.
+    # Chunks de n_workers días con barrera por chunk para acotar la RAM en vuelo
+    # (mismo patrón que assign_gps_origin y assign_time_distances).
+    logger.info("[assign_direction] paralelizando: %d días en vuelo", n_workers)
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        for chunk_start in range(0, len(dias), n_workers):
+            chunk = dias[chunk_start : chunk_start + n_workers]
+            futures = {}
+            for offset, dia in enumerate(chunk, 1):
+                logger.info(
+                    "[assign_direction] día %d/%d (%s) — leyendo insumos",
+                    chunk_start + offset,
+                    len(dias),
+                    dia,
+                )
+                legs_data = _fetch_direction_inputs_dia(ctx, dia, route_ids_str, id_col)
+                if len(legs_data) == 0:
+                    logger.info("[assign_direction] %s sin etapas a procesar", dia)
+                    del legs_data
+                    continue
+
+                logger.info(
+                    "[assign_direction] %s procesando %d etapas", dia, len(legs_data)
+                )
+                futures[
+                    executor.submit(_process_direction_dia, legs_data, routes_prepared)
+                ] = dia
+                del legs_data
+
+            for future in as_completed(futures):
+                dia = futures[future]
+                legs_with_direction = future.result()
+                if len(legs_with_direction) > 0:
+                    legs_with_direction["dia"] = dia
+                    ctx.data.append_raw(
+                        legs_with_direction, "legs_direction_branch_line"
+                    )
+                    # Dado que no tenemos el total original de legs_data aquí,
+                    # solo reportamos el conteo absoluto
+                    logger.info(
+                        "[assign_direction] %s guardado: %d etapas con dirección",
+                        dia,
+                        len(legs_with_direction),
+                    )
+                del legs_with_direction
+            gc.collect()
+
+
+def assign_direction_and_branch_or_line_legacy(ctx: StorageContext, dia):
+    """
+    This function reads legs and assigns direction and branch or line
+    to each leg based on the origin and destination h3 cells.
+    """
+    configs = leer_configs_generales(autogenerado=False)
+    has_branches = configs.get("lineas_contienen_ramales", False)
+    h3_res = configs.get("resolucion_h3", None)
+
+    if has_branches:
+        source_table_h3 = "branches"
+        source_table_metadata = "ramales"
+        id_col = "id_ramal"
+    else:
+        source_table_h3 = "lines"
+        source_table_metadata = "lineas"
+
+        id_col = "id_linea"
+
+    #  read metadata
+    metadata_query = f"""
+    SELECT * FROM metadata_{source_table_metadata}
+    WHERE modo = 'autobus'
+    """
+    metadata = ctx.insumos.query(metadata_query)
+
+    # read h3 geoms for the given resolution if legs res matches the h3
+    # resolution, otherwise read the parent resolution
+    if h3_res == 10:
+        routes_h3_query = f"""
+            SELECT
+            {id_col}, direction, section_id, h3 
+            FROM official_{source_table_h3}_geoms_h3
+        """
+    else:
+        routes_h3_query = f"""
+            SELECT
+            {id_col}, direction, section_id, h3 
+            FROM official_{source_table_h3}_geoms_h3_parent
+            WHERE resolution = {h3_res}
+        """
+    routes_h3 = ctx.insumos.query(routes_h3_query)
+    routes_h3[id_col] = routes_h3[id_col].astype(int)
+
+    # Prepare routes data for the algorithm
+    # has_branches=True means this dataset contains routes with branches (id_ramal)
+    routes_prepared = prepare_routes_from_h3(
+        routes_h3, metadata=metadata, has_branches=has_branches
+    )
+    logger.info(f"Prepared {len(routes_prepared)} route records")
+
+    # Extract unique route IDs from routes_prepared to filter legs
+    route_ids = routes_prepared[id_col].dropna().unique().tolist()
+    if not route_ids:
+        logger.warning(
+            "[assign_direction_and_branch_or_line] No routes found in routes_prepared, returning empty results"
+        )
+        return None, routes_h3, pd.DataFrame(), routes_prepared, pd.DataFrame()
+
+    route_ids_str = ",".join(map(str, route_ids))
+    logger.info("Reading legs for dia %s", _process_dia)
+
+    # reading legs - only those with routes present in routes_prepared
+    legs_query = f"""
+    SELECT id, id_linea,id_ramal,h3_o,h3_d 
+    FROM etapas 
+    WHERE od_validado = 1
+    and modo = 'autobus'
+    and {id_col} in ({route_ids_str})
+    and dia = '{dia}'
+    """
+
+    legs_data = ctx.data.query(legs_query)
+    # legs_data = legs_data.sample(100000)
+
+    # Process legs in parallel
+    logger.info(f"Processing {len(legs_data)} legs for direction identification")
+    legs_with_direction = _process_legs_direction_parallel(
+        legs_data=legs_data, routes_prepared=routes_prepared
+    )
+    logger.info(f"Successfully processed {len(legs_with_direction)} legs")
+
+    cols = [
+        "id",
+        "direction_inferred",
+        "confidence",
+        "selected_section_id_o",
+        "selected_section_id_d",
+        "possible_branches",
+        "selected_branch",
+    ]
+    legs_with_direction = legs_with_direction.reindex(columns=cols)
+    ctx.data.append_raw(legs_with_direction, "legs_direction_branch_line")
+
+    print(
+        f"Direction imputed to {round(len(legs_with_direction) / len(legs_data) * 100,1)}% of legs"
+    )
+
+    return metadata, routes_h3, legs_data, routes_prepared, legs_with_direction

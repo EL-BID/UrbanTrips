@@ -15,6 +15,28 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
+def find_closest_h3_neighbor(h3_cell, neighbors):
+    """
+    Finds the closest h3 neighbor to a given h3 cell from a list of neighbors.
+    """
+    if not neighbors:
+        return []
+
+    # Calculate distances to each neighbor using h3's great_circle_distance
+    distances = {
+        neighbor: h3.great_circle_distance(h3_cell, neighbor, unit="m")
+        for neighbor in neighbors
+    }
+
+    # Find the closest neighbor(s)
+    min_distance = min(distances.values())
+    closest_neighbors = [
+        neighbor for neighbor, dist in distances.items() if dist == min_distance
+    ]
+
+    return closest_neighbors
+
+
 def referenciar_h3(df, res, nombre_h3, lat="latitud", lon="longitud"):
     """
     Esta funcion toma un DF con latitud y longitud y georeferencia
@@ -61,7 +83,10 @@ def get_h3_buffer_ring_size(resolucion_h3, buffer_meters):
         buff_max = (lado * 2 * ring_size) + lado
     logger.info(
         "H3 resolución %s, lado=%.0fm, buffer=%d hexágonos, dist_max=%.0fm",
-        resolucion_h3, lado, ring_size, buff_max,
+        resolucion_h3,
+        lado,
+        ring_size,
+        buff_max,
     )
 
     return ring_size
@@ -365,7 +390,7 @@ def lowess_linea(df):
     id_linea = df.id_linea.unique()[0]
     epsg_m = get_epsg_m()
 
-    #print("Obteniendo lowess linea:", id_linea)
+    # print("Obteniendo lowess linea:", id_linea)
     gdf = gpd.GeoDataFrame(
         df, geometry=gpd.points_from_xy(df["longitud"], df["latitud"]), crs=4326
     ).to_crs(epsg_m)
@@ -373,6 +398,7 @@ def lowess_linea(df):
     x = gdf.geometry.x
     import statsmodels.api as sm
     import warnings
+
     warnings.filterwarnings(
         "ignore",
         message="invalid value encountered in divide",
@@ -394,7 +420,9 @@ def lowess_linea(df):
         return out
 
     else:
-        logger.warning("Imposible de generar una linea lowess para id_linea = %s", id_linea)
+        logger.warning(
+            "Imposible de generar una linea lowess para id_linea = %s", id_linea
+        )
 
 
 def get_epsg_m():

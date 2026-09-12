@@ -413,13 +413,6 @@ def eliminar_trx_fuera_bbox(trx, ctx: StorageContext):
     zonificaciones (si existe) o del archivo de configuración.
     """
     zonificaciones = ctx.insumos.get_zones()
-    # eliminar trx con 0
-    print("Eliminando transacciones con longitud o latitud igual a cero")
-    n_trx_ = len(trx)
-    print(f"Transacciones antes de eliminar: {len(trx)}")
-    trx = trx.loc[(trx.longitud != 0) & (trx.latitud != 0)]
-    print(f"Transacciones eliminadas: {n_trx_ - len(trx)}")
-
     if len(zonificaciones) > 0:
         minx, miny, maxx, maxy = zonificaciones.total_bounds
     else:
