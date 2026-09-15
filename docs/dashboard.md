@@ -30,7 +30,7 @@ La pantalla de inicio (`urbantrips/dashboard/dashboard.py`) lee la tabla `indica
 
 **Etapas expandidas** (tabla de indicadores `"etapas_expandidas"`)
 - Es la cantidad de etapas válidas (`od_validado = 1`) **ponderada por `factor_expansion_linea`**, es decir, llevada al total de transacciones que efectivamente reportó cada línea (no solo las etapas que sobrevivieron a la validación de datos).
-- Fórmula: $\text{Etapas expandidas} = \sum_{\text{etapas con } od\_validado=1} \text{factor\_expansion\_linea}$
+- Fórmula: $\text{Etapas expandidas} = \displaystyle\sum \text{factor de expansión por línea}$, sumado sobre las etapas con `od_validado = 1`.
 - También se desagrega por modo ("Etapas bus", "Etapas tren", etc.), con la misma suma pero agrupada por `modo`.
 - Cálculo: [urbantrips/datamodel/misc.py](../urbantrips/datamodel/misc.py#L167-L195).
 - `factor_expansion_linea` se calcula en tres pasos dentro de `_create_trips_day_loop` ([urbantrips/datamodel/trips.py](../urbantrips/datamodel/trips.py#L135-L300)):
@@ -44,7 +44,7 @@ La pantalla de inicio (`urbantrips/dashboard/dashboard.py`) lee la tabla `indica
   - **`orden_trx`** (sin timestamps confiables): se usa el orden secuencial de las transacciones de la tarjeta ([urbantrips/datamodel/legs.py](../urbantrips/datamodel/legs.py#L512-L544)).
 - Igual que con las etapas, se distingue:
   - **"Cantidad de registros en viajes"** (tabla `"viajes"`): `COUNT(*)` de viajes con `od_validado = 1` (viajes crudos, sin ponderar).
-  - **"Cantidad total de viajes expandidos"** (tabla `"viajes expandidos"`): $\sum \text{factor\_expansion\_linea}$ de esos mismos viajes, además de sub-indicadores como "viajes con transferencia" (`cant_etapas > 1`) y "viajes cortos (<5kms)".
+  - **"Cantidad total de viajes expandidos"** (tabla `"viajes expandidos"`): $\sum \text{factor de expansión por línea}$ de esos mismos viajes, además de sub-indicadores como "viajes con transferencia" (`cant_etapas > 1`) y "viajes cortos (<5kms)".
   - Cálculo: [urbantrips/datamodel/misc.py](../urbantrips/datamodel/misc.py#L227-L290).
 
 **Usuarios** (tarjetas, `id_tarjeta`)
@@ -110,7 +110,7 @@ Página `9_Indicadores Operativos.py`. Es la página que concentra los KPI opera
 ### 9.1 Indicadores generales y demográficos
 
 - **Vehículos operativos**: cantidad de internos (`interno`) distintos con al menos un servicio válido (`services.valid = 1`) ese día para la línea. Cálculo: [urbantrips/kpi/kpi_lineas.py](../urbantrips/kpi/kpi_lineas.py#L309-L324).
-- **Transacciones**: pasajeros totales ponderados, $\sum \text{factor\_expansion\_linea}$ de las etapas de esa línea/día (equivalente a "etapas expandidas" pero a nivel de línea). Cálculo: [urbantrips/kpi/kpi_lineas.py](../urbantrips/kpi/kpi_lineas.py#L186-L215).
+- **Transacciones**: pasajeros totales ponderados, $\sum \text{factor de expansión por línea}$ de las etapas de esa línea/día (equivalente a "etapas expandidas" pero a nivel de línea). Cálculo: [urbantrips/kpi/kpi_lineas.py](../urbantrips/kpi/kpi_lineas.py#L186-L215).
 - **Género y tipo de tarifa**: desagregación de esas mismas transacciones por `genero_agregado` (Masculino/Femenino/No informado) y `tarifa_agregada` (sin descuento/tarifa social/estudiantes-jubilados), mostrada en valor absoluto y como porcentaje del total de transacciones de la línea.
 
 ### 9.2 Indicadores operativos: definiciones y fórmulas
@@ -125,9 +125,9 @@ Antes de las fórmulas, tres variantes de distancia que reaparecen en todos los 
 
 **IPK — Índice de Pasajeros por Kilómetro**
 
-$$\text{IPK} = \frac{\text{tot\_pax}}{\text{tot\_km}}$$
+$$\text{IPK} = \frac{\text{pasajeros}}{\text{km recorridos}}$$
 
-Donde `tot_pax` es la cantidad de pasajeros (etapas válidas) expandidos por `factor_expansion_linea` para esa línea y día, y `tot_km` son los kilómetros totales recorridos por los vehículos de la línea ese día (sumados desde la tabla `services`, sólo servicios `valid = 1`). Hay dos variantes: `ipk_route` (con km ping-based) e `ipk_route_gps` (con km de odómetro). Indica cuántos pasajeros transporta la línea por cada kilómetro recorrido: valores altos reflejan una línea más utilizada en relación a su recorrido.
+Donde "pasajeros" (columna `tot_pax`) es la cantidad de pasajeros (etapas válidas) expandidos por `factor_expansion_linea` para esa línea y día, y "km recorridos" (columna `tot_km`) son los kilómetros totales recorridos por los vehículos de la línea ese día (sumados desde la tabla `services`, sólo servicios `valid = 1`). Hay dos variantes: `ipk_route` (con km ping-based) e `ipk_route_gps` (con km de odómetro). Indica cuántos pasajeros transporta la línea por cada kilómetro recorrido: valores altos reflejan una línea más utilizada en relación a su recorrido.
 
 Cálculo: [urbantrips/kpi/kpi.py](../urbantrips/kpi/kpi.py#L753-L755).
 ```python
@@ -139,8 +139,8 @@ day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
 
 El factor de ocupación compara los "espacio-km" demandados por los pasajeros con los "espacio-km" que ofreció la línea, asumiendo una capacidad estándar de 60 plazas por vehículo (ver [docs/source/kpi.rst](source/kpi.rst)):
 
-$$\text{EKD (espacios-km demandados)} = \text{tot\_pax} \times \text{DMT}$$
-$$\text{EKO (espacios-km ofertados)} = \text{tot\_km} \times 60$$
+$$\text{EKD (espacios-km demandados)} = \text{pasajeros} \times \text{DMT}$$
+$$\text{EKO (espacios-km ofertados)} = \text{km recorridos} \times 60$$
 $$\text{Factor de Ocupación} = \frac{\text{EKD}}{\text{EKO}}$$
 
 Donde **DMT** es la distancia media (o mediana) de viaje de los pasajeros de esa línea, ponderada por `factor_expansion_linea`. Un factor de ocupación de 1 equivale, en promedio, a ocupar toda la capacidad asumida (60 plazas) a lo largo del recorrido; valores mayores a 1 indican sobreocupación y valores bajos, subutilización. El dashboard muestra la variante `_mean` (con DMT promedio) y `_median` (con DMT mediana), ambas calculadas sobre distancia OD (`fo_mean_od`, `fo_median_od`).
@@ -159,7 +159,7 @@ day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
 |---|---|---|---|
 | Vel. comercial (km/h) | `velocidad_comercial_route` | Velocidad comercial real del vehículo, incluyendo paradas y demoras. | `distancia recorrida por servicio (ping-based) / tiempo transcurrido entre el primer y el último GPS del servicio`. Promediada por línea y día. [urbantrips/kpi/kpi_lineas.py](../urbantrips/kpi/kpi_lineas.py#L31-L100) |
 | Dist. media/veh (km) | `distancia_media_veh_route` | Kilómetros promedio que recorre cada vehículo de la línea en el día. | Promedio de `distance_route` por `interno` en la tabla `services`. |
-| Km recorridos | `tot_km_route` | Kilómetros totales recorridos por todos los vehículos de la línea en el día. | $\sum \text{distance\_route}$ de `services` (`valid = 1`). [urbantrips/kpi/kpi.py](../urbantrips/kpi/kpi.py#L727-L736) |
+| Km recorridos | `tot_km_route` | Kilómetros totales recorridos por todos los vehículos de la línea en el día. | $\sum \text{distancia de ruta}$ (columna `distance_route`) de `services` (`valid = 1`). [urbantrips/kpi/kpi.py](../urbantrips/kpi/kpi.py#L727-L736) |
 | Distancia media Pax (km) | `dmt_mean_od` | Distancia promedio que viajan los pasajeros de la línea (origen-destino). | Promedio ponderado por `factor_expansion_linea` de `distance_od`. [urbantrips/kpi/kpi.py](../urbantrips/kpi/kpi.py#L1095-L1103) |
 | Distancia mediana Pax (km) | `dmt_median_od` | Igual que el anterior, pero mediana ponderada. | Mediana ponderada de `distance_od`. |
 | Tiempo promedio viaje (min) | `travel_time_min` | Duración promedio de las etapas/viajes de la línea. | Promedio ponderado por `factor_expansion_linea` del tiempo de viaje registrado por etapa. |
