@@ -282,6 +282,20 @@ def process_routes_geoms(ctx: StorageContext):
     geojson_path = str(get_paths().input_dir / geojson_name)
     geojson_data = gpd.read_file(geojson_path)
 
+    # Los geojson exportados de un GIS suelen traer LINESTRING Z con la z en 0
+    # (el de Mendoza, sin ir más lejos: las 352 líneas). Es una coordenada que no
+    # aporta nada y que rompe a todo el que haga `for lon, lat in geom.coords`,
+    # porque le llegan ternas — el mapa de recorrido de Herramientas interactivas
+    # moría con "too many values to unpack (expected 2)". Se aplana acá, una sola
+    # vez, para que ninguna tabla de la base guarde geometrías 3D.
+    if geojson_data.geometry.has_z.any():
+        n_z = int(geojson_data.geometry.has_z.sum())
+        logger.info(
+            "El geojson de recorridos trae %d geometrías con coordenada Z; "
+            "se aplanan a 2D.", n_z,
+        )
+        geojson_data["geometry"] = geojson_data.geometry.force_2d()
+
     branches_present = configs["lineas_contienen_ramales"]
 
     # If the geojson has direction-split rows, keep one row per ramal/line+direction (first occurrence)
@@ -363,7 +377,15 @@ def process_routes_geoms(ctx: StorageContext):
         lines_routes = create_line_geom_from_branches(geojson_data)
 
     else:
-        lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
+        # `direction` tiene que viajar hasta el reindex de abajo. Sin ella, ese
+        # reindex la vuelve a crear vacía (NaN) y `official_lines_geoms` queda
+        # con 704 filas y direction NULL: no matchea con ningún inferido, así
+        # que los recorridos oficiales de las ciudades sin ramales nunca se
+        # usaban, y con el FULL JOIN de build_routes_from_official_inferred el
+        # NULL llega a lines_geoms.direction, que es NOT NULL, y revienta.
+        lines_routes = geojson_data.reindex(
+            columns=["id_linea", "direction", "geometry"]
+        )
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
 

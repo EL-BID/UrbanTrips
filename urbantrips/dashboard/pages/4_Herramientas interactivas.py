@@ -236,7 +236,10 @@ def mostrar_mapa_recorrido(estado):
 
     mapa = folium.Map(tiles="cartodbpositron")
     folium.PolyLine(
-        locations=[(lat, lon) for lon, lat in geom.coords],
+        # Indexado y no desempaquetado: las bases escritas antes de que
+        # process_routes_geoms aplanara la Z guardan LINESTRING Z, y ahí
+        # cada coord es una terna.
+        locations=[(c[1], c[0]) for c in geom.coords],
         color=color,
         weight=4,
         opacity=0.85,
