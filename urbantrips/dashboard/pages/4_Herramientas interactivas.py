@@ -73,10 +73,7 @@ sube, baja o viaja en cada uno. Se define de **una sola** de estas dos formas:
   {formatear_numero(SECTION_METERS_MAX)}): cada tramo mide esos metros, y la
   cantidad de tramos sale del largo del recorrido.
 
-Elegís una y la otra se calcula sola. Los límites no son caprichosos: menos de
-{N_SECTIONS_MIN} tramos no distingue nada dentro del recorrido, y más de
-{N_SECTIONS_MAX} (o tramos de menos de {formatear_numero(SECTION_METERS_MIN)} m)
-divide la demanda en pedazos tan chicos que el resultado es ruido.
+
 """
 
 
