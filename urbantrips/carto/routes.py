@@ -296,6 +296,21 @@ def process_routes_geoms(ctx: StorageContext):
         )
         geojson_data["geometry"] = geojson_data.geometry.force_2d()
 
+    # `id_linea`/`id_ramal` son BIGINT en TODA la base (etapas, metadata_lineas,
+    # inferred_lines_geoms, ...), pero geopandas los lee del geojson como texto
+    # cuando vienen entrecomillados en las properties (pasa con el geojson de
+    # AMBA: "1001000015"). Como `save_raw` hace CREATE OR REPLACE TABLE AS SELECT,
+    # el tipo que termina en la tabla es el del dataframe, no el del DDL — así que
+    # sin este cast `official_lines_geoms.id_linea` queda VARCHAR mientras
+    # `inferred_lines_geoms.id_linea` es BIGINT (viene de etapas), y el
+    # `coalesce(o.id_linea, i.id_linea)` de build_routes_from_official_inferred
+    # revienta con "Cannot mix values of type VARCHAR and BIGINT". Se castea acá,
+    # antes de cualquier chequeo, para que el resto del pipeline no tenga que
+    # lidiar con el tipo que trajo el geojson.
+    for col in ("id_linea", "id_ramal"):
+        if col in geojson_data.columns:
+            geojson_data[col] = pd.to_numeric(geojson_data[col], errors="coerce")
+
     branches_present = configs["lineas_contienen_ramales"]
 
     # If the geojson has direction-split rows, keep one row per ramal/line+direction (first occurrence)

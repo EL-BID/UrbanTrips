@@ -4,7 +4,6 @@ from collections import namedtuple
 import multiprocessing
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -27,6 +26,7 @@ from urbantrips.utils.utils import (
     id_ramal_efectivo,
     RAMAL_SENTINEL,
 )
+from urbantrips.utils.parallel import cosechar
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
 
@@ -1197,12 +1197,27 @@ def _day_memory_model(ctx, dias, tables) -> _ModeloRam:
     return _ModeloRam(por_dia, main_extra)
 
 
-def _day_workers_for(ctx, dias, tables) -> int:
-    """Atajo: mide el dia y decide cuantos workers entran. Lo que usan los call sites."""
+def _plan_paralelo(ctx, dias, tables):
+    """Como `_day_workers_for`, pero devuelve TAMBIEN el modelo que lo decidio.
+
+    `_day_workers_for` computaba el `_ModeloRam` y lo tiraba. Cuando el pool muere,
+    el diagnostico necesita el `por_dia` estimado para poder sugerir un
+    `parallel_day_gb` concreto en vez de mandar al operador a adivinar.
+
+    Returns
+    -------
+    (int, _ModeloRam)
+    """
     modelo = _day_memory_model(ctx, dias, tables)
-    return _parallel_day_workers(
+    n_workers = _parallel_day_workers(
         len(dias), per_day_gb=modelo.por_dia, main_extra_gb=modelo.main_extra
     )
+    return n_workers, modelo
+
+
+def _day_workers_for(ctx, dias, tables) -> int:
+    """Atajo: mide el dia y decide cuantos workers entran. Lo que usan los call sites."""
+    return _plan_paralelo(ctx, dias, tables)[0]
 
 
 def _parallel_day_workers(
@@ -1404,42 +1419,57 @@ def assign_time_distances(ctx: StorageContext):
         except Exception as e:
             logger.debug("[delete omitido] %s: %s", table, e)
 
-    n_workers = _day_workers_for(ctx, dias, [
-        # _fetch_legs_all_dia: SELECT e.* de las etapas VALIDADAS del dia
-        _tabla("etapas", None, where="etapa_validada = 1"),
-        # _fetch_time_distance_inputs_dia lee el gps del dia Y del siguiente
-        _tabla("gps", None, dias=2),
-        _tabla("legs_to_gps_origin", ["id_legs", "id_gps"]),
-    ]) if usa_gps else 1
+    if usa_gps:
+        n_workers, modelo = _plan_paralelo(ctx, dias, [
+            # _fetch_legs_all_dia: SELECT e.* de las etapas VALIDADAS del dia
+            _tabla("etapas", None, where="etapa_validada = 1"),
+            # _fetch_time_distance_inputs_dia lee el gps del dia Y del siguiente
+            _tabla("gps", None, dias=2),
+            _tabla("legs_to_gps_origin", ["id_legs", "id_gps"]),
+        ])
+    else:
+        n_workers, modelo = 1, None
+
+    def _procesar_dia(dia):
+        """Un dia entero EN ESTE proceso: leer, computar, guardar, liberar.
+
+        Es el cuerpo del camino serial, y tambien lo que se usa para rehacer un dia
+        cuando el pool de workers muere. Que sea EL MISMO codigo en los dos casos es
+        lo que garantiza que el fallback no mueva ningun numero: llama a
+        `_gps_destino_y_tiempos_dia` con exactamente los mismos argumentos, y esa
+        funcion es pura respecto de la DB y de los globals (recibe metadata_lineas,
+        matriz, modos_ramal y legs_h3_res por parametro).
+        """
+        legs_all = _fetch_legs_all_dia(ctx, dia)
+        if legs_all is None:
+            return
+
+        if usa_gps:
+            gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
+                ctx, dia, dia_to_next.get(dia)
+            )
+            travel_times, travel_times_trips, legs_to_gps_d, _diag = (
+                _gps_destino_y_tiempos_dia(
+                    dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
+                    metadata_lineas, matriz, modos_ramal, legs_h3_res,
+                )
+            )
+            del gps, legs_to_gps_o
+        else:
+            travel_times, travel_times_trips = _travel_times_sin_gps(legs_all)
+            legs_to_gps_d = None
+
+        _save_travel_times_dia(
+            ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
+        )
+        del legs_all, travel_times, travel_times_trips
+        gc.collect()
 
     if n_workers <= 1:
         # ── Camino serial (comportamiento previo, mismos resultados) ──
         for i, dia in enumerate(dias, 1):
             logger.info("[assign_time_distances] día %d/%d (%s)", i, len(dias), dia)
-            legs_all = _fetch_legs_all_dia(ctx, dia)
-            if legs_all is None:
-                continue
-
-            if usa_gps:
-                gps, legs_to_gps_o = _fetch_time_distance_inputs_dia(
-                    ctx, dia, dia_to_next.get(dia)
-                )
-                travel_times, travel_times_trips, legs_to_gps_d, _diag = (
-                    _gps_destino_y_tiempos_dia(
-                        dia, dia_to_next.get(dia), legs_all, gps, legs_to_gps_o,
-                        metadata_lineas, matriz, modos_ramal, legs_h3_res,
-                    )
-                )
-                del gps, legs_to_gps_o
-            else:
-                travel_times, travel_times_trips = _travel_times_sin_gps(legs_all)
-                legs_to_gps_d = None
-
-            _save_travel_times_dia(
-                ctx, dia, travel_times, travel_times_trips, legs_to_gps_d
-            )
-            del legs_all, travel_times, travel_times_trips
-            gc.collect()
+            _procesar_dia(dia)
         return
 
     # ── Camino paralelo: el cómputo pesado de cada día (_gps_destino_y_tiempos_dia,
@@ -1449,6 +1479,8 @@ def assign_time_distances(ctx: StorageContext):
     # (mismo patrón que la Fase 2 de create_legs). El resultado por día es idéntico
     # al serial; solo cambia el orden físico de inserción entre días.
     logger.info("[assign_time_distances] paralelizando: %d días en vuelo", n_workers)
+    pendientes = []
+    serial_desde = None
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         for chunk_start in range(0, len(dias), n_workers):
             chunk = dias[chunk_start: chunk_start + n_workers]
@@ -1471,9 +1503,15 @@ def assign_time_distances(ctx: StorageContext):
                 )] = dia
                 del legs_all, gps, legs_to_gps_o
 
-            for future in as_completed(futures):
-                dia = futures[future]
-                travel_times, travel_times_trips, legs_to_gps_d, diag = future.result()
+            # `cosechar` aparta en `pendientes` los dias que el pool no pudo terminar
+            # en vez de dejar propagar el BrokenProcessPool. Va DIA POR DIA y no por
+            # chunk porque `_save_travel_times_dia` es un append sin delete: rehacer
+            # el chunk entero duplicaria los dias que ya se guardaron.
+            for dia, resultado in cosechar(
+                futures, pendientes, etapa="assign_time_distances",
+                n_workers=n_workers, modelo=modelo,
+            ):
+                travel_times, travel_times_trips, legs_to_gps_d, diag = resultado
                 # El worker no puede loguear al archivo (no hereda el FileHandler), asi
                 # que su diagnostico se emite aca, en el main.
                 if diag.get("pct_gps_imputado") is not None:
@@ -1485,6 +1523,30 @@ def assign_time_distances(ctx: StorageContext):
                 )
                 del travel_times, travel_times_trips, legs_to_gps_d
             gc.collect()
+
+            if pendientes:
+                # Sticky: no se reintenta paralelo en el proximo chunk. La causa es
+                # estructural (tamaño del dia x n_workers), no transitoria, y cada
+                # muerte tira hasta n_workers dias de computo. Ademas el executor roto
+                # deja procesos ocupando RAM, asi que se sale del `with` (shutdown)
+                # ANTES de rehacer nada en serie.
+                serial_desde = chunk_start + len(chunk)
+                break
+
+    if serial_desde is not None:
+        gc.collect()
+        # `pendientes` son los del chunk que se rompio; `dias[serial_desde:]` los que
+        # nunca se llegaron a mandar. Juntos quedan en orden cronologico.
+        restantes = pendientes + dias[serial_desde:]
+        logger.info(
+            "[assign_time_distances] continuando EN SERIE los %d días restantes",
+            len(restantes),
+        )
+        for i, dia in enumerate(restantes, 1):
+            logger.info(
+                "[assign_time_distances] serie %d/%d (%s)", i, len(restantes), dia
+            )
+            _procesar_dia(dia)
 
 
 def _process_dia(dia, legs_dia, gps_dia, matriz):

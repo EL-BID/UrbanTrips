@@ -39,7 +39,7 @@ def geojson_sin_direction(tmp_path):
     return path
 
 
-def _correr(monkeypatch, tmp_path, geojson_path):
+def _correr(monkeypatch, tmp_path, geojson_path, lineas_contienen_ramales=False):
     from urbantrips.carto import routes
     from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
 
@@ -49,7 +49,7 @@ def _correr(monkeypatch, tmp_path, geojson_path):
         lambda autogenerado=False: {
             "resolucion_h3": 8,
             "recorridos_geojson": geojson_path.name,
-            "lineas_contienen_ramales": False,
+            "lineas_contienen_ramales": lineas_contienen_ramales,
         },
     )
     monkeypatch.setattr(
@@ -160,3 +160,79 @@ def test_la_z_del_geojson_no_llega_a_la_base(monkeypatch, tmp_path):
             assert not g.has_z, f"quedó una geometría 3D en {nombre}: {w[:60]}"
             # lo que hace el mapa del dashboard
             assert all(len(c) == 2 for c in g.coords)
+
+
+def test_id_linea_string_del_geojson_no_rompe_el_coalesce(monkeypatch, tmp_path):
+    """El geojson de AMBA trae id_linea como texto ("1001000015"); etapas (de
+    donde sale inferred_lines_geoms) lo tiene como BIGINT en toda la base.
+
+    geopandas lee esas properties como VARCHAR, y como `save_raw` hace
+    CREATE OR REPLACE TABLE AS SELECT, ese es el tipo que queda en
+    `official_lines_geoms` — no el BIGINT que dice el DDL. El
+    `coalesce(o.id_linea, i.id_linea)` de `build_routes_from_official_inferred`
+    mezclaba VARCHAR y BIGINT y DuckDB lo rechazaba con:
+        BinderException: Cannot mix values of type VARCHAR and BIGINT in COALESCE
+
+    Sólo aparece con ramales (branches_present=True): sin ramales el recorrido de
+    línea sale directo del geojson vía otro camino que no tiene este problema en
+    los fixtures de arriba, que ya usan id_linea numérico.
+    """
+    from urbantrips.carto.routes import build_routes_from_official_inferred
+
+    # Un ramal por línea con las dos direcciones explícitas: así
+    # `check_directions_on_geoms` no tiene nada que completar y
+    # `create_line_geom_from_branches` toma la geometría directo (un solo branch
+    # por (id_linea, direction), sin necesitar el lowess). Lo que se está
+    # probando es el tipo de `id_linea`, no el armado de líneas con ramales.
+    gdf = gpd.GeoDataFrame(
+        {
+            # texto, como el geojson real de AMBA — no [1, 2] como los fixtures de arriba.
+            "id_linea": ["1001000015", "1001000015", "2001000348", "2001000348"],
+            "id_ramal": [
+                "1001000015001", "1001000015001",
+                "2001000348001", "2001000348001",
+            ],
+            "direction": [0, 1, 0, 1],
+            "geometry": [
+                LineString([(-58.45, -34.61), (-58.44, -34.60)]),
+                LineString([(-58.44, -34.60), (-58.45, -34.61)]),
+                LineString([(-58.50, -34.65), (-58.49, -34.64)]),
+                LineString([(-58.49, -34.64), (-58.50, -34.65)]),
+            ],
+        },
+        crs=4326,
+    )
+    path = tmp_path / "recorridos_amba.geojson"
+    gdf.to_file(path, driver="GeoJSON")
+    assert gpd.read_file(path)["id_linea"].dtype == object, (
+        "el fixture debe entrar como texto, igual que el geojson real"
+    )
+
+    adapter = _correr(monkeypatch, tmp_path, path, lineas_contienen_ramales=True)
+    try:
+        oficiales = adapter.get_raw("official_lines_geoms")
+        assert pd.api.types.is_integer_dtype(oficiales["id_linea"]), (
+            f"id_linea quedó {oficiales['id_linea'].dtype}, no numérico"
+        )
+
+        # Con un inferido BIGINT de verdad (como sale de etapas), el COALESCE no
+        # puede fallar por tipos aunque los dos lados vengan de fuentes distintas.
+        adapter.execute(
+            "INSERT INTO inferred_lines_geoms VALUES "
+            "(2001000348, 1, 'LINESTRING (0 0, 1 1)'), "
+            "(9999999999, 0, 'LINESTRING (2 2, 3 3)')"
+        )
+        ctx = type("Ctx", (), {"insumos": adapter})()
+        build_routes_from_official_inferred(ctx)  # no debe tirar BinderException
+
+        rows = adapter.query(
+            "SELECT id_linea, direction FROM lines_geoms ORDER BY id_linea, direction"
+        )
+    finally:
+        adapter.close()
+
+    # `.tolist()`, no `.astype(int)`: en Windows numpy mapea el `int` de Python al
+    # `long` de C (32 bits), así que un id como 9999999999 se truncaría a
+    # 1410065407 en la VERIFICACIÓN sin que el dato real esté mal — ya pasó acá.
+    ids = sorted(rows["id_linea"].tolist())
+    assert ids == [1001000015, 1001000015, 2001000348, 2001000348, 9999999999]
