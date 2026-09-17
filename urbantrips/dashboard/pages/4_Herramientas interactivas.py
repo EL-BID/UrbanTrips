@@ -73,10 +73,7 @@ sube, baja o viaja en cada uno. Se define de **una sola** de estas dos formas:
   {formatear_numero(SECTION_METERS_MAX)}): cada tramo mide esos metros, y la
   cantidad de tramos sale del largo del recorrido.
 
-Elegís una y la otra se calcula sola. Los límites no son caprichosos: menos de
-{N_SECTIONS_MIN} tramos no distingue nada dentro del recorrido, y más de
-{N_SECTIONS_MAX} (o tramos de menos de {formatear_numero(SECTION_METERS_MIN)} m)
-divide la demanda en pedazos tan chicos que el resultado es ruido.
+
 """
 
 
@@ -236,7 +233,10 @@ def mostrar_mapa_recorrido(estado):
 
     mapa = folium.Map(tiles="cartodbpositron")
     folium.PolyLine(
-        locations=[(lat, lon) for lon, lat in geom.coords],
+        # Indexado y no desempaquetado: las bases escritas antes de que
+        # process_routes_geoms aplanara la Z guardan LINESTRING Z, y ahí
+        # cada coord es una terna.
+        locations=[(c[1], c[0]) for c in geom.coords],
         color=color,
         weight=4,
         opacity=0.85,
