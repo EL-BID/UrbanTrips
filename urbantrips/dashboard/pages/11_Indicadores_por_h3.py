@@ -302,7 +302,7 @@ def create_routes_h3_map(routes_h3_df, route_geoms_df, nombre_linea, id_linea):
                     m=m,
                     column="section_id",
                     cmap=cmap_name,
-                    name=f"Intensidad: {layer_name}",
+                    name=f"Orden de paso: {layer_name}",
                     tooltip=["direction", "section_id", "h3"],
                     popup=True,
                     style_kwds={"fillOpacity": 0.6, "weight": 1},

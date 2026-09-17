@@ -329,9 +329,18 @@ def process_routes_geoms(ctx: StorageContext):
         lines_routes = create_line_geom_from_branches(geojson_data)
 
     else:
-        lines_routes = geojson_data.reindex(columns=["id_linea", "geometry"])
+        lines_routes = geojson_data.reindex(
+            columns=["id_linea", "direction", "geometry"]
+        )
 
     lines_routes["wkt"] = lines_routes.geometry.to_wkt()
+
+    # Safety net: reindex would silently fill missing 'direction' with NaN
+    if (
+        "direction" not in lines_routes.columns
+        or lines_routes["direction"].isna().all()
+    ):
+        lines_routes["direction"] = 0
 
     lines_routes = lines_routes.reindex(columns=["id_linea", "direction", "wkt"])
     logger.info("Subiendo tabla de recorridos")
