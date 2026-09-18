@@ -54,6 +54,7 @@ def upload_stops_table(stops, ctx: StorageContext):
         "stop_y",
         "node_x",
         "node_y",
+        "h3",
     ]
     # `direction` es una feature nueva (paradas por sentido). Los archivos de
     # paradas previos a esa feature no la traen (p.ej. stops_amba_2023.csv);
@@ -63,6 +64,10 @@ def upload_stops_table(stops, ctx: StorageContext):
     # la crea como NaN y el INSERT viola el NOT NULL de stops.direction.
     if "direction" not in stops.columns:
         stops["direction"] = 0
+
+    stops = geo.referenciar_h3(
+        df=stops, res=10, nombre_h3="h3", lat="stop_y", lon="stop_x"
+    )
     stops = stops.reindex(columns=cols)
     assert not stops.isna().any().all(), "Hay datos faltantes en stops"
 
