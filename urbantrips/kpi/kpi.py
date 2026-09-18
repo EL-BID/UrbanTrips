@@ -20,6 +20,7 @@ from urbantrips.utils.utils import (
     is_date_string,
     check_date_type,
     create_line_ids_sql_filter,
+    create_days_sql_filter,
 )
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
@@ -147,6 +148,13 @@ def compute_kpi(ctx: StorageContext):
     dias = sorted(ctx.data.get_run_days()["dia"].tolist())
 
     # --- KPI básicos (demanda), día por día ---
+    # Upsert por corrida: se borran los run-days de las salidas ANTES del loop y
+    # run_basic_kpi appendea por día. (Antes usaba `dia NOT IN(processed_days)`, que
+    # SALTEABA días ya presentes → re-procesar dejaba filas stale, y re-leer la salida
+    # creciente por iteración daba O(n²). Los agregados weekday/weekend viven con
+    # dia='weekday'/'weekend' → el DELETE por fecha de run-days no los toca.)
+    for _t in ("basic_kpi_by_line_day", "basic_kpi_by_line_hr", "basic_kpi_by_vehicle_hr"):
+        _delete_run_days_from(ctx, _t)
     for i, dia in enumerate(dias, 1):
         logger.info("[compute_kpi básicos] día %d/%d (%s)", i, len(dias), dia)
         run_basic_kpi(ctx, dia=dia)
@@ -169,6 +177,18 @@ def compute_kpi(ctx: StorageContext):
     )
     if gps_present and has_valid_legs:
         _delete_run_days_from(ctx, "kpi_by_day_line")
+        # El KPI por ramal solo se calcula si la red tiene ramales reales: con
+        # lineas_contienen_ramales=False `id_ramal` es un relleno y la tabla
+        # sería una copia exacta de la de líneas.
+        from urbantrips.utils import utils as _utils
+
+        try:
+            _cfg = _utils.leer_configs_generales(autogenerado=False)
+            con_ramales = bool(_cfg.get("lineas_contienen_ramales", False))
+        except Exception:
+            con_ramales = False
+        if con_ramales:
+            _delete_run_days_from(ctx, "kpi_by_day_branch")
         any_line_day = False
         for i, dia in enumerate(dias, 1):
             logger.info("[compute_kpi por línea/día] día %d/%d (%s)", i, len(dias), dia)
@@ -176,6 +196,8 @@ def compute_kpi(ctx: StorageContext):
             if (len(legs) > 0) & (len(gps) > 0):
                 # compute KPI per line and date (append only; el DELETE ya se hizo)
                 compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx, clear_days=False)
+                if con_ramales:
+                    compute_kpi_by_branch_day(legs=legs, ctx=ctx, clear_days=False)
                 any_line_day = True
             del legs, gps
             gc.collect()
@@ -195,6 +217,9 @@ def compute_kpi(ctx: StorageContext):
     if valid_services > 0:
         logger.info("Computando estadisticos por servicio")
         _delete_run_days_from(ctx, "kpi_by_day_line_service")
+        # services_by_line_hour (data + dash) también upsert por corrida; antes usaba
+        # processed_days → no re-procesable y escalera O(n²).
+        _delete_run_days_from(ctx, "services_by_line_hour", also_dash=True)
         for i, dia in enumerate(dias, 1):
             logger.info("[compute_kpi por servicio] día %d/%d (%s)", i, len(dias), dia)
             # compute KPI by service and day (append only; el DELETE ya se hizo)
@@ -212,17 +237,33 @@ def compute_kpi(ctx: StorageContext):
         logger.info("No hay servicios procesados. Puede correr services.process_services() si cuenta con GPS")
 
 
-def _delete_run_days_from(ctx: StorageContext, table: str) -> None:
+def _delete_run_days_from(
+    ctx: StorageContext, table: str, also_dash: bool = False
+) -> None:
     """Borra las filas de la corrida actual de `table` (upsert por corrida).
 
     Reemplaza el patrón "DELETE run-days + append" que cada sub-función de KPI
     hacía en su única llamada mes-entero; ahora el DELETE se hace UNA vez antes
-    del loop por día y las sub-funciones appendean por día.
+    del loop por día y las sub-funciones appendean por día. `also_dash=True` para
+    tablas espejadas en la DB dash (p.ej. services_by_line_hour). Tolera que la
+    tabla aún no exista (corrida fresca: se crea lazily en el primer append) →
+    nada que borrar.
     """
+    import duckdb as _duckdb
+
     dias_ultima_corrida = ctx.data.get_run_days()
     values = ", ".join(f"'{val}'" for val in dias_ultima_corrida["dia"])
-    if values:
+    if not values:
+        return
+    try:
         ctx.data.execute(f"DELETE FROM {table} WHERE dia IN ({values})")
+    except _duckdb.CatalogException:
+        pass
+    if also_dash:
+        try:
+            ctx.dash.execute(f"DELETE FROM {table} WHERE dia IN ({values})")
+        except _duckdb.CatalogException:
+            pass
 
 
 # SECTION LOAD KPI
@@ -231,9 +272,10 @@ def compute_route_section_load(
     ctx: StorageContext,
     line_ids=False,
     hour_range=False,
-    n_sections=10,
+    n_sections=None,
     section_meters=None,
     day_type="weekday",
+    dias=None,
 ):
     """
     Computes the load per route section.
@@ -249,26 +291,27 @@ def compute_route_section_load(
         tuple holding hourly range (from,to) and from 0 to 24. Route section
         load will be computed for legs happening within tat time range.
         If False it won't filter by hour.
-    n_sections: int
-        number of sections to split the route geom
-    section_meters: int
-        section lenght in meters to split the route geom. If specified,
-        this will be used instead of n_sections.
+    n_sections: int or None
+        number of sections to split the route geom. Mutually exclusive with
+        section_meters; if neither is given, N_SECTIONS_DEFAULT is used.
+    section_meters: int or None
+        section lenght in meters to split the route geom. Mutually exclusive
+        with n_sections.
     day_type: str
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
+    dias: list of str or None
+        specific days ('YYYY-MM-DD') to process. If None, every day in the run.
     """
 
     check_date_type(day_type)
 
     line_ids_where = create_line_ids_sql_filter(line_ids)
 
-    if n_sections is not None:
-        if n_sections > 1000:
-            raise Exception("No se puede utilizar una cantidad de secciones > 1000")
-
     # read legs data
-    legs = read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
+    legs = read_legs_data_by_line_hours_and_day(
+        line_ids_where, hour_range, day_type, ctx, dias=dias
+    )
 
     # read routes geoms
     route_geoms = get_route_geoms_with_sections_data(
@@ -405,17 +448,21 @@ def add_od_lrs_to_legs_from_route(legs_df, route_geom):
         table of legs with projected od
 
     """
-    # create Points for origins and destination
-    legs_df["o"] = legs_df["h3_o"].map(geo.create_point_from_h3)
-    legs_df["d"] = legs_df["h3_d"].map(geo.create_point_from_h3)
+    # La proyección depende solo de la celda h3 y del recorrido, y las etapas
+    # repiten muchísimo las mismas celdas: en la línea más cargada del AMBA,
+    # 1.982.279 etapas de un mes usan 828 orígenes y 852 destinos distintos. Se
+    # proyecta una vez por celda y se mapea, en vez de crear un Point y
+    # proyectarlo fila por fila (cuatro pasadas de Python sobre millones de
+    # filas, y millones de geometrías vivas en memoria a la vez).
+    celdas = set(legs_df["h3_o"].unique()) | set(legs_df["h3_d"].unique())
+    lrs_por_celda = {
+        celda: get_route_section_id(geo.create_point_from_h3(celda), route_geom)
+        for celda in celdas
+    }
 
     # Assign a route section id
-    legs_df["o_proj"] = list(
-        map(get_route_section_id, legs_df["o"], itertools.repeat(route_geom))
-    )
-    legs_df["d_proj"] = list(
-        map(get_route_section_id, legs_df["d"], itertools.repeat(route_geom))
-    )
+    legs_df["o_proj"] = legs_df["h3_o"].map(lrs_por_celda)
+    legs_df["d_proj"] = legs_df["h3_d"].map(lrs_por_celda)
 
     return legs_df
 
@@ -644,7 +691,7 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
     gps = ctx.data.query(q)
 
     q = f"""
-        SELECT e.dia, e.id_linea, e.interno, e.id_tarjeta, e.h3_o,
+        SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.id_tarjeta, e.h3_o,
             e.h3_d, e.factor_expansion_linea,
             tt.travel_time_min, tt.distance_od, tt.distance_route,
             tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
@@ -659,6 +706,148 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
         logger.info("No hay datos sin KPI procesados")
         return pd.DataFrame(), pd.DataFrame()
     return legs, gps
+
+
+def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
+    """Demanda + oferta agregadas por `entidad` + día.
+
+    `entidad` son las columnas que definen la unidad de análisis: `["id_linea"]`
+    para el KPI por línea, `["id_linea", "id_ramal"]` para el KPI por ramal. El
+    cálculo es idéntico en los dos casos —misma demanda desde `etapas`, misma
+    oferta desde `services WHERE valid = 1`—, solo cambia el nivel de agregación,
+    así que vive en una sola función para que las dos vistas no se desincronicen.
+
+    Devuelve None si no hay demanda válida.
+    """
+    claves = entidad + ["dia"]
+
+    # demand data
+    legs_valid = legs.dropna(subset=["distance_od", "factor_expansion_linea"])
+    if len(legs_valid) == 0:
+        logger.info("No hay etapas con distancia OD válida; no se calculan KPI de demanda")
+        return None
+
+    day_stats = (
+        legs_valid
+        .groupby(claves)
+        .apply(demand_stats, include_groups=False)
+        .reset_index()
+    )
+
+    # supply: read from services filtered to valid=1 (no expansion factor)
+    _cols_sel = ", ".join(["dia"] + entidad)
+    services_data = ctx.data.query(
+        f"SELECT {_cols_sel}, interno, distance_route, distance_route_gps"
+        f" FROM services WHERE valid = 1 AND dia IN ({dias_in})"
+    )
+    services_tot_veh = (
+        services_data
+        .groupby(claves, as_index=False)["interno"]
+        .nunique()
+        .rename(columns={"interno": "tot_veh"})
+    )
+    services_tot_km = (
+        services_data
+        .groupby(claves, as_index=False)
+        .agg(
+            tot_km_route=("distance_route", "sum"),
+            tot_km_route_gps=("distance_route_gps", "sum"),
+        )
+        .round(2)
+    )
+    return (
+        day_stats
+        .merge(services_tot_veh, on=claves, how="left")
+        .merge(services_tot_km, on=claves, how="left")
+    )
+
+
+def _kpi_ratios_y_orden(day_stats, entidad):
+    """Ratios derivados (pvd, kvd, ipk, fo) y proyección final ordenada.
+
+    Compartido por el KPI por línea y por ramal para que las dos vistas usen
+    exactamente las mismas fórmulas.
+    """
+    # Safe division: replace 0 with NaN in denominators
+    tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
+    tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
+    tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
+
+    day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
+    day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
+    day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
+
+    day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
+    day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
+
+    # EKD y FO para las tres distancias
+    day_stats["ekd_mean_od"] = day_stats.tot_pax * day_stats.dmt_mean_od
+    day_stats["ekd_mean_route"] = day_stats.tot_pax * day_stats.dmt_mean_route
+    day_stats["ekd_mean_route_gps"] = day_stats.tot_pax * day_stats.dmt_mean_route_gps
+    day_stats["ekd_median_od"] = day_stats.tot_pax * day_stats.dmt_median_od
+    day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
+    day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
+
+    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
+    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
+
+    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
+    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
+    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_route_gps
+    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
+    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko_route
+    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_route_gps
+
+    cols = entidad + [
+        "dia",
+        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
+        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
+        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
+        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
+        "fo_median_od", "fo_median_route", "fo_median_route_gps",
+    ]
+    day_stats = day_stats.reindex(columns=cols)
+
+    ratio_cols = [
+        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
+        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
+        "fo_median_od", "fo_median_route", "fo_median_route_gps",
+    ]
+    for col in ratio_cols:
+        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
+    day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
+    return day_stats
+
+
+@duracion
+def compute_kpi_by_branch_day(legs, ctx: StorageContext, clear_days=True):
+    """KPI por línea, **ramal** y día, en la tabla `kpi_by_day_branch`.
+
+    Misma demanda y misma oferta que `compute_kpi_by_line_day`, un nivel más
+    abajo. Se calcula solo cuando `lineas_contienen_ramales` está en True: sin
+    ramales reales `id_ramal` es un relleno y la tabla sería una copia de la de
+    líneas.
+
+    Va a una tabla aparte a propósito: `kpi_by_day_line` la consumen varios
+    módulos que agregan por línea, y meterle una dimensión más cambiaría todos
+    esos resultados.
+    """
+    dias_presentes = [str(d) for d in pd.unique(legs["dia"])]
+    dias_in = ", ".join(f"'{d}'" for d in dias_presentes) or "''"
+
+    day_stats = _kpi_stats_por_claves(legs, ctx, dias_in, ["id_linea", "id_ramal"])
+    if day_stats is None:
+        return
+
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea", "id_ramal"])
+
+    if clear_days:
+        dias_ultima_corrida = ctx.data.get_run_days()
+        values = ", ".join([f"'{val}'" for val in dias_ultima_corrida["dia"]])
+        ctx.data.execute(f"DELETE FROM kpi_by_day_branch WHERE dia IN ({values})")
+
+    ctx.data.append_raw(day_stats, "kpi_by_day_branch")
 
 
 @duracion
@@ -701,97 +890,11 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     )
     gps = gps.merge(vehicle_expansion_factor, on=["dia", "id_linea"], how="left")
 
-    # demand data
-    legs_valid = legs.dropna(subset=["distance_od", "factor_expansion_linea"])
-    if len(legs_valid) == 0:
-        logger.info("No hay etapas con distancia OD válida; no se calculan KPI de demanda")
+    day_stats = _kpi_stats_por_claves(legs, ctx, dias_in, ["id_linea"])
+    if day_stats is None:
         return
 
-    day_demand_stats = (
-        legs_valid
-        .groupby(["id_linea", "dia"])
-        .apply(demand_stats, include_groups=False)
-        .reset_index()
-    )
-    day_stats = day_demand_stats.copy()
-        
-    # supply: read from services filtered to valid=1 (no expansion factor)
-    services_data = ctx.data.query(
-        f"SELECT dia, id_linea, interno, distance_route, distance_route_gps"
-        f" FROM services WHERE valid = 1 AND dia IN ({dias_in})"
-    )
-    services_tot_veh = (
-        services_data
-        .groupby(["dia", "id_linea"], as_index=False)["interno"]
-        .nunique()
-        .rename(columns={"interno": "tot_veh"})
-    )
-    services_tot_km = (
-        services_data
-        .groupby(["dia", "id_linea"], as_index=False)
-        .agg(
-            tot_km_route=("distance_route", "sum"),
-            tot_km_route_gps=("distance_route_gps", "sum"),
-        )
-        .round(2)
-    )
-    day_stats = (
-        day_stats
-        .merge(services_tot_veh, on=["dia", "id_linea"], how="left")
-        .merge(services_tot_km, on=["dia", "id_linea"], how="left")
-    )
-
-    # Safe division: replace 0 with NaN in denominators
-    tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
-    tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
-    tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
-
-    # compute KPI
-    day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
-    day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
-    day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
-    
-    day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
-    day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
-
-    # EKD y FO para las tres distancias
-    day_stats["ekd_mean_od"] = day_stats.tot_pax * day_stats.dmt_mean_od
-    day_stats["ekd_mean_route"] = day_stats.tot_pax * day_stats.dmt_mean_route
-    day_stats["ekd_mean_route_gps"] = day_stats.tot_pax * day_stats.dmt_mean_route_gps
-    day_stats["ekd_median_od"] = day_stats.tot_pax * day_stats.dmt_median_od
-    day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
-    day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
-
-    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
-    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
-
-    day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
-    day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
-    day_stats["fo_mean_route_gps"] = day_stats.ekd_mean_route_gps / day_stats.eko_route_gps
-    day_stats["fo_median_od"] = day_stats.ekd_median_od / day_stats.eko_route
-    day_stats["fo_median_route"] = day_stats.ekd_median_route / day_stats.eko_route
-    day_stats["fo_median_route_gps"] = day_stats.ekd_median_route_gps / day_stats.eko_route_gps
-
-    cols = [
-        "id_linea", "dia",
-        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
-        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
-        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-    ]
-
-    day_stats = day_stats.reindex(columns=cols)
-
-    ratio_cols = [
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-    ]
-    for col in ratio_cols:
-        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
-    day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea"])
 
     # get last processed days
     if clear_days:
@@ -1228,7 +1331,7 @@ def _build_speed_aggregates(legs, distance_col, speed_leg_col,
 # GENERAL PURPOSE KPI WITH NO GPS
 
 
-def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
+def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     """
     Reads GPS data and computes average vehicle speed by (day, line, ramal,
     interno, hour) for each day.
@@ -1250,16 +1353,18 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
         kmh_route_veh_h, kmh_route_gps_veh_h.
         Rows where both speeds are non-positive are dropped.
     """
-    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
-
-    dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
+    # day-scoped: el día viene del loop de run_basic_kpi. Se quitó el guard
+    # `dia NOT IN(processed_days)` que impedía re-procesar y escaneaba de más.
+    if dia is not None:
+        where = f"WHERE dia = '{dia}'"
+    else:
+        where = create_days_sql_filter(dias, prefix=" WHERE ")
 
     q = f"""
     SELECT dia, id_linea, id_ramal, fecha, interno, velocity,
            distance_km, distance_servicio_mts
     FROM gps
-    WHERE dia NOT IN ({processed_days})
-    {dia_filter}
+    {where}
     """
     gps_df = ctx.data.query(q)
 
@@ -1315,21 +1420,24 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None):
 
 
 @duracion
-def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
-    # read already process days
-    processed_days = get_processed_days(ctx, table_name="basic_kpi_by_line_day")
-
-    # read unprocessed data from legs
-    q = f"""
+def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
+    # read data from legs. El upsert por corrida (DELETE run-days antes del loop en
+    # compute_kpi) reemplaza el viejo guard `dia NOT IN(processed_days)`, que salteaba
+    # días ya presentes (no re-procesable) y causaba O(n²) al re-leer la salida creciente.
+    q = """
         SELECT *
         FROM etapas
         WHERE od_validado = 1
-        AND dia NOT IN ({processed_days})
     """
-    # Con dia se procesa un solo día (acota RAM); con None, todos los no procesados.
-    # Los KPI básicos son separables por día (todos los groupby llevan `dia`).
+    # Con dia se procesa un solo día (acota RAM); con dias, el conjunto que
+    # eligió el usuario en el dashboard; con ninguno de los dos, todos los no
+    # procesados. Los KPI básicos son separables por día (todos los groupby
+    # llevan `dia`), así que acotar la lectura no cambia los resultados de los
+    # días que sí entran.
     if dia is not None:
         q += f" AND dia = '{dia}'"
+    else:
+        q += create_days_sql_filter(dias)
     if len(id_linea) > 0:
         id_linea_str = ", ".join(map(str, id_linea))
         q += f" AND id_linea IN ({id_linea_str})"
@@ -1377,7 +1485,7 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None):
     # else compute commercial speed based on gps or demand
     else:
         if ctx.data.has_rows("gps"):
-            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx, dia=dia)
+            speed_vehicle_hour = compute_speed_by_day_veh_hour(ctx, dia=dia, dias=dias)
         else:
             # compute mean veh speed using demand data
             legs.loc[:, ["datetime"]] = legs.dia + " " + legs.tiempo
@@ -1756,17 +1864,9 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext, dia=None):
     None
 
     """
-    try:
-        processed_df = ctx.data.get_raw("services_by_line_hour")
-        if processed_df.empty or "dia" not in processed_df.columns:
-            processed_days = "''"
-        else:
-            processed_days = (
-                ", ".join(f"'{v}'" for v in processed_df["dia"].unique()) or "''"
-            )
-    except Exception:
-        processed_days = "''"
-
+    # day-scoped: el día viene del loop de compute_kpi; el upsert (DELETE run-days
+    # antes del loop) reemplaza el viejo guard `dia NOT IN(processed_days)`, que no
+    # dejaba re-procesar y re-leía la salida creciente (escalera O(n²)).
     dia_filter = f"AND dia = '{dia}'" if dia is not None else ""
 
     daily_services_q = f"""
@@ -1776,7 +1876,6 @@ def compute_dispatched_services_by_line_hour_day(ctx: StorageContext, dia=None):
         services
     WHERE
         valid = 1
-    AND dia NOT IN ({processed_days})
     {dia_filter}
     """
 
@@ -1867,7 +1966,9 @@ def compute_dispatched_services_by_line_hour_typeday(ctx: StorageContext):
     return type_of_day_stats
 
 
-def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx: StorageContext):
+def read_legs_data_by_line_hours_and_day(
+    line_ids_where, hour_range, day_type, ctx: StorageContext, dias=None
+):
     """
     Reads legs data by line id, hour range and type of day
 
@@ -1883,6 +1984,9 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, c
         type of day on which the section load is to be computed. It can take
         `weekday`, `weekend` or a specific day in format 'YYYY-MM-DD'
     ctx : StorageContext
+    dias : list of str or None
+        specific days ('YYYY-MM-DD') to read. If None, every day in the run is
+        read.
 
     Returns
     -------
@@ -1897,6 +2001,10 @@ def read_legs_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, c
     FROM etapas
     """
     q_main_legs = q_main_legs + line_ids_where
+
+    # Acotar los días en el SQL es lo que evita traerse el mes entero a memoria
+    # cuando el dashboard solo necesita algunos días.
+    q_main_legs = q_main_legs + create_days_sql_filter(dias)
 
     if hour_range:
         hour_range_where = f" AND hora >= {hour_range[0]} AND hora <= {hour_range[1]}"

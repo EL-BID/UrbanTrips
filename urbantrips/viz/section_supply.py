@@ -37,6 +37,7 @@ def visualize_route_section_supply_data(
     factor=500,
     factor_min=1,
     save_gdf=False,
+    yr_mos=None,
 ):
     """
     Visualize the average speed and frequency of buses per route section and direction
@@ -59,7 +60,10 @@ def visualize_route_section_supply_data(
         scaling factor to use for line width to plot section load
     factor_min: int
         minimum width of linea for low section loads to be displayed
-
+    yr_mos: list of str or None
+        year-months ('YYYY-MM') to visualize. If None, every period stored for
+        those parameters is plotted, including ones the user did not just
+        compute.
     """
     sns.set_style("whitegrid")
 
@@ -71,6 +75,13 @@ def visualize_route_section_supply_data(
         n_sections=n_sections,
         section_meters=section_meters,
     )
+
+    # Las tablas guardan un promedio por período: sin acotar, se grafican también
+    # los meses de corridas anteriores, que el usuario no pidió.
+    if yr_mos is not None and len(route_section_supply) > 0:
+        route_section_supply = route_section_supply.loc[
+            route_section_supply.yr_mo.isin(yr_mos), :
+        ]
 
     # Supply stats are derived from GPS data only. With a transactions-only
     # dataset (no GPS) compute_route_section_supply never writes

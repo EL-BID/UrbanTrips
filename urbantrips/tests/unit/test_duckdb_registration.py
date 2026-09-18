@@ -111,8 +111,7 @@ _VIAJES_COLS = [
     "id_tarjeta", "id_viaje", "dia", "tiempo", "hora", "cant_etapas", "modo",
     "autobus", "tren", "metro", "tranvia", "brt", "cable", "lancha", "otros",
     "h3_o", "h3_d", "genero", "tarifa", "od_validado",
-    "factor_expansion_linea", "factor_expansion_tarjeta", "distancia",
-    "travel_time_min",
+    "factor_expansion_linea", "factor_expansion_tarjeta",
 ]
 _USUARIOS_COLS = [
     "id_tarjeta", "dia", "od_validado", "cant_viajes",
@@ -250,8 +249,7 @@ def test_save_legs_uses_no_arrow_registration(data_adapter):
         "h3_o": object, "h3_d": object, "od_validado": int,
         "etapa_validada": int, "factor_expansion_original": float,
         "factor_expansion_linea": float, "factor_expansion_tarjeta": float,
-        "factor_expansion_etapa": float, "distancia": float,
-        "travel_time_min": float,
+        "factor_expansion_etapa": float,
     })
 
     batch = BatchSpec(batch_id=0, total_batches=1)

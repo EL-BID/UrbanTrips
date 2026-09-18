@@ -108,6 +108,7 @@ celerybeat.pid
 configs/*
 !configs/configuraciones_generales.yaml
 !configs/tuning.yaml.example
+!configs/corridas.yaml.example
 
 # ── Project: large data files ────────────────────────────────────────────────
 data/db/
@@ -126,6 +127,14 @@ data/db-alpha/
 !urbantrips/tests/fixtures/**
 
 # ── Project: temporary & generated files ─────────────────────────────────────
+# Logs de corridas. `*.log` (más arriba) cubre los del pipeline, pero el
+# directorio guarda además los stdout/stderr .txt de cada corrida lanzada
+# en background, así que se ignora entero.
+logs/
+# Spill de DuckDB. Una conexion sin temp_directory pinneado usa `.tmp` relativo
+# al cwd, asi que una corrida lanzada desde la raiz del repo deja decenas de GB
+# de duckdb_temp_storage_*.tmp aca (54 GB tras el cuelgue del 2026-08-29).
+.tmp/
 etapas_tmp_1
 etapas_tmp_2
 dead_code_analysis.md
@@ -151,5 +160,23 @@ docs/validacion_refactor/documento_metodologico_cliente.docx
 docs/validacion_refactor/drill_imputacion.py
 docs/validacion_refactor/informe_refactor_dia9.html
 docs/validacion_refactor/tren_rootcause.py
-tools/audit_indices.py
+# A/B de un solo uso: lleva adentro una COPIA LITERAL de la version vieja de
+# process_services, asi que envejece con cada cambio a services.py. Su resultado
+# esta en el changelog (2026-08-26); el script no se mantiene.
+tools/ab_services_batching.py
 urb_refactor.ipynb
+# Snapshots locales de tools/verifica_smoke_incremental.py (estado de la máquina,
+# uno por alias de base). Los .parquet ya los cubre *.parquet más arriba.
+tools/.smoke_*_snapshot_days.txt
+tools/.smoke_inc_2026_snapshot_days.txt
+tools/.smoke_mza_inc_snapshot_days.txt
+memories/AUDIT_dayscoping_incremental_20260723.md
+memories/DESIGN_etapas_rebuilds_incremental_20260723.md
+memories/HANDOFF_incremental_20260722.md
+memories/PERF_REVIEW.md
+docs/merges/2026-05-30-validar-velocidad-into-refactor-clean.md
+docs/merges/2026-05-30-validar-velocidad-into-refactor-clean.md
+docs/merges/2026-05-30-validar-velocidad-into-refactor-clean.md
+docs/superpowers/plans/2026-05-29-step-cli.md
+docs/superpowers/plans/2026-06-02-b1-construyo-indicadores.md
+docs/superpowers/plans/2026-06-02-b2-remove-copies.md

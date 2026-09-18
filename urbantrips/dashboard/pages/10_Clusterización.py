@@ -6,7 +6,7 @@ from dash_utils import (
     levanto_tabla_sql_local,
     guardar_tabla_sql,
     get_logo,
-    configurar_selector_dia,
+    configurar_selector_corrida,
 )
 import numpy as np
 
@@ -42,7 +42,7 @@ st.set_page_config(page_title="Indicadores Operativos por Línea", layout="wide"
 # Cabecera estándar
 logo = get_logo()
 st.image(logo)
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 # Cargar KPIs
 kpis = levanto_tabla_sql("kpis_lineas", "general")

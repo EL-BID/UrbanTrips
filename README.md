@@ -45,7 +45,8 @@ La librería utiliza **DuckDB** para almacenamiento (no requiere servidor de bas
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ### Con uv
@@ -53,7 +54,8 @@ pip install urbantrips
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install urbantrips
+uv git clone https://github.com/EL-BID/UrbanTrips.git
+uv pip install -e .
 ```
 
 ### Con conda (útil para evitar problemas con GDAL)
@@ -61,7 +63,8 @@ uv pip install urbantrips
 ```bash
 conda create -n urbantrips -c conda-forge python=3.12
 conda activate urbantrips
-pip install urbantrips
+git clone https://github.com/EL-BID/UrbanTrips.git
+pip install -e .
 ```
 
 ---
@@ -105,7 +108,28 @@ Para cada etapa, la librería busca el siguiente tap-on de la misma tarjeta y en
 
 ### Líneas y ramales
 
-Una línea puede tener múltiples ramales (variantes de recorrido). Con `lineas_contienen_ramales: True`, la imputación considera las paradas de todos los ramales de una línea, no solo el ramal registrado en la transacción. Esto permite manejar sistemas de metro (donde los egresos no siempre se registran por ramal) y redes de buses donde el ramal registrado puede ser poco confiable.
+Una línea puede tener múltiples ramales (variantes de recorrido). `lineas_contienen_ramales: True` tiene dos efectos:
+
+1. **Imputación de destinos**: se consideran las paradas de todos los ramales de una línea, no solo el ramal registrado en la transacción. Esto permite manejar sistemas de metro (donde los egresos no siempre se registran por ramal) y redes de buses donde el ramal registrado puede ser poco confiable.
+2. **Indicadores por ramal**: además de los KPI por línea se calculan los mismos indicadores abiertos por ramal, en las tablas `kpi_by_day_branch` (base `_data`) y `kpis_ramales` (base `_general`), y el dashboard habilita el selector de ramal. Con `False` esas tablas no se generan: sin ramales reales `id_ramal` es un relleno y serían una copia de las de líneas.
+
+Al leer indicadores por ramal, tener en cuenta que **la cantidad de vehículos no es sumable entre ramales**: un interno que sirve dos ramales cuenta en los dos, así que sumar los ramales de una línea da más vehículos que la línea. Las transacciones y los kilómetros sí suman.
+
+### Indicadores operativos
+
+Los KPI se calculan por línea y día en `kpis_lineas`, y el dashboard los agrega según los filtros elegidos (día, tipo de día, modo, línea, ramal). Tres cosas a tener en cuenta al leerlos:
+
+**Las tres distancias.** Cada indicador de distancia se calcula sobre tres bases distintas, y el dashboard las muestra por separado:
+
+| sufijo | qué mide |
+|---|---|
+| `_od` | camino mínimo entre origen y destino de la etapa sobre la red. Describe el desplazamiento del pasajero: no tiene velocidad comercial, IPK ni kilómetros de oferta. |
+| `_route` | recorrido del vehículo reconstruido sumando los tramos entre pings GPS sucesivos. |
+| `_route_gps` | distancia de servicio informada por el propio equipo GPS (odómetro). **No todos los insumos la traen**: si `distance_route_gps` llega en cero, esa familia queda vacía. |
+
+**Vehículos operativos vs. vehículos con transacciones.** El primero cuenta internos con al menos un servicio GPS válido (oferta observada); el segundo, los que registraron pagos. Difieren cuando un modo no reporta GPS —típicamente subte y ferrocarril—, y por eso el dashboard muestra ambos junto con la **cobertura GPS**, que sirve además como control de calidad del insumo. Un guion significa "sin dato", no cero.
+
+**Los cocientes no se suman.** Al agregar de línea a total de sistema, los indicadores que son ratios (IPK, velocidad comercial, factor de ocupación, distancias medias) se promedian ponderando **por su propio denominador** — kilómetros para el IPK, vehículos para la distancia por vehículo, transacciones para las distancias del pasajero. La velocidad comercial se calcula como kilómetros totales sobre horas totales. Sumar o promediar estos indicadores a mano sobre la tabla exportada da resultados incorrectos, sobre todo mezclando modos.
 
 ---
 
@@ -121,6 +145,8 @@ alias_db_insumos: "ciudad_insumos"   # Base de datos compartida de insumos (reco
 ```
 
 Para cada nombre de corrida `X` se espera un archivo `data/data_ciudad/X_trx.csv` (y opcionalmente `X_gps.csv`).
+
+La lista es **incremental**: podés agregar corridas nuevas y volver a correr — solo se procesan las nuevas, las ya terminadas se saltean. Ver [Corridas incrementales, recuperación y reprocesamiento](#corridas-incrementales-recuperación-y-reprocesamiento).
 
 ### Mapeo de columnas
 
@@ -176,6 +202,26 @@ zonificaciones:
 
 usa_archivo_gps: True
 ```
+
+### Directorios
+
+Todas estas claves son opcionales: en blanco (o ausentes) aplica el default. Aceptan rutas **absolutas** o **relativas al archivo de configuración**, y funcionan igual en Windows y en Linux.
+
+```yaml
+input_dir:                                # default: data/data_ciudad
+db_dir:                                   # default: data/db
+output_dir:                               # default: resultados
+tmp_dir: "D:/urbantrips_tmp"              # default: temp del sistema
+```
+
+**`tmp_dir`** concentra **todos** los archivos temporales del proceso: el derrame a disco de DuckDB (*spill*, cuando una consulta excede `memory_limit`) y el *staging* en parquet de las escrituras grandes (etapas, chains, destinos). En corridas de gran volumen esto puede llegar a decenas de GB, así que conviene apuntarlo a un disco con espacio y, si se puede, rápido:
+
+```yaml
+tmp_dir: "D:/urbantrips_tmp"              # Windows
+tmp_dir: "/mnt/scratch/urbantrips"        # Linux
+```
+
+Los temporales se borran solos al terminar cada etapa; el directorio queda creado.
 
 ### Configuración de ejemplo
 
@@ -334,11 +380,115 @@ python urbantrips/run_all_urbantrips.py --config configs/otra_ciudad.yaml
 python urbantrips/run_all_urbantrips.py --borrar_corrida all
 ```
 
+### Corridas incrementales, recuperación y reprocesamiento
+
+El pipeline lleva un **registro de progreso por corrida y por paso** en la base
+`{alias}_general.duckdb` (una fila por cada día procesado, con el momento en que
+completó cada paso: ingest, legs, outputs, dashboard). Con ese registro, una
+corrida completa (`run_all_urbantrips.py` sin `--step`/`--through`) decide sola
+qué hacer con cada corrida listada en `corridas:` del config:
+
+- **Nueva** (no está en el registro) → se procesa completa.
+- **Incompleta** (quedó a medias por un crash) → se **retoma desde el paso que
+  faltó**, sin rehacer lo ya hecho.
+- **Completa** → se **saltea**.
+
+Esto hace que sea seguro:
+
+```bash
+# Agregar días nuevos: se corren SOLO los nuevos; los días ya terminados no se tocan.
+# (ampliás la lista `corridas:` del yaml y volvés a correr)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+
+# Retomar una corrida que se cortó (reinicio, crash): volver a correr el mismo
+# comando — retoma desde donde quedó. Ya no crashea al "re-correr" días presentes.
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml
+```
+
+Si no hay nada pendiente, termina con *"No hay días pendientes de procesar"* sin
+hacer nada (antes esto reventaba).
+
+#### Reprocesar corridas ya terminadas: `--reprocesar`
+
+Para **rehacer de cero** una o más corridas ya completas (p. ej. cambiaron los
+datos de origen), se pasan sus nombres — **ítems de la lista `corridas:`**, no el
+nombre del yaml — separados por coma **sin espacios**. Borra los días de esas
+corridas y los regenera; **el resto de los días queda intacto**.
+
+```bash
+# config con corridas: ['dia1', 'dia2', 'dia3', 'dia4']
+
+# reprocesar solo dia1  (dia2, dia3, dia4 quedan congelados)
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1
+
+# reprocesar dos corridas
+python urbantrips/run_all_urbantrips.py --config configs/mi_ciudad.yaml \
+  --reprocesar dia1,dia3
+```
+
+Notas:
+
+- La **unidad es la corrida** (un ítem de `corridas:`, que a su vez corresponde a
+  un archivo `<corrida>_trx.csv`). Si una corrida abarca varios días, se
+  reprocesan **todos** sus días.
+- Los nombres deben estar en la lista `corridas:` del config.
+- `--reprocesar` es incompatible con `--borrar_corrida` (ese ya rehace todo).
+
 ### Lanzar el dashboard manualmente
+
+En Windows, con el `.bat`:
+
+```bat
+dashboard.bat                                        REM configuraciones_generales.yaml
+dashboard.bat configuraciones_generales_2024.yaml     REM lo busca en configs/
+dashboard.bat configs\otro.yaml                      REM ruta relativa o absoluta
+```
+
+O directamente:
 
 ```bash
 streamlit run urbantrips/dashboard/dashboard.py
+streamlit run urbantrips/dashboard/dashboard.py -- --config configs/configuraciones_generales_2024.yaml
 ```
+
+El `--` suelto **es obligatorio**: sin él, streamlit se queda con el argumento en
+vez de pasárselo al script. El `.bat` se encarga de eso.
+
+El config elegido determina qué bases se abren (vía `alias_db_insumos`) y de él
+salen `resolucion_h3`, `epsg_m` y `lineas_contienen_ramales`.
+
+#### Cambiar de corrida sin reiniciar
+
+Para alternar entre corridas desde el propio dashboard, se crea
+`configs/corridas.yaml` con los alias que se quieran ver:
+
+```yaml
+corridas:
+  - corrida_2024
+  - corrida_2025
+```
+
+Con ese archivo aparece un **selector en el sidebar**. Al elegir otra corrida, el
+dashboard reapunta la configuración y recarga: es equivalente a haberlo lanzado
+con otro `--config`, pero sin reiniciar el proceso.
+
+El archivo es **opcional**: si no existe, no hay selector y el dashboard abre la
+corrida del config con el que se lo lanzó, como siempre. Hay una plantilla en
+`configs/corridas.yaml.example`.
+
+Alcanza con el alias porque el dashboard encuentra solo su configuración:
+
+1. **De la copia que la propia corrida dejó guardada** en `{alias}_general.duckdb`.
+   Cada corrida archiva ahí el yaml con el que se procesó, así que esa es la
+   configuración que realmente generó esos datos — aunque el archivo original se
+   haya editado o borrado después.
+2. Si esa base es anterior a esa función, del yaml de `configs/` que declare ese
+   alias.
+
+En el sidebar se indica de cuál de las dos salió. Una corrida que no se pueda
+resolver, o a la que le falte alguna de las cuatro bases, aparece igual en la
+lista pero deshabilitada y con el motivo, en vez de desaparecer.
 
 #### Acceso concurrente a las bases
 

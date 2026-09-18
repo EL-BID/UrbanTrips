@@ -13,7 +13,6 @@ from urbantrips.utils.utils import (
 )
 
 from pathlib import Path
-import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -283,15 +282,37 @@ def revise_configs(configs):
     return config_default
 
 
-def write_config(config_default, autogenerado=True):
-    filename = (
-        "configuraciones_generales_autogenerado.yaml"
-        if autogenerado
-        else "configuraciones_generales.yaml"
-    )
+def extra_config_keys(configs_usuario, config_default):
+    """Claves de nivel superior del yaml del usuario que el Excel no conoce.
 
+    `write_config` emite SOLO las filas de docs/configuraciones.xlsx, así que
+    todo lo que no esté en la planilla se pierde en el rewrite. Eso dejó
+    inservibles a `input_dir`/`db_dir`/`output_dir`/`tmp_dir`: duraban una
+    corrida. Con esto sobreviven.
+    """
+    conocidas = set(config_default.variable.astype(str))
+    return {
+        k: v
+        for k, v in (configs_usuario or {}).items()
+        if k not in conocidas
+    }
+
+
+def write_config(config_default, extra_keys=None):
+    """Reescribe el config EN USO con los parámetros consolidados del Excel.
+
+    `extra_keys` (ver `extra_config_keys`) se vuelca al final para que las
+    claves que la planilla no conoce no se borren en cada corrida.
+
+    Escribe a `get_paths().config_file`, o sea el yaml que se pasó por `--config`.
+    Antes usaba el nombre hardcodeado `configuraciones_generales.yaml`: corriendo
+    con otro config, le arreglaba la codificación y los tabs al yaml en uso
+    (check_config lo hace sobre get_paths().config_file) pero le mergeaba los
+    parámetros nuevos a OTRO archivo — y de paso pisaba el único config versionado
+    con la config del último run.
+    """
     from urbantrips.utils.paths import get_paths
-    path = str(get_paths().configs_dir / filename)
+    path = str(get_paths().config_file)
 
     with open(path, "w", encoding="utf-8") as file:
         file.write("# Archivo de configuración para urbantrips\n\n")
@@ -396,6 +417,21 @@ def write_config(config_default, autogenerado=True):
 
             file.write("\n")
 
+        if extra_keys:
+            file.write(
+                "# Parámetros adicionales (no presentes en"
+                " docs/configuraciones.xlsx)\n"
+            )
+            file.write(
+                yaml.safe_dump(
+                    extra_keys,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=False,
+                )
+            )
+            file.write("\n")
+
 
 def check_lineas(config_default, alias_default):
     """
@@ -413,7 +449,7 @@ def check_lineas(config_default, alias_default):
     Returns:
         pd.DataFrame: The updated configuration DataFrame.
     """
-    configs_usuario = leer_configs_generales(autogenerado=False)
+    configs_usuario = leer_configs_generales()
     ramales = configs_usuario.get("lineas_contienen_ramales", False)
 
     if not config_default.loc[
@@ -867,46 +903,16 @@ def check_config_errors(config_default):
     assert error_txt == "\n", error_txt
 
 
-def check_configs_file():
-
-    # Define the directory and file name
-    from urbantrips.utils.paths import get_paths
-    configs_dir = get_paths().configs_dir
-    file_path = str(configs_dir / "configuraciones_generales_autogenerado.yaml")
-    configs_dir.mkdir(parents=True, exist_ok=True)
-
-    # Crea un YAML vacio
-    with open(file_path, "w") as file:
-        yaml.dump({}, file)
-
-        logger.info("Se creo el archivo '%s'", file_path)
-
-
-def add_dash_and_data_dbs(config_default, corrida):
-    """
-    This function adds the filenames for dashboard and data databases
-    as new rows in the config_default DataFrame.
-    """
-    nombre_db = f"{corrida}"
-    dbs_df = pd.DataFrame(
-        {
-            "item": ["archivo_transacciones", "archivo_transacciones"],
-            "variable": ["alias_db_dashboard", "alias_db_data"],
-            "default": [nombre_db, nombre_db],
-            "descripcion_campo": [
-                "Nombre del sqlite donde se guardan los datos del dashboard",
-                "Nombre del sqlite donde se guardan los datos procesados",
-            ],
-        }
-    )
-
-    # Add the filenames to the config_default DataFrame
-    config_default = pd.concat(
-        [config_default, dbs_df],
-        ignore_index=True,
-    )
-
-    return config_default
+# NOTA: se eliminaron (2026-07-27), con el config autogenerado:
+#
+#   check_configs_file()      truncaba configuraciones_generales_autogenerado.yaml
+#                             a `{}` al principio de cada corrida.
+#   add_dash_and_data_dbs()   inyectaba alias_db_dashboard y alias_db_data = el
+#                             nombre de la corrida. Existían sólo para el diseño
+#                             viejo de una base por corrida; hoy hay un alias
+#                             único para las 4 bases y esas claves rompen el
+#                             dashboard (hacen que unas páginas abran otra base
+#                             que el resto).
 
 
 def add_trx_and_gps_filenames(config_default, corrida, gps_file=False):
@@ -1003,14 +1009,13 @@ def check_config(corrida):
     corregir_codificacion_a_utf8_sin_modificar_texto(_config_path)
 
     replace_tabs_with_spaces(_config_path)
-    # Siempre crea un autogenerado vacio {}
-    check_configs_file()
-
-    # leo el config autogenerado
-    configs_usuario = leer_configs_generales(autogenerado=False)
+    configs_usuario = leer_configs_generales()
     configs_base = revise_configs(configs_usuario)
-    # Reescribe el config del usuario incorporando parámetros nuevos del Excel
-    write_config(configs_base, autogenerado=False)
+    # Reescribe el config incorporando parámetros nuevos del Excel: es lo que
+    # mantiene consistente el yaml en uso a medida que la plantilla suma campos.
+    # Las claves que la planilla no conoce (tmp_dir, input_dir, db_dir,
+    # output_dir, alias_db…) se preservan tal cual: si no, se borraban acá.
+    write_config(configs_base, extra_config_keys(configs_usuario, configs_base))
     alias_default = configs_usuario.get("alias_db_insumos", "alias")
 
     # agrego alias para insumos en base al config general
@@ -1019,35 +1024,14 @@ def check_config(corrida):
     }
     configs_usuario.update(alias_insumos)
 
-    configs_autogenerado = revise_configs(configs_usuario)
-    configs_autogenerado = check_lineas(configs_autogenerado, alias_default)
+    config_default = revise_configs(configs_usuario)
+    config_default = check_lineas(config_default, alias_default)
 
-    # Sumar al config los datos de transacciones y gps
+    # Sumar al config los datos de transacciones y gps. No se persiste: sirve
+    # para que check_config_errors valide que el archivo de transacciones de esta
+    # corrida existe (usa la fila `nombre_archivo_trx`, ver check_config_errors).
     gps_file = configs_usuario.get("usa_archivo_gps", False)
     config_default = add_trx_and_gps_filenames(
-        configs_autogenerado, corrida, gps_file=gps_file
+        config_default, corrida, gps_file=gps_file
     )
-    # Agrego los nombres de las bases de datos de data y dash
-    config_default = add_dash_and_data_dbs(config_default, corrida)
-
-    # Guarda el config autogenerado
-    write_config(config_default, autogenerado=True)
     check_config_errors(config_default)
-    from urbantrips.utils.paths import get_paths as _get_paths
-    _autogen = str(_get_paths().configs_dir / "configuraciones_generales_autogenerado.yaml")
-    corregir_codificacion_a_utf8_sin_modificar_texto(_autogen)
-
-    # Guarda una copia de autogenerado
-    base_path = _get_paths().configs_dir
-    
-    # Crear el directorio 'autogenerados' si no existe
-    autogen_dir = base_path / "autogenerados"
-    autogen_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Ruta del archivo original
-    origen = base_path / "configuraciones_generales_autogenerado.yaml"
-
-    destino = autogen_dir / f"configuraciones_generales_autogenerado_{corrida}.yaml"
-    
-    # Copiar el archivo
-    shutil.copy(origen, destino)

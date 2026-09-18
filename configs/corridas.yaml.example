@@ -1,0 +1,19 @@
+# Corridas que aparecen en el selector del dashboard.
+#
+# Copiá este archivo como `configs/corridas.yaml` y dejá los alias que quieras
+# ver. El archivo es OPCIONAL: si no existe, el dashboard abre la corrida del
+# config habitual y no muestra selector, igual que siempre.
+#
+# Alcanza con el alias (`alias_db_insumos` del yaml con el que corriste). El
+# dashboard encuentra solo su configuración:
+#   1. de la copia que la propia corrida dejó guardada en {alias}_general.duckdb
+#      — es la config que realmente produjo esos datos;
+#   2. si esa base es anterior a esa feature, del yaml de configs/ que declare
+#      ese alias.
+#
+# Una corrida que no se pueda resolver aparece igual en la lista, deshabilitada
+# y con el motivo, para que no parezca que desapareció.
+
+corridas:
+  - corrida_2024
+  - corrida_2025

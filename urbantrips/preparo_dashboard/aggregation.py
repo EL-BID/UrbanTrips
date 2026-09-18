@@ -312,12 +312,19 @@ def agg_matriz(
 
 
 def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas,
-                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix=""):
-    trx_agg = (
-        trx.groupby(cols + ["modo"], as_index=False, observed=True)
-        .factor_expansion.sum()
-        .rename(columns={"factor_expansion": "transacciones"})
-    )
+                  etapas_query_fn=None, etapas_source=None, etapas_cte_prefix="",
+                  trx_agg=None, internos_agg=None, gps_agg=None):
+    """`trx_agg`/`internos_agg`/`gps_agg` permiten pasar los tres agregados de
+    `trx` y `gps` ya calculados (leidos de a un dia desde la DB) en lugar de los
+    frames enteros, que a escala de un mes no entran en RAM. Sin ellos se
+    calculan aca como siempre, a partir de `trx`/`gps`.
+    """
+    if trx_agg is None:
+        trx_agg = (
+            trx.groupby(cols + ["modo"], as_index=False, observed=True)
+            .factor_expansion.sum()
+            .rename(columns={"factor_expansion": "transacciones"})
+        )
     lineas_agg = lineas[["id_linea", "nombre_linea", "empresa"]].drop_duplicates()
     # etapas weighted means: in-RAM when `etapas` is a frame, or pushed down to
     # the data DB (etapas_proc) when etapas_query_fn/source are provided. The SQL
@@ -338,20 +345,22 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas,
         .rename(columns={"modo": "modo_new"})
         .rename(columns={"distance_od": "distancia_media"})
     )
-    internos_agg = (
-        trx.groupby(cols + ["interno"], as_index=False, observed=True)
-        .size()
-        .groupby(cols, as_index=False, observed=True)
-        .size()
-        .rename(columns={"size": "cant_internos_en_trx"})
-    )
-    gps_agg = (
-        gps.groupby(cols + ["interno"], as_index=False, observed=True)
-        .size()
-        .groupby(cols, as_index=False, observed=True)
-        .size()
-        .rename(columns={"size": "cant_internos_en_gps"})
-    )
+    if internos_agg is None:
+        internos_agg = (
+            trx.groupby(cols + ["interno"], as_index=False, observed=True)
+            .size()
+            .groupby(cols, as_index=False, observed=True)
+            .size()
+            .rename(columns={"size": "cant_internos_en_trx"})
+        )
+    if gps_agg is None:
+        gps_agg = (
+            gps.groupby(cols + ["interno"], as_index=False, observed=True)
+            .size()
+            .groupby(cols, as_index=False, observed=True)
+            .size()
+            .rename(columns={"size": "cant_internos_en_gps"})
+        )
     serv_agg = (
         servicios[servicios.valid == 1]
         .groupby(cols, as_index=False, observed=True)

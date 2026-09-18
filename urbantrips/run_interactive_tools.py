@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_folium import st_folium
 from urbantrips.utils import utils
+from urbantrips.dashboard.dash_storage import resolve_db_aliases
 from urbantrips.kpi import overlapping as ovl
 from urbantrips.viz import overlapping as ovl_viz
 from streamlit_folium import folium_static
@@ -28,7 +29,10 @@ if "configs" not in st.session_state:
 
 configs = st.session_state.configs
 h3_legs_res = configs["resolucion_h3"]
-alias = configs["alias_db_data"]
+# Un solo alias para las 4 bases. Antes leía `alias_db_data`, que sólo existía en
+# el config autogenerado (diseño viejo de una base por corrida) y que además
+# quedaba con el nombre de la ÚLTIMA corrida procesada, no la que se quería ver.
+alias = resolve_db_aliases(configs)["data"]
 use_branches = configs["lineas_contienen_ramales"]
 metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
     ["id_linea", "nombre_linea"]

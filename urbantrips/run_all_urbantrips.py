@@ -39,6 +39,16 @@ python run_all_urbantrips.py --borrar_corrida all
 
 python run_all_urbantrips.py --config configs/otra_ciudad.yaml
     → Usa un archivo de configuración alternativo
+
+python run_all_urbantrips.py --reprocesar dia1,dia3
+    → Rehace de cero esas corridas (ítems de `corridas:`, coma sin espacios):
+      borra sus días y los regenera; el resto queda intacto.
+
+Comportamiento incremental (corrida completa, sin --step/--through):
+    - corrida NUEVA (no registrada) → se procesa completa.
+    - corrida INCOMPLETA (crasheó) → se retoma desde el paso que faltó.
+    - corrida COMPLETA → se saltea. Sin pendientes → no-op (no crashea).
+    El progreso por corrida/día/paso se registra en {alias}_general.duckdb.
 ────────────────────────────────────────────────────────────────────────────
 """
 
@@ -52,27 +62,55 @@ _STEP_FNS = {
 }
 
 
-def _run_step(step: str) -> None:
+def _log_run_context(mode: str) -> None:
+    """Deja explícito en el log qué archivo de config y qué alias se está usando.
+    Se registra al inicio (primera línea) y en cada step, para que una corrida de
+    un solo --step también quede identificada en su propio log."""
+    import os
+
+    cfg_path = os.environ.get(
+        "URBANTRIPS_CONFIG", "configs/configuraciones_generales.yaml"
+    )
+    try:
+        from urbantrips.utils.utils import leer_configs_generales
+
+        alias = leer_configs_generales(autogenerado=False).get("alias_db_insumos", "?")
+    except Exception:
+        alias = "?"
+    logging.info("Config: %s | alias: %s | %s", cfg_path, alias, mode)
+
+
+def _run_step(step: str, reprocesar=None) -> None:
+    _log_run_context(f"step: {step}")
     ctx = _build_ctx()
     check_prerequisites(step, ctx)
-    _STEP_FNS[step](ctx)
-
-
-def _run_through(through: str) -> None:
-    ctx = _build_ctx()
-    steps = _STEP_ORDER[: _STEP_ORDER.index(through) + 1]
-    for step in steps:
-        check_prerequisites(step, ctx)
+    if step == "ingest":
+        _STEP_FNS[step](ctx, reprocesar=reprocesar)
+    else:
         _STEP_FNS[step](ctx)
 
 
-def main(borrar_corrida="", crear_dashboard=True, step=None, through=None):
+def _run_through(through: str, reprocesar=None) -> None:
+    ctx = _build_ctx()
+    steps = _STEP_ORDER[: _STEP_ORDER.index(through) + 1]
+    for step in steps:
+        _log_run_context(f"step: {step} (through {through})")
+        check_prerequisites(step, ctx)
+        if step == "ingest":
+            _STEP_FNS[step](ctx, reprocesar=reprocesar)
+        else:
+            _STEP_FNS[step](ctx)
+
+
+def main(borrar_corrida="", crear_dashboard=True, step=None, through=None,
+         reprocesar=None):
     if step is not None:
-        _run_step(step)
+        _run_step(step, reprocesar=reprocesar)
     elif through is not None:
-        _run_through(through)
+        _run_through(through, reprocesar=reprocesar)
     else:
-        run_all(borrar_corrida=borrar_corrida, crear_dashboard=crear_dashboard)
+        run_all(borrar_corrida=borrar_corrida, crear_dashboard=crear_dashboard,
+                reprocesar=reprocesar)
 
 
 def build_parser():
@@ -126,7 +164,25 @@ def build_parser():
         help="Ejecuta desde ingest hasta el paso indicado (inclusive).",
     )
 
+    parser.add_argument(
+        "--reprocesar",
+        type=str,
+        default=None,
+        help=(
+            "Lista de corridas (separadas por coma) a reprocesar de cero aunque "
+            "ya estén completas: borra sus días y los regenera. Ej: "
+            "--reprocesar semana1,semana2. Deben estar en el config."
+        ),
+    )
+
     return parser
+
+
+def _parse_reprocesar(raw):
+    if not raw:
+        return None
+    corridas = [c.strip() for c in raw.split(",") if c.strip()]
+    return corridas or None
 
 
 def _validate_args(args):
@@ -134,6 +190,16 @@ def _validate_args(args):
         raise SystemExit(
             "error: --step and --borrar_corrida are incompatible. "
             "Cannot delete-and-re-run a single step in isolation."
+        )
+    if args.reprocesar and args.borrar_corrida:
+        raise SystemExit(
+            "error: --reprocesar y --borrar_corrida son incompatibles "
+            "(borrar_corrida ya rehace todo desde cero)."
+        )
+    if args.reprocesar and args.step is not None and args.step != "ingest":
+        raise SystemExit(
+            "error: --reprocesar sólo aplica a la corrida completa, --through, "
+            "o --step ingest (necesita re-ingestar los días forzados)."
         )
 
 
@@ -182,6 +248,14 @@ if __name__ == "__main__":
         )
     )
     logging.getLogger().addHandler(file_handler)
+    _startup_mode = (
+        f"step: {args.step}"
+        if args.step
+        else f"through: {args.through}"
+        if args.through
+        else "corrida completa (ingest → legs → outputs → dashboard)"
+    )
+    _log_run_context(_startup_mode)
     logging.info("Log de esta corrida: %s", log_file)
 
     # Uncaught exceptions print their traceback to the console (stderr) but do NOT
@@ -195,6 +269,7 @@ if __name__ == "__main__":
             crear_dashboard=not args.no_dashboard,
             step=args.step,
             through=args.through,
+            reprocesar=_parse_reprocesar(args.reprocesar),
         )
     except BaseException:
         logging.exception("La corrida terminó por una excepción no controlada")

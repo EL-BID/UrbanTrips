@@ -29,20 +29,6 @@ def _sample_stops() -> pd.DataFrame:
     )
 
 
-def _sample_distances() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "h3_o": ["882a100d2bfffff", "882a100d2bfffff"],
-            "h3_d": ["882a100d3bfffff", "882a100d4bfffff"],
-            "h3_o_norm": ["882a100d2bfffff", "882a100d2bfffff"],
-            "h3_d_norm": ["882a100d3bfffff", "882a100d4bfffff"],
-            "distance_osm_drive": [500.0, 750.0],
-            "distance_osm_walk": [600.0, 900.0],
-            "distance_h3": [450.0, 700.0],
-        }
-    )
-
-
 def test_routes_roundtrip(tmp_path):
     from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
 
@@ -64,24 +50,6 @@ def test_stops_roundtrip(tmp_path):
     result = adapter.get_stops()
     assert len(result) == 2
     assert "id_linea" in result.columns
-
-
-def test_distances_roundtrip(tmp_path):
-    from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
-
-    adapter = DuckDBInsumoAdapter(tmp_path / "insumos.duckdb")
-    adapter.save_distances(_sample_distances())
-    result = adapter.get_distances()
-    assert len(result) == 2
-
-
-def test_distances_filter_by_h3_ids(tmp_path):
-    from urbantrips.storage.adapters.duckdb.insumos import DuckDBInsumoAdapter
-
-    adapter = DuckDBInsumoAdapter(tmp_path / "insumos.duckdb")
-    adapter.save_distances(_sample_distances())
-    result = adapter.get_distances(h3_ids=["882a100d2bfffff"])
-    assert len(result) == 2  # both rows have h3_o matching the filter
 
 
 def test_satisfies_insumo_port(tmp_path):

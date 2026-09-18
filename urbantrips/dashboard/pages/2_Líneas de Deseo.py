@@ -15,7 +15,7 @@ from dash_utils import (
     normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     build_where_clauses,
     traer_dias_chains,
     traer_opciones_chains,
@@ -39,7 +39,7 @@ def hay_cambios_en_filtros(current, last):
 
 st.set_page_config(layout="wide")
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 logo = get_logo()
 st.image(logo)
@@ -549,7 +549,7 @@ with st.expander("Líneas de Deseo", expanded=True):
                         st.session_state.map,
                         key="map_pydeck",
                         on_select="rerun",
-                        use_container_width=True,
+                        width="stretch",
                         height=800,
                     )
 

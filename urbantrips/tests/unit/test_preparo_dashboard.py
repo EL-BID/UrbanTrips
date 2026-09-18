@@ -143,7 +143,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "factor_expansion_original": [1.0] * n,
         "factor_expansion_linea": [1.0] * n,
         "factor_expansion_tarjeta": [1.0] * n,
-        "distancia": [2.5] * n,
+        # travel_time_min/distance_od llegan de travel_times_legs en el JOIN
         "travel_time_min": [15.0] * n,
         "distance_od": [2.5] * n,
         # derived columns now returned by SQL
@@ -175,7 +175,7 @@ def test_load_and_process_data_excludes_batch_columns(mocker):
         "od_validado": [1] * n,
         "factor_expansion_linea": [1.0] * n,
         "factor_expansion_tarjeta": [1.0] * n,
-        "distancia": [2.5] * n,
+        # travel_time_min/distance_od llegan de travel_times_trips en el JOIN
         "travel_time_min": [15.0] * n,
         "distance_od": [2.5] * n,
         # derived columns now returned by SQL
@@ -338,6 +338,10 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
         # calculo_kpi_lineas now self-sources from the data DB (etapas_proc).
         received_ids["kpi_selfsourced"] = True
 
+    def capture_kpi_ramal(ctx):
+        # idem calculo_kpi_ramales, que se llama si lineas_contienen_ramales
+        received_ids["kpi_ramal_selfsourced"] = True
+
     ctx = MagicMock()
     ctx.insumos.get_raw.return_value = pd.DataFrame()
 
@@ -356,6 +360,10 @@ def test_preparo_dashboard_passes_frames_by_reference(mocker):
               side_effect=capture_particion),
         patch("urbantrips.preparo_dashboard.preparo_dashboard.calculo_kpi_lineas",
               side_effect=capture_kpi),
+        # la vista por ramal corre a continuación cuando el yaml tiene
+        # lineas_contienen_ramales=True; se mockea igual que la de líneas
+        patch("urbantrips.preparo_dashboard.preparo_dashboard.calculo_kpi_ramales",
+              side_effect=capture_kpi_ramal),
         patch("urbantrips.preparo_dashboard.preparo_dashboard.crear_indices_unificados"),
     ):
         preparo_dashboard(ctx, lineas_deseo=True, poligonos=True, kpis=True)

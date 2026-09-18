@@ -9,6 +9,7 @@ from urbantrips.carto.routes import (
     build_gps_route_sections_df,
 )
 from urbantrips.utils.utils import (
+    create_days_sql_filter,
     duracion,
     leer_configs_generales,
     check_date_type,
@@ -25,9 +26,10 @@ def compute_route_section_supply(
     ctx: StorageContext,
     line_ids=False,
     hour_range=False,
-    n_sections=10,
+    n_sections=None,
     section_meters=None,
     day_type="weekday",
+    dias=None,
 ):
     """
     Computes the load per route section.
@@ -37,21 +39,25 @@ def compute_route_section_supply(
     ctx : StorageContext
     line_ids : int, list of ints or bool
     hour_range : tuple or bool
-    n_sections: int
-    section_meters: int
+    n_sections: int or None
+        number of sections to split the route geom. Mutually exclusive with
+        section_meters; if neither is given, N_SECTIONS_DEFAULT is used.
+    section_meters: int or None
+        section lenght in meters to split the route geom. Mutually exclusive
+        with n_sections.
     day_type: str
+    dias: list of str or None
+        specific days ('YYYY-MM-DD') to process. If None, every day in the run.
     """
 
     check_date_type(day_type)
 
     line_ids_where = create_line_ids_sql_filter(line_ids)
 
-    if n_sections is not None:
-        if n_sections > 1000:
-            raise Exception("No se puede utilizar una cantidad de secciones > 1000")
-
     # read legs data
-    gps = read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx)
+    gps = read_gps_data_by_line_hours_and_day(
+        line_ids_where, hour_range, day_type, ctx, dias=dias
+    )
     if gps is None:
         logger.info("No existen datos de GPS para los filtros aplicados")
         return None
@@ -153,6 +159,16 @@ def compute_section_supply_stats(gps, route_geoms):
         gps["lrs"] = route_geom.project(
             gpd.GeoSeries.from_xy(gps.longitud, gps.latitud), normalized=True
         ).map(floor_rounding)
+
+        # El shift(-1) toma "el ping siguiente" de cada vehículo, y de ahí salen
+        # el sentido, el delta de tiempo y la velocidad. Pero lo toma en el
+        # orden en que vienen las filas, y la consulta no tiene ORDER BY: en
+        # abmza, 58 de 72 vehículos venían con su gps desordenado, así que se
+        # apareaban pings no consecutivos (con deltas negativos, que después
+        # caen en el filtro de 4 minutos). Además, cualquier cambio de plan de
+        # DuckDB —agregar un filtro de días, por ejemplo— movía el orden y con
+        # él los resultados. Se ordena explícitamente por vehículo y momento.
+        gps = gps.sort_values(["id_ramal", "interno", "fecha"]).reset_index(drop=True)
 
         lags = (
             gps.reindex(columns=["id_ramal", "interno", "lrs", "fecha"])
@@ -259,7 +275,9 @@ def compute_section_supply_stats(gps, route_geoms):
     return section_supply_stats
 
 
-def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ctx: StorageContext):
+def read_gps_data_by_line_hours_and_day(
+    line_ids_where, hour_range, day_type, ctx: StorageContext, dias=None
+):
     """
     Reads GPS data by line id, hour range and type of day.
     """
@@ -269,6 +287,9 @@ def read_gps_data_by_line_hours_and_day(line_ids_where, hour_range, day_type, ct
     FROM gps
     """
     q_main = q_main + line_ids_where
+
+    # Acotar los días en el SQL evita bajar el gps del mes entero a memoria.
+    q_main = q_main + create_days_sql_filter(dias)
 
     day_type_is_a_date = is_date_string(day_type)
 

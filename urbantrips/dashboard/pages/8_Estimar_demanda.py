@@ -18,7 +18,7 @@ from dash_utils import (
     get_epsg_m,
     get_logo,
     bring_latlon,
-    configurar_selector_dia,
+    configurar_selector_corrida,
     traer_dias_chains,
     create_squared_polygon,
     h3_to_polygon,
@@ -430,7 +430,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 # check_config(corrida=alias_seleccionado)
 # st.text(f"Alias seleccionado: {alias_seleccionado}")
@@ -820,7 +820,7 @@ with st.expander("Demanda total y por linea"):
             )
         )
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
 
 
 with st.expander("Superposición"):
@@ -1011,7 +1011,7 @@ with st.expander("Superposición"):
 
     if not df_overlap.empty:
         df_overlap = df_overlap.sort_values("% sobre dibujada", ascending=False)
-        st.dataframe(df_overlap, use_container_width=True)
+        st.dataframe(df_overlap, width="stretch")
     else:
         st.info(
             "No hay líneas seleccionadas para calcular superposición (solo se muestra la línea dibujada)."

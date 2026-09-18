@@ -62,3 +62,83 @@ def test_viajes_no_se_funden_entre_dias(tmp_path):
     # el check de integridad del pipeline debe pasar
     diff = verificar_integridad_viajes_etapas(ctx)
     assert diff.empty
+
+
+def _legs_muchos_dias(dias, filas_por_dia) -> pd.DataFrame:
+    n = len(dias) * filas_por_dia
+    return pd.DataFrame({
+        "id": range(1, n + 1),
+        "id_tarjeta": [f"T{i % filas_por_dia:06d}" for i in range(n)],
+        "dia": [d for d in dias for _ in range(filas_por_dia)],
+        "id_viaje": 1,
+        "id_etapa": 1,
+        "tiempo": "08:00",
+        "hora": 8,
+        "modo": "autobus",
+        "id_linea": [10 + (i % 7) for i in range(n)],
+        "id_ramal": 1,
+        "interno": 100,
+        "genero": None,
+        "tarifa": None,
+        "latitud": -34.6,
+        "longitud": -58.4,
+        "h3_o": "88c2e312d9fffff",
+        "h3_d": "88c2e312d1fffff",
+        "od_validado": 1,
+        "etapa_validada": 1,
+        "factor_expansion_original": 1.0,
+    })
+
+
+def test_create_trips_swap_corre_con_insertion_order_preservado(tmp_path):
+    """Regresión 2026-08-12: el swap final (`INSERT INTO etapas SELECT * FROM
+    _ut_etapas_new`) debe correr con preserve_insertion_order EN TRUE.
+
+    Con el flag en false DuckDB lee la staging en paralelo y emite los chunks fuera de
+    orden, INTERCALANDO los días en `etapas` y rompiendo el clustering por día del que
+    depende el pruning `WHERE dia=X` de todo lo que sigue. El flag se desactiva para el
+    day-loop (ahí cada día es su propia sentencia, así que no importa) y se restaura
+    antes del swap.
+
+    Se verifica el flag EN EL MOMENTO del swap en vez de mirar el orden resultante:
+    el desorden solo aparece pasado el tamaño de un row-group (medido: 8 días × 10k
+    filas sale ordenado, 8 × 20k ya sale intercalado), así que un test por resultado
+    necesita ~200k filas — 23 s — y encima quedaría a merced del umbral de
+    paralelismo de la versión de DuckDB.
+    """
+    from urbantrips.datamodel.trips import create_trips_from_legs_and_fex
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    dias = [f"2024-09-{d:02d}" for d in range(10, 14)]
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    adapter.save_run_days(pd.DataFrame({"dia": dias}))
+    adapter.save_legs(_legs_muchos_dias(dias, filas_por_dia=25))
+
+    visto = {}
+    real_execute = adapter.execute
+
+    def spy(sql, *a, **kw):
+        if "INSERT INTO etapas" in sql and "_ut_etapas_new" in sql:
+            visto["order"] = adapter._conn.execute(
+                "SELECT current_setting('preserve_insertion_order')"
+            ).fetchone()[0]
+        return real_execute(sql, *a, **kw)
+
+    adapter.execute = spy
+    try:
+        create_trips_from_legs_and_fex(SimpleNamespace(data=adapter))
+    finally:
+        adapter.execute = real_execute
+
+    assert "order" in visto, "no se ejecutó el swap de etapas"
+    assert visto["order"] in (True, "true"), (
+        "el swap corrió con preserve_insertion_order=false: DuckDB puede intercalar "
+        "los días y romper el clustering de etapas"
+    )
+    # y el flag no se filtra al resto del pipeline
+    assert adapter._conn.execute(
+        "SELECT current_setting('preserve_insertion_order')"
+    ).fetchone()[0] in (True, "true")
+    # los días quedan en bloques contiguos ascendentes
+    orden = adapter.query("SELECT dia FROM etapas")["dia"]
+    assert orden.loc[orden.shift() != orden].tolist() == dias

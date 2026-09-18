@@ -16,6 +16,7 @@ from urbantrips.utils.utils import (
     RAMAL_SENTINEL,
 )
 from urbantrips.storage.context import StorageContext
+from urbantrips.utils.paths import get_tmp_dir
 
 logger = logging.getLogger(__name__)
 
@@ -525,7 +526,9 @@ def infer_destinations(ctx: StorageContext):
     use_parquet_stage = has_selective_update and hasattr(
         ctx.data, "update_leg_destinations_from_parquet"
     )
-    stage_dir = tempfile.mkdtemp(prefix="urbantrips_destupd_") if use_parquet_stage else None
+    stage_dir = tempfile.mkdtemp(
+        prefix="urbantrips_destupd_", dir=str(get_tmp_dir())
+    ) if use_parquet_stage else None
     staged_any = False
 
     # Drop the index on (dia, od_validado) while the destination writes run:
@@ -538,9 +541,33 @@ def infer_destinations(ctx: StorageContext):
         # El paralelismo solo aplica al camino con parquet stage (workers escriben su
         # propio parquet, sin contención con la DB). Sin stage se mantiene serial.
         import gc as _gc
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-        from urbantrips.datamodel.legs import _parallel_day_workers
-        n_workers = _parallel_day_workers(len(dias)) if use_parquet_stage else 1
+        from concurrent.futures import ProcessPoolExecutor
+        from urbantrips.datamodel.legs import _plan_paralelo, _tabla
+        from urbantrips.utils.parallel import cosechar
+        # La matriz de validacion NO es day-scoped pero viaja pickleada a cada worker
+        # en cada submit, y en el camino min_distancia es lo que mas pesa: medido
+        # sobre AMBA, 29,3 M filas x 4 columnas = 4,25 GB, contra 4,0 GB de etapas.
+        # El camino de validacion usa 3 columnas dedupeadas: 0,20 GB (21x menos).
+        matriz_tabla = (
+            _tabla("matriz_validacion",
+                   ["id_linea_agg", "id_ramal", "area_influencia", "parada"],
+                   dias=0, fuente="insumos")
+            if destinos_min_dist else
+            _tabla("matriz_validacion",
+                   ["id_linea_agg", "id_ramal", "area_influencia"],
+                   dias=0, fuente="insumos", distinct=True)
+        )
+        if use_parquet_stage:
+            n_workers, modelo = _plan_paralelo(ctx, dias, [
+                # las 12 columnas que lee _fetch_etapas_dia_infer, no las 24 de etapas
+                _tabla("etapas", [
+                    "id", "dia", "id_tarjeta", "id_viaje", "id_etapa", "hora", "tiempo",
+                    "modo", "id_linea", "id_ramal", "h3_o", "etapa_validada",
+                ]),
+                matriz_tabla,
+            ])
+        else:
+            n_workers, modelo = 1, None
 
         if n_workers <= 1:
             # ── Camino SERIAL (comportamiento previo, idéntico) ──
@@ -587,6 +614,27 @@ def infer_destinations(ctx: StorageContext):
                 ctx.insumos.get_matrix_validation(), destinos_min_dist
             )
             logger.info("[infer_destinations] paralelizando: %d días en vuelo", n_workers)
+
+            def _acumular(dia, diag):
+                """Los diagnosticos del dia, vengan del worker o del fallback serial.
+
+                Son sumas de enteros (asociativas), asi que el orden no las mueve.
+                """
+                nonlocal staged_any, diag_total, diag_con_destino
+                nonlocal diag_od_mismo_h3, diag_tarjetas_unicas
+                staged_any = True
+                diag_total += diag["total"]
+                diag_con_destino += diag["con_destino"]
+                diag_od_mismo_h3 += diag["od_mismo_h3"]
+                diag_tarjetas_unicas += diag["tarjetas_unicas"]
+                diag_con_destino_por_dia[dia] = diag["n_od"]
+                logger.info(
+                    "Dia %s — eliminando destinos con OD mismo h3: %d",
+                    dia, diag["n_mismo_od"],
+                )
+
+            pendientes = []
+            serial_desde = None
             with ProcessPoolExecutor(max_workers=n_workers) as executor:
                 for chunk_start in range(0, len(dias), n_workers):
                     futures = {}
@@ -594,23 +642,48 @@ def infer_destinations(ctx: StorageContext):
                         dia = dias[idx]
                         logger.info("Procesando dia %s", dia)
                         etapas = _fetch_etapas_dia_infer(ctx, dia)
+                        # El item es (dia, idx) y no solo dia: si hay que rehacerlo, el
+                        # idx tiene que ser el MISMO para que sobrescriba su
+                        # day-{idx:04d}.parquet — un worker OOM-killeado puede haberlo
+                        # dejado truncado.
                         futures[executor.submit(
                             _infer_destinations_dia_worker, dia, idx, destinos_min_dist,
                             etapas, metadata_lineas, matriz_val, modos_ramal, stage_dir,
-                        )] = dia
+                        )] = (dia, idx)
                         del etapas
-                    for fut in as_completed(futures):
-                        dia, diag = fut.result()
-                        staged_any = True
-                        diag_total += diag["total"]
-                        diag_con_destino += diag["con_destino"]
-                        diag_od_mismo_h3 += diag["od_mismo_h3"]
-                        diag_tarjetas_unicas += diag["tarjetas_unicas"]
-                        diag_con_destino_por_dia[dia] = diag["n_od"]
-                        logger.info(
-                            "Dia %s — eliminando destinos con OD mismo h3: %d",
-                            dia, diag["n_mismo_od"],
-                        )
+                    for (dia, _idx), (_dia, diag) in cosechar(
+                        futures, pendientes, etapa="infer_destinations",
+                        n_workers=n_workers, modelo=modelo,
+                    ):
+                        _acumular(dia, diag)
+                    _gc.collect()
+
+                    if pendientes:
+                        # Sticky: ver assign_time_distances. Se sale del `with` antes de
+                        # rehacer nada, para que el executor roto suelte sus procesos.
+                        serial_desde = min(chunk_start + n_workers, len(dias))
+                        break
+
+            if serial_desde is not None:
+                _gc.collect()
+                restantes = pendientes + [
+                    (dias[i], i) for i in range(serial_desde, len(dias))
+                ]
+                logger.info(
+                    "[infer_destinations] continuando EN SERIE los %d días restantes",
+                    len(restantes),
+                )
+                for dia, idx in restantes:
+                    logger.info("Procesando dia %s (en serie)", dia)
+                    etapas = _fetch_etapas_dia_infer(ctx, dia)
+                    # La MISMA funcion que corre en el worker: mismo computo, mismo
+                    # parquet. Por eso el fallback no puede mover un numero.
+                    _dia, diag = _infer_destinations_dia_worker(
+                        dia, idx, destinos_min_dist, etapas, metadata_lineas,
+                        matriz_val, modos_ramal, stage_dir,
+                    )
+                    del etapas
+                    _acumular(dia, diag)
                     _gc.collect()
 
         # Un solo UPDATE con todos los días acumulados (dentro del bracket de

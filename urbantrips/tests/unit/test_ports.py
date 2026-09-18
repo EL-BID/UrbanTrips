@@ -32,6 +32,12 @@ def test_memory_adapter_satisfies_general_port():
     import pandas as pd
 
     class _MinimalGeneral:
+        def get_run_log(self):
+            return pd.DataFrame()
+        def register_step(self, alias, corrida, dias, step, config_yaml=None):
+            pass
+        def delete_corrida_log(self, alias, corridas):
+            pass
         def get_completed_runs(self):
             return pd.DataFrame()
         def register_run(self, alias, process):
@@ -48,6 +54,10 @@ def test_memory_adapter_satisfies_general_port():
             return False
         def clear_runs(self):
             pass
+        def save_config_snapshot(self, alias, corrida, archivo, contenido):
+            pass
+        def get_config_snapshot(self):
+            return pd.DataFrame()
 
     obj = _MinimalGeneral()
     assert isinstance(obj, GeneralPort)
@@ -76,7 +86,6 @@ def test_index_ddl_constants_exist():
     assert hasattr(schema, "IDX_ETAPAS_DIA_OD_VALIDADO")
     assert hasattr(schema, "IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO")
     assert hasattr(schema, "IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA")
-    assert hasattr(schema, "IDX_TRAVEL_TIMES_GPS_ID")
     assert hasattr(schema, "IDX_TRAVEL_TIMES_STATIONS_ID")
     assert hasattr(schema, "IDX_SERVICES_STATS_LINE_DAY")
     assert hasattr(schema, "ALL_INDEXES")
@@ -86,6 +95,5 @@ def test_index_ddl_constants_exist():
     assert "etapas(dia, od_validado)" in schema.IDX_ETAPAS_DIA_OD_VALIDADO.lower()
     assert "etapas(dia, id_linea, id_ramal, interno)" in schema.IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO.lower()
     assert "gps(dia, id_linea, id_ramal, interno, fecha)" in schema.IDX_GPS_DIA_LINE_RAMAL_INTERNO_FECHA.lower()
-    assert "travel_times_gps(id)" in schema.IDX_TRAVEL_TIMES_GPS_ID.lower()
     assert "travel_times_stations(id)" in schema.IDX_TRAVEL_TIMES_STATIONS_ID.lower()
     assert "idx_services_stats_line_day" in schema.IDX_SERVICES_STATS_LINE_DAY.lower()

@@ -50,8 +50,6 @@ def _sample_legs() -> pd.DataFrame:
         "factor_expansion_linea": [1.0, 1.0],
         "factor_expansion_tarjeta": [1.0, 1.0],
         "factor_expansion_etapa": [1.0, 1.0],
-        "distancia": [500.0, 750.0],
-        "travel_time_min": [15.0, 20.0],
     })
 
 
@@ -72,6 +70,55 @@ def test_transactions_roundtrip(tmp_path):
     result = adapter.get_transactions()
     assert len(result) == 3
     assert set(result["id"]) == {1, 2, 3}
+
+
+def test_get_transactions_for_chunk_filters_by_run_days(tmp_path):
+    """Regresión: get_transactions_for_chunk debe acotar la lectura a run_days.
+
+    transacciones es ACUMULATIVA; sin este filtro cada worker de Fase 2 carga
+    TODOS los días acumulados en RAM (la memoria crece con lo acumulado, no con
+    los días de la corrida) — causó un OOM incremental a escala AMBA.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    trx = _sample_transactions()   # ids 1,2 -> 2024-01-01 ; id 3 -> 2024-01-02
+    trx["batch_id"] = 0
+    adapter.save_transactions(trx)
+
+    # sin run_days: todo el batch (los 2 días acumulados)
+    todo = adapter.get_transactions_for_chunk([0], 1)
+    assert set(todo["dia"]) == {"2024-01-01", "2024-01-02"}
+    assert len(todo) == 3
+
+    # con run_days: SOLO el día de la corrida (no arrastra lo acumulado)
+    solo = adapter.get_transactions_for_chunk([0], 1, run_days=["2024-01-02"])
+    assert set(solo["dia"]) == {"2024-01-02"}
+    assert len(solo) == 1
+
+
+def test_get_transactions_filters_by_run_days(tmp_path):
+    """Regresión #7: el path serial de get_transactions debe acotar a run_days.
+
+    Espeja get_transactions_for_chunk (path paralelo): transacciones es ACUMULATIVA,
+    así que sin el filtro build_legs_from_transactions cargaría todos los días
+    acumulados y recién los descartaría en pandas (tiempo/RAM O(acumulado)).
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    trx = _sample_transactions()   # ids 1,2 -> 2024-01-01 ; id 3 -> 2024-01-02
+    adapter.save_transactions(trx)
+
+    # sin run_days: todos los días acumulados
+    todo = adapter.get_transactions()
+    assert set(todo["dia"]) == {"2024-01-01", "2024-01-02"}
+    assert len(todo) == 3
+
+    # con run_days: SOLO el día de la corrida
+    solo = adapter.get_transactions(run_days=["2024-01-02"])
+    assert set(solo["dia"]) == {"2024-01-02"}
+    assert len(solo) == 1
 
 
 def test_legs_roundtrip(tmp_path):
@@ -97,6 +144,38 @@ def test_save_legs_chunked_upsert(tmp_path, monkeypatch):
     result = adapter.get_legs()
     assert len(result) == 2
     assert result.loc[result["id"] == 1, "h3_d"].iloc[0] == "882a100d5bfffff"
+
+
+def test_save_legs_batch_preserves_previously_saved_days(tmp_path):
+    """Regresión: save_legs(batch) NO debe borrar días de corridas previas.
+
+    batch_id particiona VIAJEROS y abarca TODOS los días, así que un
+    `DELETE WHERE batch_id = ?` pelado borra las filas de ese batch de los
+    días ya procesados — pérdida de datos incremental (las etapas de corridas
+    viejas desaparecen mientras viajes las conserva). El delete debe acotarse
+    a los días presentes en df.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+    from urbantrips.storage.ports import BatchSpec
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    batch = BatchSpec(batch_id=0, total_batches=1)
+
+    # corrida previa: día A escrito bajo el batch 0
+    adapter.save_legs(_sample_legs(), batch)  # dia = 2024-01-01
+
+    # corrida incremental: día B bajo el MISMO batch 0
+    day_b = _sample_legs()
+    day_b["dia"] = "2024-01-02"
+    day_b["id"] = [3, 4]
+    adapter.save_legs(day_b, batch)
+
+    result = adapter.get_legs()
+    assert set(result["dia"]) == {"2024-01-01", "2024-01-02"}, (
+        "save_legs(batch) borró el día previo: el DELETE por batch_id no está "
+        "acotado por día (pérdida de datos incremental)"
+    )
+    assert len(result) == 4
 
 
 def test_update_leg_destinations_with_index_bracket(tmp_path):
@@ -133,6 +212,125 @@ def test_update_leg_destinations_with_index_bracket(tmp_path):
         "WHERE table_name = 'etapas' AND index_name = 'idx_etapas_dia_od_validado'"
     ).fetchall()
     assert not idx, "idx_etapas_dia_od_validado ya no debe recrearse (política sin índices)"
+
+
+def test_update_leg_destinations_from_parquet_es_day_scoped(tmp_path):
+    """Regresión #8: el write-back de destinos reescribe SOLO los días del parquet
+    (run-days). Los días congelados (sin fila staged) quedan intactos; los run-days
+    toman los destinos del parquet (COALESCE) — bit-idéntico al rebuild viejo, pero
+    O(run-days) en vez de O(acumulado).
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    # día A (congelado) + día B (run-day)
+    day_a = _sample_legs()  # dia 2024-01-01, ids 1,2, od_validado 1
+    adapter.save_legs(day_a)
+    day_b = _sample_legs()
+    day_b["dia"] = "2024-01-02"
+    day_b["id"] = [3, 4]
+    adapter.save_legs(day_b)
+    a_h3d = day_a.set_index("id").loc[1, "h3_d"]
+
+    # parquet con destinos de SOLO el día B (run-day)
+    upd = pd.DataFrame({
+        "id": [3, 4],
+        "dia": ["2024-01-02", "2024-01-02"],
+        "h3_d": ["882a100d99fffff", "882a100daafffff"],
+        "od_validado": [0, 0],
+        "etapa_validada": [0, 0],
+    })
+    pq = tmp_path / "dest.parquet"
+    upd.to_parquet(pq, index=False)
+
+    adapter.update_leg_destinations_from_parquet(str(pq))
+
+    res = adapter.get_legs().set_index("id")
+    assert len(res) == 4  # row count preservado
+    # día B (run-day) tomó los destinos del parquet
+    assert res.loc[3, "h3_d"] == "882a100d99fffff"
+    assert res.loc[3, "od_validado"] == 0
+    assert res.loc[3, "etapa_validada"] == 0
+    # día A (congelado, no estaba en el parquet) INTACTO
+    assert res.loc[1, "dia"] == "2024-01-01"
+    assert res.loc[1, "od_validado"] == 1
+    assert res.loc[1, "h3_d"] == a_h3d
+
+
+def test_update_leg_destinations_from_parquet_es_por_dia_y_clusteriza(tmp_path):
+    """Regresión OOM 2026-08-12: el write-back de destinos se arma DÍA POR DÍA (el
+    join del mes entero en una sola sentencia reventaba la RAM con 31 días), leyendo
+    solo el/los parquet de cada día, y deja `etapas` clusterizada por día ascendente
+    — el clustering del que depende el pruning `WHERE dia=X` de todo lo que sigue.
+    """
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    dias = ["2024-01-01", "2024-01-02", "2024-01-03"]
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    for i, dia in enumerate(dias):
+        legs = _sample_legs()
+        legs["dia"] = dia
+        legs["id"] = [1 + i * 2, 2 + i * 2]
+        adapter.save_legs(legs)
+        # un archivo por día, como los escribe infer_destinations
+        pd.DataFrame({
+            "id": legs["id"],
+            "dia": dia,
+            "h3_d": [f"882a100d{i}afffff", f"882a100d{i}bfffff"],
+            "od_validado": [0, 1],
+            "etapa_validada": [0, 1],
+        }).to_parquet(stage / f"day-{i:04d}.parquet", index=False)
+
+    # una sentencia por día (no una sola con el glob entero)
+    ejecutadas = []
+
+    class _Spy:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, *a, **kw):
+            ejecutadas.append(sql)
+            return self._conn.execute(sql, *a, **kw)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    real = adapter._conn
+    adapter._conn = _Spy(real)
+    try:
+        adapter.update_leg_destinations_from_parquet(str(stage / "*.parquet"))
+    finally:
+        adapter._conn = real
+
+    inserts = [s for s in ejecutadas if "INSERT INTO _ut_dest_new" in s]
+    assert len(inserts) == len(dias), "el llenado debe ser una sentencia por día"
+    for i, (sql, dia) in enumerate(zip(inserts, dias)):
+        assert f"e.dia = '{dia}'" in sql
+        # cada día lee SOLO su archivo, no el glob del stage completo
+        assert f"day-{i:04d}.parquet" in sql
+        assert "*.parquet" not in sql
+
+    res = adapter.get_legs().set_index("id")
+    assert len(res) == 6
+    assert res.loc[1, "h3_d"] == "882a100d0afffff"
+    assert res.loc[6, "od_validado"] == 1
+    assert res.loc[5, "od_validado"] == 0
+
+    # clustering: los días quedan en bloques contiguos y ascendentes
+    orden = adapter._conn.execute("SELECT dia FROM etapas").fetchdf()["dia"]
+    bloques = orden.loc[orden.shift() != orden].tolist()
+    assert bloques == dias, f"clustering por día roto: {bloques}"
+
+    # el toggle de performance no se filtra al resto del pipeline
+    assert adapter._conn.execute(
+        "SELECT current_setting('preserve_insertion_order')"
+    ).fetchone()[0] in (True, "true")
+    # la staging no queda en la DB
+    assert not adapter._conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = '_ut_dest_new'"
+    ).fetchall()
 
 
 def test_replace_legs_for_days_restores_threads_setting(tmp_path):

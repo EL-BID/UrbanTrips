@@ -14,13 +14,14 @@ from folium import Figure
 from shapely.geometry import LineString
 from dash_utils import (
     levanto_tabla_sql,
+    etiqueta_linea,
     get_logo,
     create_linestring_od,
     create_squared_polygon,
     get_epsg_m,
     extract_hex_colors_from_cmap,
     levanto_tabla_sql_local,
-    configurar_selector_dia,
+    configurar_selector_corrida,
 )
 from urbantrips.utils import utils
 # except ImportError as e:
@@ -777,8 +778,12 @@ def seleccionar_linea(key_input, key_select):
         df_filtrado = st.session_state[f"df_filtrado_{texto_a_buscar}"]
 
         if not df_filtrado.empty:
+            # El texto lleva el id: el filtro busca en las dos columnas, así
+            # que sin el id no se entiende por qué aparece una opción, y los
+            # nombres repetidos eran indistinguibles.
             opciones = df_filtrado.apply(
-                lambda row: f"{row['nombre_linea']}", axis=1
+                lambda row: etiqueta_linea(row["nombre_linea"], row["id_linea"]),
+                axis=1,
             ).tolist()
             seleccion_texto = st.selectbox(
                 f"Seleccione una línea de colectivo",
@@ -799,7 +804,7 @@ st.set_page_config(layout="wide")
 logo = get_logo()
 st.image(logo)
 
-alias_seleccionado = configurar_selector_dia()
+alias_seleccionado = configurar_selector_corrida()
 
 try:
     # --- Cargar configuraciones y conexiones en session_state ---

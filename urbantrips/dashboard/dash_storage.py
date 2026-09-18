@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import yaml
 import duckdb
 import pandas as pd
@@ -28,6 +27,277 @@ def _get_base_config_path() -> Path:
     if env_config:
         return Path(env_config)
     return get_paths().config_file
+
+
+# ── selector de corridas ─────────────────────────────────────────────────────
+#
+# El registro `configs/corridas.yaml` lista los alias que se quieren ver en el
+# dashboard. Para cada uno hay que llegar a su yaml, porque el alias solo no
+# alcanza: de la config salen resolucion_h3, epsg_m y lineas_contienen_ramales.
+
+ARCHIVO_CORRIDAS = "corridas.yaml"
+# Los snapshots materializados se escriben en configs/ con este prefijo. Tienen
+# que vivir AHÍ y no en un subdirectorio: get_paths() deriva la raíz del proyecto
+# del padre del config ("si el directorio se llama configs, la raíz es su padre"),
+# así que un archivo en configs/cache/ daría un db_dir equivocado.
+PREFIJO_SNAPSHOT = ".snapshot_"
+
+
+def _configs_dir() -> Path:
+    return _get_base_config_path().parent
+
+
+def leer_corridas_registradas() -> list[str]:
+    """Alias listados en `configs/corridas.yaml`.
+
+    Archivo OPCIONAL, igual que `tuning.yaml`: si no existe devuelve lista vacía
+    y el dashboard se comporta como siempre (una sola corrida, sin selector).
+    Acepta tanto una lista de strings como una lista de dicts con clave `alias`,
+    para que agregarle campos más adelante no rompa lo ya escrito.
+    """
+    path = _configs_dir() / ARCHIVO_CORRIDAS
+    if not path.exists():
+        return []
+    try:
+        # BaseLoader: TODO como string. Con safe_load, un alias como `2024_9_17`
+        # se parsea como número (YAML permite el guión bajo como separador de
+        # miles) y llega convertido en 2024917. Acá los valores son nombres de
+        # base, nunca números, así que desactivar la inferencia de tipos es lo
+        # correcto y evita tener que pedirle al usuario que ponga comillas.
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    except UnicodeDecodeError:
+        data = yaml.load(path.read_text(encoding="latin-1"), Loader=yaml.BaseLoader)
+    except Exception as e:
+        logger.warning("No se pudo leer %s: %s", path, e)
+        return []
+
+    crudas = (data or {}).get("corridas") or []
+    if isinstance(crudas, str):
+        crudas = [crudas]
+    alias = []
+    for item in crudas:
+        if isinstance(item, dict):
+            a = item.get("alias")
+        else:
+            a = item
+        if a and str(a).strip():
+            alias.append(str(a).strip())
+    # dedup preservando el orden en que las escribió el usuario
+    return list(dict.fromkeys(alias))
+
+
+def _general_db_path(alias: str) -> Path:
+    return get_paths().db_dir / f"{alias}_general.duckdb"
+
+
+def _leer_snapshot(alias: str) -> tuple[str | None, str | None]:
+    """(contenido, archivo_original) del yaml guardado en la base general.
+
+    Devuelve (None, None) si la base no existe, no tiene la tabla (bases
+    anteriores a esta feature) o está vacía.
+    """
+    db = _general_db_path(alias)
+    if not db.exists():
+        return None, None
+    try:
+        con = duckdb.connect(str(db), read_only=True)
+    except Exception as e:
+        logger.debug("[corridas] no se pudo abrir %s: %s", db.name, e)
+        return None, None
+    try:
+        row = con.execute(
+            "SELECT contenido, archivo FROM config_snapshot "
+            "WHERE contenido IS NOT NULL ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+    except duckdb.CatalogException:
+        return None, None
+    except Exception as e:
+        logger.debug("[corridas] snapshot ilegible en %s: %s", db.name, e)
+        return None, None
+    finally:
+        con.close()
+    if not row or not row[0]:
+        return None, None
+    return row[0], row[1]
+
+
+def _materializar_snapshot(alias: str, contenido: str) -> Path:
+    """Escribe el snapshot a `configs/.snapshot_{alias}.yaml` y devuelve el path.
+
+    Hace falta porque el mecanismo de cambio de corrida es el mismo que `--config`
+    (apuntar `URBANTRIPS_CONFIG` a un archivo), y el snapshot es contenido. Es un
+    archivo derivado y regenerable; se reescribe sólo si cambió.
+    """
+    destino = _configs_dir() / f"{PREFIJO_SNAPSHOT}{alias}.yaml"
+    try:
+        if destino.exists() and destino.read_text(encoding="utf-8") == contenido:
+            return destino
+        destino.write_text(contenido, encoding="utf-8")
+    except Exception as e:
+        logger.warning("No se pudo materializar el snapshot de %s: %s", alias, e)
+        raise
+    return destino
+
+
+# Claves de alias por-tipo, del diseño viejo de una base por corrida. Un yaml que
+# las declare hace que las páginas que resuelven por `utils.utils.leer_alias`
+# abran OTRA base que el resto del dashboard → dos corridas mezcladas en pantalla.
+CLAVES_ALIAS_OBSOLETAS = ("alias_db_data", "alias_db_dashboard")
+
+
+def _buscar_config_por_alias(alias: str) -> Path | None:
+    """Mejor yaml de `configs/` que declare este alias.
+
+    Fallback para las bases anteriores al snapshot. Que varios yamls declaren el
+    mismo alias no es ambiguo en la práctica: difieren sólo en su lista
+    `corridas`, y de eso el dashboard no depende.
+
+    Pero no todos los candidatos son igual de buenos, y se ordenan por eso:
+
+    1. Peor: los que declaran las claves de alias por-tipo obsoletas, porque
+       parten el dashboard entre dos bases. Ya no se generan solas (murieron con
+       el config autogenerado), pero quedan configs viejos en disco que las traen.
+    2. Después: `configuraciones_generales.yaml`, que es el config por defecto y
+       no identifica una corrida en particular; se prefiere uno con nombre propio.
+
+    Se saltean los snapshots materializados para no encontrarnos a nosotros mismos.
+    """
+    candidatos: list[tuple[int, int, str, Path]] = []
+    for path in sorted(_configs_dir().glob("*.yaml")):
+        if path.name.startswith(PREFIJO_SNAPSHOT) or path.name.startswith("."):
+            continue
+        try:
+            data = _load_yaml_simple(path) or {}
+        except Exception:
+            continue
+        declarado = data.get("alias_db_insumos") or data.get("alias_db")
+        if not declarado or str(declarado).strip() != alias:
+            continue
+        parte_el_dashboard = int(any(k in data for k in CLAVES_ALIAS_OBSOLETAS))
+        es_movil = int(path.name == "configuraciones_generales.yaml")
+        candidatos.append((parte_el_dashboard, es_movil, path.name, path))
+
+    if not candidatos:
+        return None
+    return min(candidatos)[3]
+
+
+def declara_alias_obsoletos(config_path: Path) -> list[str]:
+    """Claves de alias por-tipo presentes en un yaml (vacío = sano).
+
+    El selector lo usa para avisar: si están, las páginas 4-8 abrirían otra base
+    que el resto y el dashboard mostraría dos corridas a la vez, en silencio.
+    """
+    try:
+        data = _load_yaml_simple(Path(config_path)) or {}
+    except Exception:
+        return []
+    return [k for k in CLAVES_ALIAS_OBSOLETAS if k in data]
+
+
+def resolver_config_de_alias(alias: str) -> dict:
+    """Encuentra el yaml de una corrida a partir de su alias.
+
+    Dos pasos, en orden de confiabilidad:
+      1. el snapshot guardado en `{alias}_general.duckdb` — es la config que
+         REALMENTE produjo esos datos, inmune a que el archivo se haya editado
+         o borrado después;
+      2. el yaml de `configs/` que declare ese alias — para bases anteriores al
+         snapshot.
+
+    Devuelve siempre un dict (nunca lanza), con `ok` en False y un `motivo`
+    legible cuando no se pudo resolver, para que el selector pueda mostrar la
+    entrada deshabilitada en vez de hacerla desaparecer.
+    """
+    resultado = {
+        "alias": alias, "config": None, "fuente": None,
+        "ok": False, "motivo": None,
+    }
+
+    contenido, archivo = _leer_snapshot(alias)
+    if contenido:
+        try:
+            resultado.update(
+                config=_materializar_snapshot(alias, contenido),
+                fuente="snapshot",
+                ok=True,
+                motivo=f"config guardada en la corrida ({archivo or 'sin nombre'})",
+            )
+            return resultado
+        except Exception:
+            pass  # cae al fallback
+
+    path = _buscar_config_por_alias(alias)
+    if path is not None:
+        resultado.update(
+            config=path, fuente="configs", ok=True,
+            motivo=f"resuelta por alias desde {path.name}",
+        )
+        return resultado
+
+    if not _general_db_path(alias).exists():
+        resultado["motivo"] = (
+            f"no existe {_general_db_path(alias).name} ni ningún yaml en "
+            f"configs/ que declare el alias '{alias}'"
+        )
+    else:
+        resultado["motivo"] = (
+            f"la base no tiene config guardada y ningún yaml de configs/ declara "
+            f"el alias '{alias}' — volvé a correr esa corrida o agregá su yaml"
+        )
+    return resultado
+
+
+def bases_faltantes(alias: str) -> list[str]:
+    """Cuáles de las 4 bases de una corrida no están en disco."""
+    db_dir = get_paths().db_dir
+    return [
+        t for t in ("data", "insumos", "dash", "general")
+        if not (db_dir / f"{alias}_{t}.duckdb").exists()
+    ]
+
+
+def describir_corrida(alias: str) -> dict:
+    """Datos para la etiqueta del selector: días cubiertos y última corrida.
+
+    Salen del log de la base general. Tolera el esquema legacy (que no tiene
+    columna `dia`) y bases sin log; en ese caso devuelve los campos en None y el
+    selector muestra sólo el alias.
+    """
+    info = {"dias": None, "desde": None, "hasta": None, "ultima": None}
+    db = _general_db_path(alias)
+    if not db.exists():
+        return info
+    try:
+        con = duckdb.connect(str(db), read_only=True)
+    except Exception:
+        return info
+    try:
+        cols = {
+            r[0] for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'corridas'"
+            ).fetchall()
+        }
+        if "dia" in cols:
+            row = con.execute(
+                "SELECT COUNT(DISTINCT dia), MIN(dia), MAX(dia), MAX(date) "
+                "FROM corridas WHERE dia IS NOT NULL"
+            ).fetchone()
+            if row and row[0]:
+                info.update(dias=row[0], desde=row[1], hasta=row[2], ultima=row[3])
+                return info
+        # esquema legacy: no hay días, pero sí cuántas corridas y cuándo
+        row = con.execute(
+            "SELECT COUNT(*), MAX(date) FROM corridas"
+        ).fetchone()
+        if row and row[0]:
+            info.update(dias=row[0], ultima=row[1])
+    except Exception as e:
+        logger.debug("[corridas] no se pudo describir %s: %s", alias, e)
+    finally:
+        con.close()
+    return info
 
 
 def resolve_db_aliases(configs: dict) -> dict:
@@ -65,56 +335,29 @@ def _load_yaml_simple(path: Path):
     return data if data else {}
 
 
-def _find_first_valid_yaml(autogen_dir: Path, base_path: Path | None = None):
-    if base_path is None:
-        base_path = _get_base_config_path()
-    if not base_path.exists():
-        raise FileNotFoundError(f"No existe {base_path}")
-
-    base = _load_yaml_simple(base_path)
-
-    try:
-        tmp = base["corridas"][0]
-    except Exception as e:
-        raise KeyError("No se pudo obtener base['corridas'][0]") from e
-
-    origen = autogen_dir / f"configuraciones_generales_autogenerado_{tmp}.yaml"
-
-    if not origen.exists():
-        raise FileNotFoundError(f"No existe el autogenerado esperado: {origen}")
-
-    if origen.stat().st_size == 0:
-        raise ValueError(f"El autogenerado esperado está vacío: {origen}")
-
-    return origen
+# NOTA: se eliminó `_find_first_valid_yaml` (2026-07-27) junto con el config
+# autogenerado. Reconstruía `configuraciones_generales_autogenerado.yaml`
+# copiándolo desde `configs/autogenerados/…_{corridas[0]}.yaml`, y si esa copia
+# no estaba lanzaba una excepción en vez de degradar — por eso no se podía borrar
+# ese directorio a mano sin romper el arranque.
 
 
-def leer_configs_generales(autogenerado=True):
-    base_path = _get_base_config_path()
-    config_dir = base_path.parent
-    autogen_dir = config_dir / "autogenerados"
+def leer_configs_generales(autogenerado=None):
+    """Lee el config en uso (el de `--config` / `URBANTRIPS_CONFIG`).
 
-    if autogenerado:
-        path = config_dir / "configuraciones_generales_autogenerado.yaml"
-    else:
-        path = base_path
-
+    `autogenerado` quedó SIN EFECTO: el config autogenerado se eliminó del
+    proceso (2026-07-27). Aportaba 4 claves, dos de ellas dañinas —
+    `alias_db_data` y `alias_db_dashboard`, del diseño viejo de una base por
+    corrida— y las otras dos ya las deriva la ingesta por convención. El
+    parámetro se mantiene aceptado e ignorado porque lo pasan varios tests y
+    notebooks; no hace falta tocarlos.
+    """
+    path = _get_base_config_path()
     logger.debug("Loading config from %s", path)
-
-    if autogenerado and ((not path.exists()) or path.stat().st_size == 0):
-        origen = _find_first_valid_yaml(autogen_dir, base_path)
-        shutil.copy(origen, path)
-
     try:
         return _load_yaml_simple(path)
     except yaml.YAMLError as e:
-        logger.error("Error YAML: %s", e)
-
-        if autogenerado:
-            origen = _find_first_valid_yaml(autogen_dir, base_path)
-            shutil.copy(origen, path)
-            return _load_yaml_simple(path)
-
+        logger.error("Error YAML en %s: %s", path, e)
         return {}
 
 

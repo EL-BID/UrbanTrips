@@ -12,6 +12,7 @@ import pandas as pd
 from urbantrips.storage.identifiers import validate_table_name
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.storage.schema import data as schema
+from urbantrips.utils.paths import get_tmp_dir
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,28 @@ def _resolve_memory_limit(configured: str | None) -> str:
     return limit
 
 
-def configure_global_duckdb() -> None:
+def apply_temp_directory(conn) -> None:
+    """Point a DuckDB connection's spill at the configured ``tmp_dir``.
+
+    Without this, a file-backed connection spills next to its own .duckdb
+    (i.e. onto the db_dir disk) and an in-memory one spills to `.tmp`
+    relative to the cwd — which once dumped 54 GB into the repo root.
+    `tmp_dir` in the config YAML moves all of it to a chosen disk; blank
+    means the system temp dir.
+    """
+    from urbantrips.utils.paths import get_tmp_dir
+
+    try:
+        tmp_dir = get_tmp_dir()
+        conn.execute(f"SET temp_directory='{tmp_dir.as_posix()}'")
+    except Exception as exc:  # pragma: no cover — never fail a run over spill config
+        logger.debug("[DuckDB] could not set temp_directory: %s", exc)
+
+
+_global_configured = False
+
+
+def configure_global_duckdb(force: bool = False) -> None:
     """Pin settings on duckdb's module-level default connection.
 
     The pipeline uses ``duckdb.sql(...)`` as a SQL engine over in-memory
@@ -55,15 +77,22 @@ def configure_global_duckdb() -> None:
     never goes through the adapters, so without this it runs with stock
     defaults — memory_limit at 80% of RAM and threads = all cores — making
     peak memory scale with whatever machine the run lands on.
+
+    Idempotent: safe to call from every entry point, including spawned
+    workers, which re-import this module and start with stock defaults.
     """
+    global _global_configured
+    if _global_configured and not force:
+        return
+
     limit = _resolve_memory_limit(None)
     duckdb.sql(f"SET memory_limit='{limit}'")
 
     # In-memory connections cannot spill without a temp_directory; with one,
     # queries that exceed memory_limit offload instead of failing.
-    tmp_dir = Path(tempfile.gettempdir()) / "urbantrips_duckdb_tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    duckdb.sql(f"SET temp_directory='{tmp_dir}'")
+    from urbantrips.utils.paths import get_tmp_dir
+    tmp_dir = get_tmp_dir()
+    duckdb.sql(f"SET temp_directory='{tmp_dir.as_posix()}'")
 
     try:
         from urbantrips.utils.utils import leer_configs_tuning
@@ -73,17 +102,27 @@ def configure_global_duckdb() -> None:
     if threads:
         duckdb.sql(f"SET threads={int(threads)}")
 
+    _global_configured = True
     logger.info(
         "[DuckDB] global connection pinned: memory_limit=%s, temp_directory=%s%s",
         limit, tmp_dir, f", threads={threads}" if threads else "",
     )
+
+
+def ensure_global_duckdb() -> None:
+    """Idempotent guard for call sites that use ``duckdb.sql(...)`` directly.
+
+    Those run inside spawned workers too, where ``configure_global_duckdb``
+    was never called for that process.
+    """
+    configure_global_duckdb()
 
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
     "transacciones", "etapas", "viajes", "usuarios", "gps",
     "legs_to_gps_origin", "legs_to_gps_destination",
     "legs_to_station_origin", "legs_to_station_destination",
-    "travel_times_gps", "travel_times_stations",
+    "travel_times_stations",
     "travel_times_legs", "travel_times_trips",
     "transacciones_linea", "tarjetas_duplicadas",
     "dias_ultima_corrida",
@@ -100,16 +139,14 @@ _ETAPAS_COLUMNS = [
     "hora", "modo", "id_linea", "id_ramal", "interno", "genero", "tarifa",
     "latitud", "longitud", "h3_o", "h3_d", "od_validado", "etapa_validada",
     "factor_expansion_original", "factor_expansion_linea",
-    "factor_expansion_tarjeta", "factor_expansion_etapa", "distancia",
-    "travel_time_min",
+    "factor_expansion_tarjeta", "factor_expansion_etapa",
 ]
 
 _VIAJES_COLUMNS = [
     "id_tarjeta", "id_viaje", "dia", "tiempo", "hora", "cant_etapas", "modo",
     "autobus", "tren", "metro", "tranvia", "brt", "cable", "lancha", "otros",
     "h3_o", "h3_d", "genero", "tarifa", "od_validado",
-    "factor_expansion_linea", "factor_expansion_tarjeta", "distancia",
-    "travel_time_min",
+    "factor_expansion_linea", "factor_expansion_tarjeta",
 ]
 
 _DUCKDB_INSERT_CHUNK_ROWS = 250_000
@@ -163,8 +200,6 @@ _ETAPAS_DEFAULTS: dict = {
     "factor_expansion_linea":    np.nan,
     "factor_expansion_tarjeta":  np.nan,
     "factor_expansion_etapa":    np.nan,
-    "distancia":                 np.nan,
-    "travel_time_min":           np.nan,
 }
 
 
@@ -183,6 +218,7 @@ class DuckDBDataAdapter:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(self._path), read_only=self._read_only)
         self._conn.execute(f"SET memory_limit='{_resolve_memory_limit(memory_limit)}'")
+        apply_temp_directory(self._conn)
         if not read_only:
             self._apply_schema()
 
@@ -236,6 +272,31 @@ class DuckDBDataAdapter:
                         f"ALTER TABLE travel_times_legs ADD COLUMN {col} INT"
                     )
 
+        # Columnas muertas quitadas del esquema el 2026-07-27. CREATE TABLE IF NOT
+        # EXISTS no las saca de una DB ya creada, así que se dropean acá. En DuckDB
+        # el DROP COLUMN es metadata-only (medido: 0,01s sobre 30M filas), no
+        # reescribe la tabla. Todas estaban 100% NULL:
+        #   etapas/viajes.distancia, .travel_time_min → travel_times_legs/_trips
+        #   services_gps_points.id_ramal_gps_point, .node_id → nunca se poblaron
+        for tabla, col in (
+            ("etapas", "distancia"),
+            ("etapas", "travel_time_min"),
+            ("viajes", "distancia"),
+            ("viajes", "travel_time_min"),
+            ("services_gps_points", "id_ramal_gps_point"),
+            ("services_gps_points", "node_id"),
+        ):
+            existe = self._conn.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = ? AND column_name = ?",
+                [tabla, col],
+            ).fetchone()
+            if existe:
+                self._conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {col}")
+
+        # travel_times_gps se eliminó: nunca tuvo escritor tras el refactor.
+        self._conn.execute("DROP TABLE IF EXISTS travel_times_gps")
+
     # ── batch helpers ─────────────────────────────────────────────────────────
 
     def get_user_batches(self, n_batches: int) -> list[BatchSpec]:
@@ -273,11 +334,24 @@ class DuckDBDataAdapter:
 
     # ── transactions ──────────────────────────────────────────────────────────
 
-    def get_transactions(self, batch: BatchSpec | None = None) -> pd.DataFrame:
-        where = self._batch_where(batch, "id_tarjeta")
+    def get_transactions(
+        self, batch: BatchSpec | None = None, run_days: list[str] | None = None
+    ) -> pd.DataFrame:
+        # `transacciones` es ACUMULATIVA (nunca se limpia por corrida). Sin el filtro
+        # por día, el path serial de Fase 2 cargaría TODOS los días acumulados y recién
+        # build_legs_dataframe los descarta en pandas → RAM/tiempo O(acumulado). Con
+        # run_days la lectura queda acotada a la corrida (mismo resultado). Espeja el
+        # filtro que ya aplica get_transactions_for_chunk en el path paralelo.
+        conds = []
+        if batch is not None:
+            conds.append(f"hash(id_tarjeta) % {batch.total_batches} = {batch.batch_id}")
+        if run_days:
+            dias = ", ".join(f"'{d}'" for d in run_days)
+            conds.append(f"dia IN ({dias})")
+        where = f"WHERE {' AND '.join(conds)}" if conds else ""
         return self._conn.execute(f"SELECT * FROM transacciones {where}").fetchdf()
 
-    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int) -> pd.DataFrame:
+    def get_transactions_for_chunk(self, batch_ids: list[int], total_batches: int, run_days: list[str] | None = None) -> pd.DataFrame:
         """Load rows for the given batch IDs in one scan, with _batch_id column for splitting.
 
         Reads the batch_id stamped at standardize time (= hash(id_tarjeta) % n_batches,
@@ -286,10 +360,21 @@ class DuckDBDataAdapter:
         batch_id, a chunk's contiguous batch_ids let DuckDB prune row groups and read
         only its slice — turning ~one full scan per chunk into ~one full scan total
         across Phase 2. total_batches is kept for signature compatibility, unused now.
+
+        `run_days` acota la lectura a los días de la corrida. `transacciones` es
+        ACUMULATIVA (nunca se limpia por corrida), así que sin este filtro cada worker
+        cargaría TODOS los días acumulados y recién build_legs_dataframe los descarta en
+        pandas — la RAM de Fase 2 crecería con lo acumulado y no con los días de la
+        corrida (causó un OOM incremental a escala AMBA). Con el filtro la memoria queda
+        acotada a la corrida; el resultado es idéntico (el worker filtra los mismos días).
         """
         ids = ", ".join(str(b) for b in batch_ids)
+        where = f"batch_id IN ({ids})"
+        if run_days:
+            dias = ", ".join(f"'{d}'" for d in run_days)
+            where += f" AND dia IN ({dias})"
         return self._conn.execute(
-            f"SELECT *, batch_id AS _batch_id FROM transacciones WHERE batch_id IN ({ids})"
+            f"SELECT *, batch_id AS _batch_id FROM transacciones WHERE {where}"
         ).fetchdf()
 
     def save_transactions(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
@@ -316,8 +401,18 @@ class DuckDBDataAdapter:
             self._conn.unregister("_chunk")
 
     def clear_raw(self) -> None:
-        """Truncate the staging table after standardization is complete."""
-        self._conn.execute("DELETE FROM transacciones_raw")
+        """Truncate the staging table after standardization is complete.
+
+        DROP + CREATE y no DELETE: en DuckDB `DELETE FROM t` (y su alias `TRUNCATE`)
+        escanea la tabla y materializa el vector de borrado — sobre las 105 M filas de
+        staging del cliente falló con "Out of Memory Error: Allocation failure", y esto
+        corre en un `finally`, o sea justo cuando el proceso puede estar con la RAM al
+        tope por otra excepción. El DROP descarta los bloques sin escanear nada y
+        además libera el espacio en el archivo (el DELETE sólo los marca). La tabla no
+        tiene constraints ni índices, así que recrearla con su DDL la deja idéntica.
+        """
+        self._conn.execute("DROP TABLE IF EXISTS transacciones_raw")
+        self._conn.execute(schema.TRANSACCIONES_RAW)
 
     def geolocate_raw_transactions_from_gps(self, lineas_contienen_ramales: bool) -> None:
         """Fill missing latitud/longitud in transacciones_raw from the
@@ -562,112 +657,143 @@ class DuckDBDataAdapter:
         finally:
             self._conn.unregister("_dest_updates")
 
-    @staticmethod
-    def _rebuild_memory_limit():
-        """Temporary DuckDB memory_limit for the etapas rebuild, adapted to whatever
-        machine this runs on. DuckDB spills to disk past the limit (it never OOM-
-        crashes on it), so the ONLY risk is setting it ABOVE physically-free RAM.
-        We therefore take a fraction of the RAM AVAILABLE right now, keep an OS
-        reserve, and never drop below the pinned 25%-of-RAM default: a big idle
-        machine gets a faster rebuild, a small or busy one just stays at the safe
-        default (worst case = more spill, never a crash). Returns None (→ caller
-        leaves the current limit untouched) if psutil is unavailable.
-        """
-        try:
-            import psutil
-
-            vm = psutil.virtual_memory()
-            # Decimal GB throughout, to match the pinned "25% of RAM" default exactly.
-            reserve = min(6e9, vm.total * 0.25)   # 6 GB, or 25% on tiny machines
-            floor = vm.total * 0.25               # the pinned default; never go below it
-            budget = min(vm.available * 0.6, vm.total - reserve)
-            gb = max(int(budget / 1e9), int(floor / 1e9), 2)
-            return f"{gb}GB"
-        except Exception:
-            return None
-
     def update_leg_destinations_from_parquet(self, parquet_glob: str) -> None:
-        """Write the destination columns back for all days at once, via a full
-        table REBUILD (CREATE + INSERT ... SELECT + swap) — NOT an UPDATE ... FROM.
+        """Write the destination columns back for the RUN's days (day-scoped rewrite).
 
-        infer_destinations stages every leg's (id, dia, h3_d, od_validado,
-        etapa_validada) to parquet during its per-day loop; this merges all of it
-        back in one pass. An UPDATE ... FROM read_parquet degrades badly at month
-        scale (~253M legs): DuckDB runs it as a per-row DELETE+INSERT (MVCC) that
-        maintains the PRIMARY KEY and every secondary ART index row by row, while
-        the 253M×253M join spills tens of GB — >75 min and still climbing in
-        practice. Rebuilding etapas once (sequential bulk write; PK + indexes built
-        in bulk afterward) is ~36 min and bit-identical. Same reason geolocate_raw_
-        transactions_from_gps rebuilds via CREATE ... AS SELECT ("an UPDATE keyed on
-        a per-row rowid join degrades to row-by-row execution").
+        infer_destinations stages every RUN-DAY leg's (id, dia, h3_d, od_validado,
+        etapa_validada) to parquet. Los días de corridas previas están CONGELADOS
+        (no se re-imputan) → no tienen fila staged. Antes esto reconstruía TODA
+        `etapas` (O(acumulado)) para actualizar 3 columnas de destino de solo los
+        run-days: la reescritura del slice congelado era puro costo que crecía con lo
+        acumulado. Ahora se reescribe SOLO el slice de run-days (derivados del parquet):
+        se materializa el slice actualizado y se hace DELETE+INSERT de esos días.
+        Resultado BIT-IDÉNTICO (COALESCE deja igual las columnas sin fila staged; los
+        congelados ni se tocan) y O(días de la corrida).
 
-        The LEFT JOIN + COALESCE keeps a leg's current value when it has no staged
-        row, so a partial glob never nulls out destinations. The swap only runs if
-        the rebuilt table has exactly the same row count, so a failed rebuild
-        leaves etapas intact.
+        Se sigue evitando `UPDATE ... FROM` (DuckDB lo degrada a DELETE+INSERT fila por
+        fila que mantiene los índices ART). Acá el bulk DELETE+INSERT del slice es un
+        append: `etapas` no tiene índices secundarios (política 2026-07-18, ver
+        begin/end_bulk_leg_writes) → sin mantenimiento ART. Atómico: DELETE+INSERT en
+        una transacción; ante error, ROLLBACK deja `etapas` intacta. El guard de
+        row-count aborta antes de tocar nada.
+
+        LA STAGING SE LLENA DÍA POR DÍA (fix OOM 2026-08-12). Antes era UNA sentencia
+        `CREATE TEMP TABLE ... LEFT JOIN read_parquet(<glob del mes>) ... ORDER BY dia`,
+        cuyo pico de RAM escalaba con los DÍAS DE LA CORRIDA, no con el día más grande:
+        el build del join eran las etapas de todos los run-days (infer stagea TODAS las
+        etapas del día, no solo las imputadas → ~250M filas a escala mes) y la salida
+        otras ~250M × 24 columnas, en una TEMP table (que vive contra el memory_limit,
+        a diferencia de una tabla normal). 7 días entraban; 31 reventaron con
+        OutOfMemoryException. Ahora, igual que `create_trips_from_legs_and_fex` (el otro
+        reescritor de `etapas`, validado a escala mes): tabla staging NORMAL (no TEMP)
+        llenada con un INSERT por día → el join es de un día (~10M filas) y el pico es
+        O(1 día) para cualquier largo de corrida. El `ORDER BY dia` ya no hace falta:
+        el clustering por día lo da el propio loop (cada día se appendea como bloque
+        contiguo, en orden ascendente) → el zonemap sigue podando `WHERE dia=X`
+        downstream. Tampoco se toca el `memory_limit`: la operación ya entra en el
+        límite configurado por el operador.
         """
-        n_before = self._conn.execute("SELECT count(*) FROM etapas").fetchone()[0]
+        glob_sql = parquet_glob.replace("'", "''")
+        # run-days = días presentes en el parquet staged (infer stagea solo run-days).
+        # Ordenados: el loop appendea días ascendentes → mismo clustering que el
+        # ORDER BY dia de antes, y el mismo criterio que create_trips.
+        #
+        # Se mapea día → archivo(s) en esta única pasada. Filtrar el glob por día
+        # dentro del loop (`WHERE dia = X`) NO poda: DuckDB abre igual los N archivos
+        # en cada iteración (medido con EXPLAIN ANALYZE: "Total Files Read: 8" con el
+        # filtro puesto), o sea N pasadas sobre el stage entero. Leyendo solo los
+        # archivos del día el pruning es exacto y no depende de estadísticas.
+        staged = self._conn.execute(
+            f"SELECT DISTINCT dia, filename "
+            f"FROM read_parquet('{glob_sql}', filename=true) ORDER BY dia"
+        ).fetchdf()
+        if staged.empty:
+            return
+        files_por_dia = {
+            dia: grp["filename"].tolist() for dia, grp in staged.groupby("dia")
+        }
+        dias = sorted(files_por_dia)
+        dias_str = ", ".join(f"'{d}'" for d in dias)
+
+        n_before = self._conn.execute(
+            f"SELECT count(*) FROM etapas WHERE dia IN ({dias_str})"
+        ).fetchone()[0]
         if n_before == 0:
             return
 
         dest = {"h3_d", "od_validado", "etapa_validada"}
-        glob_sql = parquet_glob.replace("'", "''")
         cols = ", ".join(_ETAPAS_COLUMNS)
         select_cols = ", ".join(
             f"COALESCE(u.{c}, e.{c}) AS {c}" if c in dest else f"e.{c}"
             for c in _ETAPAS_COLUMNS
         )
-        # Fresh-table DDL derived from the canonical schema so column order, types
-        # and the PRIMARY KEY never drift from etapas.
-        new_ddl = schema.ETAPAS.replace(
-            "CREATE TABLE IF NOT EXISTS etapas", "CREATE TABLE etapas_new", 1
-        )
 
-        prev_mem = self._conn.execute(
-            "SELECT current_setting('memory_limit')"
-        ).fetchone()[0]
-        bump = self._rebuild_memory_limit()
-        if bump:
-            self._conn.execute(f"PRAGMA memory_limit='{bump}'")
         try:
-            self._conn.execute("DROP TABLE IF EXISTS etapas_new")
-            self._conn.execute(new_ddl)
-            # ORDER BY dia clusters the rebuilt table physically by day. etapas is
-            # written ORDER BY batch_id in Phase 2 (a traveler batch spans all 28
-            # days), so every downstream per-day query `WHERE dia = X` scans ~the
-            # whole table — no row-group pruning, cost = n_days × table_size. Since
-            # this rebuild rewrites the entire table anyway, sorting by dia here is
-            # nearly free and makes the dia zonemap per row-group selective, so
-            # assign_gps_origin / assign_time_distances / create_trips / compute_kpi
-            # each touch ~1/n_days of the table. The order survives downstream:
-            # nothing between here and compute_kpi re-sorts etapas (create_trips
-            # rebuilds it per day in sorted order via rebuild+swap).
+            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
             self._conn.execute(
-                f"INSERT INTO etapas_new ({cols}) "
-                f"SELECT {select_cols} FROM etapas e "
-                f"LEFT JOIN read_parquet('{glob_sql}') u "
-                f"ON e.id = u.id AND e.dia = u.dia "
-                f"ORDER BY e.dia"
+                f"CREATE TABLE _ut_dest_new AS SELECT {cols} FROM etapas LIMIT 0"
             )
+            # preserve_insertion_order=true (default) serializa el INSERT...SELECT
+            # para emitir las filas en orden de origen. En el LLENADO ningún orden
+            # intra-día importa (cada día es su propia sentencia → queda como bloque
+            # contiguo igual), así que se desactiva para paralelizar escritura y
+            # compresión de row-groups. OJO: se restaura ANTES del swap — con el flag
+            # en false el `INSERT INTO etapas SELECT ... FROM _ut_dest_new` lee la
+            # staging en paralelo y emite los chunks fuera de orden, INTERCALANDO los
+            # días en `etapas` y matando el clustering del que depende el pruning por
+            # `WHERE dia=X` de todo lo que viene después (medido: los días salían
+            # 07,08,04,05,06,01,02,03).
+            prev_order = self._conn.execute(
+                "SELECT current_setting('preserve_insertion_order')"
+            ).fetchone()[0]
+            self._conn.execute("SET preserve_insertion_order = false")
+            try:
+                for dia in dias:
+                    # El día acota AMBOS lados: en `etapas` el probe (zonemap por dia)
+                    # y en el parquet el BUILD del hash join — que es lo que reventaba,
+                    # porque el build era el mes entero. El `WHERE u.dia` queda igual
+                    # como red de seguridad si un archivo trajera más de un día.
+                    files = ", ".join(
+                        "'" + f.replace("'", "''") + "'" for f in files_por_dia[dia]
+                    )
+                    self._conn.execute(
+                        f"INSERT INTO _ut_dest_new ({cols}) "
+                        f"SELECT {select_cols} FROM etapas e "
+                        f"LEFT JOIN (SELECT * FROM read_parquet([{files}]) "
+                        f"           WHERE dia = '{dia}') u "
+                        f"ON e.id = u.id AND e.dia = u.dia "
+                        f"WHERE e.dia = '{dia}'"
+                    )
+            finally:
+                self._conn.execute(
+                    f"SET preserve_insertion_order = "
+                    f"{'true' if prev_order in (True, 'true', 1) else 'false'}"
+                )
+
             n_after = self._conn.execute(
-                "SELECT count(*) FROM etapas_new"
+                "SELECT count(*) FROM _ut_dest_new"
             ).fetchone()[0]
             if n_after != n_before:
-                self._conn.execute("DROP TABLE IF EXISTS etapas_new")
                 raise RuntimeError(
-                    f"etapas rebuild row-count mismatch ({n_after} != {n_before}); "
-                    "aborted, etapas left intact"
+                    f"etapas day-scoped rebuild row-count mismatch "
+                    f"({n_after} != {n_before}); aborted, etapas left intact"
                 )
-            self._conn.execute("DROP TABLE etapas")
-            self._conn.execute("ALTER TABLE etapas_new RENAME TO etapas")
-            # etapas has no PRIMARY KEY; recreate all secondary indexes, incl. id.
-            self._conn.execute(schema.IDX_ETAPAS_ID)
-            self._conn.execute(schema.IDX_ETAPAS_BATCH)
-            self._conn.execute(schema.IDX_ETAPAS_DIA_OD_VALIDADO)
-            self._conn.execute(schema.IDX_ETAPAS_DIA_LINE_RAMAL_INTERNO)
+            # swap del slice, atómico: borrar run-days y re-appendear los actualizados
+            # (en orden de la staging = días ascendentes → clustering por día)
+            self._conn.execute("BEGIN TRANSACTION")
+            try:
+                self._conn.execute(f"DELETE FROM etapas WHERE dia IN ({dias_str})")
+                self._conn.execute(
+                    f"INSERT INTO etapas ({cols}) SELECT {cols} FROM _ut_dest_new"
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
         finally:
-            if bump:
-                self._conn.execute(f"PRAGMA memory_limit='{prev_mem}'")
+            # La staging se dropea también si algo falló: es recomputable y ocupa
+            # ~un slice de etapas en disco.
+            self._conn.execute("DROP TABLE IF EXISTS _ut_dest_new")
 
     def save_legs(self, df: pd.DataFrame, batch: BatchSpec | None = None) -> None:
         """Persist legs to DuckDB via parquet staging to avoid Arrow-registration
@@ -677,7 +803,9 @@ class DuckDBDataAdapter:
             return
         cols = ", ".join(_ETAPAS_COLUMNS)
 
-        with tempfile.TemporaryDirectory(prefix="urbantrips_legs_") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="urbantrips_legs_", dir=str(get_tmp_dir())
+        ) as tmpdir:
             tmp_path = Path(tmpdir)
             for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
                 chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]
@@ -689,9 +817,18 @@ class DuckDBDataAdapter:
             try:
                 # Delete by batch_id (indexed) instead of joining on id —
                 # avoids an O(n²) scan as the etapas table grows across batches.
+                # SCOPED BY DAY: batch_id partitions travelers and spans ALL days,
+                # so a bare `WHERE batch_id = ?` would wipe this batch's rows for
+                # previously-processed days too (incremental data loss — etapas of
+                # old runs vanish while viajes keep them). df carries only the
+                # current run's legs (filtered to run days in build_legs_dataframe),
+                # so restrict the delete to the days actually present in it.
                 if batch is not None:
+                    dias_batch = df["dia"].unique().tolist()
+                    ph = ", ".join("?" for _ in dias_batch)
                     self._conn.execute(
-                        "DELETE FROM etapas WHERE batch_id = ?", [batch.batch_id]
+                        f"DELETE FROM etapas WHERE batch_id = ? AND dia IN ({ph})",
+                        [batch.batch_id, *dias_batch],
                     )
                 else:
                     self._conn.execute(
@@ -714,7 +851,9 @@ class DuckDBDataAdapter:
         df = self._prepare_legs_df(df)
         cols = ", ".join(_ETAPAS_COLUMNS)
 
-        with tempfile.TemporaryDirectory(prefix="urbantrips_etapas_") as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="urbantrips_etapas_", dir=str(get_tmp_dir())
+        ) as tmpdir:
             tmp_path = Path(tmpdir)
             for idx, start in enumerate(range(0, len(df), _DUCKDB_INSERT_CHUNK_ROWS)):
                 chunk = df.iloc[start : start + _DUCKDB_INSERT_CHUNK_ROWS]
@@ -795,6 +934,237 @@ class DuckDBDataAdapter:
             self._conn.execute(f"INSERT INTO gps ({cols}) SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
+
+    # ── gps: staging del ingest ───────────────────────────────────────────────
+    #
+    # El csv de gps entra por chunks a `gps_raw` (fila a fila, sin agregaciones) y
+    # `prepare_gps_from_raw` resuelve acá lo que necesita ver el archivo entero:
+    # dedup, id interno correlativo y odómetro por vehículo. Así el pico de memoria
+    # del ingest no depende de cuántos días traiga el archivo. Ver
+    # `process_and_upload_gps_table`.
+
+    def reset_gps_raw(self) -> None:
+        """Vacía el staging de gps (y las tablas derivadas, si quedaron de una corrida
+        anterior que murió a mitad de camino)."""
+        for tabla in ("gps_prep", "_gps_prep_ids", "_gps_prep_odo", "gps_raw"):
+            self._conn.execute(f"DROP TABLE IF EXISTS {tabla}")
+        self._conn.execute(schema.GPS_RAW)
+
+    def save_gps_raw_chunk(self, df: pd.DataFrame) -> None:
+        """Agrega un chunk del csv de gps ya estandarizado fila a fila."""
+        cols = ", ".join(schema.GPS_RAW_COLUMNS)
+        self._conn.register("_gps_chunk", df)
+        try:
+            self._conn.execute(
+                f"INSERT INTO gps_raw ({cols}) SELECT {cols} FROM _gps_chunk"
+            )
+        finally:
+            self._conn.unregister("_gps_chunk")
+
+    def prepare_gps_from_raw(
+        self,
+        dedup_subset: list[str],
+        id_offset: int,
+        odometro: str | None,
+    ) -> int:
+        """Deriva `gps_prep` desde `gps_raw`: dedup, id interno y odómetro.
+
+        Reproduce, en SQL, exactamente estos tres pasos de la versión que tenía el
+        archivo entero en un DataFrame:
+
+        - `drop_duplicates(subset=dedup_subset)` — se queda con la PRIMERA aparición,
+          de ahí el `ORDER BY orden_archivo` del ROW_NUMBER;
+        - `crear_id_interno` — ids correlativos desde `id_offset` en orden de archivo;
+        - el odómetro por `(id_linea, id_ramal, interno)` ordenado por fecha, con
+          `orden_archivo` desempatando igual que el sort estable de pandas.
+
+        `odometro` es 'diff' (hay columna acumulada, se deriva la incremental),
+        'cumsum' (al revés) o None (el config no trae ninguna de las dos).
+        Devuelve la cantidad de filas de `gps_prep`.
+
+        VA EN ETAPAS, SIN VENTANAS GLOBALES (fix OOM 2026-09-02, extendido en la
+        misma sesión para funcionar en cualquier versión de duckdb):
+
+        1. dedup por hash (GROUP BY + MIN(orden_archivo), equivalente a "la primera
+           aparición"; ORDER BY dan los ids en Python);
+        2. asignación del id en Python: se trae la columna BIGINT deduplicada
+           ordenada (~8 bytes/fila), se numera con numpy.arange y vuelve por Arrow.
+           Cero ventanas globales — no depende de que el operador de ventana de
+           duckdb sepa derramar a disco;
+        3. el odómetro, si lo hay, sobre la proyección angosta de las columnas que
+           usa su ventana (las particiones por vehículo son chicas);
+        4. el ensamblado final por hash joins sobre orden_archivo (derraman bien en
+           cualquier versión), con ORDER BY orden_archivo para dejar el mismo orden
+           físico que dejaba la sentencia única (clustering por día -> el zonemap
+           poda el WHERE dia=? del loop).
+
+        Medido sobre el mes entero real (103,5 M filas, duckdb 1.5.3;
+        tools/exp_prepare_gps_mem.py): resultado IDÉNTICO por checksum contra la
+        sentencia única. El pico de RSS es el presupuesto de duckdb + ~0,6 GB de
+        Python. A memory_limit=1GB falla igual que las versiones anteriores (el
+        piso no baja; ahí ya revienta el ensamblado, no este paso). Los tiempos de
+        este paso NO son medibles con n=1 en esta máquina: tres corridas idénticas
+        a 4GB dieron 593/157/354 s, así que no se afirma nada de rendimiento.
+
+        Las etapas 1, 2 y 3 corren con preserve_insertion_order=false (el orden
+        físico de las intermedias no significa nada); se restaura antes del
+        ensamblado, cuyo orden lo garantiza el ORDER BY.
+        """
+        desconocidas = set(dedup_subset) - set(schema.GPS_RAW_COLUMNS)
+        if desconocidas or not dedup_subset:
+            raise ValueError(f"dedup_subset inválido para gps_raw: {dedup_subset!r}")
+        particion = ", ".join(dedup_subset)
+        ventana = (
+            "PARTITION BY id_linea, id_ramal, interno ORDER BY fecha, orden_archivo"
+        )
+
+        if odometro == "diff":
+            # groupby(...).diff() -> fillna(0) -> los negativos a 0
+            delta = (
+                "distance_servicio_mts_agg - lag(distance_servicio_mts_agg) "
+                f"OVER ({ventana})"
+            )
+            calculadas = (
+                f"CASE WHEN ({delta}) IS NULL OR ({delta}) < 0 THEN 0 "
+                f"ELSE ({delta}) END AS distance_servicio_mts, "
+                "distance_servicio_mts_agg"
+            )
+        elif odometro == "cumsum":
+            # groupby(...).cumsum() -> fillna(0) -> los negativos a 0. El CASE del
+            # NULL es lo que replica al cumsum de pandas, que deja NaN en esa fila
+            # (y después la llena con 0) en vez del acumulado que devuelve SUM().
+            acum = (
+                f"SUM(distance_servicio_mts) OVER ({ventana} "
+                "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+            )
+            calculadas = (
+                "distance_servicio_mts, "
+                "CASE WHEN distance_servicio_mts IS NULL THEN 0 "
+                f"ELSE GREATEST({acum}, 0) END AS distance_servicio_mts_agg"
+            )
+        else:
+            calculadas = None
+
+        self._conn.execute("DROP TABLE IF EXISTS gps_prep")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_ids")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_odo")
+
+        prev_order = self._conn.execute(
+            "SELECT current_setting('preserve_insertion_order')"
+        ).fetchone()[0]
+        self._conn.execute("SET preserve_insertion_order = false")
+        try:
+            # 1) dedup: hash aggregation, sin ventana. MIN(orden_archivo) = primera
+            # aparición por grupo (GROUP BY y PARTITION BY tratan NULL igual que
+            # drop_duplicates keep='first' de pandas cuando orden_archivo es único).
+            self._conn.execute(
+                f"""
+                CREATE TABLE _gps_prep_ids AS
+                SELECT MIN(orden_archivo) AS orden_archivo
+                FROM gps_raw GROUP BY {particion}
+                """
+            )
+            # 2) asignación del id en Python: trae la columna deduplicada ordenada
+            # (~8 bytes/fila; ~0.8 GB para el mes entero), la numera con arange y
+            # la devuelve por registro Arrow. Cero ventanas globales — funciona en
+            # cualquier versión de duckdb independientemente de la capacidad de
+            # derrame del operador de ventana.
+            _oa = self._conn.execute(
+                "SELECT orden_archivo FROM _gps_prep_ids ORDER BY orden_archivo"
+            ).fetchdf()
+            _n = len(_oa)
+            _oa.insert(
+                0, "id", np.arange(int(id_offset), int(id_offset) + _n, dtype=np.int64)
+            )
+            self._conn.execute("DROP TABLE _gps_prep_ids")
+            self._conn.register("_ids_tmp", _oa)
+            self._conn.execute(
+                "CREATE TABLE _gps_prep_ids AS SELECT id, orden_archivo FROM _ids_tmp"
+            )
+            self._conn.unregister("_ids_tmp")
+            del _oa
+            # 2) odómetro sobre las filas deduplicadas, solo las columnas de su
+            # ventana. Las expresiones son las mismas que usaba la sentencia única.
+            if calculadas is not None:
+                self._conn.execute(
+                    f"""
+                    CREATE TABLE _gps_prep_odo AS
+                    SELECT orden_archivo, {calculadas}
+                    FROM (
+                        SELECT r.orden_archivo, r.id_linea, r.id_ramal, r.interno,
+                               r.fecha, r.distance_servicio_mts,
+                               r.distance_servicio_mts_agg
+                        FROM gps_raw r
+                        JOIN _gps_prep_ids i ON i.orden_archivo = r.orden_archivo
+                    )
+                    """
+                )
+        finally:
+            self._conn.execute(
+                f"SET preserve_insertion_order = "
+                f"{'true' if prev_order in (True, 'true', 1) else 'false'}"
+            )
+
+        # 3) ensamblado: hash joins (derraman) + ORDER BY (sort externo, derrama).
+        if calculadas is not None:
+            distancias = "o.distance_servicio_mts, o.distance_servicio_mts_agg"
+            join_odo = "JOIN _gps_prep_odo o ON o.orden_archivo = r.orden_archivo"
+        else:
+            distancias = "r.distance_servicio_mts, r.distance_servicio_mts_agg"
+            join_odo = ""
+        self._conn.execute(
+            f"""
+            CREATE TABLE gps_prep AS
+            SELECT
+                i.id, r.orden_archivo, r.id_original, r.dia, r.id_linea, r.id_ramal,
+                r.interno, r.fecha, r.latitud, r.longitud, r.velocity, r.id_servicio,
+                r.service_type, {distancias}
+            FROM gps_raw r
+            JOIN _gps_prep_ids i ON i.orden_archivo = r.orden_archivo
+            {join_odo}
+            ORDER BY r.orden_archivo
+            """
+        )
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_ids")
+        self._conn.execute("DROP TABLE IF EXISTS _gps_prep_odo")
+        return int(
+            self._conn.execute("SELECT COUNT(*) FROM gps_prep").fetchone()[0]
+        )
+
+    def gps_prep_has_service_start(self) -> bool:
+        """Si se informó un service type, que el inicio de servicio exista."""
+        fila = self._conn.execute(
+            "SELECT 1 FROM gps_prep WHERE service_type = 'start_service' LIMIT 1"
+        ).fetchone()
+        return fila is not None
+
+    def gps_prep_days(self) -> list[str]:
+        """Días de `gps_prep`, en orden de primera aparición en el csv — el mismo
+        orden en que los recorría el `groupby('dia', sort=False)` de la versión que
+        tenía el archivo entero en memoria."""
+        filas = self._conn.execute(
+            "SELECT dia FROM gps_prep GROUP BY dia ORDER BY MIN(orden_archivo)"
+        ).fetchall()
+        return [f[0] for f in filas]
+
+    def get_gps_prep_day(self, dia: str) -> pd.DataFrame:
+        """Un día de `gps_prep`, en orden de archivo (es lo que desempata el sort de
+        `compute_distance_km_gps`)."""
+        return self._conn.execute(
+            """
+            SELECT id, id_original, dia, id_linea, id_ramal, interno, fecha,
+                   latitud, longitud, velocity, id_servicio, service_type,
+                   distance_servicio_mts, distance_servicio_mts_agg
+            FROM gps_prep WHERE dia = ? ORDER BY orden_archivo
+            """,
+            [dia],
+        ).fetchdf()
+
+    def clear_gps_staging(self) -> None:
+        """Descarta staging y tablas derivadas una vez subida la tabla gps."""
+        for tabla in ("gps_prep", "_gps_prep_ids", "_gps_prep_odo", "gps_raw"):
+            self._conn.execute(f"DROP TABLE IF EXISTS {tabla}")
+        self._conn.execute(schema.GPS_RAW)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 

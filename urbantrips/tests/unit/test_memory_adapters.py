@@ -60,15 +60,6 @@ def test_in_memory_data_adapter_user_batches():
     assert batches[0] == BatchSpec(0, 3)
 
 
-def test_in_memory_insumo_adapter_distances_roundtrip():
-    from urbantrips.storage.adapters.memory.adapters import InMemoryInsumoAdapter
-    adapter = InMemoryInsumoAdapter()
-    dist = pd.DataFrame({"h3_o": ["abc"], "h3_d": ["def"], "distance_h3": [500.0]})
-    adapter.save_distances(dist)
-    result = adapter.get_distances()
-    assert len(result) == 1
-
-
 def test_in_memory_dash_adapter_roundtrip():
     from urbantrips.storage.adapters.memory.adapters import InMemoryDashAdapter
     adapter = InMemoryDashAdapter()
