@@ -45,7 +45,7 @@ dependencies = [
     "pydeck==0.9.1",
     "weightedstats==0.4.1",
     "osmnet==0.1.7",
-    "anyio==4.6.2.post1",
+    "anyio==4.14.2",
     "platformdirs==4.2.2",
     "typing_extensions==4.12.2",
     "squarify",
