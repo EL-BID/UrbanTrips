@@ -1777,6 +1777,39 @@ if id_linea is not None:
                         except Exception:
                             route_geoms_demand = None
 
+                        # etapas.h3_o/h3_d are stored at configs["resolucion_h3"],
+                        # which may differ from the resolution chosen for the
+                        # graph; reproject them to the graph's resolution so
+                        # matching against graph nodes works.
+                        raw_h3_res = configs.get("resolucion_h3")
+                        graph_h3_res = demand_line_graph.graph.get("h3_res", h3_res)
+                        if raw_h3_res is not None and int(graph_h3_res) != int(
+                            raw_h3_res
+                        ):
+                            if int(graph_h3_res) > int(raw_h3_res):
+                                st.warning(
+                                    "La resolución del grafo "
+                                    f"({graph_h3_res}) es más fina que la usada "
+                                    f"para georeferenciar etapas ({raw_h3_res}); "
+                                    "elegí una resolución menor o igual en el "
+                                    "slider para poder rutear la demanda."
+                                )
+                                st.stop()
+                            legs_for_demand["h3_o"] = legs_for_demand["h3_o"].apply(
+                                lambda x: (
+                                    h3.cell_to_parent(x, int(graph_h3_res))
+                                    if pd.notna(x)
+                                    else x
+                                )
+                            )
+                            legs_for_demand["h3_d"] = legs_for_demand["h3_d"].apply(
+                                lambda x: (
+                                    h3.cell_to_parent(x, int(graph_h3_res))
+                                    if pd.notna(x)
+                                    else x
+                                )
+                            )
+
                         matched_legs = assign_legs_to_line_h3_graph(
                             demand_line_graph,
                             legs_for_demand,
