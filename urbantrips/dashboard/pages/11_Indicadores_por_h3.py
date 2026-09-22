@@ -1717,9 +1717,14 @@ if id_linea is not None:
 
                             # Agregar celdas H3 como base
                             if routes_h3_od is not None and not routes_h3_od.empty:
-                                if "id_ramal" in routes_h3_od.columns:
+                                route_id_col_base = (
+                                    "id_ramal"
+                                    if "id_ramal" in routes_h3_od.columns
+                                    else "id_linea"
+                                )
+                                if route_id_col_base in routes_h3_od.columns:
                                     ramales_od = sorted(
-                                        routes_h3_od["id_ramal"].unique()
+                                        routes_h3_od[route_id_col_base].unique()
                                     )
                                     directions_od = sorted(
                                         routes_h3_od["direction"].unique()
@@ -1734,7 +1739,7 @@ if id_linea is not None:
                                         cmap_name_od = ramal_cmap_map_od[str(ramal_od)]
 
                                         ramal_data_od = routes_h3_od[
-                                            routes_h3_od["id_ramal"] == ramal_od
+                                            routes_h3_od[route_id_col_base] == ramal_od
                                         ]
 
                                         for direction_od in directions_od:
@@ -1766,8 +1771,13 @@ if id_linea is not None:
                                             gdf_od = gdf_od[gdf_od.geometry.notna()]
 
                                             if not gdf_od.empty:
+                                                route_label_od = (
+                                                    "Ramal"
+                                                    if route_id_col_base == "id_ramal"
+                                                    else "Línea"
+                                                )
                                                 layer_name_od = (
-                                                    f"Ramal {ramal_od} - "
+                                                    f"{route_label_od} {ramal_od} - "
                                                     f"Sentido {direction_od}"
                                                 )
                                                 route_layer_name_od = (
@@ -1783,7 +1793,7 @@ if id_linea is not None:
                                                     m=route_group_od,
                                                     color="gray",
                                                     tooltip=[
-                                                        "id_ramal",
+                                                        route_id_col_base,
                                                         "direction",
                                                     ],
                                                     popup=False,
@@ -1821,7 +1831,7 @@ if id_linea is not None:
                                                             "id"
                                                             if "id"
                                                             in route_gdf_od.columns
-                                                            else "id_ramal"
+                                                            else route_id_col_base
                                                         )
 
                                                         route_gdf_od[
@@ -1982,10 +1992,13 @@ if id_linea is not None:
                                     [od_route_col, od_direction_col], sort=True
                                 )
                             ):
+                                od_label = (
+                                    "Línea" if od_route_col == "id_linea" else "Ramal"
+                                )
                                 od_group = folium.FeatureGroup(
                                     name=(
                                         "Líneas OD: "
-                                        f"Ramal {ramal_od} - "
+                                        f"{od_label} {ramal_od} - "
                                         f"Sentido {direction_od}"
                                     ),
                                     show=(od_layer_idx == 0),
