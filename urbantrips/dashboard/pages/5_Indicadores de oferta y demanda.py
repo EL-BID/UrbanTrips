@@ -24,6 +24,7 @@ from dash_utils import (
     configurar_selector_corrida,
 )
 from urbantrips.utils import utils
+from urbantrips.viz import basemaps
 # except ImportError as e:
 #     st.error(
 #         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
@@ -66,10 +67,9 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
 
     fig = Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
         zoom_start=9,
-        tiles="cartodbpositron",
     )
 
     title_html = """
@@ -255,12 +255,12 @@ def plot_frequency_by_section(
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -488,12 +488,12 @@ def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, 
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -725,12 +725,12 @@ def plot_demand_by_section(lineas, id_linea, nombre_linea, day_type, n_sections,
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -1152,7 +1152,7 @@ with st.expander("Matriz OD por linea"):
             ]
 
             fig = Figure(width=800, height=800)
-            m = folium.Map(location=map_center, zoom_start=10, tiles="cartodbpositron")
+            m = basemaps.folium_map(location=map_center, zoom_start=10)
 
             # Add GeoDataFrame to the map
             folium.GeoJson(zonas).add_to(m)

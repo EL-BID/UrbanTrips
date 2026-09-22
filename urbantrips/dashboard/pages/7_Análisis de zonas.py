@@ -22,6 +22,7 @@ from urbantrips.utils import utils
 # from urbantrips.carto.carto import get_h3_indices_in_geometry
 # from urbantrips.geo.geo import h3_to_polygon
 from streamlit_folium import folium_static
+from urbantrips.viz import basemaps
 
 pd.options.display.float_format = "{:,.0f}".format
 
@@ -169,7 +170,7 @@ def main():
             st.stop()
 
         # Initialize Folium map
-        m = folium.Map(location=latlon, zoom_start=10)
+        m = basemaps.folium_map(location=latlon, zoom_start=10)
         draw = plugins.Draw(
             export=False,
             draw_options={"polygon": True, "rectangle": True},
@@ -466,7 +467,7 @@ def main():
                 )
 
                 # Plot the zones on a new Folium map
-                m2 = folium.Map(
+                m2 = basemaps.folium_map(
                     location=[
                         gdf.geometry.centroid.y.mean(),
                         gdf.geometry.centroid.x.mean(),

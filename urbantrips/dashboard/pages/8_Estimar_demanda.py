@@ -43,6 +43,7 @@ import mapclassify
 from folium import Figure
 import json
 from shapely.geometry import shape, LineString, MultiLineString
+from urbantrips.viz import basemaps
 
 
 def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
@@ -63,10 +64,9 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
 
     fig = Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=location,
         zoom_start=9,
-        tiles="cartodbpositron",
     )
 
     title_html = """
@@ -392,12 +392,12 @@ def plot_demand_by_section(lineas):
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -531,7 +531,7 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
         geometry = None  # <- acá vamos a dejar la geometría final (LineString)
 
         if fuente == "Dibujar en el mapa":
-            m = folium.Map(location=latlon, zoom_start=10)
+            m = basemaps.folium_map(location=latlon, zoom_start=10)
             draw = folium.plugins.Draw(
                 export=False,
                 draw_options={
@@ -741,7 +741,7 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
         )
 
         # Plot the zones on a new Folium map
-        m2 = folium.Map(
+        m2 = basemaps.folium_map(
             location=[
                 gdf.geometry.centroid.y.mean(),
                 gdf.geometry.centroid.x.mean(),
@@ -1043,8 +1043,8 @@ with st.expander("Superposición"):
     )
 
     center = drawn_geom.centroid
-    m_sup = folium.Map(
-        location=[center.y, center.x], zoom_start=11, tiles="cartodbpositron"
+    m_sup = basemaps.folium_map(
+        location=[center.y, center.x], zoom_start=11
     )
 
     # Línea dibujada (distintiva)

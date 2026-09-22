@@ -323,6 +323,7 @@ def plot_venn_diagram(etapas_modos):
 
 # Función para calcular los porcentajes o valores absolutos ponderados
 from itertools import combinations
+from urbantrips.viz import basemaps
 
 
 def calculate_weighted_values(df, cols_dummies, weight_column, as_percentage=True):
@@ -577,10 +578,9 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
 
     fig = Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
         zoom_start=9,
-        tiles="cartodbpositron",
     )
 
     title_html = """

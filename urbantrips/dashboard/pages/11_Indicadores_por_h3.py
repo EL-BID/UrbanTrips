@@ -23,6 +23,7 @@ from urbantrips.kpi.leg_direction import (
     assign_direction_for_line_and_hours,
     compute_section_usage,
 )
+from urbantrips.viz import basemaps
 
 
 def seleccionar_linea(key_input, key_select, metadata_lineas):
@@ -86,10 +87,9 @@ def create_routes_h3_map(routes_h3_df, route_geoms_df, nombre_linea, id_linea):
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -443,10 +443,9 @@ def create_section_usage_map(
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -1684,13 +1683,12 @@ if id_linea is not None:
                             center_lats = [g.centroid.y for g in legs_gdf["geometry"]]
                             center_lons = [g.centroid.x for g in legs_gdf["geometry"]]
 
-                            m_od = folium.Map(
+                            m_od = basemaps.folium_map(
                                 location=[
                                     sum(center_lats) / len(center_lats),
                                     sum(center_lons) / len(center_lons),
                                 ],
                                 zoom_start=12,
-                                tiles="cartodbpositron",
                             )
 
                             cmaps_od = [

@@ -22,6 +22,7 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.storage.context import StorageContext
 from urbantrips.utils.paths import get_paths
+from urbantrips.viz import basemaps
 
 logger = logging.getLogger(__name__)
 
@@ -348,13 +349,13 @@ def viz_route_section_frequency(
         arrowprops=dict(facecolor="black", edgecolor="black", shrink=0.2),
     )
 
-    prov = cx.providers.CartoDB.Positron
+    prov = basemaps.CANVAS
     try:
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string())
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string())
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string())
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string())
     except r_ConnectionError:
         pass
 
@@ -718,13 +719,13 @@ def viz_route_section_speed(
         arrowprops=dict(facecolor="Grey", shrink=0.05, edgecolor="Grey"),
     )
 
-    prov = cx.providers.CartoDB.Positron
+    prov = basemaps.CANVAS
     try:
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string())
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string())
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string())
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string())
     except r_ConnectionError:
         pass
 

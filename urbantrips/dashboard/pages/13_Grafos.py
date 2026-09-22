@@ -31,6 +31,7 @@ from urbantrips.kpi.leg_direction import (
     assign_direction_for_line_and_hours,
     compute_section_usage,
 )
+from urbantrips.viz import basemaps
 
 
 def seleccionar_linea(key_input, key_select, metadata_lineas):
@@ -94,10 +95,9 @@ def create_routes_h3_map(routes_h3_df, route_geoms_df, nombre_linea, id_linea):
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -451,10 +451,9 @@ def create_section_usage_map(
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -824,10 +823,9 @@ def create_routes_h3_graph_map(
         return None, nodes_gdf, edges_gdf
 
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[nodes_gdf.geometry.y.mean(), nodes_gdf.geometry.x.mean()],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     title_text = f"Grafo H3 - {nombre_linea} (ID: {id_linea})"
@@ -1055,10 +1053,9 @@ def create_graph_edge_usage_map(
     centroids = edge_usage_gdf.geometry.centroid
 
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[centroids.y.mean(), centroids.x.mean()],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     title_text = f"Uso de Edges del Grafo - {nombre_linea} (ID: {id_linea})"
@@ -1149,10 +1146,9 @@ def create_graph_od_desire_lines_map(
     centroids = od_lines_gdf.geometry.centroid
 
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[centroids.y.mean(), centroids.x.mean()],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     title_text = f"Líneas de Deseo por Nodo - {nombre_linea} (ID: {id_linea})"

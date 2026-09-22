@@ -23,6 +23,7 @@ from urbantrips.kpi.leg_direction import (
     assign_direction_for_line_and_hours,
     compute_section_usage,
 )
+from urbantrips.viz import basemaps
 
 ROUTE_H3_FILL_COLOR = "#3f3f46"
 ROUTE_H3_LINE_COLOR = "#18181b"
@@ -91,10 +92,9 @@ def create_routes_h3_map(routes_h3_df, route_geoms_df, nombre_linea, id_linea):
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -448,10 +448,9 @@ def create_section_usage_map(
 
     # Create map
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     # Add title
@@ -797,10 +796,9 @@ def create_gps_outside_buffer_map(gps_outside_by_h3, route_h3_cells, buffer_cell
     center_lng = gps_gdf.geometry.centroid.x.mean()
 
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[center_lat, center_lng],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     route_display_cells = set(route_h3_cells)
@@ -888,13 +886,12 @@ def create_service_endpoints_map(
         return None
 
     fig = Figure(width=1000, height=700)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[
             sum(center_lats) / len(center_lats),
             sum(center_lngs) / len(center_lngs),
         ],
         zoom_start=12,
-        tiles="cartodbpositron",
     )
 
     if route_h3_cells:

@@ -28,6 +28,7 @@ from urbantrips.utils.utils import (
 from urbantrips.utils.paths import get_paths
 from urbantrips.storage.context import StorageContext
 from urbantrips.geo import geo
+from urbantrips.viz import basemaps
 
 
 def visualize_lines_od_matrix(
@@ -385,11 +386,11 @@ def viz_line_od_matrix(ctx: StorageContext, od_line, stat="totals"):
     ax1.set_axis_off()
     ax2.grid(False)
 
-    prov = cx.providers.CartoDB.Positron
+    prov = basemaps.CANVAS
     try:
-        cx.add_basemap(ax1, crs=gdf.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax1, crs=gdf.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf.crs.to_string())
+        basemaps.add_basemap(ax1, crs=gdf.crs.to_string())
     except r_ConnectionError:
         pass
 
@@ -573,10 +574,9 @@ def create_folium_desire_lines(
     od_line["cuts"] = pd.cut(od_line[var_fex], bins=bins, labels=bins_labels)
 
     fig = folium.Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[od_line.lat_o.mean(), od_line.lon_o.mean()],
         zoom_start=9,
-        tiles="cartodbpositron",
     )
 
     # map branches geoms

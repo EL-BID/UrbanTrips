@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
 
 from urbantrips.utils.paths import get_paths
+from urbantrips.viz import basemaps
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,9 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile, k_jenks=5):
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
 
     fig = Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
         zoom_start=9,
-        tiles="cartodbpositron",
     )
     title_html = '<h3 align="center" style="font-size:20px"><b>Your map title</b></h3>'
     m.get_root().html.add_child(folium.Element(title_html))

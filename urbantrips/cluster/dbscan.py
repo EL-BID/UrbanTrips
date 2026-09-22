@@ -18,6 +18,7 @@ from urbantrips.utils.paths import get_paths
 import seaborn as sns
 import os
 from urbantrips.storage.context import StorageContext
+from urbantrips.viz import basemaps
 
 logger = logging.getLogger(__name__)
 
@@ -623,17 +624,17 @@ def plot_cluster_legs_4d(
 
             route_gs.plot(ax=ax, color="black")
 
-        prov = cx.providers.CartoDB.Positron
+        prov = basemaps.CANVAS
         crs_string = gdf_max_groups.crs.to_string()
         try:
-            cx.add_basemap(ax1, crs=crs_string, source=prov)
+            basemaps.add_basemap(ax1, crs=crs_string, source=prov)
         except UnidentifiedImageError:
-            cx.add_basemap(ax1, crs=crs_string)
+            basemaps.add_basemap(ax1, crs=crs_string)
         except r_ConnectionError:
             pass
 
-        cx.add_basemap(ax2, crs=crs_string, source=prov)
-        cx.add_basemap(ax3, crs=crs_string, source=prov)
+        basemaps.add_basemap(ax2, crs=crs_string, source=prov)
+        basemaps.add_basemap(ax3, crs=crs_string, source=prov)
 
         data_g = clustered_legs_direction.groupby("k_max_groups").agg(
             cluster=("factor_expansion", "sum")

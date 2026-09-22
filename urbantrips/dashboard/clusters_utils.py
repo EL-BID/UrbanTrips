@@ -475,6 +475,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 import numpy as np
+from urbantrips.viz import basemaps
 
 
 def rgb_to_hex(rgb):
@@ -512,10 +513,9 @@ def plot_cluster_in_map(
     carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
 
     # Inicializar mapa
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=(-34.6, -58.5),
         zoom_start=12,
-        tiles="cartodbpositron",
         width=1300,
         height=800,
     )

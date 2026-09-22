@@ -45,6 +45,7 @@ from urbantrips.utils.check_configs import check_config
 #     st.stop()
 from urbantrips.dashboard import dashboard_ctx
 from urbantrips.storage.access import DatabaseBusyError, write_access
+from urbantrips.viz import basemaps
 
 # El StorageContext ya NO se cachea con @st.cache_resource: una conexión DuckDB
 # abierta toma el lock del archivo y bloquea tanto a otro dashboard como al
@@ -231,7 +232,7 @@ def mostrar_mapa_recorrido(estado):
     color = "#0B5C8A" if estado["oficial"] else "#B4581F"
     minx, miny, maxx, maxy = geom.bounds
 
-    mapa = folium.Map(tiles="cartodbpositron")
+    mapa = basemaps.folium_map()
     folium.PolyLine(
         # Indexado y no desempaquetado: las bases escritas antes de que
         # process_routes_geoms aplanara la Z guardan LINESTRING Z, y ahí
