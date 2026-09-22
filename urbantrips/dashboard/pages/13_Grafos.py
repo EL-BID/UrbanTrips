@@ -1126,13 +1126,22 @@ def create_graph_edge_usage_map(
 
 
 def create_graph_od_desire_lines_map(
-    od_lines_gdf, nombre_linea, id_linea, metric_col="n_legs_expanded"
+    od_lines_gdf,
+    nombre_linea,
+    id_linea,
+    metric_col="n_legs_expanded",
+    line_graph=None,
+    route_geoms=None,
+    id_col="id_linea",
 ):
     """Create a folium map with desire lines between matched graph nodes.
 
     Lines are drawn from lowest to highest demand, so busier lines end up on
     top of the layer, and their width/opacity scale with demand (same style
-    as the líneas de deseo map in the H3 indicators page).
+    as the líneas de deseo map in the H3 indicators page). When available,
+    the H3 cells of ``line_graph`` (in gray) and the official route
+    geometries in ``route_geoms`` are drawn first as background layers, so
+    the desire lines end up on top of them.
     """
     if od_lines_gdf is None or od_lines_gdf.empty:
         return None
@@ -1151,6 +1160,52 @@ def create_graph_od_desire_lines_map(
     <h3 align="center" style="font-size:20px"><b>{title_text}</b></h3>
     """
     m.get_root().html.add_child(folium.Element(title_html))
+
+    if line_graph is not None and line_graph.number_of_nodes() > 0:
+        h3_cells = []
+        h3_geoms = []
+        for node in line_graph.nodes():
+            try:
+                h3_geoms.append(h3_to_shapely_polygon(node))
+                h3_cells.append(node)
+            except Exception:
+                continue
+        if h3_geoms:
+            h3_cells_gdf = gpd.GeoDataFrame(
+                {"h3": h3_cells}, geometry=h3_geoms, crs="EPSG:4326"
+            )
+            h3_cells_gdf.explore(
+                m=m,
+                color="gray",
+                name="Celdas H3 del grafo",
+                style_kwds={"fillOpacity": 0.5, "weight": 1, "color": "gray"},
+                tooltip=["h3"],
+                legend=False,
+                show=True,
+            )
+
+    if route_geoms is not None and not route_geoms.empty:
+        route_id_col = "id" if "id" in route_geoms.columns else id_col
+        unique_routes = (
+            route_geoms[[route_id_col, "direction"]].dropna().drop_duplicates()
+        )
+        for _, route_row in unique_routes.iterrows():
+            route_line_geom = get_route_line_geom(
+                route_geoms,
+                route_id=route_row[route_id_col],
+                direction=route_row["direction"],
+                route_id_col=id_col,
+            )
+            if route_line_geom is not None:
+                add_route_line_layer(
+                    m,
+                    route_line_geom,
+                    layer_name=(
+                        f"Ruta: {route_row[route_id_col]} - "
+                        f"Sentido {int(route_row['direction'])}"
+                    ),
+                    show_layer=True,
+                )
 
     vmin = od_lines_gdf[metric_col].min()
     vmax = od_lines_gdf[metric_col].max()
@@ -1691,6 +1746,70 @@ if id_linea is not None:
                             st.warning("No se pudo construir el grafo de línea")
                             st.stop()
 
+                        if has_branches:
+                            metadata_demand = ctx.insumos.query(f"""
+                                SELECT id_ramal
+                                FROM metadata_ramales
+                                WHERE id_linea = {id_linea}
+                                """)
+                            ramales_list_demand = (
+                                metadata_demand["id_ramal"]
+                                .dropna()
+                                .astype(int)
+                                .tolist()
+                            )
+                            route_filter_demand = (
+                                f"id_ramal IN ({','.join(map(str, ramales_list_demand))})"
+                                if ramales_list_demand
+                                else "1=0"
+                            )
+                            geoms_table_demand = "official_branches_geoms"
+                        else:
+                            route_filter_demand = f"id_linea = {id_linea}"
+                            geoms_table_demand = "lines_geoms"
+
+                        try:
+                            route_geoms_demand = ctx.insumos.query(f"""
+                                SELECT {id_col} as id, direction, wkt
+                                FROM {geoms_table_demand}
+                                WHERE {route_filter_demand}
+                                """)
+                        except Exception:
+                            route_geoms_demand = None
+
+                        # etapas.h3_o/h3_d are stored at configs["resolucion_h3"],
+                        # which may differ from the resolution chosen for the
+                        # graph; reproject them to the graph's resolution so
+                        # matching against graph nodes works.
+                        raw_h3_res = configs.get("resolucion_h3")
+                        graph_h3_res = demand_line_graph.graph.get("h3_res", h3_res)
+                        if raw_h3_res is not None and int(graph_h3_res) != int(
+                            raw_h3_res
+                        ):
+                            if int(graph_h3_res) > int(raw_h3_res):
+                                st.warning(
+                                    "La resolución del grafo "
+                                    f"({graph_h3_res}) es más fina que la usada "
+                                    f"para georeferenciar etapas ({raw_h3_res}); "
+                                    "elegí una resolución menor o igual en el "
+                                    "slider para poder rutear la demanda."
+                                )
+                                st.stop()
+                            legs_for_demand["h3_o"] = legs_for_demand["h3_o"].apply(
+                                lambda x: (
+                                    h3.cell_to_parent(x, int(graph_h3_res))
+                                    if pd.notna(x)
+                                    else x
+                                )
+                            )
+                            legs_for_demand["h3_d"] = legs_for_demand["h3_d"].apply(
+                                lambda x: (
+                                    h3.cell_to_parent(x, int(graph_h3_res))
+                                    if pd.notna(x)
+                                    else x
+                                )
+                            )
+
                         matched_legs = assign_legs_to_line_h3_graph(
                             demand_line_graph,
                             legs_for_demand,
@@ -1714,6 +1833,7 @@ if id_linea is not None:
                             "matched_legs": matched_legs,
                             "edge_usage": edge_usage,
                             "line_graph": demand_line_graph,
+                            "route_geoms": route_geoms_demand,
                             "nombre_linea": nombre_linea,
                             "id_linea": id_linea,
                         }
@@ -1875,7 +1995,12 @@ if id_linea is not None:
                         st.dataframe(od_pivot, use_container_width=True)
 
                     od_fig = create_graph_od_desire_lines_map(
-                        od_lines_gdf, nombre_linea_demand, id_linea_demand
+                        od_lines_gdf,
+                        nombre_linea_demand,
+                        id_linea_demand,
+                        line_graph=line_graph_demand,
+                        route_geoms=demand_results.get("route_geoms"),
+                        id_col=id_col,
                     )
                     if od_fig is not None:
                         st_folium(
