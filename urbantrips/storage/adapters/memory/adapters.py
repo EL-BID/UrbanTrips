@@ -275,7 +275,21 @@ class InMemoryInsumoAdapter:
         return self._store.get("stops", pd.DataFrame())  # type: ignore[return-value]
 
     def get_zones(self) -> gpd.GeoDataFrame:
-        return self._store.get("zones", gpd.GeoDataFrame())  # type: ignore[return-value]
+        # Misma clave que usa `guardo_zonificaciones` via save_raw ("zonificaciones"),
+        # no "zones": si no, este adaptador devolvia vacio aunque la zonificacion
+        # estuviera cargada. Rehidrata el WKT porque save_raw guarda lo que le den
+        # y carto.py lo serializa antes (ver DuckDBInsumoAdapter.get_zones).
+        df = self._store.get("zonificaciones", gpd.GeoDataFrame())
+        if len(df) == 0 or "geometry" not in df.columns:
+            return gpd.GeoDataFrame()
+        df = df[df["geometry"].notna()].copy()
+        if len(df) == 0:
+            return gpd.GeoDataFrame()
+        if isinstance(df["geometry"].iloc[0], str):
+            from shapely import wkt as _wkt
+
+            df["geometry"] = df["geometry"].apply(_wkt.loads)
+        return gpd.GeoDataFrame(df, geometry="geometry", crs=4326)
 
     def get_metadata_lineas(self) -> pd.DataFrame:
         return self._store.get("metadata_lineas", pd.DataFrame())  # type: ignore[return-value]
@@ -306,7 +320,7 @@ class InMemoryInsumoAdapter:
         self._store["stops"] = df.copy()
 
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
-        self._store["zones"] = df.copy()
+        self._store["zonificaciones"] = df.copy()
 
     def save_matrix_validation(self, df: pd.DataFrame) -> None:
         self._store["matriz_validacion"] = df.copy()
