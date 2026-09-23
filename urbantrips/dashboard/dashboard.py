@@ -1,5 +1,6 @@
 import sys
 import os
+import multiprocessing
 
 # Propagate --config flag to all dashboard modules via env var.
 # Usage: streamlit run dashboard.py -- --config /path/to/configuraciones_generales.yaml
@@ -32,12 +33,8 @@ from dash_utils import (
     get_logo,
     traigo_indicadores,
     configurar_selector_corrida,
-    formatear_columnas_numericas
+    formatear_columnas_numericas,
 )
-
-
-
-
 
 st.set_page_config(layout="wide")
 
@@ -58,12 +55,20 @@ alias_seleccionado = configurar_selector_corrida()
 
 col1, col2, col3 = st.columns([1, 3, 3])
 
-indicadores = levanto_tabla_sql("indicadores", "data")
+# multiprocessing (start method spawn, default en Windows/macOS) re-ejecuta
+# este archivo para reconstruir __main__ en cada worker; ahi no hay un
+# ScriptRunContext real y no hay que reabrir la base (ver storage/access.py).
+if multiprocessing.current_process().name == "MainProcess":
+    indicadores = levanto_tabla_sql("indicadores", "data")
+else:
+    indicadores = pd.DataFrame()
 
 
 def _valor(df, tabla, detalle_contains):
     """Devuelve el valor numérico de un indicador puntual, o None si no existe."""
-    sub = df[(df.tabla == tabla) & (df.detalle.str.contains(detalle_contains, regex=False))]
+    sub = df[
+        (df.tabla == tabla) & (df.detalle.str.contains(detalle_contains, regex=False))
+    ]
     return float(sub.indicador.iloc[0]) if len(sub) else None
 
 
@@ -81,9 +86,11 @@ def _tabla_indicadores(df, columna_pct=None, entero=True):
         pct = pd.Series(columna_pct).reset_index(drop=True)
         out = out.reset_index(drop=True)
         out["%"] = pct.apply(
-            lambda x: f"{x:.1f}".replace(".", ",") + "%"
-            if pd.notna(x) and round(float(x), 1) != 0.0
-            else ""
+            lambda x: (
+                f"{x:.1f}".replace(".", ",") + "%"
+                if pd.notna(x) and round(float(x), 1) != 0.0
+                else ""
+            )
         )
     return out
 
@@ -107,71 +114,97 @@ if len(indicadores) > 0:
 
     # ── Valores de referencia para porcentajes calculados ────────────────────
     registros_trx = _valor(indicadores, "transacciones", "Registros")
-    total_viajes_exp = _valor(indicadores, "viajes expandidos", "Cantidad total de viajes")
+    total_viajes_exp = _valor(
+        indicadores, "viajes expandidos", "Cantidad total de viajes"
+    )
 
     # ╔═══════════════════════════ Columna izquierda: VOLÚMENES (embudo) ══════╗
 
     # 1) Transacciones (insumo)
     trx = indicadores.loc[indicadores.tabla == "transacciones"]
     _mostrar(
-        col2, "Preprocesamiento de transacciones", trx,
+        col2,
+        "Preprocesamiento de transacciones",
+        trx,
         ayuda="Insumo crudo: cada transacción del sistema de pago es una etapa potencial.",
     )
 
     # 2) Etapas: validadas (con destino imputado) + expandidas al universo
-    etapas = pd.concat([
-        indicadores[indicadores.tabla == "etapas"],
-        indicadores[indicadores.tabla == "etapas_expandidas"].sort_values("nivel"),
-    ])
+    etapas = pd.concat(
+        [
+            indicadores[indicadores.tabla == "etapas"],
+            indicadores[indicadores.tabla == "etapas_expandidas"].sort_values("nivel"),
+        ]
+    )
     pct_etapas = etapas.apply(
-        lambda r: (r.indicador / registros_trx * 100)
-        if (r.tabla == "etapas" and registros_trx) else r.porcentaje,
+        lambda r: (
+            (r.indicador / registros_trx * 100)
+            if (r.tabla == "etapas" and registros_trx)
+            else r.porcentaje
+        ),
         axis=1,
     )
     _mostrar(
-        col2, "Etapas", etapas, columna_pct=pct_etapas,
+        col2,
+        "Etapas",
+        etapas,
+        columna_pct=pct_etapas,
         ayuda="Etapas con destino validado se expanden al total de transacciones. "
-              "El % de las validadas es la tasa de validación; el resto, partición modal.",
+        "El % de las validadas es la tasa de validación; el resto, partición modal.",
     )
 
     # 3) Viajes: validados + expandidos (con % de transferencia y cortos)
-    viajes = pd.concat([
-        indicadores[indicadores.tabla == "viajes"],
-        indicadores[indicadores.tabla == "viajes expandidos"].sort_values("nivel"),
-    ])
+    viajes = pd.concat(
+        [
+            indicadores[indicadores.tabla == "viajes"],
+            indicadores[indicadores.tabla == "viajes expandidos"].sort_values("nivel"),
+        ]
+    )
     _mostrar(
-        col2, "Viajes", viajes, columna_pct=viajes["porcentaje"],
+        col2,
+        "Viajes",
+        viajes,
+        columna_pct=viajes["porcentaje"],
         ayuda="Etapas encadenadas en viajes. Los % son sobre el total de viajes expandidos.",
     )
 
     # 4) Usuarios / tarjetas
     usuarios = indicadores[indicadores.tabla.isin(["usuarios", "usuarios expandidos"])]
     _mostrar(
-        col2, "Usuarios (tarjetas)", usuarios,
+        col2,
+        "Usuarios (tarjetas)",
+        usuarios,
         ayuda="Tarjetas únicas. 'finales' usa el factor de expansión por tarjeta; "
-              "'total' el factor por etapa.",
+        "'total' el factor por etapa.",
     )
 
     # ╔═══════════════════════════ Columna derecha: PROMEDIOS y MODAL ═════════╗
 
     # 5) Partición modal de viajes (con % calculado sobre el total expandido)
     modal = indicadores[indicadores.tabla == "modos viajes"].copy()
-    pct_modal = (
-        modal.indicador / total_viajes_exp * 100 if total_viajes_exp else None
-    )
+    pct_modal = modal.indicador / total_viajes_exp * 100 if total_viajes_exp else None
     _mostrar(
-        col3, "Partición modal de viajes", modal, columna_pct=pct_modal,
+        col3,
+        "Partición modal de viajes",
+        modal,
+        columna_pct=pct_modal,
         ayuda="Viajes expandidos por modo y su participación sobre el total.",
     )
 
     # 6) Promedios
-    prom = indicadores[(indicadores.tabla == "avg") & (indicadores.detalle.str.contains("promedio"))]
+    prom = indicadores[
+        (indicadores.tabla == "avg") & (indicadores.detalle.str.contains("promedio"))
+    ]
     _mostrar(
-        col3, "Promedios", prom, entero=False,
+        col3,
+        "Promedios",
+        prom,
+        entero=False,
         ayuda="Distancias y etapas promedio (ponderadas por factor de expansión).",
     )
 
     # 7) Medianas
-    med = indicadores[(indicadores.tabla == "avg") & (indicadores.detalle.str.contains("mediana"))]
+    med = indicadores[
+        (indicadores.tabla == "avg") & (indicadores.detalle.str.contains("mediana"))
+    ]
     _mostrar(col3, "Medianas", med, entero=False)
-
