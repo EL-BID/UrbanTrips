@@ -7,7 +7,10 @@ import os
 from requests.exceptions import ConnectionError as r_ConnectionError
 from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
-from urbantrips.kpi.supply_kpi import delete_old_supply_stats_by_section_id
+from urbantrips.kpi.supply_kpi import (
+    delete_old_supply_stats_by_section_id,
+    prepare_supply_stats_for_storage,
+)
 import matplotlib.pyplot as plt
 
 from urbantrips.viz.viz import get_branch_geoms_from_line
@@ -256,8 +259,14 @@ def viz_route_section_frequency(
     sections_geoms.plot(ax=ax1, color="black")
     sections_geoms.plot(ax=ax2, color="black")
 
+    # geopandas' categorical plot indexes the first category and raises
+    # IndexError when the column is all NaN (a direction with no classified
+    # section): plot only the classified rows, and nothing if there are none.
+    plot_d0 = gdf_d0.dropna(subset=[indicator_col])
+    plot_d1 = gdf_d1.dropna(subset=[indicator_col])
+
     try:
-        gdf_d0.plot(
+        plot_d0.plot(
             ax=ax1,
             column=indicator_col,
             cmap="PiYG",
@@ -265,7 +274,7 @@ def viz_route_section_frequency(
             alpha=0.8,
             legend=True,
         )
-        gdf_d1.plot(
+        plot_d1.plot(
             ax=ax2,
             column=indicator_col,
             cmap="managua",
@@ -274,8 +283,8 @@ def viz_route_section_frequency(
             legend=True,
         )
     except ValueError:
-        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="BuPu", alpha=0.6)
-        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="Oranges", alpha=0.6)
+        plot_d0.plot(ax=ax1, column=indicator_col, cmap="BuPu", alpha=0.6)
+        plot_d1.plot(ax=ax2, column=indicator_col, cmap="Oranges", alpha=0.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
@@ -531,8 +540,14 @@ def viz_route_section_speed(
     sections_geoms.plot(ax=ax1, color="black")
     sections_geoms.plot(ax=ax2, color="black")
 
+    # geopandas' categorical plot indexes the first category and raises
+    # IndexError when the column is all NaN (a direction with no classified
+    # section): plot only the classified rows, and nothing if there are none.
+    plot_d0 = gdf_d0.dropna(subset=[indicator_col])
+    plot_d1 = gdf_d1.dropna(subset=[indicator_col])
+
     try:
-        gdf_d0.plot(
+        plot_d0.plot(
             ax=ax1,
             column=indicator_col,
             cmap="RdYlGn",
@@ -540,7 +555,7 @@ def viz_route_section_speed(
             alpha=0.6,
             legend=True,
         )
-        gdf_d1.plot(
+        plot_d1.plot(
             ax=ax2,
             column=indicator_col,
             cmap="RdYlGn",
@@ -549,8 +564,8 @@ def viz_route_section_speed(
             legend=True,
         )
     except ValueError:
-        gdf_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn", alpha=0.6)
-        gdf_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn", alpha=0.6)
+        plot_d0.plot(ax=ax1, column=indicator_col, cmap="RdYlGn", alpha=0.6)
+        plot_d1.plot(ax=ax2, column=indicator_col, cmap="RdYlGn", alpha=0.6)
 
     ax1.set_axis_off()
     ax2.set_axis_off()
@@ -798,6 +813,7 @@ def viz_route_section_speed(
     for var in ["yr_mo", "day_type", "hour_min", "hour_max"]:
         gdf_d_dash[var] = gdf_d_dash[var].fillna(method="ffill").fillna(method="bfill")
 
+    gdf_d_dash = prepare_supply_stats_for_storage(gdf_d_dash, ctx.dash)
     ctx.dash.append_raw(gdf_d_dash, "supply_stats_by_section_id")
 
     if save_gdf:

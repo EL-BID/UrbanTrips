@@ -130,8 +130,9 @@ def compute_route_section_supply(
         # freshly created DuckDB table types them as ENUM, the dashboard reads
         # them back as Categorical, and viz fillna(0) raises on the unmatched
         # sections ("Cannot setitem on a Categorical with a new category").
-        for _c in ["speed_interval", "frequency_interval"]:
-            section_supply_stats_table[_c] = section_supply_stats_table[_c].astype(object)
+        section_supply_stats_table = prepare_supply_stats_for_storage(
+            section_supply_stats_table, ctx.data
+        )
 
         logger.debug("Uploading data to db...")
         ctx.data.append_raw(section_supply_stats_table, "supply_stats_by_section_id")
@@ -253,10 +254,14 @@ def compute_section_supply_stats(gps, route_geoms):
             f"{str(i).zfill(2)} - {str(i+5).zfill(2)} min" for i in range(0, 60, 5)
         ]
 
-        # Group the frequency into intervals of 5 minutes
+        # Group the frequency into intervals of 5 minutes. frequency = 60 /
+        # n_vehicles tops out at exactly 60 (one vehicle), which the right-open
+        # [55, 60) bin left out as NaN: in a small city every section can have a
+        # single vehicle and the whole direction came out unclassified. Closing
+        # the last bin at +inf keeps the labels and puts 60 in "55 - 60 min".
         section_supply_stats["frequency_interval"] = pd.cut(
             section_supply_stats["frequency"],
-            bins=range(0, 65, 5),
+            bins=list(range(0, 60, 5)) + [float("inf")],
             right=False,
             labels=labels,
         )
@@ -321,6 +326,43 @@ def read_gps_data_by_line_hours_and_day(
         gps = gps.loc[(gps.hora >= hour_range[0]) & (gps.hora <= hour_range[1]), :]
 
     return gps
+
+
+SUPPLY_INTERVAL_COLS = ["speed_interval", "frequency_interval"]
+
+
+def prepare_supply_stats_for_storage(df, adapter):
+    """
+    Makes the interval columns of supply_stats_by_section_id storable as text.
+
+    append_raw creates the table from the first frame it receives. An object
+    column that is all None there is typed INTEGER by DuckDB, and the next run
+    with real labels fails ("Could not convert string '55 - 60 min' to INT32").
+    Sending them as pandas "string" makes DuckDB type them VARCHAR even when
+    empty, and a table already created with the wrong type is fixed in place
+    (its values in those columns can only be NULL, so nothing is lost).
+    """
+    df = df.copy()
+    for col in SUPPLY_INTERVAL_COLS:
+        if col in df.columns:
+            df[col] = df[col].astype(object).astype("string")
+
+    try:
+        types = adapter.query(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = 'supply_stats_by_section_id'"
+        )
+    except Exception:
+        return df
+    for col, dtype in zip(types.column_name, types.data_type):
+        if col in SUPPLY_INTERVAL_COLS and dtype != "VARCHAR":
+            logger.info(
+                "supply_stats_by_section_id.%s estaba como %s: pasa a VARCHAR", col, dtype
+            )
+            adapter.execute(
+                f'ALTER TABLE supply_stats_by_section_id ALTER COLUMN "{col}" TYPE VARCHAR'
+            )
+    return df
 
 
 def delete_old_supply_stats_by_section_id(

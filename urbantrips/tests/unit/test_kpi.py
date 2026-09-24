@@ -126,3 +126,33 @@ def test_compute_kpi_by_line_day_does_not_use_conn_data():
     assert "ctx.data.query" in src, (
         "services must be fetched via ctx.data.query, not pd.read_sql"
     )
+
+
+def test_compute_speed_is_total_distance_over_total_time(monkeypatch):
+    """Veh-hour speed = total distance / total time, with each ping's
+    distance_km (distance FROM the previous ping) paired with the time since
+    the previous ping. Pings at 0, 3 and 360 s: 0.01 km in the first 3 s and
+    1 km in the next 357 s → 1.01 km in 0.1 h = 10.1 km/h."""
+    from urbantrips.kpi import kpi as kpi_module
+
+    gps_rows = pd.DataFrame({
+        "dia":                   ["2024-01-01"] * 3,
+        "id_linea":              [1] * 3,
+        "id_ramal":              [1] * 3,
+        "interno":               [101] * 3,
+        "fecha":                 [1704096000, 1704096003, 1704096360],
+        "velocity":              [None] * 3,
+        "distance_km":           [0.0, 0.01, 1.0],
+        "distance_servicio_mts": [None] * 3,
+    })
+
+    class _MockData:
+        def query(self, sql):
+            return gps_rows.copy()
+
+    result = kpi_module.compute_speed_by_day_veh_hour(SimpleNamespace(data=_MockData()))
+
+    assert len(result) == 1
+    assert abs(result["kmh_route_veh_h"].iloc[0] - 10.1) < 0.01
+    # sin odómetro la otra velocidad queda NaN, sin descartar la fila
+    assert result["kmh_route_gps_veh_h"].isna().all()

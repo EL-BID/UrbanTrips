@@ -1368,36 +1368,70 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     """
     gps_df = ctx.data.query(q)
 
-    # Crear lag de fecha por vehículo
+    # Tiempo desde el ping ANTERIOR del vehículo. distance_km de cada ping es la
+    # distancia desde el ping anterior (compute_distance_km_gps la calcula contra
+    # h3.shift(1)), así que el tiempo tiene que ser el del mismo intervalo. Antes
+    # se usaba el tiempo hasta el ping siguiente: con pings irregulares un salto
+    # largo quedaba dividido por un intervalo de 3 s.
     gps_df = gps_df.sort_values(["dia", "id_linea", "id_ramal", "interno", "fecha"])
-    gps_df["fecha_lag"] = (
+    gps_df["fecha_prev"] = (
         gps_df.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "fecha"])
         .groupby(["dia", "id_linea", "id_ramal", "interno"])
-        .shift(-1)
+        .shift(1)
     )
 
     # Delta de tiempo
-    gps_df = gps_df.dropna(subset=["fecha", "fecha_lag"])
-    gps_df["delta_hr"] = (gps_df.fecha_lag - gps_df.fecha) / 3600
+    gps_df["delta_hr"] = (gps_df.fecha - gps_df.fecha_prev) / 3600
+
+    # El ingest (compute_distance_km_gps) pone distance_km = 0 en los intervalos
+    # más largos que el percentil 99,5 del día, calculado sobre TODAS las líneas
+    # y contando el primer ping de cada vehículo como 0. Se reproduce ese mismo
+    # umbral, día por día, para sacar esos huecos: si no, suman tiempo sin
+    # distancia y bajan la velocidad. Tiene que ser el umbral del sistema y no
+    # el de la línea, porque es el que decidió qué distancias se anularon.
+    umbral_hueco = (
+        gps_df.delta_hr.fillna(0).groupby(gps_df.dia).transform(lambda s: s.quantile(0.995))
+    )
+    hueco = (gps_df.delta_hr > umbral_hueco) & (gps_df.distance_km == 0)
+    gps_df = gps_df.loc[~hueco, :]
+
+    gps_df = gps_df.dropna(subset=["fecha", "fecha_prev"])
     gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
 
     # Dos velocidades en paralelo, una por cada distancia
     # distance_servicio_mts may be NULL when the operator doesn't report odometer
     gps_df["distance_km_gps"] = pd.to_numeric(gps_df["distance_servicio_mts"], errors="coerce") / 1000
-    gps_df["kmh_route_veh_h"] = gps_df.distance_km / gps_df.delta_hr
-    gps_df["kmh_route_gps_veh_h"] = gps_df.distance_km_gps / gps_df.delta_hr
     gps_df["hora"] = pd.to_datetime(gps_df["fecha"], unit="s").dt.hour
 
-    # Promediar ambas por veh-hora
+    # Velocidad por veh-hora = distancia total / tiempo total. Antes era el
+    # promedio de las velocidades de cada intervalo entre pings, que con pings
+    # irregulares queda dominado por los intervalos cortos: un error de posición
+    # de 170 m en 3 s son 200 km/h. Medido sobre un día: mediana 27,5 km/h en
+    # AMBA (22 % de los veh-hora ≥ 60, descartados como outliers) y 78 km/h en
+    # Mendoza (69 %), contra 14,5 y 18,8 km/h con distancia/tiempo. Cada
+    # distancia suma el tiempo solo de los intervalos en que está informada.
+    gps_df["dh_veh"] = gps_df.delta_hr.where(gps_df.distance_km.notna())
+    gps_df["dh_gps"] = gps_df.delta_hr.where(gps_df.distance_km_gps.notna())
     speed_vehicle_hour = (
-        gps_df.reindex(
-            columns=[
-                "dia", "id_linea", "id_ramal", "interno", "hora",
-                "kmh_route_veh_h", "kmh_route_gps_veh_h",
-            ]
+        gps_df.groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
+        .agg(
+            km_veh=("distance_km", "sum"),
+            dh_veh=("dh_veh", "sum"),
+            km_gps=("distance_km_gps", "sum"),
+            dh_gps=("dh_gps", "sum"),
         )
-        .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
-        .mean()
+    )
+    speed_vehicle_hour["kmh_route_veh_h"] = (
+        speed_vehicle_hour.km_veh / speed_vehicle_hour.dh_veh.where(speed_vehicle_hour.dh_veh > 0)
+    )
+    speed_vehicle_hour["kmh_route_gps_veh_h"] = (
+        speed_vehicle_hour.km_gps / speed_vehicle_hour.dh_gps.where(speed_vehicle_hour.dh_gps > 0)
+    )
+    speed_vehicle_hour = speed_vehicle_hour.reindex(
+        columns=[
+            "dia", "id_linea", "id_ramal", "interno", "hora",
+            "kmh_route_veh_h", "kmh_route_gps_veh_h",
+        ]
     )
 
     # Conservar filas donde al menos una de las dos velocidades sea válida
@@ -1447,6 +1481,28 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
 
     if len(legs) < 5:
         return None
+
+    # Called for a single day, the orchestrator (compute_kpi) already deleted the
+    # run days. Called from the dashboard (dias / all days), nobody did: each
+    # click appended another copy of the same rows. Replace what this call
+    # recomputes: its lines on its days.
+    if dia is None:
+        import duckdb as _duckdb
+
+        _dias_sql = ", ".join(f"'{d}'" for d in legs.dia.unique())
+        _lineas_sql = ", ".join(str(int(x)) for x in legs.id_linea.unique())
+        for _t in (
+            "basic_kpi_by_vehicle_hr",
+            "basic_kpi_by_line_hr",
+            "basic_kpi_by_line_day",
+        ):
+            try:
+                ctx.data.execute(
+                    f"DELETE FROM {_t} WHERE dia IN ({_dias_sql}) "
+                    f"AND id_linea IN ({_lineas_sql})"
+                )
+            except _duckdb.CatalogException:
+                pass
 
     legs = compute_od_distances(
         od_df             = legs,
@@ -1507,7 +1563,11 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
         speed_vehicle_hour.kmh_route_veh_h > speed_max, "kmh_route_veh_h"
     ] = speed_max
 
-    speed_vehicle_hour = speed_vehicle_hour.dropna()
+    # Only the ping-based speed is used below. A plain dropna() also looked at
+    # kmh_route_gps_veh_h, which is all NaN when the operator does not report
+    # the odometer (Villa María): it dropped every row, left the whole run
+    # without speed and the occupancy factor at 0.
+    speed_vehicle_hour = speed_vehicle_hour.dropna(subset=["kmh_route_veh_h"])
 
     # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour.groupby(
@@ -1576,7 +1636,9 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
         .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
         .agg(
             tot_pax=("factor_expansion_linea", "sum"),
-            eq_pax=("eq_pax", "sum"),
+            # min_count=1: with no speed for the vehicle-hour eq_pax is unknown,
+            # not 0 (a plain sum turned it into an occupancy factor of 0).
+            eq_pax=("eq_pax", lambda s: s.sum(min_count=1)),
             dmt=("distance", "mean"),
             speed_kmh=("speed_kmh", "mean"),
         )

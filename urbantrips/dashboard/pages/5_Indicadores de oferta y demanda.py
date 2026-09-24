@@ -889,67 +889,97 @@ with st.expander("Factor de ocupación por horas"):
 
     if len(kpi_stats_line_plot) > 0:
 
-        # Grafico Factor de Oocupación
-        f, ax = plt.subplots(figsize=(10, 4))
-        sns.barplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="of",
+        # Oferta (veh/hr), demanda (pax/hr) y factor de ocupación (%) comparten
+        # el eje: sin escalar, la demanda (miles de pax) aplastaba a la oferta
+        # (decenas de vehículos) contra el piso y se veía como una línea plana.
+        # Se escalan para que su máximo coincida con el del factor de ocupación,
+        # como dice la nota del gráfico (mismo criterio que viz.plot_basic_kpi).
+        kpi_stats_line_plot = kpi_stats_line_plot.copy()
+        tope = kpi_stats_line_plot["of"].max()
+        if not pd.notna(tope) or tope <= 0:
+            tope = 100
+        for col in ["veh", "pax"]:
+            maximo = kpi_stats_line_plot[col].max()
+            if pd.notna(maximo) and maximo > 0:
+                kpi_stats_line_plot[col] = kpi_stats_line_plot[col] * tope / maximo
+
+        # Una fila por hora: si llegan varias, seaborn dibujaba un intervalo de
+        # confianza alrededor de las líneas.
+        kpi_stats_line_plot = (
+            kpi_stats_line_plot.groupby("hora", as_index=False)[["of", "veh", "pax"]]
+            .mean()
+            .sort_values("hora")
+        )
+
+        # Barras y líneas sobre el MISMO eje numérico de horas. Con sns.barplot
+        # la hora era categórica (posiciones 0..n-1) y con sns.lineplot numérica:
+        # si la línea no empezaba a las 0 h, las curvas quedaban corridas
+        # respecto de las barras y de las etiquetas.
+        f, ax = plt.subplots(figsize=(10, 4.5))
+        ax.bar(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot["of"],
             color="silver",
-            ax=ax,
-            label="Factor de ocupación",
+            width=0.8,
+            label="Factor de ocupación (%)",
+            zorder=1,
         )
-
-        sns.lineplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="veh",
-            ax=ax,
+        ax.plot(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot.veh,
             color="Purple",
+            marker="o",
+            markersize=3,
             label="Oferta - veh/hr",
+            zorder=2,
         )
-        sns.lineplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="pax",
-            ax=ax,
+        ax.plot(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot.pax,
             color="Orange",
+            marker="o",
+            markersize=3,
             label="Demanda - pax/hr",
+            zorder=2,
         )
 
-        ax.set_xlabel("Hora")
-        ax.set_ylabel("Factor de Ocupación (%)")
+        ax.set_xlim(-0.6, 23.6)
+        ax.set_xticks(range(24))
+        ax.set_ylim(0, tope * 1.1)
+        ax.set_xlabel("Hora", fontsize=9)
+        ax.set_ylabel("Factor de Ocupación (%)", fontsize=9)
+        ax.tick_params(axis="both", which="major", labelsize=8)
+        ax.grid(axis="y", alpha=0.3)
+        for lado in ["right", "top", "left"]:
+            ax.spines[lado].set_visible(False)
 
         ax.set_title(
-            f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
+            f"Indicadores de oferta y demanda estandarizados\nLínea:{nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
             fontdict={"size": 12},
         )
 
-        # Add a footnote below and to the right side of the chart
-        note = """
-            *Los indicadores de Oferta y Demanda se estandarizaron para que
-            coincidan con el eje de Factor de Ocupación
-            """
-        ax_note = ax.annotate(
-            note,
-            xy=(0, -0.22),
+        # Leyenda y nota DEBAJO del eje, fuera del área de datos: dentro o al
+        # costado tapaban valores.
+        ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.16),
+            ncol=3,
+            fontsize=8,
+            frameon=False,
+        )
+        ax.annotate(
+            "*Oferta y demanda están escaladas solo para visualizar su evolución a lo "
+            "largo del día: su máximo se lleva al máximo del factor de ocupación.\n"
+            "Sus valores no son porcentajes ni se pueden leer contra el eje, y la "
+            "altura de una curva no se puede comparar con la de la otra.",
+            xy=(0, -0.3),
             xycoords="axes fraction",
             ha="left",
-            va="center",
+            va="top",
             fontsize=7,
+            color="dimgray",
         )
-        ax.spines.right.set_visible(False)
-        ax.spines.top.set_visible(False)
-        ax.spines.bottom.set_visible(False)
-        ax.spines.left.set_visible(False)
-        ax.spines.left.set_position(("outward", 10))
-        ax.spines.bottom.set_position(("outward", 10))
-
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
-        # Put a legend to the right of the current axis
-        ax.tick_params(axis="both", which="major", labelsize=8)
-        ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=8)
+        f.subplots_adjust(bottom=0.3)
         st.pyplot(f)
     else:
         st.write("No hay datos para mostrar")
