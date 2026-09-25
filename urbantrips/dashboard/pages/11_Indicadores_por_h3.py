@@ -841,7 +841,6 @@ if id_linea is not None:
                 route_filter = None
                 table_name = None
                 where_clause = None
-                source_table_h3_saved = source_table_h3
 
                 with dashboard_ctx() as ctx:
                     metadata_query = f"""
@@ -1169,6 +1168,22 @@ if id_linea is not None:
                         write_access(f"calcular uso secciones línea {id_linea}"),
                         dashboard_ctx() as ctx,
                     ):
+                        # Se recalculan aca (no se reusan las de "Cargar geometrías
+                        # H3"): esa sección puede no haberse ejecutado en este run.
+                        metadata_query = f"""
+                        SELECT *
+                        FROM metadata_{source_table_metadata}
+                        WHERE modo = 'autobus' AND id_linea = {id_linea}
+                        """
+                        metadata = ctx.insumos.query(metadata_query)
+
+                        if has_branches:
+                            ramales_list = metadata[id_col].unique().tolist()
+                            ramales_str = ",".join(map(str, ramales_list))
+                            route_filter = f"{id_col} IN ({ramales_str})"
+                        else:
+                            route_filter = f"id_linea = {id_linea}"
+
                         legs_with_dir = assign_direction_for_line_and_hours(
                             ctx,
                             id_linea=id_linea,
@@ -1209,15 +1224,13 @@ if id_linea is not None:
 
                         if h3_res != 10:
                             routes_usage_table = (
-                                f"official_{source_table_h3_saved}_geoms_h3_parent"
+                                f"official_{source_table_h3}_geoms_h3_parent"
                             )
                             routes_usage_where = (
                                 f"resolution = {h3_res} AND {route_filter}"
                             )
                         else:
-                            routes_usage_table = (
-                                f"official_{source_table_h3_saved}_geoms_h3"
-                            )
+                            routes_usage_table = f"official_{source_table_h3}_geoms_h3"
                             routes_usage_where = route_filter
 
                         routes_for_usage_query = f"""
