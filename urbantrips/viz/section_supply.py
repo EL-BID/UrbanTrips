@@ -9,6 +9,7 @@ from PIL import UnidentifiedImageError
 from urbantrips.kpi import kpi
 from urbantrips.kpi.supply_kpi import (
     delete_old_supply_stats_by_section_id,
+    etiquetar_intervalos,
     prepare_supply_stats_for_storage,
 )
 import matplotlib.pyplot as plt
@@ -28,6 +29,32 @@ from urbantrips.utils.paths import get_paths
 from urbantrips.viz import basemaps
 
 logger = logging.getLogger(__name__)
+
+
+def promediar_dias_por_seccion(df):
+    """
+    supply_stats_by_section_id guarda una fila por DÍA y sección. Para el mapa
+    se consolida a una fila por sección con el promedio de los días: sin esto el
+    merge con las geometrías repetía cada sección una vez por día, se dibujaban
+    superpuestas y el color visible era el del último día. La tabla del dash
+    conserva los días (la página tiene selector de día).
+    """
+    claves = [
+        "id_linea", "yr_mo", "day_type", "n_sections", "sentido", "section_id",
+        "hour_min", "hour_max",
+    ]
+    prom = (
+        df.groupby(claves, as_index=False, dropna=False)
+        .agg(
+            n_vehicles=("n_vehicles", "mean"),
+            avg_speed=("avg_speed", "mean"),
+            median_speed=("median_speed", "mean"),
+            dias=("n_vehicles", "size"),
+        )
+    )
+    # misma definición que en el cálculo: 60 / vehículos
+    prom["frequency"] = 60 / prom.n_vehicles.where(prom.n_vehicles > 0)
+    return etiquetar_intervalos(prom)
 
 
 @duracion
@@ -153,6 +180,7 @@ def viz_route_section_frequency(
     """
     indicator_col = "frequency_interval"
 
+    df = promediar_dias_por_seccion(df)
     line_id = df.id_linea.unique().item()
 
     n_sections = df.n_sections.unique().item()
@@ -540,11 +568,20 @@ def viz_route_section_speed(
     sections_geoms.plot(ax=ax1, color="black")
     sections_geoms.plot(ax=ax2, color="black")
 
-    # geopandas' categorical plot indexes the first category and raises
-    # IndexError when the column is all NaN (a direction with no classified
-    # section): plot only the classified rows, and nothing if there are none.
-    plot_d0 = gdf_d0.dropna(subset=[indicator_col])
-    plot_d1 = gdf_d1.dropna(subset=[indicator_col])
+    # Para dibujar: una fila por sección (promedio de los días), sin las filas
+    # que quedaron sin clasificar (geopandas rompe con una columna categórica
+    # toda NaN). gdf_d0/gdf_d1 siguen con una fila por día para el dash.
+    df_prom = promediar_dias_por_seccion(df)
+    plot_d0 = sections_geoms.merge(
+        df_prom.loc[df_prom.sentido == "ida", :],
+        on=["id_linea", "n_sections", "section_id"], how="left",
+    ).dropna(subset=[indicator_col])
+    plot_d1 = sections_geoms.merge(
+        df_prom.loc[df_prom.sentido == "vuelta", :],
+        on=["id_linea", "n_sections", "section_id"], how="left",
+    ).dropna(subset=[indicator_col])
+    plot_d0["geometry"] = plot_d0.geometry.buffer((factor + factor_min) / 2)
+    plot_d1["geometry"] = plot_d1.geometry.buffer((factor + factor_min) / 2)
 
     try:
         plot_d0.plot(

@@ -1781,6 +1781,71 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
 
 
 
+def _agregar_kpi_basico_por_tipo_de_dia(df, claves_extra):
+    """
+    Consolida los KPI básicos diarios en un "día hábil" y un "fin de semana"
+    por línea (y por hora, si `claves_extra` = ["hora"]).
+
+    Antes era un promedio simple entre las filas de cada tipo de día, con dos
+    problemas: (1) una hora con dato en 2 de 5 días hábiles se promediaba sobre
+    2 y quedaba inflada respecto de un día hábil típico; (2) `dmt`, `of` y
+    `speed_kmh` se promediaban sin ponderar, así que un día con 3 vehículos
+    pesaba igual que uno con 130.
+
+    Ahora:
+    - `veh` y `pax`: total del período dividido por la cantidad de días de ese
+      tipo con datos en la corrida (un día sin filas para esa línea-hora cuenta
+      como 0, no se omite).
+    - `dmt`: promedio ponderado por pasajeros (distancia media del pasajero).
+    - `of` y `speed_kmh`: promedio ponderado por vehículos (son medias por
+      vehículo-hora). Los días sin dato no aportan peso.
+    """
+    df = df.copy()
+    weekend = pd.to_datetime(df["dia"]).dt.dayofweek > 4
+    df["tipo_dia"] = np.where(weekend, "weekend", "weekday")
+
+    n_dias = (
+        df.drop_duplicates(["tipo_dia", "yr_mo", "dia"])
+        .groupby(["tipo_dia", "yr_mo"])
+        .size()
+        .rename("n_dias")
+        .reset_index()
+    )
+
+    df["pax_dmt"] = df.pax * df.dmt
+    df["w_dmt"] = df.pax.where(df.dmt.notna())
+    df["veh_of"] = df.veh * df["of"]
+    df["w_of"] = df.veh.where(df["of"].notna())
+    df["veh_vel"] = df.veh * df.speed_kmh
+    df["w_vel"] = df.veh.where(df.speed_kmh.notna())
+
+    claves = ["tipo_dia", "yr_mo", "id_linea"] + claves_extra
+    agg = (
+        df.groupby(claves, as_index=False)
+        .agg(
+            veh=("veh", "sum"),
+            pax=("pax", "sum"),
+            pax_dmt=("pax_dmt", "sum"),
+            w_dmt=("w_dmt", "sum"),
+            veh_of=("veh_of", "sum"),
+            w_of=("w_of", "sum"),
+            veh_vel=("veh_vel", "sum"),
+            w_vel=("w_vel", "sum"),
+        )
+        .merge(n_dias, on=["tipo_dia", "yr_mo"], how="left")
+    )
+    agg["veh"] = agg.veh / agg.n_dias
+    agg["pax"] = agg.pax / agg.n_dias
+    agg["dmt"] = agg.pax_dmt / agg.w_dmt.where(agg.w_dmt > 0)
+    agg["of"] = agg.veh_of / agg.w_of.where(agg.w_of > 0)
+    agg["speed_kmh"] = agg.veh_vel / agg.w_vel.where(agg.w_vel > 0)
+    agg = agg.rename(columns={"tipo_dia": "dia"})
+    return agg.reindex(
+        columns=["dia", "yr_mo", "id_linea"] + claves_extra
+        + ["veh", "pax", "dmt", "of", "speed_kmh"]
+    )
+
+
 def compute_basic_kpi_line_typeday(ctx: StorageContext):
     # delete old type of day data data
     ctx.data.execute(
@@ -1790,17 +1855,7 @@ def compute_basic_kpi_line_typeday(ctx: StorageContext):
     logger.info("Calculando KPI basicos por tipo de dia")
     kpi_by_line_day = ctx.data.query("SELECT * FROM basic_kpi_by_line_day")
 
-    weekend = pd.to_datetime(kpi_by_line_day["dia"].copy()).dt.dayofweek > 4
-    kpi_by_line_day.loc[:, ["dia"]] = "weekday"
-    kpi_by_line_day.loc[weekend, ["dia"]] = "weekend"
-
-    totals_cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_day[totals_cols].groupby(
-        ["dia", "yr_mo", "id_linea"], as_index=False
-    ).mean()
-
-    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+    kpi_by_line_typeday = _agregar_kpi_basico_por_tipo_de_dia(kpi_by_line_day, [])
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_day")
 
@@ -1814,18 +1869,7 @@ def compute_basic_kpi_line_hr_typeday(ctx: StorageContext):
     logger.info("Calculando KPI basicos por tipo de dia")
     kpi_by_line_hr = ctx.data.query("SELECT * FROM basic_kpi_by_line_hr")
 
-    # get day of the week
-    weekend = pd.to_datetime(kpi_by_line_hr["dia"].copy()).dt.dayofweek > 4
-    kpi_by_line_hr.loc[:, ["dia"]] = "weekday"
-    kpi_by_line_hr.loc[weekend, ["dia"]] = "weekend"
-
-    totals_cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_hr[totals_cols].groupby(
-        ["dia", "yr_mo", "id_linea", "hora"], as_index=False
-    ).mean()
-
-    cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+    kpi_by_line_typeday = _agregar_kpi_basico_por_tipo_de_dia(kpi_by_line_hr, ["hora"])
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_hr")
 

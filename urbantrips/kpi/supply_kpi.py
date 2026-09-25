@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 from urbantrips.carto.carto import floor_rounding, create_route_section_ids
@@ -220,18 +221,61 @@ def compute_section_supply_stats(gps, route_geoms):
         # remove duplicates for same vehicle in same section
         gps_route_sections_df = gps_route_sections_df.drop_duplicates()
 
-        gps["delta_hours"] = (gps.fecha_next - gps.fecha) / 60 / 60
+        # Velocidad por sección = distancia total / tiempo total de los vehículos
+        # que la recorren. distance_km de cada ping es la distancia DESDE el ping
+        # anterior (así la calcula el ingest), así que el tiempo tiene que ser el
+        # del mismo intervalo: desde el ping anterior. Antes se dividía por el
+        # tiempo hasta el ping SIGUIENTE y se promediaban los cocientes de cada
+        # ping, descartando los intervalos de menos de 4 minutos: quedaban los
+        # intervalos largos y una distancia apareada con otro intervalo. Línea
+        # 152 de AMBA, 6-10 h: 10,1 km/h contra 14,6 con distancia/tiempo.
+        gps["fecha_prev"] = gps.groupby(["id_ramal", "interno"]).fecha.shift(1)
+        gps["delta_hours"] = (gps.fecha - gps.fecha_prev) / 60 / 60
+        # El sentido del tramo también se define contra el ping ANTERIOR: el
+        # `sentido` de arriba mira el siguiente (lo usa n_vehicles), y en las
+        # terminales, donde el vehículo da la vuelta, el tramo que llega se
+        # cargaba al sentido de salida (sección 1 de la 152: 6,8 / 16,6 km/h
+        # contra 8,7 / 9,7). En las secciones intermedias no cambia.
+        gps["lrs_prev"] = gps.groupby(["id_ramal", "interno"]).lrs.shift(1)
+        gps["sentido_tramo"] = np.where(gps.lrs_prev <= gps.lrs, "ida", "vuelta")
+        speed_gps = gps.dropna(subset=["delta_hours", "lrs_prev"])
+        speed_gps = speed_gps.loc[speed_gps.delta_hours > 0, :]
+        speed_gps = speed_gps.drop(columns=["sentido"]).rename(
+            columns={"sentido_tramo": "sentido"}
+        )
 
-        # remove any gps with less than 4 minutes
-        gps = gps.loc[gps.delta_hours > (4 / 60), :]
+        # El ingest anula distance_km en los intervalos más largos que el
+        # percentil 99,5 del día (el vehículo estuvo apagado): se sacan también
+        # acá para que no sumen tiempo sin distancia.
+        if len(speed_gps) > 0:
+            umbral_hueco = speed_gps.delta_hours.groupby(speed_gps.dia).transform(
+                lambda x: x.quantile(0.995)
+            )
+            hueco = (speed_gps.delta_hours > umbral_hueco) & (speed_gps.distance_km == 0)
+            speed_gps = speed_gps.loc[~hueco, :]
 
-        gps["kmh"] = gps.distance_km / gps.delta_hours
-        average_speed_table = (
-            gps.reindex(columns=["dia", "section_id", "sentido", "kmh"])
-            .groupby(["dia", "sentido", "section_id"])
-            .agg(avg_speed=("kmh", "mean"), median_speed=("kmh", "median"))
+        # Primero por vehículo (su velocidad en la sección ese día), después la
+        # sección: avg_speed = km totales / horas totales; median_speed = mediana
+        # entre vehículos.
+        speed_veh = (
+            speed_gps.reindex(
+                columns=["dia", "sentido", "section_id", "id_ramal", "interno",
+                         "distance_km", "delta_hours"]
+            )
+            .groupby(["dia", "sentido", "section_id", "id_ramal", "interno"], observed=True)
+            .agg(km=("distance_km", "sum"), horas=("delta_hours", "sum"))
             .reset_index()
         )
+        speed_veh = speed_veh.loc[speed_veh.horas > 0, :]
+        speed_veh["kmh"] = speed_veh.km / speed_veh.horas
+        average_speed_table = (
+            speed_veh.groupby(["dia", "sentido", "section_id"], observed=True)
+            .agg(km=("km", "sum"), horas=("horas", "sum"), median_speed=("kmh", "median"))
+            .reset_index()
+        )
+        average_speed_table["avg_speed"] = average_speed_table.km / average_speed_table.horas
+        average_speed_table = average_speed_table.drop(columns=["km", "horas"])
+        average_speed_table["section_id"] = average_speed_table.section_id.astype(int)
         average_speed_table.avg_speed = average_speed_table.avg_speed.round()
         average_speed_table.median_speed = average_speed_table.median_speed.round()
 
@@ -250,34 +294,37 @@ def compute_section_supply_stats(gps, route_geoms):
         # Create the frequency column
         section_supply_stats["frequency"] = 60 / section_supply_stats["n_vehicles"]
 
-        labels = [
-            f"{str(i).zfill(2)} - {str(i+5).zfill(2)} min" for i in range(0, 60, 5)
-        ]
-
-        # Group the frequency into intervals of 5 minutes. frequency = 60 /
-        # n_vehicles tops out at exactly 60 (one vehicle), which the right-open
-        # [55, 60) bin left out as NaN: in a small city every section can have a
-        # single vehicle and the whole direction came out unclassified. Closing
-        # the last bin at +inf keeps the labels and puts 60 in "55 - 60 min".
-        section_supply_stats["frequency_interval"] = pd.cut(
-            section_supply_stats["frequency"],
-            bins=list(range(0, 60, 5)) + [float("inf")],
-            right=False,
-            labels=labels,
-        )
-
-        labels = [
-            f"{str(i).zfill(2)} - {str(i+5).zfill(2)} kmh" for i in range(0, 60, 5)
-        ]
-        # Group the speed into intervals of 5 kmh
-        section_supply_stats["speed_interval"] = pd.cut(
-            section_supply_stats["avg_speed"],
-            bins=range(0, 65, 5),
-            right=False,
-            labels=labels,
-        )
+        section_supply_stats = etiquetar_intervalos(section_supply_stats)
 
     return section_supply_stats
+
+
+def etiquetar_intervalos(df):
+    """
+    Agrega `frequency_interval` (tramos de 5 min) y `speed_interval` (tramos de
+    5 km/h) a partir de `frequency` y `avg_speed`. Se usa al calcular y al
+    promediar días para graficar, así las etiquetas salen siempre iguales.
+
+    frequency = 60 / n_vehicles llega exactamente a 60 con un solo vehículo: el
+    último tramo se cierra en +inf para que caiga en "55 - 60 min". La velocidad
+    puede superar los 60 km/h; esos van a un tramo propio "60+ kmh".
+    """
+    df = df.copy()
+    labels = [f"{str(i).zfill(2)} - {str(i+5).zfill(2)} min" for i in range(0, 60, 5)]
+    df["frequency_interval"] = pd.cut(
+        df["frequency"],
+        bins=list(range(0, 60, 5)) + [float("inf")],
+        right=False,
+        labels=labels,
+    )
+    labels = [f"{str(i).zfill(2)} - {str(i+5).zfill(2)} kmh" for i in range(0, 60, 5)]
+    df["speed_interval"] = pd.cut(
+        df["avg_speed"],
+        bins=list(range(0, 65, 5)) + [float("inf")],
+        right=False,
+        labels=labels + ["60+ kmh"],
+    )
+    return df
 
 
 def read_gps_data_by_line_hours_and_day(

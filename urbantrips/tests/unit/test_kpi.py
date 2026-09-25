@@ -156,3 +156,35 @@ def test_compute_speed_is_total_distance_over_total_time(monkeypatch):
     assert abs(result["kmh_route_veh_h"].iloc[0] - 10.1) < 0.01
     # sin odómetro la otra velocidad queda NaN, sin descartar la fila
     assert result["kmh_route_gps_veh_h"].isna().all()
+
+
+def test_typeday_divides_by_days_of_period_and_weights_means():
+    """Día hábil: veh/pax son el total sobre los días hábiles del período (una
+    hora presente en 1 de 2 días vale la mitad, no lo mismo), y of/speed/dmt se
+    ponderan por vehículos/pasajeros en vez de promediar promedios."""
+    from urbantrips.kpi.kpi import _agregar_kpi_basico_por_tipo_de_dia
+
+    # lunes y martes; la línea 1 tiene la hora 5 solo el lunes
+    df = pd.DataFrame({
+        "dia":       ["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-06"],
+        "yr_mo":     ["2024-01"] * 4,
+        "id_linea":  [1, 1, 1, 1],
+        "hora":      [5, 8, 8, 8],
+        "veh":       [2, 10, 30, 3],
+        "pax":       [20, 100, 900, 30],
+        "dmt":       [4.0, 2.0, 6.0, 5.0],
+        "of":        [10.0, 10.0, 30.0, 7.0],
+        "speed_kmh": [20.0, 10.0, 20.0, 15.0],
+    })
+    out = _agregar_kpi_basico_por_tipo_de_dia(df, ["hora"]).set_index(["dia", "hora"])
+
+    h5 = out.loc[("weekday", 5)]
+    assert h5.veh == 1.0 and h5.pax == 10.0          # 2 y 20 sobre 2 días hábiles
+    assert h5["of"] == 10.0                           # un solo día con dato: su valor
+    h8 = out.loc[("weekday", 8)]
+    assert h8.veh == 20.0 and h8.pax == 500.0
+    assert abs(h8.dmt - (100 * 2 + 900 * 6) / 1000) < 1e-9      # ponderado por pax
+    assert abs(h8["of"] - (10 * 10 + 30 * 30) / 40) < 1e-9       # ponderado por veh
+    assert abs(h8.speed_kmh - (10 * 10 + 30 * 20) / 40) < 1e-9
+    we = out.loc[("weekend", 8)]
+    assert we.veh == 3.0 and we["of"] == 7.0
