@@ -2104,7 +2104,7 @@ def assign_direction_and_branch_or_line(ctx: StorageContext):
     if len(routes_h3) == 0:
         logger.info("[assign_direction] No routes found in geoms, skipping")
         return
-    routes_h3[id_col] = routes_h3[id_col].astype(int)
+    routes_h3[id_col] = routes_h3[id_col].astype("int64")
 
     # Prepare routes data for the algorithm (shared across all days)
     routes_prepared = prepare_routes_from_h3(
@@ -2252,7 +2252,7 @@ def assign_direction_and_branch_or_line_legacy(ctx: StorageContext, dia):
             WHERE resolution = {h3_res}
         """
     routes_h3 = ctx.insumos.query(routes_h3_query)
-    routes_h3[id_col] = routes_h3[id_col].astype(int)
+    routes_h3[id_col] = routes_h3[id_col].astype("int64")
 
     # Prepare routes data for the algorithm
     # has_branches=True means this dataset contains routes with branches (id_ramal)

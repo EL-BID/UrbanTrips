@@ -821,7 +821,7 @@ def assign_direction_for_line_and_hours(
         )
         return pd.DataFrame()
 
-    routes_h3[id_col] = routes_h3[id_col].astype(int)
+    routes_h3[id_col] = routes_h3[id_col].astype("int64")
 
     # Prepare routes data for the algorithm
     routes_prepared = prepare_routes_from_h3(

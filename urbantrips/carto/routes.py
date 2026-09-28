@@ -292,7 +292,8 @@ def process_routes_geoms(ctx: StorageContext):
         n_z = int(geojson_data.geometry.has_z.sum())
         logger.info(
             "El geojson de recorridos trae %d geometrías con coordenada Z; "
-            "se aplanan a 2D.", n_z,
+            "se aplanan a 2D.",
+            n_z,
         )
         geojson_data["geometry"] = geojson_data.geometry.force_2d()
 
@@ -589,7 +590,8 @@ def geometrias_inferidas_utilizables(existentes):
         # comportamiento anterior: no recalcular nada.
         logger.warning(
             "No se pudieron revisar las geometrías inferidas guardadas; "
-            "se conservan todas.", exc_info=True,
+            "se conservan todas.",
+            exc_info=True,
         )
         return set(existentes["id_linea"].tolist())
 
@@ -598,7 +600,8 @@ def geometrias_inferidas_utilizables(existentes):
     if a_rehacer:
         logger.info(
             "Se van a recalcular %d recorridos inferidos que no representan una "
-            "línea real (largo fuera de rango).", len(a_rehacer),
+            "línea real (largo fuera de rango).",
+            len(a_rehacer),
         )
     return sirven
 
@@ -612,9 +615,7 @@ def ambas_direcciones(recorridos):
     ida["direction"] = 0
     vuelta = recorridos.copy()
     vuelta["direction"] = 1
-    vuelta["geometry"] = vuelta.geometry.map(
-        lambda g: LineString(list(g.coords)[::-1])
-    )
+    vuelta["geometry"] = vuelta.geometry.map(lambda g: LineString(list(g.coords)[::-1]))
 
     ambas = pd.concat([ida, vuelta], ignore_index=True)
     ambas["wkt"] = ambas.geometry.to_wkt()
@@ -664,7 +665,8 @@ def guardar_inferidos(ctx: StorageContext, existentes, conservar, nuevas):
     if descartadas > 0:
         logger.info(
             "Se descartan %d filas de recorridos inferidos que no correspondían "
-            "(línea con recorrido oficial, o geometría inservible).", descartadas,
+            "(línea con recorrido oficial, o geometría inservible).",
+            descartadas,
         )
 
     ctx.insumos.save_raw(resultado, "inferred_lines_geoms")
@@ -737,7 +739,8 @@ def infer_routes_geoms(ctx: StorageContext):
     if not partes:
         logger.info(
             "infer_routes_geoms: ninguna línea nueva pudo inferirse por lowess — "
-            "se conservan las %d utilizables ya existentes.", len(conservar)
+            "se conservan las %d utilizables ya existentes.",
+            len(conservar),
         )
         guardar_inferidos(ctx, existentes, conservar, None)
         return
@@ -760,14 +763,17 @@ def infer_routes_geoms(ctx: StorageContext):
         if descartadas:
             logger.warning(
                 "%d líneas quedan sin recorrido inferido porque el ajuste no dio "
-                "una geometría plausible: %s", len(descartadas), descartadas[:10],
+                "una geometría plausible: %s",
+                len(descartadas),
+                descartadas[:10],
             )
         recorridos_lowess = recorridos_lowess.loc[plausibles, :].reset_index(drop=True)
 
     if recorridos_lowess.empty:
         logger.info(
             "infer_routes_geoms: sin geometrías utilizables nuevas — "
-            "se conservan las %d utilizables ya existentes.", len(conservar)
+            "se conservan las %d utilizables ya existentes.",
+            len(conservar),
         )
         guardar_inferidos(ctx, existentes, conservar, None)
         return
@@ -803,7 +809,9 @@ def infer_route_geom_for_line(ctx: StorageContext, id_linea):
     if len(etapas) < 2:
         logger.warning(
             "No se puede inferir el recorrido de la línea %s: tiene %d etapas "
-            "con coordenada válida.", id_linea, len(etapas),
+            "con coordenada válida.",
+            id_linea,
+            len(etapas),
         )
         return None
 
@@ -830,13 +838,12 @@ def infer_route_geom_for_line(ctx: StorageContext, id_linea):
     if not recorrido_plausible(geom).all():
         logger.warning(
             "El recorrido inferido para la línea %s no representa una línea "
-            "real; no se guarda.", id_linea,
+            "real; no se guarda.",
+            id_linea,
         )
         return None
 
-    recorrido = ambas_direcciones(
-        gpd.GeoDataFrame(geom, geometry="geometry", crs=4326)
-    )
+    recorrido = ambas_direcciones(gpd.GeoDataFrame(geom, geometry="geometry", crs=4326))
 
     for tabla in ("inferred_lines_geoms", "lines_geoms"):
         try:
@@ -2166,7 +2173,7 @@ def create_line_h3_directed_graph(
             return _set_line_h3_graph_attrs(
                 graph, id_linea, h3_res, h3_cell_interval, effective_interval
             )
-        route_ids = metadata["id_ramal"].dropna().astype(int).tolist()
+        route_ids = metadata["id_ramal"].dropna().astype("int64").tolist()
         if not route_ids:
             graph = _empty_h3_directed_graph()
             return _set_line_h3_graph_attrs(

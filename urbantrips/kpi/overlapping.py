@@ -495,8 +495,8 @@ def get_route_combinations(base_line_id, comp_line_id, ctx: StorageContext):
     metadata = metadata_ramales[
         metadata_ramales.id_linea.isin([base_line_id, comp_line_id])
     ].copy()
-    metadata["id_linea"] = metadata["id_linea"].astype(int)
-    metadata["id_ramal"] = metadata["id_ramal"].astype(int)
+    metadata["id_linea"] = metadata["id_linea"].astype("int64")
+    metadata["id_ramal"] = metadata["id_ramal"].astype("int64")
 
     if use_branches:
         route_type = "branches"
@@ -545,8 +545,8 @@ def get_route_ids_from_combination(
     metadata = metadata_ramales[
         metadata_ramales.id_linea.isin([base_line_id, comp_line_id])
     ].copy()
-    metadata["id_linea"] = metadata["id_linea"].astype(int)
-    metadata["id_ramal"] = metadata["id_ramal"].astype(int)
+    metadata["id_linea"] = metadata["id_linea"].astype("int64")
+    metadata["id_ramal"] = metadata["id_ramal"].astype("int64")
 
     metadata_lineas_filtered = metadata_lineas[
         metadata_lineas.id_linea.isin([base_line_id, comp_line_id])
@@ -558,8 +558,8 @@ def get_route_ids_from_combination(
         metadata_branches = metadata_ramales[
             metadata_ramales.id_ramal.isin(route_id_combination)
         ].copy()
-        metadata_branches["id_linea"] = metadata_branches["id_linea"].astype(int)
-        metadata_branches["id_ramal"] = metadata_branches["id_ramal"].astype(int)
+        metadata_branches["id_linea"] = metadata_branches["id_linea"].astype("int64")
+        metadata_branches["id_ramal"] = metadata_branches["id_ramal"].astype("int64")
 
         if (
             route_id_combination[0]
