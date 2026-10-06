@@ -118,7 +118,9 @@ if len(indicadores) > 0:
     etapas = pd.concat(
         [
             indicadores[indicadores.tabla == "etapas"],
-            indicadores[indicadores.tabla == "etapas_expandidas"].sort_values("nivel"),
+            indicadores[indicadores.tabla == "etapas_expandidas"].sort_values(
+                ["nivel", "indicador"], ascending=[True, False]
+            ),
         ]
     )
     pct_etapas = etapas.apply(
