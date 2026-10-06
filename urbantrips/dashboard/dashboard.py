@@ -166,7 +166,9 @@ if len(indicadores) > 0:
     # ╔═══════════════════════════ Columna derecha: PROMEDIOS y MODAL ═════════╗
 
     # 5) Partición modal de viajes (con % calculado sobre el total expandido)
-    modal = indicadores[indicadores.tabla == "modos viajes"].copy()
+    modal = indicadores[indicadores.tabla == "modos viajes"].sort_values(
+        "indicador", ascending=False
+    )
     pct_modal = modal.indicador / total_viajes_exp * 100 if total_viajes_exp else None
     _mostrar(
         col3,
