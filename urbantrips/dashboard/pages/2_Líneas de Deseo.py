@@ -1,18 +1,11 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import geopandas as gpd
-import pydeck as pdk
-import json
-import mapclassify
 import plotly.express as px
-from shapely import wkt
 from dash_utils import (
+    sin_prefijo_orden,
     levanto_tabla_sql,
     get_logo,
     create_data_folium,
-    extract_hex_colors_from_cmap,
-    normalize_vars,
     bring_latlon,
     traigo_lista_zonas,
     configurar_selector_corrida,
@@ -20,7 +13,8 @@ from dash_utils import (
     traer_dias_chains,
     traer_opciones_chains,
     traer_lineas_chains,
-    condicion_zona_sql,
+    condicion_zonas_sql,
+    area_filtros_zonas_sql,
     traer_etapas_matrices_sql,
     traer_etapas_matrices_linea,
     viajes_con_origen_en_zona,
@@ -29,14 +23,9 @@ from dash_utils import (
     etapas_entre_zonas_sql,
     crear_mapa_lineas_deseo,
 )
-from datetime import datetime
 
 
 # Función para detectar cambios
-def hay_cambios_en_filtros(current, last):
-    return current != last
-
-
 st.set_page_config(layout="wide")
 
 alias_seleccionado = configurar_selector_corrida()
@@ -324,7 +313,7 @@ with st.expander("Líneas de Deseo", expanded=True):
         }
 
         # Solo cargar datos si hay cambios en los filtros
-        if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
+        if current_filters != st.session_state.last_filters:
 
             # WHERE opcional sobre chains_norm con los filtros del usuario
             filters = {
@@ -340,15 +329,13 @@ with st.expander("Líneas de Deseo", expanded=True):
 
             # Filtros adicionales por zona (sobre cualquier zonificación),
             # resueltos como condiciones SQL sobre chains_norm
-            condiciones = ""
-            if filtro_seleccion1 != "Todos":
-                condiciones += condicion_zona_sql(
-                    zona_filtro_seleccion1, filtro_seleccion1, tipo_filtro
-                )
-            if filtro_seleccion2 != "Todos":
-                condiciones += condicion_zona_sql(
-                    zona_filtro_seleccion2, filtro_seleccion2, tipo_filtro
-                )
+            condiciones = condicion_zonas_sql(
+                zona_filtro_seleccion1,
+                filtro_seleccion1,
+                zona_filtro_seleccion2,
+                filtro_seleccion2,
+                tipo_filtro,
+            )
 
             if nombre_linea_seleccionado != "Todas":
                 # nivel etapa de la línea seleccionada (semántica del viejo
@@ -362,13 +349,20 @@ with st.expander("Líneas de Deseo", expanded=True):
                     condiciones,
                 )
             else:
-                # join + GROUP BY dentro de la base dash (una sola conexión)
+                # area_filtro: las puntas dentro de los filtros se dibujan
+                # dentro del área filtrada
                 etapas_all, matrices_all = traer_etapas_matrices_sql(
                     zona_seleccionada,
                     zonificaciones,
                     dia_seleccionado,
                     where_extra,
                     condiciones,
+                    area_filtro=area_filtros_zonas_sql(
+                        zona_filtro_seleccion1,
+                        filtro_seleccion1,
+                        zona_filtro_seleccion2,
+                        filtro_seleccion2,
+                    ),
                 )
 
             st.session_state.etapas_all = etapas_all
@@ -450,12 +444,8 @@ with st.expander("Líneas de Deseo", expanded=True):
 
             if (
                 not st.session_state.data_cargada
-                or hay_cambios_en_filtros(
-                    current_options, st.session_state.last_options
-                )
-                or hay_cambios_en_filtros(
-                    current_filters, st.session_state.last_filters
-                )
+                or current_options != st.session_state.last_options
+                or current_filters != st.session_state.last_filters
             ):
                 # Actualiza los filtros en `session_state` para detectar cambios futuros
                 st.session_state.last_filters = current_filters.copy()
@@ -648,10 +638,9 @@ with st.expander("Matrices"):
                 f"Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes"
             )
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
-        od_heatmap = od_heatmap.set_index("Origen")
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+        od_heatmap = od_heatmap.rename(
+            index=sin_prefijo_orden, columns=sin_prefijo_orden
+        )
 
         fig = px.imshow(
             od_heatmap,
@@ -660,6 +649,10 @@ with st.expander("Matrices"):
         )
 
         fig.update_coloraxes(showscale=False)
+        # Ejes categóricos: con ids numéricos plotly arma un eje lineal y
+        # desalinea los valores de sus celdas.
+        fig.update_xaxes(type="category")
+        fig.update_yaxes(type="category")
 
         if len(od_heatmap) <= 30:
             fig.update_layout(width=1100, height=1100, font=dict(size=10))
@@ -682,9 +675,8 @@ with st.expander("Zonas", expanded=False):
 
     where_extra = st.session_state.get("where_extra", "")
 
-    # Igual que urbantrips_viejo: Etapas = etapas (por línea) con origen de
-    # la etapa en la zona; Viajes = viajes (por modo) con origen del viaje
-    # en la zona (ambos direccionales).
+    # Etapas: por línea, con origen de la etapa en la zona. Viajes: por modo,
+    # con origen del viaje en la zona (ambos direccionales).
     for filtro_zona, zonif_zona, col_e, col_v in [
         (filtro_seleccion1, zona_filtro_seleccion1, col2, col3),
         (filtro_seleccion2, zona_filtro_seleccion2, col4, col5),

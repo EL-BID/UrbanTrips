@@ -5,9 +5,8 @@ import numpy as np
 import h3
 from streamlit_folium import st_folium
 import folium
-from shapely.geometry import Polygon, shape, LineString
+from shapely.geometry import shape, LineString
 from shapely.ops import unary_union
-import contextily as cx
 import seaborn as sns
 from PIL import UnidentifiedImageError
 import matplotlib.pyplot as plt
@@ -22,80 +21,22 @@ from dash_utils import (
     traer_dias_chains,
     create_squared_polygon,
     h3_to_polygon,
-    extract_hex_colors_from_cmap,
 )
 from shapely.ops import linemerge
 from urbantrips.utils.utils import guardar_tabla_sql
-from urbantrips.preparo_dashboard.preparo_dashboard import preparo_indicadores_dash
 from urbantrips.carto.equivalencias import (
     construir_equivalencias_zonas,
     upsert_equivalencias_zonas,
 )
-from urbantrips.utils.check_configs import check_config
-from urbantrips.kpi.line_od_matrix import compute_line_od_matrix
 from urbantrips.kpi.kpi import compute_section_load_table
 from urbantrips.utils import utils
-from urbantrips.carto.carto import create_coarse_h3_from_line, create_route_section_ids
+from urbantrips.carto.carto import create_coarse_h3_from_line
 from urbantrips.carto.routes import create_route_section_points
 from urbantrips.viz.viz import standarize_size
 from urbantrips.geo.geo import get_h3_buffer_ring_size, create_sections_geoms
-import mapclassify
-from folium import Figure
 import json
-from shapely.geometry import shape, LineString, MultiLineString
+from shapely.geometry import shape, LineString
 from urbantrips.viz import basemaps
-
-
-def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
-    location = df_agg.geometry.union_all().centroid
-    location = [location.y, location.x]
-    try:
-        bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
-            df_agg[var_fex], k=k_jenks
-        ).bins.tolist()
-    except:
-        k_jenks = 3
-        bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
-            df_agg[var_fex], k=k_jenks
-        ).bins.tolist()
-
-    range_bins = range(0, len(bins) - 1)
-    bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
-    df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
-
-    fig = Figure(width=800, height=800)
-    m = basemaps.folium_map(
-        location=location,
-        zoom_start=9,
-    )
-
-    title_html = """
-    <h3 align="center" style="font-size:20px"><b>Your map title</b></h3>
-    """
-    m.get_root().html.add_child(folium.Element(title_html))
-
-    line_w = 0.5
-
-    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
-
-    n = 0
-    for i in bins_labels:
-
-        df_agg[df_agg.cuts == i].explore(
-            m=m,
-            color=colors[n],
-            style_kwds={"fillOpacity": 0.1, "weight": line_w},
-            name=i,
-            tooltip=False,
-        )
-        n += 1
-        line_w += 3
-
-    folium.LayerControl(name="xx").add_to(m)
-
-    fig.add_child(m)
-
-    return fig
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
@@ -104,18 +45,6 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
         tabla_tipo=tabla_tipo,
         query=query,
     )
-
-
-@st.cache_data
-def traigo_mes_dia():
-    mes_dia = levanto_tabla_sql_local(
-        "chains_norm",
-        "dash",
-        "SELECT DISTINCT mes, tipo_dia FROM chains_norm;",
-    )
-    mes = mes_dia.mes.values.tolist()
-    tipo_dia = mes_dia.tipo_dia.values.tolist()
-    return mes, tipo_dia
 
 
 def detectar_resolucion_h3_etapas(default):
@@ -450,8 +379,7 @@ try:
     h3_legs_res = detectar_resolucion_h3_etapas(default=configs["resolucion_h3"])
     st.write("Resolución h3 para etapas:", h3_legs_res)
 
-    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
-    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    # Todas las bases comparten el alias alias_db_insumos.
     alias = configs.get("alias_db_insumos", "")
 
 except ValueError as e:
@@ -563,32 +491,8 @@ with st.expander("Dibujar linea para estimar demanda", expanded=True):
                 try:
                     geojson = json.load(geojson_file)
 
-                    # Opción A (más robusta): leer con GeoPandas desde un archivo temporal
-                    # (Streamlit requiere escribirlo a disco si querés usar gpd.read_file)
-                    # Para evitar tocar mucho, hacemos parse directo con shapely:
-
-                    # def _extract_line_from_geojson(obj):
-                    #     # obj puede ser FeatureCollection, Feature o Geometry
-                    #     if obj.get("type") == "FeatureCollection":
-                    #         geoms = [shape(f["geometry"]) for f in obj.get("features", []) if f.get("geometry")]
-                    #     elif obj.get("type") == "Feature":
-                    #         geoms = [shape(obj.get("geometry"))] if obj.get("geometry") else []
-                    #     else:
-                    #         geoms = [shape(obj)]
-
-                    #     geoms = [g for g in geoms if g is not None and not g.is_empty]
-                    #     if not geoms:
-                    #         return None
-
-                    #     # Si hay varias geometrías, las unimos/mergeamos si son líneas
-                    #     # (si hubiera polígonos por error, esto no va a ser una línea válida)
-                    #     g = linemerge(geoms) if len(geoms) > 1 else geoms[0]
-
-                    #     # Normalizar MultiLineString -> LineString cuando sea posible
-                    #     if isinstance(g, MultiLineString):
-                    #         g = linemerge(g)
-
-                    #     return g
+                    # Parse directo con shapely: gpd.read_file exigiría escribir
+                    # el archivo subido a disco.
                     from shapely.geometry import (
                         shape,
                         LineString,
@@ -1168,94 +1072,6 @@ with st.expander("Demanda por segmento de recorrido"):
     else:
         st.write("No hay sufiente demanda para computar la demanda por segmento")
 
-# with st.expander("Líneas de deseo por linea"):
-#     if len(legs) > 0:
-#         n_sections = st.session_state["n_sections_7"]
-
-#         line_od_data = legs.copy()
-
-#         section_ids = create_route_section_ids(n_sections)
-
-#         section_carto = section_load.reindex(
-#             columns=["section_id", "geometry"]
-#         ).drop_duplicates(subset="section_id")
-#         section_carto.geometry = section_carto.geometry.centroid
-
-#         labels = list(range(1, len(section_ids)))
-
-#         line_od_data["o_proj"] = pd.cut(
-#             line_od_data.o_proj, bins=section_ids, labels=labels, right=True
-#         )
-#         line_od_data["d_proj"] = pd.cut(
-#             line_od_data.d_proj, bins=section_ids, labels=labels, right=True
-#         )
-
-#         totals_by_day_section_id = (
-#             line_od_data.groupby(["dia", "o_proj", "d_proj"])
-#             .agg(legs=("factor_expansion_linea", "sum"))
-#             .reset_index()
-#         )
-#         totals_by_day = totals_by_day_section_id.groupby(["dia"], as_index=False).agg(
-#             daily_legs=("legs", "sum")
-#         )
-
-#         totals_by_typeday = totals_by_day.daily_legs.mean()
-
-#         # then average for type of day
-#         totals_by_typeday_section_id = (
-#             totals_by_day_section_id.groupby(["o_proj", "d_proj"])
-#             .agg(legs=("legs", "mean"))
-#             .reset_index()
-#         )
-#         totals_by_typeday_section_id["legs"] = (
-#             totals_by_typeday_section_id["legs"].round().map(int)
-#         )
-#         totals_by_typeday_section_id["prop"] = (
-#             totals_by_typeday_section_id.legs / totals_by_typeday * 100
-#         ).round(1)
-#         totals_by_typeday_section_id["day_type"] = day_type
-#         totals_by_typeday_section_id["n_sections"] = n_sections
-
-#         totals_by_typeday_section_id = totals_by_typeday_section_id.merge(
-#             section_carto, left_on="o_proj", right_on="section_id", how="left"
-#         ).merge(
-#             section_carto,
-#             left_on="d_proj",
-#             right_on="section_id",
-#             suffixes=("_o", "_d"),
-#             how="left",
-#         )
-#         geometry = [
-#             LineString([(row.geometry_o), (row.geometry_d)])
-#             for _, row in totals_by_typeday_section_id.iterrows()
-#         ]
-#         line_od = gpd.GeoDataFrame(
-#             totals_by_typeday_section_id.reindex(
-#                 columns=["o_proj", "d_proj", "legs", "prop", "day_type"]
-#             ),
-#             geometry=geometry,
-#             crs=4326,
-#         )
-
-#         if len(line_od) > 0:
-#             if st.checkbox("Mostrar datos ", value=False, key="mostrar_datos2"):
-#                 st.write(line_od)
-
-#             k_jenks = st.slider("Cantidad de grupos", min_value=1, max_value=5, value=5)
-#             st.text(f"Hay un total de {line_od.legs.sum()} etapas")
-#             try:
-#                 map = crear_mapa_folium(
-#                     line_od, cmap="BuPu", var_fex="legs", k_jenks=k_jenks
-#                 )
-#                 st_map = st_folium(map, width=900, height=700)
-#             except ValueError as e:
-#                 st.write(
-#                     "Error al crear el mapa. Verifique los parametros seleccionados "
-#                 )
-#         else:
-#             st.write("No hay datos para mostrar")
-#     else:
-#         st.write("No hay sufiente demanda para computar las lineas de deseo")
 
 with st.expander("Polígono de análisis de cuenca"):
     st.write(
@@ -1268,14 +1084,6 @@ with st.expander("Polígono de análisis de cuenca"):
     if "drawn_poli_id" not in st.session_state or not st.session_state["drawn_poli_id"]:
         st.session_state["drawn_poli_id"] = default_drawn_poli_id
 
-    # corrida = alias_seleccionado
-
-    # correr = st.selectbox(
-    #     "Corridas", options=[corrida, 'Todas'], index=0)
-    # if correr == 'Todas':
-    #     corridas = leer_configs_generales(autogenerado=False)['corridas']
-    # else:
-    #     corridas = [corrida]
 
     drawn_poli_id = st.text_input(
         "ID del polígono (para guardar en insumos)",

@@ -12,26 +12,11 @@ if "--config" in _argv:
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
-import mapclassify
-import folium
-import matplotlib.pyplot as plt
-import geopandas as gpd
-import requests
-from PIL import Image
-from shapely import wkt
-import yaml
-import sqlite3
-from shapely import wkt
-from folium import Figure
-from shapely.geometry import LineString
 
 from dash_utils import (
     levanto_tabla_sql,
     get_logo,
-    traigo_indicadores,
     configurar_selector_corrida,
     formatear_columnas_numericas,
 )

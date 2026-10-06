@@ -10,32 +10,9 @@ from dash_utils import (
 )
 import numpy as np
 
+from clusters_utils import correr_clusters, normalizar_id_linea
 from urbantrips.storage.access import write_access
 
-
-def normalizar_id_linea(col):
-    def convertir(x):
-        if pd.isna(x):
-            return None
-        s = str(x).strip()
-        # si es número entero o decimal → convertir a int y luego a str
-        if s.replace('.', '', 1).isdigit():
-            return str(int(float(s)))
-        # si no es número → dejarlo como está
-        return s
-    return col.apply(convertir)
-
-def normalizar_id_linea(col):
-    def convertir(x):
-        if pd.isna(x):
-            return None
-        s = str(x).strip()
-        # si es número entero o decimal → convertir a int y luego a str
-        if s.replace('.', '', 1).isdigit():
-            return str(int(float(s)))
-        # si no es número → dejarlo como está
-        return s
-    return col.apply(convertir)
 
 st.set_page_config(page_title="Indicadores Operativos por Línea", layout="wide")
 
@@ -330,8 +307,6 @@ with st.expander("🗂️ Escenarios de clusterización", expanded=True):
 # -------------------------------------------------------------------
 # EXPANDER: Clusterizar
 # -------------------------------------------------------------------
-
-from clusters_utils import correr_clusters
 
 with st.expander("🧩 Clusterizar", expanded=True):
     # 1) Tomar base: mergeada si existe, si no kpis

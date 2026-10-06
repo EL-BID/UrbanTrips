@@ -139,28 +139,23 @@ def _materializar_snapshot(alias: str, contenido: str) -> Path:
     return destino
 
 
-# Claves de alias por-tipo, del diseño viejo de una base por corrida. Un yaml que
-# las declare hace que las páginas que resuelven por `utils.utils.leer_alias`
-# abran OTRA base que el resto del dashboard → dos corridas mezcladas en pantalla.
+# Claves de alias por tipo de base. Un yaml que las declare hace que las páginas
+# que resuelven por `utils.utils.leer_alias` abran otra base que el resto del
+# dashboard (dos corridas mezcladas en pantalla).
 CLAVES_ALIAS_OBSOLETAS = ("alias_db_data", "alias_db_dashboard")
 
 
 def _buscar_config_por_alias(alias: str) -> Path | None:
     """Mejor yaml de `configs/` que declare este alias.
 
-    Fallback para las bases anteriores al snapshot. Que varios yamls declaren el
-    mismo alias no es ambiguo en la práctica: difieren sólo en su lista
-    `corridas`, y de eso el dashboard no depende.
+    Fallback para bases sin snapshot. Si varios yamls declaran el alias (solo
+    difieren en `corridas`, que el dashboard no usa), se prefiere, de peor a mejor:
 
-    Pero no todos los candidatos son igual de buenos, y se ordenan por eso:
+    1. Los que declaran CLAVES_ALIAS_OBSOLETAS (parten el dashboard en dos bases).
+    2. `configuraciones_generales.yaml`, que no identifica una corrida.
+    3. El resto.
 
-    1. Peor: los que declaran las claves de alias por-tipo obsoletas, porque
-       parten el dashboard entre dos bases. Ya no se generan solas (murieron con
-       el config autogenerado), pero quedan configs viejos en disco que las traen.
-    2. Después: `configuraciones_generales.yaml`, que es el config por defecto y
-       no identifica una corrida en particular; se prefiere uno con nombre propio.
-
-    Se saltean los snapshots materializados para no encontrarnos a nosotros mismos.
+    Se omiten los snapshots materializados.
     """
     candidatos: list[tuple[int, int, str, Path]] = []
     for path in sorted(_configs_dir().glob("*.yaml")):
@@ -303,10 +298,7 @@ def describir_corrida(alias: str) -> dict:
 def resolve_db_aliases(configs: dict) -> dict:
     """Alias único para las 4 bases (data / insumos / dash / general).
 
-    En esta versión el autogenerado y las DBs por-corrida quedaron obsoletos:
-    todo se guarda bajo un solo alias = alias_db_insumos (con alias_db como
-    fallback histórico). Las claves por-corrida (alias_db_data,
-    alias_db_dashboard) ya no aplican.
+    Usa alias_db_insumos, o alias_db si falta.
     """
     alias = configs.get("alias_db_insumos") or configs.get("alias_db") or ""
     return {"data": alias, "insumos": alias, "dash": alias, "general": alias}
@@ -345,12 +337,7 @@ def _load_yaml_simple(path: Path):
 def leer_configs_generales(autogenerado=None):
     """Lee el config en uso (el de `--config` / `URBANTRIPS_CONFIG`).
 
-    `autogenerado` quedó SIN EFECTO: el config autogenerado se eliminó del
-    proceso (2026-07-27). Aportaba 4 claves, dos de ellas dañinas —
-    `alias_db_data` y `alias_db_dashboard`, del diseño viejo de una base por
-    corrida— y las otras dos ya las deriva la ingesta por convención. El
-    parámetro se mantiene aceptado e ignorado porque lo pasan varios tests y
-    notebooks; no hace falta tocarlos.
+    `autogenerado` se acepta e ignora (lo pasan tests y notebooks).
     """
     path = _get_base_config_path()
     logger.debug("Loading config from %s", path)

@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 import h3
-from shapely.geometry import Polygon, shape
+from shapely.geometry import shape
 from shapely.ops import unary_union
 import geopandas as gpd
 from streamlit_folium import st_folium
@@ -21,7 +21,6 @@ from urbantrips.utils import utils
 
 # from urbantrips.carto.carto import get_h3_indices_in_geometry
 # from urbantrips.geo.geo import h3_to_polygon
-from streamlit_folium import folium_static
 from urbantrips.viz import basemaps
 
 pd.options.display.float_format = "{:,.0f}".format
@@ -35,14 +34,6 @@ def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query=""):
         tabla_sql,
         tabla_tipo=tabla_tipo,
         query=query,
-    )
-
-
-# Convert H3 indices to GeoDataFrame
-def h3_indices_to_gdf(h3_indices):
-    hex_geometries = [h3_to_polygon(h) for h in h3_indices]
-    return gpd.GeoDataFrame(
-        {"h3_index": h3_indices}, geometry=hex_geometries, crs="EPSG:4326"
     )
 
 

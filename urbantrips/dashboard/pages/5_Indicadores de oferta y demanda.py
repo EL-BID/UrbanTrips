@@ -7,12 +7,11 @@ import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
-import contextily as cx
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
 from folium import Figure
-from shapely.geometry import LineString
 from dash_utils import (
+    cargar_tabla_sql,
     levanto_tabla_sql,
     etiqueta_linea,
     get_logo,
@@ -25,11 +24,6 @@ from dash_utils import (
 )
 from urbantrips.utils import utils
 from urbantrips.viz import basemaps
-# except ImportError as e:
-#     st.error(
-#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-#     )
-#     st.stop()
 
 
 def asegurar_columnas_si_vacio(df, cols):
@@ -738,29 +732,6 @@ def plot_demand_by_section(lineas, id_linea, nombre_linea, day_type, n_sections,
     return f
 
 
-@st.cache_data
-def traigo_nombre_lineas(df):
-    return (
-        df[(df.nombre_linea.notna()) & (df.nombre_linea != "")]
-        .sort_values("nombre_linea")
-        .nombre_linea.unique()
-    )
-
-
-# --- Función para levantar tablas SQL y almacenar en session_state ---
-def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
-    if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        tabla = utils.levanto_tabla_sql(
-            tabla_sql,
-            tabla_tipo=tipo_conexion,
-            query=query,
-        )
-        if tabla.empty:
-            st.error(f"{tabla_sql} no existe")
-        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-    return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
-
-
 def seleccionar_linea(key_input, key_select):
     texto_a_buscar = st.text_input(
         f"Ingrese el texto a buscar en líneas", key=key_input
@@ -816,9 +787,7 @@ try:
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
-    # alias_db_insumos (las claves por-corrida alias_db_data/alias_db_dashboard
-    # ya no aplican).
+    # Todas las bases comparten el alias alias_db_insumos.
     alias = configs.get("alias_db_insumos", "")
     use_branches = configs["lineas_contienen_ramales"]
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
@@ -1104,7 +1073,6 @@ with st.expander("Líneas de deseo por linea"):
 with st.expander("Matriz OD por linea"):
 
     matriz = levanto_tabla_sql_local("matrices_linea")
-    # nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
 
     matriz = asegurar_columnas_si_vacio(
         matriz,
