@@ -1,8 +1,8 @@
 import streamlit as st
-from streamlit_folium import st_folium
 from streamlit_folium import folium_static
 from dash_storage import leer_configs_generales
 from dash_utils import (
+    cargar_tabla_sql,
     get_logo,
     etiqueta_linea,
     configurar_selector_corrida,
@@ -16,32 +16,13 @@ from urbantrips.viz import overlapping as ovl_viz
 from urbantrips.dashboard import dashboard_ctx
 from urbantrips.storage.access import DatabaseBusyError, write_access
 
-# El StorageContext ya NO se cachea con @st.cache_resource: una conexión DuckDB
-# abierta toma el lock del archivo y bloquea tanto a otro dashboard como al
-# pipeline. Se abre y cierra dentro de `with dashboard_ctx() as ctx:`.
+# El StorageContext no se cachea: una conexión DuckDB abierta toma el lock del
+# archivo y bloquea a otros dashboards y al pipeline. Se abre y cierra dentro
+# de `with dashboard_ctx() as ctx:`.
 #
 # compute_supply_overlapping y compute_demand_overlapping escriben en
 # overlapping_by_route, así que van dentro de una ventana de escritura; los
 # plot_interactive_* son solo lectura.
-# except ImportError as e:
-#     st.error(
-#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-#     )
-#     st.stop()
-
-
-# --- Función para levantar tablas SQL y almacenar en session_state ---
-def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
-    if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        tabla = utils.levanto_tabla_sql(
-            tabla_sql,
-            tabla_tipo=tipo_conexion,
-            query=query,
-        )
-        if tabla.empty:
-            st.error(f"{tabla_sql} no existe")
-        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-    return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
 
 def seleccionar_linea(nombre_columna, key_input, key_select, branch_key):
@@ -146,8 +127,7 @@ try:
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
-    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    # Todas las bases comparten el alias alias_db_insumos.
     alias = configs.get("alias_db_insumos", "")
     st.text(
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"

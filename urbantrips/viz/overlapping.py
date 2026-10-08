@@ -8,6 +8,7 @@ from urbantrips.utils.utils import leer_configs_generales
 from urbantrips.storage.context import StorageContext
 from shapely import wkt
 import h3
+from urbantrips.viz import basemaps
 
 
 def get_route_metadata(ctx: StorageContext, route_id):
@@ -54,30 +55,34 @@ def plot_interactive_supply_overlapping(ctx: StorageContext, overlapping_dict):
     mean_y = np.mean(base_route_gdf.item().coords.xy[1])
 
     fig = folium.Figure(width=800, height=600)
-    m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
+    m = basemaps.folium_map(location=(mean_y, mean_x), zoom_start=11)
 
     base_gdf.explore(
         color="black",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Base H3 {base_route_metadata}",
     )
     base_route_gdf.explore(
         color="black",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Base route {base_route_metadata}",
     )
 
     comp_gdf.explore(
         color="red",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Comp H3 {comp_route_metadata}",
     )
     comp_route_gdf.explore(
         color="red",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Comp route {comp_route_metadata}",
     )
@@ -266,11 +271,12 @@ def plot_interactive_demand_overlapping(
     mean_y = np.mean(base_route_gdf.item().coords.xy[1])
 
     fig = folium.Figure(width=800, height=600)
-    m = folium.Map(location=(mean_y, mean_x), zoom_start=11, tiles="cartodbpositron")
+    m = basemaps.folium_map(location=(mean_y, mean_x), zoom_start=11)
 
     base_gdf.explore(
         column="demand_total",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Demanda ruta base - {base_route_metadata}",
         cmap="Blues",
@@ -298,14 +304,16 @@ def plot_interactive_demand_overlapping(
     )
     base_route_gdf.explore(
         color="midnightblue",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Ruta base - {comp_route_metadata}",
     )
 
     comp_gdf.explore(
         column="demand_total",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Demanda ruta comp - {comp_route_metadata}",
         cmap="Greens",
@@ -333,7 +341,8 @@ def plot_interactive_demand_overlapping(
     )
     comp_route_gdf.explore(
         color="darkgreen",
-        tiles="CartoDB positron",
+        tiles=basemaps.FOLIUM_TILES,
+        attr=basemaps.FOLIUM_ATTR,
         m=m,
         name=f"Ruta comparacion - {comp_route_metadata}",
     )

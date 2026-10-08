@@ -1368,36 +1368,70 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     """
     gps_df = ctx.data.query(q)
 
-    # Crear lag de fecha por vehículo
+    # Tiempo desde el ping ANTERIOR del vehículo. distance_km de cada ping es la
+    # distancia desde el ping anterior (compute_distance_km_gps la calcula contra
+    # h3.shift(1)), así que el tiempo tiene que ser el del mismo intervalo. Antes
+    # se usaba el tiempo hasta el ping siguiente: con pings irregulares un salto
+    # largo quedaba dividido por un intervalo de 3 s.
     gps_df = gps_df.sort_values(["dia", "id_linea", "id_ramal", "interno", "fecha"])
-    gps_df["fecha_lag"] = (
+    gps_df["fecha_prev"] = (
         gps_df.reindex(columns=["dia", "id_linea", "id_ramal", "interno", "fecha"])
         .groupby(["dia", "id_linea", "id_ramal", "interno"])
-        .shift(-1)
+        .shift(1)
     )
 
     # Delta de tiempo
-    gps_df = gps_df.dropna(subset=["fecha", "fecha_lag"])
-    gps_df["delta_hr"] = (gps_df.fecha_lag - gps_df.fecha) / 3600
+    gps_df["delta_hr"] = (gps_df.fecha - gps_df.fecha_prev) / 3600
+
+    # El ingest (compute_distance_km_gps) pone distance_km = 0 en los intervalos
+    # más largos que el percentil 99,5 del día, calculado sobre TODAS las líneas
+    # y contando el primer ping de cada vehículo como 0. Se reproduce ese mismo
+    # umbral, día por día, para sacar esos huecos: si no, suman tiempo sin
+    # distancia y bajan la velocidad. Tiene que ser el umbral del sistema y no
+    # el de la línea, porque es el que decidió qué distancias se anularon.
+    umbral_hueco = (
+        gps_df.delta_hr.fillna(0).groupby(gps_df.dia).transform(lambda s: s.quantile(0.995))
+    )
+    hueco = (gps_df.delta_hr > umbral_hueco) & (gps_df.distance_km == 0)
+    gps_df = gps_df.loc[~hueco, :]
+
+    gps_df = gps_df.dropna(subset=["fecha", "fecha_prev"])
     gps_df = gps_df.loc[gps_df.delta_hr > 0, :]
 
     # Dos velocidades en paralelo, una por cada distancia
     # distance_servicio_mts may be NULL when the operator doesn't report odometer
     gps_df["distance_km_gps"] = pd.to_numeric(gps_df["distance_servicio_mts"], errors="coerce") / 1000
-    gps_df["kmh_route_veh_h"] = gps_df.distance_km / gps_df.delta_hr
-    gps_df["kmh_route_gps_veh_h"] = gps_df.distance_km_gps / gps_df.delta_hr
     gps_df["hora"] = pd.to_datetime(gps_df["fecha"], unit="s").dt.hour
 
-    # Promediar ambas por veh-hora
+    # Velocidad por veh-hora = distancia total / tiempo total. Antes era el
+    # promedio de las velocidades de cada intervalo entre pings, que con pings
+    # irregulares queda dominado por los intervalos cortos: un error de posición
+    # de 170 m en 3 s son 200 km/h. Medido sobre un día: mediana 27,5 km/h en
+    # AMBA (22 % de los veh-hora ≥ 60, descartados como outliers) y 78 km/h en
+    # Mendoza (69 %), contra 14,5 y 18,8 km/h con distancia/tiempo. Cada
+    # distancia suma el tiempo solo de los intervalos en que está informada.
+    gps_df["dh_veh"] = gps_df.delta_hr.where(gps_df.distance_km.notna())
+    gps_df["dh_gps"] = gps_df.delta_hr.where(gps_df.distance_km_gps.notna())
     speed_vehicle_hour = (
-        gps_df.reindex(
-            columns=[
-                "dia", "id_linea", "id_ramal", "interno", "hora",
-                "kmh_route_veh_h", "kmh_route_gps_veh_h",
-            ]
+        gps_df.groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
+        .agg(
+            km_veh=("distance_km", "sum"),
+            dh_veh=("dh_veh", "sum"),
+            km_gps=("distance_km_gps", "sum"),
+            dh_gps=("dh_gps", "sum"),
         )
-        .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
-        .mean()
+    )
+    speed_vehicle_hour["kmh_route_veh_h"] = (
+        speed_vehicle_hour.km_veh / speed_vehicle_hour.dh_veh.where(speed_vehicle_hour.dh_veh > 0)
+    )
+    speed_vehicle_hour["kmh_route_gps_veh_h"] = (
+        speed_vehicle_hour.km_gps / speed_vehicle_hour.dh_gps.where(speed_vehicle_hour.dh_gps > 0)
+    )
+    speed_vehicle_hour = speed_vehicle_hour.reindex(
+        columns=[
+            "dia", "id_linea", "id_ramal", "interno", "hora",
+            "kmh_route_veh_h", "kmh_route_gps_veh_h",
+        ]
     )
 
     # Conservar filas donde al menos una de las dos velocidades sea válida
@@ -1447,6 +1481,28 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
 
     if len(legs) < 5:
         return None
+
+    # Called for a single day, the orchestrator (compute_kpi) already deleted the
+    # run days. Called from the dashboard (dias / all days), nobody did: each
+    # click appended another copy of the same rows. Replace what this call
+    # recomputes: its lines on its days.
+    if dia is None:
+        import duckdb as _duckdb
+
+        _dias_sql = ", ".join(f"'{d}'" for d in legs.dia.unique())
+        _lineas_sql = ", ".join(str(int(x)) for x in legs.id_linea.unique())
+        for _t in (
+            "basic_kpi_by_vehicle_hr",
+            "basic_kpi_by_line_hr",
+            "basic_kpi_by_line_day",
+        ):
+            try:
+                ctx.data.execute(
+                    f"DELETE FROM {_t} WHERE dia IN ({_dias_sql}) "
+                    f"AND id_linea IN ({_lineas_sql})"
+                )
+            except _duckdb.CatalogException:
+                pass
 
     legs = compute_od_distances(
         od_df             = legs,
@@ -1507,7 +1563,11 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
         speed_vehicle_hour.kmh_route_veh_h > speed_max, "kmh_route_veh_h"
     ] = speed_max
 
-    speed_vehicle_hour = speed_vehicle_hour.dropna()
+    # Only the ping-based speed is used below. A plain dropna() also looked at
+    # kmh_route_gps_veh_h, which is all NaN when the operator does not report
+    # the odometer (Villa María): it dropped every row, left the whole run
+    # without speed and the occupancy factor at 0.
+    speed_vehicle_hour = speed_vehicle_hour.dropna(subset=["kmh_route_veh_h"])
 
     # compute standard deviation to remove low speed outliers
     speed_dev = speed_vehicle_hour.groupby(
@@ -1576,7 +1636,9 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
         .groupby(["dia", "id_linea", "id_ramal", "interno", "hora"], as_index=False)
         .agg(
             tot_pax=("factor_expansion_linea", "sum"),
-            eq_pax=("eq_pax", "sum"),
+            # min_count=1: with no speed for the vehicle-hour eq_pax is unknown,
+            # not 0 (a plain sum turned it into an occupancy factor of 0).
+            eq_pax=("eq_pax", lambda s: s.sum(min_count=1)),
             dmt=("distance", "mean"),
             speed_kmh=("speed_kmh", "mean"),
         )
@@ -1719,6 +1781,71 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
 
 
 
+def _agregar_kpi_basico_por_tipo_de_dia(df, claves_extra):
+    """
+    Consolida los KPI básicos diarios en un "día hábil" y un "fin de semana"
+    por línea (y por hora, si `claves_extra` = ["hora"]).
+
+    Antes era un promedio simple entre las filas de cada tipo de día, con dos
+    problemas: (1) una hora con dato en 2 de 5 días hábiles se promediaba sobre
+    2 y quedaba inflada respecto de un día hábil típico; (2) `dmt`, `of` y
+    `speed_kmh` se promediaban sin ponderar, así que un día con 3 vehículos
+    pesaba igual que uno con 130.
+
+    Ahora:
+    - `veh` y `pax`: total del período dividido por la cantidad de días de ese
+      tipo con datos en la corrida (un día sin filas para esa línea-hora cuenta
+      como 0, no se omite).
+    - `dmt`: promedio ponderado por pasajeros (distancia media del pasajero).
+    - `of` y `speed_kmh`: promedio ponderado por vehículos (son medias por
+      vehículo-hora). Los días sin dato no aportan peso.
+    """
+    df = df.copy()
+    weekend = pd.to_datetime(df["dia"]).dt.dayofweek > 4
+    df["tipo_dia"] = np.where(weekend, "weekend", "weekday")
+
+    n_dias = (
+        df.drop_duplicates(["tipo_dia", "yr_mo", "dia"])
+        .groupby(["tipo_dia", "yr_mo"])
+        .size()
+        .rename("n_dias")
+        .reset_index()
+    )
+
+    df["pax_dmt"] = df.pax * df.dmt
+    df["w_dmt"] = df.pax.where(df.dmt.notna())
+    df["veh_of"] = df.veh * df["of"]
+    df["w_of"] = df.veh.where(df["of"].notna())
+    df["veh_vel"] = df.veh * df.speed_kmh
+    df["w_vel"] = df.veh.where(df.speed_kmh.notna())
+
+    claves = ["tipo_dia", "yr_mo", "id_linea"] + claves_extra
+    agg = (
+        df.groupby(claves, as_index=False)
+        .agg(
+            veh=("veh", "sum"),
+            pax=("pax", "sum"),
+            pax_dmt=("pax_dmt", "sum"),
+            w_dmt=("w_dmt", "sum"),
+            veh_of=("veh_of", "sum"),
+            w_of=("w_of", "sum"),
+            veh_vel=("veh_vel", "sum"),
+            w_vel=("w_vel", "sum"),
+        )
+        .merge(n_dias, on=["tipo_dia", "yr_mo"], how="left")
+    )
+    agg["veh"] = agg.veh / agg.n_dias
+    agg["pax"] = agg.pax / agg.n_dias
+    agg["dmt"] = agg.pax_dmt / agg.w_dmt.where(agg.w_dmt > 0)
+    agg["of"] = agg.veh_of / agg.w_of.where(agg.w_of > 0)
+    agg["speed_kmh"] = agg.veh_vel / agg.w_vel.where(agg.w_vel > 0)
+    agg = agg.rename(columns={"tipo_dia": "dia"})
+    return agg.reindex(
+        columns=["dia", "yr_mo", "id_linea"] + claves_extra
+        + ["veh", "pax", "dmt", "of", "speed_kmh"]
+    )
+
+
 def compute_basic_kpi_line_typeday(ctx: StorageContext):
     # delete old type of day data data
     ctx.data.execute(
@@ -1728,17 +1855,7 @@ def compute_basic_kpi_line_typeday(ctx: StorageContext):
     logger.info("Calculando KPI basicos por tipo de dia")
     kpi_by_line_day = ctx.data.query("SELECT * FROM basic_kpi_by_line_day")
 
-    weekend = pd.to_datetime(kpi_by_line_day["dia"].copy()).dt.dayofweek > 4
-    kpi_by_line_day.loc[:, ["dia"]] = "weekday"
-    kpi_by_line_day.loc[weekend, ["dia"]] = "weekend"
-
-    totals_cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_day[totals_cols].groupby(
-        ["dia", "yr_mo", "id_linea"], as_index=False
-    ).mean()
-
-    cols = ["dia", "yr_mo", "id_linea", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+    kpi_by_line_typeday = _agregar_kpi_basico_por_tipo_de_dia(kpi_by_line_day, [])
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_day")
 
@@ -1752,18 +1869,7 @@ def compute_basic_kpi_line_hr_typeday(ctx: StorageContext):
     logger.info("Calculando KPI basicos por tipo de dia")
     kpi_by_line_hr = ctx.data.query("SELECT * FROM basic_kpi_by_line_hr")
 
-    # get day of the week
-    weekend = pd.to_datetime(kpi_by_line_hr["dia"].copy()).dt.dayofweek > 4
-    kpi_by_line_hr.loc[:, ["dia"]] = "weekday"
-    kpi_by_line_hr.loc[weekend, ["dia"]] = "weekend"
-
-    totals_cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_hr[totals_cols].groupby(
-        ["dia", "yr_mo", "id_linea", "hora"], as_index=False
-    ).mean()
-
-    cols = ["dia", "yr_mo", "id_linea", "hora", "veh", "pax", "dmt", "of", "speed_kmh"]
-    kpi_by_line_typeday = kpi_by_line_typeday.reindex(columns=cols)
+    kpi_by_line_typeday = _agregar_kpi_basico_por_tipo_de_dia(kpi_by_line_hr, ["hora"])
 
     ctx.data.append_raw(kpi_by_line_typeday, "basic_kpi_by_line_hr")
 

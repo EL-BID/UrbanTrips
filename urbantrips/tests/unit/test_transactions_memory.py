@@ -216,3 +216,33 @@ def test_trx_eco_usecols_includes_filter_columns(tmp_path):
     else:
         assert "tipo" in usecols
         assert "JUNK1" not in usecols
+
+
+def test_gps_sin_filas_utiles_aborta(tmp_path):
+    """Se pidió gps y no quedó ni una fila útil → corta acá.
+
+    El cliente reportó una corrida con "gps: 0 filas leídas" que siguió adelante y
+    murió después en assign_time_distances con un ValueError de `Series.sample()`
+    sobre un frame vacío, que no dice nada del problema real. Los motivos habituales
+    son de datos o de config (csv solo con encabezado, nombres de columna que no
+    coinciden, bbox que no cubre los puntos), así que conviene fallar acá.
+    """
+    from urbantrips.datamodel.transactions import process_and_upload_gps_table
+
+    csv_path = tmp_path / "gps.csv"
+    csv_path.write_text(_make_gps_csv())
+
+    ctx = MagicMock()
+    ctx.data.get_run_days.return_value = pd.DataFrame({"dia": ["2024-01-01"]})
+    ctx.data.get_max_id.return_value = 0
+    ctx.data.prepare_gps_from_raw.return_value = 0  # ninguna fila sobrevive
+    ctx.data.has_rows.return_value = False
+
+    with patch("urbantrips.datamodel.transactions.leer_configs_generales", return_value=_CONFIGS),          patch("urbantrips.datamodel.transactions.eliminar_trx_fuera_bbox", side_effect=lambda df, **kw: df),          patch("urbantrips.datamodel.transactions.bbox_area_estudio", return_value=(-99, -99, 99, 99)),          patch("urbantrips.datamodel.transactions.geo"):
+        with pytest.raises(AssertionError, match="gps quedó VACÍA"):
+            process_and_upload_gps_table(
+                ctx,
+                nombre_archivo_gps=str(csv_path),
+                nombres_variables_gps=dict(_NOMBRES_VARIABLES_GPS),
+                formato_fecha="%Y-%m-%d %H:%M:%S",
+            )

@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from pathlib import Path
 
 
 # StorageContexts vivos construidos por dashboard_ctx(). write_access() los
@@ -11,16 +10,9 @@ _open_ctxs: list = []
 def get_dashboard_ctx(read_only=None):
     """Build a StorageContext for dashboard use.
 
-    Resolves the DB files the same way the rest of the dashboard does
-    (``utils.get_db_path`` / ``leer_alias``), so the pages that build a
-    StorageContext (e.g. 4_Herramientas, 6_Comparación) read and write the
-    SAME databases as the pages that read via ``utils.levanto_tabla_sql``
-    (e.g. 8_Estimar_demanda).
-
-    Previously this built the context from ``config.db_path``, which resolves
-    the data/dash alias from the run corrida (``corridas[0]``) and pointed at a
-    different (often empty) DB than the rest of the dashboard — that mismatch
-    is why supply/section queries failed with CatalogException.
+    Resolves the DB files like the rest of the dashboard
+    (``utils.get_db_path`` / ``leer_alias``), so pages using a StorageContext
+    and pages using ``utils.levanto_tabla_sql`` open the same databases.
 
     ``read_only=None`` delega en ``storage.access.read_only_mode()``: dentro de
     Streamlit abre en solo lectura (varios dashboards a la vez, sin bloquear al

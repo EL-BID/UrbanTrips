@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
 import pydeck as pdk
 import plotly.express as px
-import numpy as np
-from dash_storage import normalize_vars
 from dash_utils import (
+    sin_prefijo_orden,
     levanto_tabla_sql,
     levanto_tabla_sql_local,
     get_logo,
@@ -16,202 +14,12 @@ from dash_utils import (
     build_where_clauses,
     traer_dias_chains,
     traer_opciones_chains,
-    condicion_zona_sql,
+    condicion_zonas_sql,
     condicion_poligono_sql,
     traer_etapas_matrices_sql,
     crear_mapa_lineas_deseo,
-    bring_latlon,
 )
 
-from collections import OrderedDict
-
-
-def traigo_socio_indicadores(socio_indicadores):
-
-    df = socio_indicadores[socio_indicadores.tabla == "viajes-genero-tarifa"].copy()
-    totals = (
-        pd.crosstab(
-            values=df.factor_expansion_linea,
-            columns=df.Genero,
-            index=df.Tarifa,
-            aggfunc="sum",
-            margins=True,
-            margins_name="Total",
-            normalize=False,
-        )
-        .fillna(0)
-        .round()
-        .astype(int)
-        .apply(lambda col: col.map(lambda x: f"{x:,.0f}".replace(",", ".")))
-    )
-    totals_porc = (
-        pd.crosstab(
-            values=df.factor_expansion_linea,
-            columns=df.Genero,
-            index=df.Tarifa,
-            aggfunc="sum",
-            margins=True,
-            margins_name="Total",
-            normalize=True,
-        )
-        * 100
-    ).round(2)
-
-    modos = socio_indicadores[socio_indicadores.tabla == "etapas-genero-modo"].copy()
-    modos_genero_abs = (
-        pd.crosstab(
-            values=modos.factor_expansion_linea,
-            index=[modos.Genero],
-            columns=modos.Modo,
-            aggfunc="sum",
-            normalize=False,
-            margins=True,
-            margins_name="Total",
-        )
-        .fillna(0)
-        .astype(int)
-        .apply(lambda col: col.map(lambda x: f"{x:,.0f}".replace(",", ".")))
-    )
-    modos_genero_porc = (
-        pd.crosstab(
-            values=modos.factor_expansion_linea,
-            index=modos.Genero,
-            columns=modos.Modo,
-            aggfunc="sum",
-            normalize=True,
-            margins=True,
-            margins_name="Total",
-        )
-        * 100
-    ).round(2)
-
-    modos = socio_indicadores[socio_indicadores.tabla == "etapas-tarifa-modo"].copy()
-    modos_tarifa_abs = (
-        pd.crosstab(
-            values=modos.factor_expansion_linea,
-            index=[modos.Tarifa],
-            columns=modos.Modo,
-            aggfunc="sum",
-            normalize=False,
-            margins=True,
-            margins_name="Total",
-        )
-        .fillna(0)
-        .astype(int)
-        .apply(lambda col: col.map(lambda x: f"{x:,.0f}".replace(",", ".")))
-    )
-    modos_tarifa_porc = (
-        pd.crosstab(
-            values=modos.factor_expansion_linea,
-            index=modos.Tarifa,
-            columns=modos.Modo,
-            aggfunc="sum",
-            normalize=True,
-            margins=True,
-            margins_name="Total",
-        )
-        * 100
-    ).round(2)
-
-    avg_distances = (
-        pd.crosstab(
-            values=df.Distancia,
-            columns=df.Genero,
-            index=df.Tarifa,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
-            / df.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .fillna(0)
-        .round(2)
-    )
-    avg_times = (
-        pd.crosstab(
-            values=df["Tiempo de viaje"],
-            columns=df.Genero,
-            index=df.Tarifa,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
-            / df.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .fillna(0)
-        .round(2)
-    )
-    avg_velocity = (
-        pd.crosstab(
-            values=df["Velocidad"],
-            columns=df.Genero,
-            index=df.Tarifa,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
-            / df.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .fillna(0)
-        .round(2)
-    )
-    avg_etapas = (
-        pd.crosstab(
-            values=df["Etapas promedio"],
-            columns=df.Genero,
-            index=df.Tarifa,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
-            / df.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .round(2)
-        .fillna("")
-    )
-    user = socio_indicadores[socio_indicadores.tabla == "usuario-genero-tarifa"].copy()
-    avg_viajes = (
-        pd.crosstab(
-            values=user["Viajes promedio"],
-            index=[user.Tarifa],
-            columns=user.Genero,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * user.loc[x.index, "factor_expansion_linea"]).sum()
-            / user.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .round(2)
-        .fillna("")
-    )
-
-    avg_tiempo_entre_viajes = (
-        pd.crosstab(
-            values=df["Tiempo entre viajes"],
-            columns=df.Genero,
-            index=df.Tarifa,
-            margins=True,
-            margins_name="Total",
-            aggfunc=lambda x: (x * df.loc[x.index, "factor_expansion_linea"]).sum()
-            / df.loc[x.index, "factor_expansion_linea"].sum(),
-        )
-        .fillna(0)
-        .round(2)
-    )
-
-    return (
-        totals,
-        totals_porc,
-        avg_distances,
-        avg_times,
-        avg_velocity,
-        modos_genero_abs,
-        modos_genero_porc,
-        modos_tarifa_abs,
-        modos_tarifa_porc,
-        avg_viajes,
-        avg_etapas,
-        avg_tiempo_entre_viajes,
-    )
-
-
-def hay_cambios_en_filtros(current, last):
-    return current != last
 
 
 # ---
@@ -421,7 +229,7 @@ with st.expander("Líneas de Deseo", expanded=True):
             "tipo_visualizacion": tipo_visualizacion,
         }
 
-        if hay_cambios_en_filtros(current_filters, st.session_state.last_filters):
+        if current_filters != st.session_state.last_filters:
 
             filters = {
                 "modo_agregado": current_filters["modo_agregado"],
@@ -436,10 +244,9 @@ with st.expander("Líneas de Deseo", expanded=True):
                 filtro_od,
             )
 
-            if desc_zonas_values1 != "Todos":
-                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values1)
-            if desc_zonas_values2 != "Todos":
-                condiciones += condicion_zona_sql(desc_zona, desc_zonas_values2)
+            condiciones += condicion_zonas_sql(
+                desc_zona, desc_zonas_values1, desc_zona, desc_zonas_values2
+            )
 
             etapas_, matrices_ = traer_etapas_matrices_sql(
                 desc_zona,
@@ -529,12 +336,8 @@ with st.expander("Líneas de Deseo", expanded=True):
         else:
             if (
                 not st.session_state.data_cargada
-                or hay_cambios_en_filtros(
-                    current_options, st.session_state.last_options
-                )
-                or hay_cambios_en_filtros(
-                    current_filters, st.session_state.last_filters
-                )
+                or current_options != st.session_state.last_options
+                or current_filters != st.session_state.last_filters
             ):
                 st.session_state.last_filters = current_filters.copy()
                 st.session_state.last_options = current_options.copy()
@@ -718,10 +521,9 @@ with st.expander("Matrices"):
         else:
             od_heatmap = od_heatmap.round(0)
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
-        od_heatmap = od_heatmap.set_index("Origen")
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+        od_heatmap = od_heatmap.rename(
+            index=sin_prefijo_orden, columns=sin_prefijo_orden
+        )
 
         fig = px.imshow(
             od_heatmap,
@@ -730,6 +532,10 @@ with st.expander("Matrices"):
         )
 
         fig.update_coloraxes(showscale=False)
+        # Ejes categóricos: con ids numéricos plotly arma un eje lineal y
+        # desalinea los valores de sus celdas.
+        fig.update_xaxes(type="category")
+        fig.update_yaxes(type="category")
 
         if len(od_heatmap) <= 20:
             fig.update_layout(width=1000, height=1000)

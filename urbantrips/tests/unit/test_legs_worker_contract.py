@@ -103,7 +103,10 @@ def test_camino_paralelo_desempaqueta_los_4_valores_del_worker(monkeypatch):
             return _Fut(fn(*args, **kw))
 
     monkeypatch.setattr(legs, "ProcessPoolExecutor", _Exec)
-    monkeypatch.setattr(legs, "as_completed", lambda fs: list(fs))
+    # `as_completed` se consume dentro de utils.parallel.cosechar (el que aparta los
+    # dias que el pool no pudo terminar), no aca: el parche va donde se usa.
+    import urbantrips.utils.parallel as parallel_mod
+    monkeypatch.setattr(parallel_mod, "as_completed", lambda fs: list(fs))
 
     mensajes = []
     real_info = legs.logger.info

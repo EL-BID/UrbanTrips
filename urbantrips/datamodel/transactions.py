@@ -1030,6 +1030,17 @@ def process_and_upload_gps_table(
         odometro or "no informado",
     )
 
+    # Se pidió gps (usa_archivo_gps=True) y no quedó ni una fila útil: cortar acá y no
+    # seguir, que si no la corrida muere más adelante en assign_time_distances con un
+    # "ValueError: a must be greater than 0 unless no samples are taken" que no dice
+    # nada. Los tres motivos habituales: el csv trae solo el encabezado, los nombres de
+    # columna del config no son los del archivo, o el bbox no cubre los puntos.
+    assert filas > 0, (
+        f"La tabla gps quedó VACÍA: 0 filas útiles de {ruta_gps} "
+        f"({filas_leidas} leídas del archivo). Revisar el archivo, los nombres de "
+        f"columna en nombres_variables_gps y el bbox del área de estudio."
+    )
+
     # si se informa un service type que el start_service exista
     if "service_type" in columnas_gps and not ctx.data.gps_prep_has_service_start():
         raise Exception(

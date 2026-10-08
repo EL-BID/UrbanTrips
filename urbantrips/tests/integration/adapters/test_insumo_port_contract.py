@@ -26,6 +26,7 @@ def _sample_stops() -> pd.DataFrame:
             "stop_y": [0.0, 1.0],
             "node_x": [0.0, 1.0],
             "node_y": [0.0, 1.0],
+            "h3": ["", ""],
         }
     )
 

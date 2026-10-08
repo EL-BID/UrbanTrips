@@ -14,10 +14,16 @@ from unittest.mock import MagicMock
 tx = pytest.importorskip("urbantrips.datamodel.transactions")
 
 
-def _bbox_ctx():
-    """ctx mínimo sin zonificaciones → eliminar_trx_fuera_bbox cae al bbox del config."""
+def _bbox_ctx(zonas=None):
+    """ctx mínimo. Sin zonas (default) → cae al bbox del config.
+
+    `zonas` permite ejercitar la rama de zonificaciones, que tiene PRIORIDAD sobre
+    el config y estuvo sin cobertura mientras `get_zones()` fue un stub vacío.
+    """
     ctx = MagicMock()
-    ctx.insumos.get_zones.return_value = pd.DataFrame()  # len 0 → usa config
+    ctx.insumos.get_zones.return_value = (
+        pd.DataFrame() if zonas is None else zonas  # len 0 → usa config
+    )
     return ctx
 
 
@@ -66,3 +72,49 @@ def test_eliminar_trx_fuera_bbox_sin_bbox_ni_zonificaciones_aborta(monkeypatch):
 
     with pytest.raises(ValueError):
         tx.eliminar_trx_fuera_bbox(trx, ctx=_bbox_ctx())
+
+
+def test_bbox_area_estudio_prioriza_zonificaciones_sobre_config(monkeypatch):
+    """La zonificación tiene prioridad sobre `filtro_latlong_bbox`.
+
+    Regresión de un stub: `DuckDBInsumoAdapter.get_zones()` devolvía un
+    GeoDataFrame vacío sin consultar la tabla, así que este camino era inalcanzable
+    y TODA corrida filtraba por el bbox del config sin avisar. Como el fallback es
+    silencioso por diseño, sin este test la regresión no deja rastro.
+    """
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    # zonificación (-60..-57, -36..-34) vs config, más chico (-59..-58, -35..-34)
+    zonas = gpd.GeoDataFrame(
+        {"zona": ["z"]},
+        geometry=[Polygon([(-60, -36), (-57, -36), (-57, -34), (-60, -34)])],
+        crs=4326,
+    )
+    config_bbox = {"minx": -59.0, "miny": -35.0, "maxx": -58.0, "maxy": -34.0}
+    monkeypatch.setattr(
+        tx, "leer_configs_generales", lambda *a, **k: {"filtro_latlong_bbox": config_bbox}
+    )
+
+    minx, miny, maxx, maxy = tx.bbox_area_estudio(_bbox_ctx(zonas=zonas))
+
+    buffer_grados = 0.009 * 30  # el mismo que aplica bbox_area_estudio
+    assert (minx, miny, maxx, maxy) == pytest.approx(
+        (-60 - buffer_grados, -36 - buffer_grados, -57 + buffer_grados, -34 + buffer_grados)
+    )
+
+
+def test_bbox_area_estudio_sin_zonificaciones_usa_config(monkeypatch):
+    """Sin zonificaciones el bbox sale del config (fallback legítimo: proyecto que
+    no declaró zonificaciones, o tabla aún no escrita)."""
+    config_bbox = {"minx": -59.0, "miny": -35.0, "maxx": -58.0, "maxy": -34.0}
+    monkeypatch.setattr(
+        tx, "leer_configs_generales", lambda *a, **k: {"filtro_latlong_bbox": config_bbox}
+    )
+
+    minx, miny, maxx, maxy = tx.bbox_area_estudio(_bbox_ctx())
+
+    buffer_grados = 0.009 * 30
+    assert (minx, miny, maxx, maxy) == pytest.approx(
+        (-59 - buffer_grados, -35 - buffer_grados, -58 + buffer_grados, -34 + buffer_grados)
+    )

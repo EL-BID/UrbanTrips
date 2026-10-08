@@ -4,19 +4,14 @@ import streamlit as st
 from streamlit_folium import folium_static
 from dash_storage import leer_configs_generales
 from dash_utils import (
+    cargar_tabla_sql,
     levanto_tabla_sql,
     etiqueta_linea,
     get_logo,
-    create_linestring_od,
-    create_squared_polygon,
-    get_epsg_m,
-    extract_hex_colors_from_cmap,
-    levanto_tabla_sql_local,
     configurar_selector_corrida,
 )
 
 
-# try:
 from urbantrips.kpi.kpi import compute_route_section_load, run_basic_kpi
 from urbantrips.viz.viz import visualize_route_section_load
 from urbantrips.kpi.line_od_matrix import compute_lines_od_matrix
@@ -37,31 +32,13 @@ from urbantrips.carto.route_sections import (
     formatear_numero,
 )
 from urbantrips.utils import utils
-from urbantrips.utils.check_configs import check_config
-# except ImportError as e:
-#     st.error(
-#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-#     )
-#     st.stop()
 from urbantrips.dashboard import dashboard_ctx
 from urbantrips.storage.access import DatabaseBusyError, write_access
+from urbantrips.viz import basemaps
 
-# El StorageContext ya NO se cachea con @st.cache_resource: una conexión DuckDB
-# abierta toma el lock del archivo y bloquea tanto a otro dashboard como al
-# pipeline. Se abre y cierra dentro de `with dashboard_ctx() as ctx:`.
-# --- Función para levantar tablas SQL y almacenar en session_state ---
-def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
-    if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        tabla = utils.levanto_tabla_sql(
-            tabla_sql,
-            tabla_tipo=tipo_conexion,
-            query=query,
-        )
-        if tabla.empty:
-            st.error(f"{tabla_sql} no existe")
-        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-    return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
-
+# El StorageContext no se cachea: una conexión DuckDB abierta toma el lock del
+# archivo y bloquea a otros dashboards y al pipeline. Se abre y cierra dentro
+# de `with dashboard_ctx() as ctx:`.
 
 AYUDA_SECCIONES = f"""
 El recorrido de la línea se parte en tramos consecutivos para medir cuánta gente
@@ -73,10 +50,7 @@ sube, baja o viaja en cada uno. Se define de **una sola** de estas dos formas:
   {formatear_numero(SECTION_METERS_MAX)}): cada tramo mide esos metros, y la
   cantidad de tramos sale del largo del recorrido.
 
-Elegís una y la otra se calcula sola. Los límites no son caprichosos: menos de
-{N_SECTIONS_MIN} tramos no distingue nada dentro del recorrido, y más de
-{N_SECTIONS_MAX} (o tramos de menos de {formatear_numero(SECTION_METERS_MIN)} m)
-divide la demanda en pedazos tan chicos que el resultado es ruido.
+
 """
 
 
@@ -234,9 +208,12 @@ def mostrar_mapa_recorrido(estado):
     color = "#0B5C8A" if estado["oficial"] else "#B4581F"
     minx, miny, maxx, maxy = geom.bounds
 
-    mapa = folium.Map(tiles="cartodbpositron")
+    mapa = basemaps.folium_map()
     folium.PolyLine(
-        locations=[(lat, lon) for lon, lat in geom.coords],
+        # Indexado y no desempaquetado: las bases escritas antes de que
+        # process_routes_geoms aplanara la Z guardan LINESTRING Z, y ahí
+        # cada coord es una terna.
+        locations=[(c[1], c[0]) for c in geom.coords],
         color=color,
         weight=4,
         opacity=0.85,
@@ -376,8 +353,7 @@ try:
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
-    # alias_db_insumos (alias_db_data/alias_db_dashboard ya no aplican).
+    # Todas las bases comparten el alias alias_db_insumos.
     alias = configs.get("alias_db_insumos", "")
     st.text(
         f"Base de datos seleccionada: {alias}. Si no es la correcta, cambiar el archivo configuraciones_generales.yaml"

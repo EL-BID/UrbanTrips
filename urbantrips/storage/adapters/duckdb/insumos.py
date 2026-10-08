@@ -78,9 +78,33 @@ class DuckDBInsumoAdapter:
         return self._conn.execute("SELECT * FROM stops").fetchdf()
 
     def get_zones(self) -> gpd.GeoDataFrame:
-        # Zone tables are heterogeneous across configs; returns empty until
-        # zone storage is standardised in Plan 2.
-        return gpd.GeoDataFrame()
+        """Capas de zonificación (tabla `zonificaciones`) como GeoDataFrame 4326.
+
+        Es la fuente del bbox del área de estudio: `bbox_area_estudio` (filtro
+        geográfico de trx/gps) y `resolve_network_cache` (bbox de la red OSM) la
+        usan y tienen que ver lo mismo, si no el filtro acepta puntos que la red
+        no cubre.
+
+        No usa `_df_to_geo`: `guardo_zonificaciones` escribe esta tabla con
+        `_with_wkt_geometry` (carto.py), que serializa el WKT en la columna
+        `geometry` en vez de en `wkt`. Devuelve vacío si la tabla todavía no
+        existe (antes de la primera `guardo_zonificaciones`) o si el proyecto no
+        declaró zonificaciones: ahí el bbox cae al config.
+
+        NOTA: es la tabla de polígonos, NO `equivalencias_zonas` (h3 → zona),
+        que se lee con `get_raw("equivalencias_zonas")`.
+        """
+        try:
+            df = self._conn.execute("SELECT * FROM zonificaciones").fetchdf()
+        except Exception:
+            return gpd.GeoDataFrame()
+        if df.empty or "geometry" not in df.columns:
+            return gpd.GeoDataFrame()
+        df = df[df["geometry"].notna()].copy()
+        if df.empty:
+            return gpd.GeoDataFrame()
+        df["geometry"] = df["geometry"].apply(wkt.loads)
+        return gpd.GeoDataFrame(df, geometry="geometry", crs=4326)
 
     def get_metadata_lineas(self) -> pd.DataFrame:
         try:
@@ -144,7 +168,11 @@ class DuckDBInsumoAdapter:
             self._conn.unregister("_df")
 
     def save_zones(self, df: gpd.GeoDataFrame) -> None:
-        # No-op until zone storage is standardised in Plan 2.
+        # Sin cuerpo a proposito y sin llamadores: la escritura real de la tabla
+        # es `save_raw(df, "zonificaciones")` desde `guardo_zonificaciones`
+        # (carto.py), que serializa la geometria con `_with_wkt_geometry`.
+        # Implementar acá una segunda vía de escritura daría dos formatos para la
+        # misma tabla. Ver `get_zones`.
         pass
 
     def save_matrix_validation(self, df: pd.DataFrame) -> None:

@@ -7,12 +7,11 @@ import mapclassify
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
-import contextily as cx
 from PIL import UnidentifiedImageError
 from requests.exceptions import ConnectionError as r_ConnectionError
 from folium import Figure
-from shapely.geometry import LineString
 from dash_utils import (
+    cargar_tabla_sql,
     levanto_tabla_sql,
     etiqueta_linea,
     get_logo,
@@ -24,11 +23,7 @@ from dash_utils import (
     configurar_selector_corrida,
 )
 from urbantrips.utils import utils
-# except ImportError as e:
-#     st.error(
-#         f"Falta una librería requerida: {e}. Algunas funcionalidades no estarán disponibles. \nSe requiere full acceso a Urbantrips para correr esta página"
-#     )
-#     st.stop()
+from urbantrips.viz import basemaps
 
 
 def asegurar_columnas_si_vacio(df, cols):
@@ -66,10 +61,9 @@ def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
     df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
 
     fig = Figure(width=800, height=800)
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
         zoom_start=9,
-        tiles="cartodbpositron",
     )
 
     title_html = """
@@ -255,12 +249,12 @@ def plot_frequency_by_section(
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -488,12 +482,12 @@ def plot_speed_by_section(lineas, id_linea, nombre_linea, day_type, n_sections, 
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
@@ -725,40 +719,17 @@ def plot_demand_by_section(lineas, id_linea, nombre_linea, day_type, n_sections,
     )
 
     try:
-        prov = cx.providers.CartoDB.Positron
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
+        prov = basemaps.CANVAS
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov, attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov, attribution_size=7)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), attribution_size=7)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), attribution_size=7)
     except r_ConnectionError:
         pass
 
     plt.close(f)
     return f
-
-
-@st.cache_data
-def traigo_nombre_lineas(df):
-    return (
-        df[(df.nombre_linea.notna()) & (df.nombre_linea != "")]
-        .sort_values("nombre_linea")
-        .nombre_linea.unique()
-    )
-
-
-# --- Función para levantar tablas SQL y almacenar en session_state ---
-def cargar_tabla_sql(tabla_sql, tipo_conexion="dash", query=""):
-    if f"{tabla_sql}_{tipo_conexion}" not in st.session_state:
-        tabla = utils.levanto_tabla_sql(
-            tabla_sql,
-            tabla_tipo=tipo_conexion,
-            query=query,
-        )
-        if tabla.empty:
-            st.error(f"{tabla_sql} no existe")
-        st.session_state[f"{tabla_sql}_{tipo_conexion}"] = tabla
-    return st.session_state[f"{tabla_sql}_{tipo_conexion}"]
 
 
 def seleccionar_linea(key_input, key_select):
@@ -816,9 +787,7 @@ try:
 
     configs = st.session_state.configs
     h3_legs_res = configs["resolucion_h3"]
-    # El autogenerado quedó obsoleto: todo se guarda bajo un único alias =
-    # alias_db_insumos (las claves por-corrida alias_db_data/alias_db_dashboard
-    # ya no aplican).
+    # Todas las bases comparten el alias alias_db_insumos.
     alias = configs.get("alias_db_insumos", "")
     use_branches = configs["lineas_contienen_ramales"]
     metadata_lineas = cargar_tabla_sql("metadata_lineas", "insumos")[
@@ -889,67 +858,97 @@ with st.expander("Factor de ocupación por horas"):
 
     if len(kpi_stats_line_plot) > 0:
 
-        # Grafico Factor de Oocupación
-        f, ax = plt.subplots(figsize=(10, 4))
-        sns.barplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="of",
+        # Oferta (veh/hr), demanda (pax/hr) y factor de ocupación (%) comparten
+        # el eje: sin escalar, la demanda (miles de pax) aplastaba a la oferta
+        # (decenas de vehículos) contra el piso y se veía como una línea plana.
+        # Se escalan para que su máximo coincida con el del factor de ocupación,
+        # como dice la nota del gráfico (mismo criterio que viz.plot_basic_kpi).
+        kpi_stats_line_plot = kpi_stats_line_plot.copy()
+        tope = kpi_stats_line_plot["of"].max()
+        if not pd.notna(tope) or tope <= 0:
+            tope = 100
+        for col in ["veh", "pax"]:
+            maximo = kpi_stats_line_plot[col].max()
+            if pd.notna(maximo) and maximo > 0:
+                kpi_stats_line_plot[col] = kpi_stats_line_plot[col] * tope / maximo
+
+        # Una fila por hora: si llegan varias, seaborn dibujaba un intervalo de
+        # confianza alrededor de las líneas.
+        kpi_stats_line_plot = (
+            kpi_stats_line_plot.groupby("hora", as_index=False)[["of", "veh", "pax"]]
+            .mean()
+            .sort_values("hora")
+        )
+
+        # Barras y líneas sobre el MISMO eje numérico de horas. Con sns.barplot
+        # la hora era categórica (posiciones 0..n-1) y con sns.lineplot numérica:
+        # si la línea no empezaba a las 0 h, las curvas quedaban corridas
+        # respecto de las barras y de las etiquetas.
+        f, ax = plt.subplots(figsize=(10, 4.5))
+        ax.bar(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot["of"],
             color="silver",
-            ax=ax,
-            label="Factor de ocupación",
+            width=0.8,
+            label="Factor de ocupación (%)",
+            zorder=1,
         )
-
-        sns.lineplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="veh",
-            ax=ax,
+        ax.plot(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot.veh,
             color="Purple",
+            marker="o",
+            markersize=3,
             label="Oferta - veh/hr",
+            zorder=2,
         )
-        sns.lineplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="pax",
-            ax=ax,
+        ax.plot(
+            kpi_stats_line_plot.hora,
+            kpi_stats_line_plot.pax,
             color="Orange",
+            marker="o",
+            markersize=3,
             label="Demanda - pax/hr",
+            zorder=2,
         )
 
-        ax.set_xlabel("Hora")
-        ax.set_ylabel("Factor de Ocupación (%)")
+        ax.set_xlim(-0.6, 23.6)
+        ax.set_xticks(range(24))
+        ax.set_ylim(0, tope * 1.1)
+        ax.set_xlabel("Hora", fontsize=9)
+        ax.set_ylabel("Factor de Ocupación (%)", fontsize=9)
+        ax.tick_params(axis="both", which="major", labelsize=8)
+        ax.grid(axis="y", alpha=0.3)
+        for lado in ["right", "top", "left"]:
+            ax.spines[lado].set_visible(False)
 
         ax.set_title(
-            f"Indicadores de oferta y demanda estadarizados\nLínea: {nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
+            f"Indicadores de oferta y demanda estandarizados\nLínea:{nombre_linea_kpi.replace('Línea ', '')} - Id linea: {id_linea_kpi} - {day_type_kpi}",
             fontdict={"size": 12},
         )
 
-        # Add a footnote below and to the right side of the chart
-        note = """
-            *Los indicadores de Oferta y Demanda se estandarizaron para que
-            coincidan con el eje de Factor de Ocupación
-            """
-        ax_note = ax.annotate(
-            note,
-            xy=(0, -0.22),
+        # Leyenda y nota DEBAJO del eje, fuera del área de datos: dentro o al
+        # costado tapaban valores.
+        ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.16),
+            ncol=3,
+            fontsize=8,
+            frameon=False,
+        )
+        ax.annotate(
+            "*Oferta y demanda están escaladas solo para visualizar su evolución a lo "
+            "largo del día: su máximo se lleva al máximo del factor de ocupación.\n"
+            "Sus valores no son porcentajes ni se pueden leer contra el eje, y la "
+            "altura de una curva no se puede comparar con la de la otra.",
+            xy=(0, -0.3),
             xycoords="axes fraction",
             ha="left",
-            va="center",
+            va="top",
             fontsize=7,
+            color="dimgray",
         )
-        ax.spines.right.set_visible(False)
-        ax.spines.top.set_visible(False)
-        ax.spines.bottom.set_visible(False)
-        ax.spines.left.set_visible(False)
-        ax.spines.left.set_position(("outward", 10))
-        ax.spines.bottom.set_position(("outward", 10))
-
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
-        # Put a legend to the right of the current axis
-        ax.tick_params(axis="both", which="major", labelsize=8)
-        ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=8)
+        f.subplots_adjust(bottom=0.3)
         st.pyplot(f)
     else:
         st.write("No hay datos para mostrar")
@@ -1074,7 +1073,6 @@ with st.expander("Líneas de deseo por linea"):
 with st.expander("Matriz OD por linea"):
 
     matriz = levanto_tabla_sql_local("matrices_linea")
-    # nl3 = traigo_nombre_lineas(matriz[["id_linea", "nombre_linea"]])
 
     matriz = asegurar_columnas_si_vacio(
         matriz,
@@ -1152,7 +1150,7 @@ with st.expander("Matriz OD por linea"):
             ]
 
             fig = Figure(width=800, height=800)
-            m = folium.Map(location=map_center, zoom_start=10, tiles="cartodbpositron")
+            m = basemaps.folium_map(location=map_center, zoom_start=10)
 
             # Add GeoDataFrame to the map
             folium.GeoJson(zonas).add_to(m)

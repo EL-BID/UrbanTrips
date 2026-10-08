@@ -1,28 +1,17 @@
 # Importación de librerías necesarias
 import pandas as pd
-import geopandas as gpd
-import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
 from pathlib import Path
-from sklearn.preprocessing import StandardScaler, RobustScaler
-from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
-from sklearn.mixture import GaussianMixture
-from sklearn import metrics
-from sklearn.ensemble import IsolationForest
-from sklearn.metrics import silhouette_score
-from scipy.stats import pearsonr, spearmanr, shapiro, anderson, kstest
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import AgglomerativeClustering
 import scipy.cluster.hierarchy as sch
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d import Axes3D
 import folium
-from palettable.colorbrewer.qualitative import Set3_12
 import os
 
 
-from urbantrips.utils.utils import levanto_tabla_sql, guardar_tabla_sql
+from urbantrips.utils.utils import levanto_tabla_sql
 
 
 def normalizar_id_linea(col):
@@ -89,105 +78,6 @@ def correlation_analysis(
     return corr_matrix
 
 
-def run_clustering(
-    data, cluster_vars, n_clusters, model_type="kmeans", scale_data=True
-):
-    """
-    Ejecuta el modelo de clusterización seleccionado y retorna el DataFrame con las etiquetas de cluster.
-
-    Parámetros:
-    - data: DataFrame con los datos
-    - cluster_vars: Lista de variables para la clusterización
-    - n_clusters: Número de clusters a utilizar
-    - model_type: Tipo de modelo ('kmeans', 'gmm')
-    - scale_data: Booleano, si es True escala los datos antes de clusterizar
-
-    Retorna:
-    - data_clustered: DataFrame con las etiquetas de cluster asignadas
-    """
-    # Copia del DataFrame original
-    data_clustered = data.copy()
-
-    # Selección de variables para clusterizar
-    X = data_clustered[cluster_vars].copy()
-
-    # Escalado de datos si se especifica
-    if scale_data:
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-    else:
-        X_scaled = X.values
-
-    # Ejecutar modelo de clusterización
-    if model_type == "kmeans":
-        model = KMeans(n_clusters=n_clusters, random_state=42)
-        labels = model.fit_predict(X_scaled)
-    elif model_type == "gmm":
-        model = GaussianMixture(n_components=n_clusters, random_state=42)
-        labels = model.fit_predict(X_scaled)
-    else:
-        raise ValueError("Modelo no soportado. Use 'kmeans' o 'gmm'.")
-
-    # Asignación de etiquetas al DataFrame
-    cluster_label = f"cluster_{model_type}"
-    data_clustered[cluster_label] = labels
-
-    # Evaluación del modelo
-    silhouette_avg = metrics.silhouette_score(X_scaled, labels)
-    davies_bouldin = metrics.davies_bouldin_score(X_scaled, labels)
-    calinski_harabasz = metrics.calinski_harabasz_score(X_scaled, labels)
-
-    print(
-        f"\nMétricas de evaluación para {model_type.upper()} con {n_clusters} clusters:"
-    )
-    print(f"Silhouette Score: {silhouette_avg:.4f} (Más cercano a 1 es mejor)")
-    print(f"Davies-Bouldin Index: {davies_bouldin:.4f} (Más cercano a 0 es mejor)")
-    print(f"Calinski-Harabasz Index: {calinski_harabasz:.4f} (Más alto es mejor)")
-
-    return data_clustered, model
-
-
-def plot_cluster_results(data, cluster_vars, cluster_label):
-    """
-    Genera visualizaciones de los clusters en el espacio de variables o componentes principales.
-
-    Parámetros:
-    - data: DataFrame con los datos y etiquetas de cluster
-    - cluster_vars: Lista de variables utilizadas para la clusterización
-    - cluster_label: Nombre de la columna con las etiquetas de cluster
-    """
-    # Si hay dos variables, podemos graficar en 2D
-    if len(cluster_vars) == 2:
-        plt.figure(figsize=(8, 6))
-        sns.scatterplot(
-            data=data,
-            x=cluster_vars[0],
-            y=cluster_vars[1],
-            hue=cluster_label,
-            palette="Set1",
-            s=50,
-        )
-        plt.title(
-            f"Clusters en el Espacio de Variables ({cluster_vars[0]} vs {cluster_vars[1]})"
-        )
-        plt.show()
-    else:
-        # Aplicar PCA para reducir a 2 dimensiones
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(data[cluster_vars])
-        pca = PCA(n_components=2)
-        components = pca.fit_transform(X_scaled)
-        pca_df = pd.DataFrame(data=components, columns=["PC1", "PC2"])
-        pca_df[cluster_label] = data[cluster_label].values
-
-        plt.figure(figsize=(8, 6))
-        sns.scatterplot(
-            data=pca_df, x="PC1", y="PC2", hue=cluster_label, palette="Set1", s=50
-        )
-        plt.title("Clusters en el Espacio de Componentes Principales")
-        plt.show()
-
-
 def cluster_profile(
     data,
     cluster_label,
@@ -252,36 +142,6 @@ def cluster_profile(
     )
 
 
-def plot_cluster_distributions(data, vars, cluster_var):
-    """
-    Genera gráficos de densidad para las variables especificadas, coloreando por cluster.
-
-    Parámetros:
-    - data: DataFrame con los datos.
-    - vars: Lista de variables a graficar.
-    - cluster_var: Nombre de la columna que indica el cluster.
-    """
-    nrows = len(vars)
-    fig, axes = plt.subplots(nrows=nrows, ncols=1, figsize=(10, 3 * nrows))
-
-    for i, var in enumerate(vars):
-        sns.kdeplot(
-            data=data,
-            x=var,
-            hue=cluster_var,
-            fill=True,
-            common_norm=False,
-            alpha=0.5,
-            ax=axes[i],
-        )
-        axes[i].set_title(f"Distribución de {var} por {cluster_var}")
-        axes[i].set_xlabel(var)
-        axes[i].set_ylabel("Densidad")
-
-    plt.tight_layout()
-    plt.show()
-
-
 def ordernar_clusters(data_clustered, eval_vars, cluster_var):
     data_ordered = (
         data_clustered.groupby(cluster_var, as_index=False)[
@@ -310,171 +170,11 @@ def ordernar_clusters(data_clustered, eval_vars, cluster_var):
     return data_clustered
 
 
-def corr_cluster(
-    col,
-    varx,
-    vary,
-    varz="",
-    cluster_var="",
-    xtick="",
-    ytick="",
-    ztick="",
-    cmap="RdYlBu",
-    markersize=50,
-    title="",
-    savefile="",
-    figsize=(8, 8),
-    regline=False,
-):
-    """
-    Realiza un gráfico de correlación entre variables, puden ser dos o tres variables.
-    varx, vary, varz = variables a correlacionaar. varz puede quedar vacía
-    xtick, ytick, ztick = label de las variables a correlacionar. De estar vacías toma el nombre de la variable
-    cluster_var = Variable de clusterización, muestra distintos markers por cluster
-    """
-    sns.set_style("white")
-    if len(varz) == 0:
-        fig, ax = plt.subplots(figsize=figsize, dpi=100)
-    else:
-        fig = plt.figure(figsize=figsize)
-        ax = fig.add_subplot(111, projection="3d")
-
-    mark = ["*", "o", "v", "s", "h", "P", "D"]
-    colores = ["#01665e", "#5ab4ac", "#c7eae5", "#f6e8c3", "#d8b365", "#8c510a"]
-
-    n = 0
-    for i in col[cluster_var].unique():
-
-        if len(varz) == 0:
-            plt.scatter(
-                x=col[(col[cluster_var] == i)][varx],
-                y=col[(col[cluster_var] == i)][vary],
-                s=markersize,
-                cmap=cmap,
-                marker=mark[n],
-                alpha=0.5,
-            )
-
-        else:
-            ax.scatter(
-                col.loc[col[cluster_var] == i, varx],
-                col.loc[col[cluster_var] == i, vary],
-                col.loc[col[cluster_var] == i, varz],
-                color=colores[n],
-                s=markersize,
-                marker=mark[n],
-            )
-        n += 1
-
-    if len(xtick) == 0:
-        ax.set_xlabel(varx)
-    else:
-        ax.set_xlabel(xtick)
-
-    if len(ytick) == 0:
-        ax.set_ylabel(vary)
-    else:
-        ax.set_ylabel(ytick)
-
-    if len(varz) > 0:
-        if len(ztick) == 0:
-            ax.set_zlabel(varz)
-        else:
-            ax.set_zlabel(ztick)
-    elif regline:
-        sns.regplot(data=col, x=varx, y=vary, scatter=False)
-    ax.set_title(title)
-
-    if len(str(savefile)) > 0:
-        fig.savefig(savefile)
-
-
-def evaluate_clustering_models(X, max_clusters=10):
-    """
-    Evalúa diferentes modelos de clusterización para determinar el número óptimo de clusters.
-    Utiliza el método del codo, Silhouette Score, BIC y AIC.
-
-    Parámetros:
-    - X: Datos escalados para la clusterización
-    - max_clusters: Número máximo de clusters a evaluar
-
-    Retorna:
-    - None
-    """
-    # Listas para almacenar las métricas
-    wcss = []  # Within-Cluster Sum of Squares para KMeans
-    silhouette_scores_kmeans = []
-    silhouette_scores_gmm = []
-    bic_scores_gmm = []
-    aic_scores_gmm = []
-    range_n_clusters = range(2, max_clusters + 1)
-
-    print("\nEvaluando modelos de clusterización...")
-    for n_clusters in range_n_clusters:
-        # KMeans
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        kmeans.fit(X)
-        labels_kmeans = kmeans.labels_
-        wcss.append(kmeans.inertia_)
-        silhouette_avg_kmeans = metrics.silhouette_score(X, labels_kmeans)
-        silhouette_scores_kmeans.append(silhouette_avg_kmeans)
-
-        # Gaussian Mixture Model
-        gmm = GaussianMixture(n_components=n_clusters, random_state=42)
-        gmm.fit(X)
-        labels_gmm = gmm.predict(X)
-        silhouette_avg_gmm = metrics.silhouette_score(X, labels_gmm)
-        silhouette_scores_gmm.append(silhouette_avg_gmm)
-        bic_scores_gmm.append(gmm.bic(X))
-        aic_scores_gmm.append(gmm.aic(X))
-
-    # Método del Codo para KMeans
-    plt.figure(figsize=(10, 5))
-    plt.plot(range_n_clusters, wcss, "bo-")
-    plt.xlabel("Número de Clusters K")
-    plt.ylabel("WCSS (Within-Cluster Sum of Squares)")
-    plt.title("Método del Codo para KMeans")
-    plt.show()
-    print("\nInterpretación del Método del Codo:")
-    print(
-        "- Buscamos el punto donde la disminución de WCSS se vuelve menos pronunciada (el codo)."
-    )
-    print("- Este punto sugiere un número óptimo de clusters.")
-
-    # Silhouette Score para KMeans y GMM
-    plt.figure(figsize=(10, 5))
-    plt.plot(range_n_clusters, silhouette_scores_kmeans, "ro-", label="KMeans")
-    plt.plot(range_n_clusters, silhouette_scores_gmm, "go-", label="GMM")
-    plt.xlabel("Número de Clusters")
-    plt.ylabel("Silhouette Score")
-    plt.title("Silhouette Score para KMeans y GMM")
-    plt.legend()
-    plt.show()
-    print("\nInterpretación del Silhouette Score:")
-    print("- Valores cercanos a 1 indican que las muestras están bien agrupadas.")
-    print(
-        "- Podemos seleccionar el número de clusters que maximice el Silhouette Score."
-    )
-
-    # BIC y AIC para GMM
-    plt.figure(figsize=(10, 5))
-    plt.plot(range_n_clusters, bic_scores_gmm, "bo-", label="BIC")
-    plt.plot(range_n_clusters, aic_scores_gmm, "ro-", label="AIC")
-    plt.xlabel("Número de Clusters")
-    plt.ylabel("BIC / AIC")
-    plt.title("BIC y AIC para GMM")
-    plt.legend()
-    plt.show()
-    print("\nInterpretación de BIC y AIC:")
-    print("- Valores más bajos de BIC/AIC indican un mejor modelo.")
-    print("- Podemos seleccionar el número de clusters que minimice el BIC/AIC.")
-
-
 import folium
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
-import numpy as np
+from urbantrips.viz import basemaps
 
 
 def rgb_to_hex(rgb):
@@ -512,10 +212,9 @@ def plot_cluster_in_map(
     carto = carto.merge(data.reindex(columns=["id_linea", cluster_var]), on="id_linea")
 
     # Inicializar mapa
-    m = folium.Map(
+    m = basemaps.folium_map(
         location=(-34.6, -58.5),
         zoom_start=12,
-        tiles="cartodbpositron",
         width=1300,
         height=800,
     )
@@ -607,119 +306,6 @@ def guardar_datos_txt(
 ):
     with open(filepath / nombre_archivo, "w", encoding="utf-8") as file:
         file.write(save_data)
-
-
-def check_clustering_suitability(df, variables, plot=True):
-    """
-    Evalúa si las variables de un DataFrame siguen una distribución normal (gaussiana).
-    También evalúa si K-Means es adecuado y retorna recomendaciones de clustering.
-
-    Parámetros:
-    - df: DataFrame con los datos.
-    - variables: Lista de columnas a evaluar.
-    - plot: Booleano para mostrar histogramas y PCA (por defecto True).
-
-    Retorna:
-    - Un diccionario con los resultados de las pruebas de normalidad y una recomendación de clustering.
-    """
-    results = {}
-    variables_gmm = []  # Variables recomendadas para GMM
-    variables_hierarchical = []  # Variables recomendadas para Hierarchical Clustering
-    variables_kmeans = []  # Variables recomendadas para K-Means
-
-    # Crear histogramas
-    if plot:
-        plt.figure(figsize=(12, 6))
-        for var in variables:
-            sns.histplot(df[var].dropna(), kde=True, bins=30, label=var, alpha=0.6)
-        plt.title("Distribución de Variables con KDE")
-        plt.legend()
-        plt.show()
-
-    print("\n📌 **Evaluación de Normalidad para cada variable:**")
-
-    for var in variables:
-        stat_shapiro, p_shapiro = shapiro(df[var].dropna())  # Prueba de Shapiro-Wilk
-        stat_ks, p_ks = kstest(df[var].dropna(), "norm")  # Prueba de Kolmogorov-Smirnov
-        result_anderson = anderson(
-            df[var].dropna(), dist="norm"
-        )  # Prueba de Anderson-Darling
-
-        results[var] = {
-            "Shapiro-Wilk p-value": p_shapiro,
-            "Kolmogorov-Smirnov p-value": p_ks,
-            "Anderson-Darling stat": result_anderson.statistic,
-            "Anderson Critical Values": result_anderson.critical_values,
-        }
-
-        # Evaluar si la variable pasa todas las pruebas de normalidad
-        if (
-            (p_shapiro > 0.05)
-            and (p_ks > 0.05)
-            and (result_anderson.statistic < result_anderson.critical_values[2])
-        ):
-            variables_gmm.append(var)  # Recomendado para GMM
-        else:
-            variables_hierarchical.append(
-                var
-            )  # Recomendado para Hierarchical Clustering
-
-    # Evaluar si K-Means es adecuado con análisis de varianza
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df[variables].dropna())
-
-    kmeans = KMeans(n_clusters=3, random_state=42)
-    cluster_labels = kmeans.fit_predict(X_scaled)
-
-    silhouette_avg = silhouette_score(X_scaled, cluster_labels)
-    cluster_sizes = np.bincount(cluster_labels)
-
-    # Si la silueta es buena (> 0.5) y los clusters son de tamaño similar, K-Means es recomendable
-    if silhouette_avg > 0.5 and max(cluster_sizes) / min(cluster_sizes) < 2:
-        variables_kmeans = variables.copy()
-
-    # Análisis de PCA
-    if plot:
-        print(
-            "\n📌 **Análisis de Componentes Principales (PCA) - Evaluando si las componentes son gaussianas:**"
-        )
-        pca = PCA(n_components=2)
-        X_pca = pca.fit_transform(X_scaled)
-
-        plt.figure(figsize=(12, 6))
-        sns.histplot(X_pca[:, 0], kde=True, bins=30, label="PC1", alpha=0.6)
-        sns.histplot(X_pca[:, 1], kde=True, bins=30, label="PC2", alpha=0.6)
-        plt.title("Distribución de Componentes Principales")
-        plt.legend()
-        plt.show()
-
-    # Mostrar la recomendación final
-    print("\n📌 **Recomendación de Clustering:**")
-    if len(variables_gmm) > 0:
-        print(f"✅ **GMM es recomendable para:** {variables_gmm}")
-    else:
-        print("❌ No se recomienda GMM, los datos no son gaussianos.")
-
-    if len(variables_hierarchical) > 0:
-        print(
-            f"✅ **Hierarchical Clustering es recomendable para:** {variables_hierarchical}"
-        )
-    else:
-        print("❌ No se recomienda Hierarchical Clustering.")
-
-    if len(variables_kmeans) > 0:
-        print(f"✅ **K-Means es recomendable para:** {variables_kmeans}")
-    else:
-        print(
-            "❌ No se recomienda K-Means, los clusters no parecen ser esféricos o tienen alta varianza."
-        )
-
-    return {
-        "GMM": variables_gmm,
-        "Hierarchical": variables_hierarchical,
-        "K-Means": variables_kmeans,
-        "Normality Results": results,
-    }
 
 
 def hierarchical_clustering(

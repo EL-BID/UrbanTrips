@@ -1,72 +1,17 @@
-import numpy as np
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
-from streamlit_folium import folium_static
-import mapclassify
 import plotly.express as px
-from folium import Figure
 from dash_utils import (
     levanto_tabla_sql,
     get_logo,
-    create_linestring_od,
-    extract_hex_colors_from_cmap,
     configurar_selector_corrida,
-    formatear_columnas_numericas
+    formatear_columnas_numericas,
 )
 
 from itertools import combinations
 import squarify
 from matplotlib_venn import venn2, venn3
 import matplotlib.pyplot as plt
-
-
-# Function to create activity combinations as tuples
-def get_activity_tuple(cols_dummies, selected_cols_dummies):
-    return tuple(
-        1 if activity in selected_cols_dummies else 0 for activity in cols_dummies
-    )
-
-
-# Function to calculate subset sizes
-def get_activity_combination_number(df, cols_dummies, activity_combination):
-    activity_str_filter = [
-        f"{a} > 0" if a in activity_combination else f"{a} == 0" for a in cols_dummies
-    ]
-    activity_str_filter = " & ".join(activity_str_filter)
-    return len(df.query(activity_str_filter))
-
-
-# Generate example data
-def generate_example_data(num_rows=100):
-    np.random.seed(42)  # For reproducibility
-    data = {
-        "train": np.random.randint(
-            0, 2, size=num_rows
-        ),  # Binary: 0 (not used), 1 (used)
-        "subway": np.random.randint(0, 2, size=num_rows),
-        "bus": np.random.randint(0, 2, size=num_rows),
-    }
-    return pd.DataFrame(data)
-
-
-# Generate subset sizes dictionary
-def calculate_subset_sizes(df, cols_dummies):
-    list_of_tuples = [
-        item
-        for sublist in [
-            list(combinations(cols_dummies, i)) for i in range(1, len(cols_dummies) + 1)
-        ]
-        for item in sublist
-    ]
-    return {
-        get_activity_tuple(cols_dummies, combo): get_activity_combination_number(
-            df, cols_dummies, combo
-        )
-        for combo in list_of_tuples
-    }
-
 
 
 # Plot Venn diagram
@@ -257,17 +202,6 @@ def plot_venn_diagram(etapas_modos):
         )
     else:
 
-    #     total = sum(filtered_values)
-    #     normalized_values = [(v / total) * 100 for v in filtered_values]
-
-    #     squarify.plot(
-    #         sizes=filtered_values,
-    #         label=filtered_labels,
-    #         color=fixed_palette[: len(filtered_values)],
-    #         text_kwargs={"fontsize": 10, "color": "black"},
-    #         ax=ax2,
-    #     )
-    # ax2.axis("off")
         # Umbral: rectángulos menores a X% no llevan etiqueta interna
         LABEL_THRESHOLD = 5  # porcentaje
 
@@ -566,50 +500,6 @@ def traigo_socio_indicadores(socio_indicadores):
         avg_tiempo_entre_viajes,
     )
 
-
-def crear_mapa_folium(df_agg, cmap, var_fex, savefile="", k_jenks=5):
-
-    bins = [df_agg[var_fex].min() - 1] + mapclassify.FisherJenks(
-        df_agg[var_fex], k=k_jenks
-    ).bins.tolist()
-    range_bins = range(0, len(bins) - 1)
-    bins_labels = [f"{int(bins[n])} a {int(bins[n+1])} viajes" for n in range_bins]
-    df_agg["cuts"] = pd.cut(df_agg[var_fex], bins=bins, labels=bins_labels)
-
-    fig = Figure(width=800, height=800)
-    m = folium.Map(
-        location=[df_agg.lat_o.mean(), df_agg.lon_o.mean()],
-        zoom_start=9,
-        tiles="cartodbpositron",
-    )
-
-    title_html = """
-    <h3 align="center" style="font-size:20px"><b>Your map title</b></h3>
-    """
-    m.get_root().html.add_child(folium.Element(title_html))
-
-    line_w = 0.5
-
-    colors = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
-
-    n = 0
-    for i in bins_labels:
-
-        df_agg[df_agg.cuts == i].explore(
-            m=m,
-            color=colors[n],
-            style_kwds={"fillOpacity": 0.1, "weight": line_w},
-            name=i,
-            tooltip=False,
-        )
-        n += 1
-        line_w += 3
-
-    folium.LayerControl(name="xx").add_to(m)
-
-    fig.add_child(m)
-
-    return fig
 
 def get_venn_subsets(subset_sizes, n_modes):
     if n_modes == 1:

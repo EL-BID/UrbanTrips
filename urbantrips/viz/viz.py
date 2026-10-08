@@ -48,6 +48,7 @@ from urbantrips.viz.helpers import (  # noqa: F401 — re-exported for compat
 from urbantrips.carto.carto import get_h3_indices_in_geometry
 
 import warnings
+from urbantrips.viz import basemaps
 
 warnings.filterwarnings("ignore")
 
@@ -649,13 +650,13 @@ def viz_etapas_x_tramo_recorrido(
         arrowprops=dict(facecolor="Orange", shrink=0.05, edgecolor="Orange"),
     )
 
-    prov = cx.providers.CartoDB.Positron
+    prov = basemaps.CANVAS
     try:
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string(), source=prov)
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string(), source=prov)
     except (UnidentifiedImageError, ValueError):
-        cx.add_basemap(ax1, crs=gdf_d0.crs.to_string())
-        cx.add_basemap(ax2, crs=gdf_d1.crs.to_string())
+        basemaps.add_basemap(ax1, crs=gdf_d0.crs.to_string())
+        basemaps.add_basemap(ax2, crs=gdf_d1.crs.to_string())
     except r_ConnectionError:
         pass
 
@@ -1565,9 +1566,9 @@ def imprime_burbujas(
                 },
             )
             try:
-                ctx.add_basemap(
+                basemaps.add_basemap(
                     ax,
-                    source=ctx.providers.CartoDB.Positron,
+                    source=basemaps.CANVAS,
                     attribution=None,
                     attribution_size=10,
                 )
@@ -2114,9 +2115,9 @@ def lineas_deseo(
                     },
                 )
                 try:
-                    ctx.add_basemap(
+                    basemaps.add_basemap(
                         ax,
-                        source=ctx.providers.CartoDB.Positron,
+                        source=basemaps.CANVAS,
                         attribution=None,
                         attribution_size=10,
                     )

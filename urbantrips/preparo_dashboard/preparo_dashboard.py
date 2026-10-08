@@ -1,6 +1,7 @@
 import logging
 import gc
 import os
+import re
 from datetime import datetime
 from itertools import product
 
@@ -935,8 +936,9 @@ def replace_dash_partition(ctx: StorageContext, df, table_name, partition_cols):
     ctx.dash.append_raw(df, table_name)
 
 
-
-
+def _sin_prefijo_orden(etiqueta):
+    """OD matrix label without its '###_' display-order prefix."""
+    return re.sub(r"^\d+_", "", str(etiqueta))
 
 
 def imprimo_matrices_od(ctx: StorageContext):
@@ -1030,10 +1032,9 @@ def imprimo_matrices_od(ctx: StorageContext):
             normalize=False,
         )
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
-        od_heatmap = od_heatmap.set_index("Origen")
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+        od_heatmap = od_heatmap.rename(
+            index=_sin_prefijo_orden, columns=_sin_prefijo_orden
+        )
 
         db_path = str(get_paths().output_dir / "matrices" / f"{savefile}.xlsx")
         od_heatmap.reset_index().fillna("").to_excel(db_path, index=False)
@@ -1046,10 +1047,9 @@ def imprimo_matrices_od(ctx: StorageContext):
             normalize=True,
         )
 
-        od_heatmap = od_heatmap.reset_index()
-        od_heatmap["Origen"] = od_heatmap["Origen"].str[4:]
-        od_heatmap = od_heatmap.set_index("Origen")
-        od_heatmap.columns = [i[4:] for i in od_heatmap.columns]
+        od_heatmap = od_heatmap.rename(
+            index=_sin_prefijo_orden, columns=_sin_prefijo_orden
+        )
 
         db_path2 = str(get_paths().output_dir / "matrices" / f"{savefile}_normalizada.xlsx")
         od_heatmap.reset_index().fillna("").to_excel(db_path2, index=False)

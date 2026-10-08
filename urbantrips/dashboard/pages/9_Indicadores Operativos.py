@@ -410,15 +410,9 @@ def bloque_familias(fila: pd.DataFrame) -> None:
 # -----------------------------------------------------------------------------
 # Panel único: Día × Modo × Línea
 # -----------------------------------------------------------------------------
-# Antes había dos secciones —"KPIs por línea" y "Totales del sistema"— que
-# mostraban los mismos indicadores con criterios distintos: la de línea leía la
-# fila `dia = "Promedios"` que escribe `calculo_kpi_lineas` (media simple de las
-# filas línea-día, sin ponderar los ratios) y la de sistema los recalculaba
-# ponderados. Un mismo indicador daba dos números según dónde se lo mirara.
-#
-# Ahora hay un solo panel y un solo criterio de agregación (`agregar_sistema`).
-# La fila "Promedios" de la tabla ya no se usa para nada: "Día = Todos" produce
-# el promedio bien calculado. Los tres selectores cubren todos los casos:
+# Un solo criterio de agregación (`agregar_sistema`) para todos los casos. No se
+# usa la fila `dia = "Promedios"` de `calculo_kpi_lineas` (media simple sin
+# ponderar): "Día = Todos" calcula el promedio ponderado.
 #
 #   Día=Todos  + Línea=Todas  -> promedio diario del sistema (+ acumulado)
 #   Día=fecha  + Línea=Todas  -> total de ese día
