@@ -248,9 +248,15 @@ def filtrar_transacciones_invalidas(trx, tipo_trx_invalidas):
     y valores con transacciones no consideradas validas para elminar
     y las elimina
     """
+    # La comparación ignora mayúsculas y espacios: distintas entregas escriben el
+    # mismo tipo como "CHECK OUT" o "Check Out" (AMBA 2019 vs SISTAU 2026), y con
+    # comparación exacta las salidas de tren de 2026 no se filtraban.
     for columna in tipo_trx_invalidas.keys():
-        valores = tipo_trx_invalidas[columna]
-        trx = trx.loc[~trx[columna].isin(valores), :]
+        if columna not in trx.columns:
+            continue
+        valores = {str(v).strip().lower() for v in tipo_trx_invalidas[columna] if v is not None}
+        normalizada = trx[columna].astype("string").str.strip().str.lower()
+        trx = trx.loc[~normalizada.isin(valores).fillna(False), :]
     return trx
 
 

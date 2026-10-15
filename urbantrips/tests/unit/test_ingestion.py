@@ -225,3 +225,49 @@ def test_ingest_day_csv_total_rows_stored(tmp_path):
     )
     count = adapter.query("SELECT COUNT(*) as n FROM transacciones_raw")["n"].iloc[0]
     assert count == 90
+
+
+def test_standardize_chunk_respeta_columna_hora():
+    """Con columna_hora=True y fecha sin hora (caso AMBA 2019), la hora del csv
+    no debe pisarse con la hora de la fecha parseada (que sería 0)."""
+    df = make_chunk(3)
+    df["fecha"] = ["19/11/2019"] * 3
+    df["hora"] = [7, 17, 23]
+    # como en el YAML 2019: hora_trx: "hora"
+    nombres = {**NOMBRES_VARIABLES, "hora_trx": "hora"}
+    result = _standardize_chunk(
+        df,
+        nombres_variables=nombres,
+        formato_fecha="%d/%m/%Y",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+        columna_hora=True,
+    )
+    assert result["hora"].tolist() == [7, 17, 23]
+    assert result["tiempo"].tolist() == ["07:00:00", "17:00:00", "23:00:00"]
+    assert result["dia"].unique().tolist() == ["2019-11-19"]
+
+
+def test_standardize_chunk_fecha_completa_no_cambia():
+    """Con columna_hora=False la hora sale de la fecha completa, como antes."""
+    df = make_chunk(3)
+    result = _standardize_chunk(
+        df,
+        nombres_variables=NOMBRES_VARIABLES,
+        formato_fecha="%Y-%m-%d %H:%M:%S",
+        tipo_trx_invalidas=None,
+        lineas_contienen_ramales=True,
+        columna_hora=False,
+    )
+    assert result["hora"].tolist() == [8, 8, 8]
+    assert result["tiempo"].tolist() == ["08:00:00", "08:01:00", "08:02:00"]
+
+
+def test_filtrar_transacciones_invalidas_ignora_mayusculas():
+    """'Check Out' (SISTAU 2026) debe filtrarse igual que 'CHECK OUT' (AMBA 2019)."""
+    from urbantrips.datamodel.transactions import filtrar_transacciones_invalidas
+
+    df = pd.DataFrame({"tipo_trx_tren": ["CHECK IN", "Check Out", "CHECK OUT", " check out sin checkin ", None, "Check In"]})
+    out = filtrar_transacciones_invalidas(df, {"tipo_trx_tren": ["CHECK OUT SIN CHECKIN", "CHECK OUT"]})
+    assert out["tipo_trx_tren"].tolist()[:1] == ["CHECK IN"]
+    assert len(out) == 3   # CHECK IN, None (colectivo) y Check In

@@ -17,6 +17,7 @@ def _standardize_chunk(
     tipo_trx_invalidas: dict | None,
     lineas_contienen_ramales: bool,
     geolocalizar_trx: bool = False,
+    columna_hora: bool = False,
 ) -> pd.DataFrame:
     """
     Structural transforms on one CSV chunk. Returns the subset of columns
@@ -45,8 +46,18 @@ def _standardize_chunk(
         df["fecha_parsed"].astype("int64") // 10**9
     ).where(df["fecha_parsed"].notna()).astype("Int64")
     df["dia"] = df["fecha_parsed"].dt.strftime("%Y-%m-%d")
-    df["hora"] = df["fecha_parsed"].dt.hour
-    df["tiempo"] = df["fecha_parsed"].dt.strftime("%H:%M:%S")
+    if columna_hora and "hora" in df.columns:
+        # La hora viene en una columna propia del csv (hora_trx en el YAML, sin
+        # minutos) y la fecha no la trae: NO pisarla con la hora de fecha_parsed,
+        # que sería 0 para todas las filas. tiempo se arma como HH:00:00 para que
+        # los pasos que construyen timestamps con dia + tiempo sigan funcionando.
+        df["hora"] = pd.to_numeric(df["hora"], errors="coerce").astype("Int64")
+        df["tiempo"] = df["hora"].map(
+            lambda h: f"{int(h):02d}:00:00" if pd.notna(h) else None
+        )
+    else:
+        df["hora"] = df["fecha_parsed"].dt.hour
+        df["tiempo"] = df["fecha_parsed"].dt.strftime("%H:%M:%S")
 
     # drop rows with nulls in key fields. latitud/longitud are only
     # required here when the trx file itself carries them — when
@@ -128,6 +139,7 @@ def ingest_day_csv(
     lineas_contienen_ramales: bool,
     chunk_size: int = 100_000,
     geolocalizar_trx: bool = False,
+    columna_hora: bool = False,
 ) -> None:
     """
     Stream one day's CSV into transacciones_raw in fixed-size chunks.
@@ -144,6 +156,7 @@ def ingest_day_csv(
                 tipo_trx_invalidas=tipo_trx_invalidas,
                 lineas_contienen_ramales=lineas_contienen_ramales,
                 geolocalizar_trx=geolocalizar_trx,
+                columna_hora=columna_hora,
             )
             if len(standardized) > 0:
                 ctx.data.save_raw_chunk(standardized)

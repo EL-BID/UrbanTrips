@@ -461,6 +461,7 @@ def _ingest_all_days(ctx: StorageContext, corridas: list[str]) -> dict[str, list
                 tipo_trx_invalidas=tipo_trx_invalidas,
                 lineas_contienen_ramales=lineas_contienen_ramales,
                 geolocalizar_trx=geolocalizar_trx,
+                columna_hora=bool(configs.get("columna_hora", False)),
             )
             # Días que aportó ESTA corrida = los nuevos en raw desde el snapshot
             # previo. Supone corridas con días disjuntos (cada corrida es un
