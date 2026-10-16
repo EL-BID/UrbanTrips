@@ -59,6 +59,12 @@ dependencies = [
     # globales, solo usa agregación por hash, joins y ORDER BY, que derraman a disco
     # en cualquier versión. El pin es "lo que probamos", no "lo que hace falta".
     "duckdb>=1.5.3",
+    # Motor de parquet para pandas (staging de etapas, chains y destinos, y tests).
+    # Llega como dependencia transitiva, pero pyarrow 26 exige numpy>=2 y acá numpy
+    # está fijado en 1.26.4: sin este tope una instalación limpia (CI) trae pyarrow 26,
+    # que no se puede importar, y pandas falla con "Unable to find a usable engine".
+    # Probado con numpy 1.26: pyarrow 24.0 (local) y 25.0 (instalación limpia).
+    "pyarrow>=15,<26",
 ]
 
 [project.optional-dependencies]
