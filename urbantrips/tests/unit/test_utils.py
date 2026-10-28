@@ -169,6 +169,24 @@ def test_calculate_weighted_means_single_row():
     assert abs(result.loc[0, "value"] - 30.0) < 0.001
 
 
+def test_calculate_weighted_means_geodataframe():
+    # El dashboard de líneas de deseo le pasaba un GeoDataFrame y duckdb
+    # cortaba con "Data type 'geometry' not recognized".
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import Point
+
+    df = gpd.GeoDataFrame(
+        {"dia": ["a", "a", "b"], "value": [10.0, 20.0, 30.0], "weight": [1.0, 3.0, 2.0]},
+        geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+        crs=4326,
+    )
+    result = calculate_weighted_means(
+        df, aggregate_cols=["dia"], weighted_mean_cols=["value"], weight_col="weight"
+    )
+    assert abs(result.loc[result.dia == "a", "value"].iloc[0] - 17.5) < 0.001
+    assert "geometry" not in result.columns
+
+
 def test_calculate_weighted_means_missing_column_raises():
     df = pd.DataFrame({"dia": ["2022-08-11"], "value": [10.0]})
     with pytest.raises(ValueError):

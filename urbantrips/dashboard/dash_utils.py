@@ -1277,7 +1277,13 @@ def agg_matriz(
         )
 
         if len(df2) > 0:
-            df = df1.merge(df2, how="left")
+            # Cruzar solo por las claves: sin `on=` el merge usaba también
+            # factor_expansion_linea, que es una suma de pandas en df1 y de
+            # duckdb en df2; si difieren en el último dígito los promedios
+            # quedan en NaN.
+            df = df1.merge(
+                df2.drop(columns=[weight_var]), on=aggregate_cols, how="left"
+            )
         else:
             df = df1.copy()
             for i in weight_col:
@@ -1489,7 +1495,12 @@ def create_data_folium(
     else:
         transferencias = pd.DataFrame([])
 
-    if etapas_seleccionada | transferencias_seleccionado:
+    # Viajes se agrega sobre las etapas originales: el bloque de etapas pisa
+    # `etapas` con su resultado ya agregado, recortado a 2000 y convertido en
+    # GeoDataFrame (duckdb no lee la columna geometry).
+    etapas_raw = etapas
+
+    if etapas_seleccionada:
 
         etapas = calculate_weighted_means_ods(
             etapas,
@@ -1512,7 +1523,10 @@ def create_data_folium(
             agg_distancia=agg_distancia,
             agg_genero_agregado=agg_genero_agregado,
             agg_tarifa_agregada=agg_tarifa_agregada,
+            # distance_od = 0 es "sin dato" (COALESCE de la media en SQL),
+            # igual que en la matriz
             zero_to_nan=[
+                "distance_od",
                 "lat1_norm",
                 "lon1_norm",
                 "lat2_norm",
@@ -1550,9 +1564,15 @@ def create_data_folium(
             0
         )
 
+        # Desempate por las claves: el GROUP BY de duckdb no devuelve las filas
+        # en un orden fijo y, con factores iguales en el corte, el top cambiaba
+        # entre reruns.
         etapas = (
             etapas[(etapas.inicio_norm != etapas.fin_norm)]
-            .sort_values("factor_expansion_linea", ascending=False)
+            .sort_values(
+                ["factor_expansion_linea"] + agg_cols_etapas,
+                ascending=[False] + [True] * len(agg_cols_etapas),
+            )
             .reset_index(drop=True)
             .copy()
         )
@@ -1570,7 +1590,7 @@ def create_data_folium(
 
     if viajes_seleccionado:
         viajes = calculate_weighted_means_ods(
-            etapas,
+            etapas_raw,
             agg_cols_viajes,
             ["distance_od", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
             "factor_expansion_linea",
@@ -1580,7 +1600,7 @@ def create_data_folium(
             agg_distancia=agg_distancia,
             agg_genero_agregado=agg_genero_agregado,
             agg_tarifa_agregada=agg_tarifa_agregada,
-            zero_to_nan=["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
+            zero_to_nan=["distance_od", "lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"],
         )
 
         viajes[["lat1_norm", "lon1_norm", "lat4_norm", "lon4_norm"]] = viajes[
@@ -1592,11 +1612,14 @@ def create_data_folium(
 
         viajes = (
             viajes[(viajes.inicio_norm != viajes.fin_norm)]
-            .sort_values("factor_expansion_linea", ascending=False)
+            .sort_values(
+                ["factor_expansion_linea"] + agg_cols_viajes,
+                ascending=[False] + [True] * len(agg_cols_viajes),
+            )
             .reset_index(drop=True)
             .copy()
         )
-        if (len(etapas) >= 1500) & (mostrar_lineas_principales):
+        if (len(viajes) >= 1500) & (mostrar_lineas_principales):
             logger.debug("Se muestran las lineas con más viajes")
             viajes = viajes.head(1500)
 
@@ -1637,10 +1660,12 @@ def create_data_folium(
         agg_tarifa_agregada=agg_tarifa_agregada,
     )
 
-    matriz["factor_expansion_linea"] = matriz["factor_expansion_linea"].round(0)
-    matriz = matriz.sort_values("factor_expansion_linea", ascending=False).reset_index(
-        drop=True
-    )
+    # Sin redondear: el total y el porcentaje salen de la suma exacta y las
+    # páginas redondean al mostrar (redondear cada celda inflaba el total).
+    matriz = matriz.sort_values(
+        ["factor_expansion_linea", "Origen", "Destino"],
+        ascending=[False, True, True],
+    ).reset_index(drop=True)
     matriz["porcentaje"] = (
         matriz["factor_expansion_linea"] / matriz["factor_expansion_linea"].sum() * 100
     ).round(2)
@@ -2138,6 +2163,8 @@ def obtener_clases_fisherjenks(
 
 def simplificar_geometrias(df: pd.DataFrame, tolerance: float = 0.001):
     if "geometry" in df.columns:
+        # copia: lo que llega es lo guardado en session_state
+        df = df.copy()
         df["geometry"] = df["geometry"].simplify(tolerance, preserve_topology=True)
     return df
 
@@ -2185,7 +2212,7 @@ def crear_mapa_lineas_deseo(
             return
         bins = obtener_clases_fisherjenks(df, var_fex)
         n_bins = len(bins) - 1
-        colors_hex = extract_hex_colors_from_cmap(cmap="viridis_r", n=k_jenks)
+        colors_hex = extract_hex_colors_from_cmap(cmap=cmap, n=k_jenks)
         df = df.copy()
         df["_bin"] = (
             pd.cut(df[var_fex], bins=bins, labels=False, include_lowest=True)

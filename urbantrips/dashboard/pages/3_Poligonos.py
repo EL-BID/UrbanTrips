@@ -351,8 +351,8 @@ with st.expander("Líneas de Deseo", expanded=True):
                     st.session_state.destinos,
                     st.session_state.transferencias,
                 ) = create_data_folium(
-                    st.session_state.etapas_,
-                    st.session_state.matrices_,
+                    st.session_state.etapas_.copy(),
+                    st.session_state.matrices_.copy(),
                     agg_transferencias=st.session_state.desc_transfers,
                     agg_modo=st.session_state.desc_modos,
                     agg_hora=st.session_state.desc_horas,
@@ -477,7 +477,7 @@ with st.expander("Matrices"):
 
         col1.write(
             'Cantidad total de viajes: ' +
-            f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
+            f"{round(st.session_state.matriz.factor_expansion_linea.sum()):,}"
         )
 
         matriz_tmp = st.session_state.matriz.copy()
@@ -489,7 +489,7 @@ with st.expander("Matrices"):
             ]
             col1.write(
                 'Cantidad total en cuenca: ' +
-                f"{int(matriz_tmp.factor_expansion_linea.sum()):,}"
+                f"{round(matriz_tmp.factor_expansion_linea.sum()):,}"
             )
 
         if not st.session_state.resumen:
@@ -547,6 +547,6 @@ with st.expander("Matrices"):
         col2.plotly_chart(fig)
 
         if mmatriz_:
-            col2.write(matriz_tmp)
+            col2.write(matriz_tmp.round({"factor_expansion_linea": 0}))
     else:
         col2.text("No hay datos para mostrar")

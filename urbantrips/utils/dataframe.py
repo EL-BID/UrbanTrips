@@ -47,8 +47,12 @@ def calculate_weighted_means(
         source = "df_"
 
     if not pushed_down:
-        if not set(aggregate_cols + weighted_mean_cols + [weight_col]).issubset(df_.columns):
+        needed = list(dict.fromkeys(aggregate_cols + weighted_mean_cols + [weight_col]))
+        if not set(needed).issubset(df_.columns):
             raise ValueError("One or more columns specified do not exist in the DataFrame.")
+        # Solo las columnas que usa la consulta: duckdb escanea el DataFrame
+        # entero y no reconoce el dtype geometry de geopandas.
+        df_ = pd.DataFrame(df_[needed])
 
     def q(name):
         return f'"{name}"'

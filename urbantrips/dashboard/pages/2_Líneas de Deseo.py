@@ -594,7 +594,7 @@ with st.expander("Matrices"):
 
         col1.write(
                 'Cantidad total de viajes: ' +
-                f"{int(st.session_state.matriz.factor_expansion_linea.sum()):,}"
+                f"{round(st.session_state.matriz.factor_expansion_linea.sum()):,}"
             )
 
         col1.write(f"Transferencias: {transfer_seleccionado}")
@@ -638,6 +638,10 @@ with st.expander("Matrices"):
                 f"Resumen: {matriz_resumen.porcentaje.sum().round(1)}% de viajes"
             )
 
+        # la matriz llega sin redondear: se redondea la celda ya sumada
+        if var_matriz == "factor_expansion_linea":
+            od_heatmap = od_heatmap.round(0)
+
         od_heatmap = od_heatmap.rename(
             index=sin_prefijo_orden, columns=sin_prefijo_orden
         )
@@ -664,7 +668,7 @@ with st.expander("Matrices"):
 
         col2.plotly_chart(fig)
         if st.session_state.mmatriz:
-            col2.write(st.session_state.matriz)
+            col2.write(st.session_state.matriz.round({"factor_expansion_linea": 0}))
 
     else:
         col2.text("No hay datos para mostrar")
