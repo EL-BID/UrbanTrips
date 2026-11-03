@@ -12,6 +12,7 @@ from urbantrips.storage.ports import BatchSpec
 
 logger = logging.getLogger(__name__)
 
+
 def _derive_trip_dia(legs: pd.DataFrame) -> pd.DataFrame:
     """Add trip_dia column = dia of the first leg of each (id_tarjeta, id_viaje)."""
     trip_dia = (
@@ -324,8 +325,8 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                     id_tarjeta,
                     id_viaje,
                     dia,
-                    ARG_MIN(tiempo, id) AS tiempo,
-                    ARG_MIN(hora, id) AS hora,
+                    ARG_MIN(tiempo, id_etapa) AS tiempo,
+                    ARG_MIN(hora, id_etapa) AS hora,
                     COUNT(*) AS cant_etapas,
                     SUM(CASE WHEN modo = 'autobus' THEN 1 ELSE 0 END) AS autobus,
                     SUM(CASE WHEN modo = 'tren' THEN 1 ELSE 0 END) AS tren,
@@ -335,10 +336,10 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                     SUM(CASE WHEN modo = 'cable' THEN 1 ELSE 0 END) AS cable,
                     SUM(CASE WHEN modo = 'lancha' THEN 1 ELSE 0 END) AS lancha,
                     SUM(CASE WHEN modo = 'otros' THEN 1 ELSE 0 END) AS otros,
-                    ARG_MIN(h3_o, id) AS h3_o,
-                    ARG_MAX(h3_d, id) AS h3_d,
-                    ARG_MIN(genero, id) AS genero,
-                    ARG_MIN(tarifa, id) AS tarifa,
+                    ARG_MIN(h3_o, id_etapa) AS h3_o,
+                    ARG_MAX(h3_d, id_etapa) AS h3_d,
+                    ARG_MIN(genero, id_etapa) AS genero,
+                    ARG_MIN(tarifa, id_etapa) AS tarifa,
                     MIN(od_validado) AS od_validado,
                     AVG(factor_expansion_linea) AS factor_expansion_linea,
                     AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta
@@ -410,7 +411,9 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
 
 
 @duracion
-def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool = True):
+def verificar_integridad_viajes_etapas(
+    ctx: StorageContext, raise_on_error: bool = True
+):
     """Check that the viajes table is consistent with etapas, day by day.
 
     Every trip key (dia, id_tarjeta, id_viaje) present in etapas must exist in
@@ -429,16 +432,19 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
     proporcional al acumulado y no a lo que se procesó (234s con 7 días).
     """
     empty = pd.DataFrame(
-        columns=["dia", "viajes_solo_en_etapas", "viajes_solo_en_viajes",
-                 "cant_etapas_distinta"]
+        columns=[
+            "dia",
+            "viajes_solo_en_etapas",
+            "viajes_solo_en_viajes",
+            "cant_etapas_distinta",
+        ]
     )
     run_days = ctx.data.get_run_days()
     if run_days.empty:
         return empty
     dias_str = ", ".join(f"'{d}'" for d in run_days["dia"].tolist())
 
-    diff = ctx.data.query(
-        f"""
+    diff = ctx.data.query(f"""
         WITH te AS (
             SELECT dia, id_tarjeta, id_viaje, COUNT(*) AS cant_etapas_e
             FROM etapas
@@ -471,8 +477,7 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
         HAVING SUM(solo_en_etapas) > 0 OR SUM(solo_en_viajes) > 0
             OR SUM(cant_etapas_distinta) > 0
         ORDER BY dia
-        """
-    )
+        """)
 
     if len(diff) == 0:
         logger.info("Integridad viajes/etapas verificada: OK.")
@@ -482,8 +487,10 @@ def verificar_integridad_viajes_etapas(ctx: StorageContext, raise_on_error: bool
         logger.error(
             "Integridad viajes/etapas FALLA para %s: %d viajes solo en etapas, "
             "%d solo en viajes, %d con cant_etapas distinta.",
-            row.dia, int(row.viajes_solo_en_etapas),
-            int(row.viajes_solo_en_viajes), int(row.cant_etapas_distinta),
+            row.dia,
+            int(row.viajes_solo_en_etapas),
+            int(row.viajes_solo_en_viajes),
+            int(row.cant_etapas_distinta),
         )
     msg = (
         "La tabla viajes no es consistente con etapas para los días: "
@@ -535,14 +542,12 @@ def rearrange_trip_id_same_od(
     elif batch is not None:
         scope_filter = f"WHERE e.batch_id = {batch.batch_id}"
 
-    df = ctx.data.query(
-        f"""
+    df = ctx.data.query(f"""
         SELECT e.*
         FROM etapas e
         JOIN dias_ultima_corrida d ON e.dia = d.dia
         {scope_filter}
-        """
-    )
+        """)
     if df.empty:
         return
 
