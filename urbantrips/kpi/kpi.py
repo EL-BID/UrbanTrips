@@ -24,6 +24,7 @@ from urbantrips.utils.utils import (
 )
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
+from urbantrips.kpi.kpi_lineas import DECIMALES_KPI
 
 logger = logging.getLogger(__name__)
 
@@ -815,7 +816,7 @@ def _kpi_ratios_y_orden(day_stats, entidad):
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
     ]
     for col in ratio_cols:
-        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
+        day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(DECIMALES_KPI)
     day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
     return day_stats
 
@@ -968,7 +969,7 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
        'fo_mean_route_gps', 'fo_median_od', 'fo_median_route', 
        'fo_median_route_gps']
     for i in cols_float:
-        type_of_day_stats[i] = type_of_day_stats[i].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(2)
+        type_of_day_stats[i] = type_of_day_stats[i].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(DECIMALES_KPI)
 
     ctx.data.append_raw(type_of_day_stats, "kpi_by_day_line")
 
