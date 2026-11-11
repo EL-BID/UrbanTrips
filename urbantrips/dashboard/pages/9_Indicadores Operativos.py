@@ -619,10 +619,27 @@ with st.expander("Indicadores", expanded=True):
 # -----------------------------------------------------------------------------
 
 with st.expander("Base completa", expanded=False):
-    st.dataframe(kpis_df, width="stretch", hide_index=True)
-    st.download_button(
-        label="Descargar CSV completo",
-        data=kpis_df.to_csv(index=False).encode("utf-8"),
-        file_name="kpis_lineas_completo.csv",
-        mime="text/csv",
+    # Solo días reales: las filas "Promedios" son un resumen por línea y, si se
+    # suman junto con los días en una planilla, inflan los totales del período.
+    st.dataframe(kpis_dias, width="stretch", hide_index=True)
+    st.caption(
+        "La tabla y el CSV completo incluyen sólo los días procesados. "
+        "El resumen por línea se descarga por separado y no debe sumarse a los días."
     )
+    col_desc_dias, col_desc_resumen = st.columns(2)
+    with col_desc_dias:
+        st.download_button(
+            label="Descargar CSV completo",
+            data=kpis_dias.to_csv(index=False).encode("utf-8"),
+            file_name="kpis_lineas_completo.csv",
+            mime="text/csv",
+        )
+    kpis_resumen = kpis_df[kpis_df["dia"] == "Promedios"]
+    if not kpis_resumen.empty:
+        with col_desc_resumen:
+            st.download_button(
+                label="Descargar resumen por línea",
+                data=kpis_resumen.to_csv(index=False).encode("utf-8"),
+                file_name="kpis_lineas_resumen.csv",
+                mime="text/csv",
+            )
