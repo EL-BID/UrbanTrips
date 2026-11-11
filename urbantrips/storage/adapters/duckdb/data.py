@@ -294,8 +294,36 @@ class DuckDBDataAdapter:
             if existe:
                 self._conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {col}")
 
+        # horas_servicio y motivo_no_valido se agregaron a services junto con la
+        # regla de validez por tiempo detenido. Quedan NULL en los servicios ya
+        # guardados hasta que se reprocesen (--step legs).
+        self._add_columns_if_missing(
+            "services",
+            (("horas_servicio", "FLOAT"), ("motivo_no_valido", "TEXT")),
+        )
+
         # travel_times_gps se eliminó: nunca tuvo escritor tras el refactor.
         self._conn.execute("DROP TABLE IF EXISTS travel_times_gps")
+
+    def _add_columns_if_missing(self, tabla: str, columnas) -> None:
+        """ALTER TABLE ... ADD COLUMN para las columnas que la tabla no tenga.
+
+        CREATE TABLE IF NOT EXISTS no agrega columnas a una tabla ya creada. Si
+        la tabla todavía no existe no hace nada: la crea el DDL completo.
+        """
+        existentes = {
+            r[0]
+            for r in self._conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = ?",
+                [tabla],
+            ).fetchall()
+        }
+        if not existentes:
+            return
+        for col, tipo in columnas:
+            if col not in existentes:
+                self._conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {col} {tipo}")
 
     # ── batch helpers ─────────────────────────────────────────────────────────
 
@@ -1225,7 +1253,9 @@ class DuckDBDataAdapter:
     def save_services(self, df: pd.DataFrame) -> None:
         self._conn.register("_svc_df", df)
         try:
-            self._conn.execute("INSERT INTO services SELECT * FROM _svc_df")
+            # BY NAME: el insert por posición se rompe en silencio si el orden de
+            # columnas del df y el de la tabla dejan de coincidir.
+            self._conn.execute("INSERT INTO services BY NAME SELECT * FROM _svc_df")
         finally:
             self._conn.unregister("_svc_df")
 

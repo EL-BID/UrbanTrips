@@ -211,6 +211,9 @@ _TUNING_DEFAULTS: dict = {
     # Rows of `gps` read per batch of lines in process_services.
     # None → 5_000_000 (services.SERVICES_GPS_BATCH_ROWS).
     "services_gps_batch_rows": None,
+    # Speed (km/h) below which a GPS point counts as idling when validating
+    # services. None → 2.0 (services.VELOCIDAD_DETENIDO_KMH).
+    "services_velocidad_detenido_kmh": None,
     # Hard override for the per-day RAM cost used by _parallel_day_workers.
     # None → estimated from the run's actual row counts
     # (legs._estimated_day_footprint_gb).

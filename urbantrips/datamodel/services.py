@@ -38,6 +38,63 @@ def _services_batch_rows() -> int:
     return SERVICES_GPS_BATCH_ROWS
 
 
+# Un punto GPS se considera detenido si la velocidad desde el punto anterior del
+# mismo vehiculo es menor a este valor. Override: `services_velocidad_detenido_kmh`
+# en configs/tuning.yaml.
+VELOCIDAD_DETENIDO_KMH = 2.0
+# Regla de respaldo para los puntos sin intervalo (primer punto del vehiculo en el
+# dia, o timestamp repetido), donde no se puede calcular una velocidad.
+DISTANCIA_DETENIDO_KM = 0.1
+# Un servicio es valido si paso detenido menos de esta proporcion de su tiempo y
+# tiene mas de MIN_PUNTOS_SERVICIO puntos.
+PROP_DETENIDO_MAXIMA = 0.5
+MIN_PUNTOS_SERVICIO = 5
+
+
+def _velocidad_detenido_kmh() -> float:
+    """Umbral de velocidad de punto detenido (tuning.yaml)."""
+    try:
+        val = utils.leer_configs_tuning().get("services_velocidad_detenido_kmh")
+        if val:
+            return float(val)
+    except Exception as e:
+        logger.debug("services_velocidad_detenido_kmh ilegible: %s", e)
+    return VELOCIDAD_DETENIDO_KMH
+
+
+def marcar_puntos_detenidos(gps_points, group_cols, velocidad_detenido_kmh=None):
+    """Devuelve un array booleano: True si el punto GPS esta detenido.
+
+    Detenido = velocidad desde el punto anterior del mismo vehiculo
+    (`distance_route` / intervalo) menor a `velocidad_detenido_kmh`.
+
+    Antes la regla era `distance_route < 0.1` (menos de 100 m desde el punto
+    anterior), que solo equivale a "detenido" si el GPS reporta a intervalos
+    largos y regulares. Con equipos que reportan cada pocos segundos casi todos
+    los puntos avanzan menos de 100 m y un vehiculo en marcha quedaba como
+    detenido. La velocidad no depende de la frecuencia de reporte.
+    """
+    if velocidad_detenido_kmh is None:
+        velocidad_detenido_kmh = _velocidad_detenido_kmh()
+
+    sort_cols = [c for c in group_cols + ["fecha", "id"] if c in gps_points.columns]
+    orden = gps_points.reset_index(drop=True).sort_values(sort_cols, kind="stable")
+    distancia = pd.to_numeric(orden["distance_route"], errors="coerce")
+    dt = pd.to_numeric(orden["fecha"], errors="coerce").groupby(
+        [orden[c] for c in group_cols], sort=False, dropna=False
+    ).diff()
+    con_intervalo = (dt > 0).to_numpy()
+    velocidad = distancia / (dt.where(dt > 0) / 3600.0)
+    detenido_ordenado = np.where(
+        con_intervalo,
+        (velocidad < velocidad_detenido_kmh).to_numpy(),
+        (distancia < DISTANCIA_DETENIDO_KM).to_numpy(),
+    )
+    detenido = np.empty(len(gps_points), dtype=bool)
+    detenido[orden.index.to_numpy()] = detenido_ordenado
+    return detenido
+
+
 def _gps_scope_sql(line_ids_str, run_days=None, batch_lines=None) -> str:
     """FROM/WHERE que delimita que puntos gps entran a servicios.
 
@@ -390,20 +447,43 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
 
 
 def create_line_services_table(line_day_gps_points):
-    # get  basic stats for each service
-    
-    line_services = line_day_gps_points.groupby(
-        ["id_linea", "id_ramal", "dia", "interno", "original_service_id", "service_id"],
-        as_index=False,
-    ).agg(
+    """Una fila por servicio, con su distancia, duracion y validez.
+
+    Un servicio es valido si paso detenido menos de PROP_DETENIDO_MAXIMA de su
+    TIEMPO y tiene mas de MIN_PUNTOS_SERVICIO puntos. La proporcion se mide en
+    tiempo y no en cantidad de puntos porque hay equipos GPS que emiten rafagas
+    de puntos mientras el vehiculo esta parado (uno cada pocos segundos) y uno
+    cada minuto o mas en movimiento: contando puntos, un servicio normal quedaba
+    con mas de la mitad "detenido" y se descartaba junto con sus km.
+    """
+    claves = ["id_linea", "id_ramal", "dia", "interno", "original_service_id", "service_id"]
+
+    # Tiempo que representa cada punto: el intervalo desde el punto anterior DEL
+    # MISMO SERVICIO. El primer punto de cada servicio pesa 0 (su intervalo
+    # previo pertenece al servicio anterior o a un tiempo fuera de servicio).
+    puntos = line_day_gps_points.sort_values(claves + ["fecha"], kind="stable")
+    dt = (
+        pd.to_numeric(puntos["fecha"], errors="coerce")
+        .groupby([puntos[c] for c in claves], sort=False, dropna=False)
+        .diff()
+        .fillna(0)
+        .clip(lower=0)
+    )
+    puntos = puntos.assign(
+        _seg=dt, _seg_detenido=dt.where(puntos["idling"].astype(bool), 0)
+    )
+
+    line_services = puntos.groupby(claves, as_index=False).agg(
         is_idling=("idling", "sum"),
         total_points=("idling", "count"),
         distance_route=("distance_route", "sum"),
         distance_route_gps=("distance_route_gps", "sum"),
         min_ts=("fecha", "min"),
         max_ts=("fecha", "max"),
+        seg_total=("_seg", "sum"),
+        seg_detenido=("_seg_detenido", "sum"),
     )
-    
+
     line_services.loc[:, ["min_datetime"]] = line_services.min_ts.map(
         lambda ts: str(pd.Timestamp(ts, unit="s"))
     )
@@ -411,15 +491,31 @@ def create_line_services_table(line_day_gps_points):
         lambda ts: str(pd.Timestamp(ts, unit="s"))
     )
 
-    # compute idling proportion for each service
-    line_services["prop_idling"] = (
-        line_services.is_idling / line_services["total_points"]
+    # compute idling proportion for each service: tiempo detenido / tiempo total.
+    # Si el servicio no tiene duracion (un solo punto, o todos con el mismo
+    # timestamp) se usa la proporcion de puntos, como respaldo.
+    con_duracion = line_services["seg_total"] > 0
+    line_services["prop_idling"] = np.where(
+        con_duracion,
+        line_services["seg_detenido"] / line_services["seg_total"].where(con_duracion),
+        line_services["is_idling"] / line_services["total_points"],
     ).round(2)
-    line_services = line_services.drop(["is_idling"], axis=1)
+    line_services = line_services.drop(
+        ["is_idling", "seg_total", "seg_detenido"], axis=1
+    )
 
     # stablish valid services
-    line_services["valid"] = (line_services.prop_idling < 0.5) & (
-        line_services.total_points > 5
+    pocos_puntos = line_services.total_points <= MIN_PUNTOS_SERVICIO
+    detenido = line_services.prop_idling >= PROP_DETENIDO_MAXIMA
+    line_services["valid"] = ~pocos_puntos & ~detenido
+
+    # Columnas agregadas al final: `services` se creo sin ellas y las bases
+    # existentes las reciben por ALTER TABLE, que las pone al final.
+    line_services["horas_servicio"] = (
+        line_services["max_ts"] - line_services["min_ts"]
+    ) / 3600.0
+    line_services["motivo_no_valido"] = np.select(
+        [pocos_puntos, detenido], ["pocos_puntos", "detenido"], default=None
     )
 
     return line_services
@@ -692,8 +788,9 @@ def classify_line_gps_points_into_services(
             line_gps_points, line_stops_gdf, debug=debug
         )
 
-    # Classify idling points when there is no movement
-    line_gps_points.loc[:, ["idling"]] = line_gps_points.distance_route < 0.1
+    # Classify idling points when there is no movement (por velocidad, no por
+    # distancia entre puntos: ver marcar_puntos_detenidos)
+    line_gps_points["idling"] = marcar_puntos_detenidos(line_gps_points, group_cols)
 
     # create a unique id from both old and new
     if trust_service_type_gps:

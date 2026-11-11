@@ -295,7 +295,9 @@ CREATE TABLE IF NOT EXISTS services (
     min_datetime        TEXT,
     max_datetime        TEXT,
     prop_idling         FLOAT,
-    valid               INT
+    valid               INT,
+    horas_servicio      FLOAT,
+    motivo_no_valido    TEXT
 )
 """
 
