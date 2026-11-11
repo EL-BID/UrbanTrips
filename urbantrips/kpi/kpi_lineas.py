@@ -16,6 +16,12 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Precisión con la que se guardan los indicadores no enteros de kpis_lineas y
+# kpis_ramales. Se redondea una sola vez y con margen: redondear a 1 decimal antes
+# de agregar perdía información (un FO de 0,14 quedaba en 0,1) y el error se
+# arrastraba a los promedios. El redondeo para mostrar lo hace el dashboard.
+DECIMALES_KPI = 3
+
 
 def _sql_in_values(values):
     escaped = [str(value).replace("'", "''") for value in values]
@@ -116,7 +122,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
     vel_comercial_linea_all = (
         servicios.groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
     )
 
     # Velocidad comercial AM
@@ -124,7 +130,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
         servicios[filtro_pico_am]
         .groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
         .rename(columns={
             "velocidad_comercial_route": "velocidad_comercial_am_route",
             "velocidad_comercial_route_gps": "velocidad_comercial_am_route_gps",
@@ -139,7 +145,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
         servicios[filtro_pico_pm]
         .groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
         .rename(columns={
             "velocidad_comercial_route": "velocidad_comercial_pm_route",
             "velocidad_comercial_route_gps": "velocidad_comercial_pm_route_gps",
@@ -162,7 +168,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
             "distance_route": "distancia_media_veh_route",
             "distance_route_gps": "distancia_media_veh_route_gps",
         })
-        .round(1)
+        .round(DECIMALES_KPI)
     )
 
     vel_comercial_linea = vel_comercial_linea.merge(km_recorridos_linea, how="left")
@@ -320,7 +326,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             source=etapas_source,
             cte_prefix=etapas_cte_prefix,
         )
-        .round(2)
+        .round(DECIMALES_KPI)
         .rename(columns={"distance_od": "distancia_media_pax"})
     )
 
@@ -394,8 +400,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     all["transacciones"] = all["transacciones"].round(0)
     all["tot_pax"] = all["tot_pax"].round(0).fillna(0)
     all["flota"] = all["flota"].round(0)
-    all["serv_min_ts"] = all["serv_min_ts"].round(2)
-    all = all.round({col: 2 for col in all.select_dtypes(include="float").columns})
+    all["serv_min_ts"] = all["serv_min_ts"].round(DECIMALES_KPI)
+    all = all.round({col: DECIMALES_KPI for col in all.select_dtypes(include="float").columns})
 
     for i in [
         "Femenino",
@@ -435,17 +441,17 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     all["tot_veh"] = all["vehiculos_operativos"]
 
     # Recalcular ratios que dependen de tot_veh y tot_km_route
-    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(1)
+    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(DECIMALES_KPI)
     # los mismos ratios sobre los km del odómetro, para que las dos familias de
     # recorrido sean simétricas y comparables
     all["kvd_route_gps"] = (
         all["tot_km_route_gps"] / all["tot_veh"].replace(0, pd.NA)
-    ).round(1)
+    ).round(DECIMALES_KPI)
     all["ipk_route_gps"] = (
         all["tot_pax"] / all["tot_km_route_gps"].replace(0, pd.NA)
-    ).round(1)
+    ).round(DECIMALES_KPI)
 
     # `id_ramal` solo aparece cuando se está agregando por ramal (cols lo trae)
     _id_cols = ["dia", "mes", "id_linea"]
@@ -523,7 +529,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             # to_numeric y no astype(float): una columna que quedó entera en
             # nulos (p. ej. la familia _route_gps cuando el insumo no trae
             # odómetro) llega con dtype object y NAType, y astype(float) falla
-            all[i] = pd.to_numeric(all[i], errors="coerce").astype(float).round(1)
+            all[i] = pd.to_numeric(all[i], errors="coerce").astype(float).round(DECIMALES_KPI)
 
     return all
 
