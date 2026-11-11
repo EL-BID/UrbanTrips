@@ -90,8 +90,6 @@ def get_legs_from_draw_line(route_h3, hour_range, day_type):
     if day_type_is_a_date:
         q_main_legs = q_main_legs + f" and dia = '{day_type}'"
 
-    print("Obteniendo datos de etapas")
-
     # get data for legs and route geoms
     legs = utils.levanto_tabla_sql(
         "etapas",

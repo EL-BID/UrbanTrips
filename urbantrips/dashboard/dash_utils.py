@@ -51,6 +51,46 @@ from urbantrips.dashboard.dash_storage import (
 logger = logging.getLogger(__name__)
 
 
+class _SalidaTolerante:
+    """Envuelve stdout/stderr para que escribir en una consola cerrada no rompa la página.
+
+    Si el servidor del dashboard se lanza en segundo plano y se cierra la terminal
+    que lo inició, cualquier ``print`` (propio o de las funciones del procesamiento
+    que el dashboard reutiliza) levanta ``OSError: [Errno 5] Input/output error``.
+    Los mensajes de consola no son necesarios para el dashboard, así que se descartan.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, texto):
+        try:
+            return self._stream.write(texto)
+        except (OSError, ValueError):
+            return len(texto)
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except (OSError, ValueError):
+            pass
+
+    def __getattr__(self, nombre):
+        return getattr(self._stream, nombre)
+
+
+def _proteger_salida_consola():
+    import sys
+
+    for nombre in ("stdout", "stderr"):
+        stream = getattr(sys, nombre)
+        if stream is not None and not isinstance(stream, _SalidaTolerante):
+            setattr(sys, nombre, _SalidaTolerante(stream))
+
+
+_proteger_salida_consola()
+
+
 def leer_alias(tipo="dash"):
     # Alias único: en esta versión el autogenerado y las DBs por-corrida quedaron
     # obsoletos. Todo se guarda bajo un solo alias (alias_db_insumos), y la
