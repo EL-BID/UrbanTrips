@@ -320,12 +320,17 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                 factor_expansion_linea, factor_expansion_tarjeta
             )
             WITH trips AS (
+                -- Primera/última etapa del viaje por id_etapa, NO por id: id es
+                -- un correlativo asignado en el orden de filas del CSV de
+                -- entrada, que no tiene por qué ser cronológico por tarjeta.
+                -- id_etapa es el orden real (por fecha u orden_trx, ver legs.py)
+                -- y es único dentro de (dia, id_tarjeta, id_viaje).
                 SELECT
                     id_tarjeta,
                     id_viaje,
                     dia,
-                    ARG_MIN(tiempo, id) AS tiempo,
-                    ARG_MIN(hora, id) AS hora,
+                    ARG_MIN(tiempo, id_etapa) AS tiempo,
+                    ARG_MIN(hora, id_etapa) AS hora,
                     COUNT(*) AS cant_etapas,
                     SUM(CASE WHEN modo = 'autobus' THEN 1 ELSE 0 END) AS autobus,
                     SUM(CASE WHEN modo = 'tren' THEN 1 ELSE 0 END) AS tren,
@@ -335,10 +340,10 @@ def _create_trips_day_loop(ctx: StorageContext, dias: list) -> None:
                     SUM(CASE WHEN modo = 'cable' THEN 1 ELSE 0 END) AS cable,
                     SUM(CASE WHEN modo = 'lancha' THEN 1 ELSE 0 END) AS lancha,
                     SUM(CASE WHEN modo = 'otros' THEN 1 ELSE 0 END) AS otros,
-                    ARG_MIN(h3_o, id) AS h3_o,
-                    ARG_MAX(h3_d, id) AS h3_d,
-                    ARG_MIN(genero, id) AS genero,
-                    ARG_MIN(tarifa, id) AS tarifa,
+                    ARG_MIN(h3_o, id_etapa) AS h3_o,
+                    ARG_MAX(h3_d, id_etapa) AS h3_d,
+                    ARG_MIN(genero, id_etapa) AS genero,
+                    ARG_MIN(tarifa, id_etapa) AS tarifa,
                     MIN(od_validado) AS od_validado,
                     AVG(factor_expansion_linea) AS factor_expansion_linea,
                     AVG(factor_expansion_tarjeta) AS factor_expansion_tarjeta

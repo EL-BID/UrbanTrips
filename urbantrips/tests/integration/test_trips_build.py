@@ -142,3 +142,35 @@ def test_create_trips_swap_corre_con_insertion_order_preservado(tmp_path):
     # los días quedan en bloques contiguos ascendentes
     orden = adapter.query("SELECT dia FROM etapas")["dia"]
     assert orden.loc[orden.shift() != orden].tolist() == dias
+
+
+def test_viaje_toma_primera_y_ultima_etapa_por_id_etapa(tmp_path):
+    """Regresión: la primera/última etapa del viaje se elige por id_etapa, no por
+    id. id es un correlativo en el orden de filas del CSV de entrada, que no tiene
+    por qué ser cronológico por tarjeta; aquí la etapa 1 tiene el id MAYOR."""
+    from urbantrips.datamodel.trips import create_trips_from_legs_and_fex
+    from urbantrips.storage.adapters.duckdb.data import DuckDBDataAdapter
+
+    base = _legs_two_days_same_trip_id()
+    legs = base[base["dia"] == "2024-09-18"].copy()  # 1 viaje, 3 etapas
+    legs["id"] = [30, 20, 10]  # id_etapa 1, 2, 3 -> id decreciente
+    legs["tiempo"] = ["08:00", "08:20", "08:40"]
+    legs["hora"] = [8, 8, 8]
+    legs["h3_o"] = ["88c2e312d9fffff", "88c2e312dbfffff", "88c2e312d3fffff"]
+    legs["h3_d"] = ["88c2e312dbfffff", "88c2e312d3fffff", "88c2e312d1fffff"]
+    legs["genero"] = ["F", "M", "M"]
+    legs["tarifa"] = ["social", "comun", "comun"]
+
+    adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
+    adapter.save_run_days(pd.DataFrame({"dia": ["2024-09-18"]}))
+    adapter.save_legs(legs)
+    create_trips_from_legs_and_fex(SimpleNamespace(data=adapter))
+
+    v = adapter.query("SELECT * FROM viajes")
+    assert len(v) == 1
+    v = v.iloc[0]
+    assert v["h3_o"] == "88c2e312d9fffff"  # origen de la etapa 1
+    assert v["h3_d"] == "88c2e312d1fffff"  # destino de la etapa 3
+    assert str(v["tiempo"]).startswith("08:00")
+    assert v["genero"] == "F"
+    assert v["tarifa"] == "social"

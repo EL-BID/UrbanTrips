@@ -180,6 +180,10 @@ def build_filters_tables(
     # =========================================================
     # 2. filters_trips
     # =========================================================
+    # Orden explícito: diff_time (abajo) usa shift(-1) para tomar el próximo
+    # viaje de la tarjeta, y viajes llega de una query sin ORDER BY. id_viaje es
+    # la secuencia cronológica canónica (igual que el LEAD de sql_queries.py).
+    viajes = viajes.sort_values(keys_viaje).reset_index(drop=True)
     trips = viajes[keys_viaje].copy()
 
     # --- travel_speed (trip level, capped) ---------------------------------
