@@ -6,7 +6,6 @@ from pathlib import Path
 from urbantrips.utils import utils
 from urbantrips.utils.dataframe import (
     combinar_conteo_distintos,
-    combinar_suma,
     dias_para_leer_por_dia,
     leer_dia,
 )
@@ -180,7 +179,7 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     """Insumos para `agrego_lineas`, agregados al nivel de `entidad`.
 
     `entidad` es `["id_linea"]` (default) o `["id_linea", "id_ramal"]`. En el
-    segundo caso la flota, la velocidad comercial y los KPI de demanda se leen
+    segundo caso la velocidad comercial y los KPI de demanda se leen
     y agregan por ramal: los KPI vienen de `kpi_by_day_branch`, que escribe
     `compute_kpi_by_branch_day` cuando `lineas_contienen_ramales` es True.
 
@@ -194,9 +193,9 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     # `gps` y `transacciones` son las dos tablas mas grandes de la corrida.
     # Materializarlas enteras cuesta ~20 GB y ~10 GB a escala de un mes (mas la
     # columna `dia` que se deriva de `fecha`, otros 62 B/fila) y no entran en la
-    # maquina del cliente. Lo unico que se les pide son tres agregados que
-    # llevan `dia` en la clave -- la flota, los internos con GPS y los internos
-    # con transacciones -- asi que se leen de a un dia y se combinan los
+    # maquina del cliente. Lo unico que se les pide son dos agregados que
+    # llevan `dia` en la clave -- los internos con GPS y los internos con
+    # transacciones -- asi que se leen de a un dia y se combinan los
     # parciales. `dias` acota las lecturas (tablas acumulativas) a los dias del
     # proc-mat: las filas de salida de agrego_lineas se anclan en el mat, leer
     # mas dias es descarte.
@@ -222,27 +221,23 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
 
     cols = ["dia"] + entidad
 
-    # Procesamiento de GPS y calculo de flota. El `dia` se deriva de `fecha`
-    # (no es la columna `dia` de la tabla, por la que se chunkea), asi que un
-    # grupo puede quedar partido entre dos chunks: combinar_* lo vuelve a unir.
-    flota_parc, gps_parc = [], []
+    # Procesamiento de GPS. El `dia` se deriva de `fecha` (no es la columna
+    # `dia` de la tabla, por la que se chunkea), asi que un grupo puede quedar
+    # partido entre dos chunks: combinar_* lo vuelve a unir.
+    gps_parc = []
     for dia in dias_para_leer_por_dia(ctx.data.query, "gps", dias):
         dia_gps = leer_dia(
             ctx.data.query, "gps", ["fecha", "id_linea", "id_ramal", "interno"], dia,
         )
         dia_gps["fecha"] = pd.to_datetime(dia_gps["fecha"], unit="s")
         dia_gps["dia"] = dia_gps["fecha"].dt.strftime("%Y-%m-%d")
-        flota_parc.append(dia_gps.groupby(cols, as_index=False).size())
         gps_parc.append(dia_gps.groupby(cols + ["interno"], as_index=False).size())
         del dia_gps
 
-    flota = combinar_suma(flota_parc, cols, "size", observed=False).rename(
-        columns={"size": "flota"}
-    )
     gps_agg = combinar_conteo_distintos(
         gps_parc, cols, "cant_internos_en_gps", observed=False
     )
-    del flota_parc, gps_parc
+    del gps_parc
 
     # Procesamiento de transacciones
     internos_parc = []
@@ -262,7 +257,10 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     # Calculo de velocidad comercial
     vel_comercial_linea = cal_velocidad_comercial(servicios, entidad=entidad)
 
-    kpis_varios = flota.merge(vel_comercial_linea, how="left").merge(kpis, how="left")
+    # Una fila por cada linea (o ramal) y dia con GPS, tenga o no servicios.
+    kpis_varios = (
+        gps_agg[cols].merge(vel_comercial_linea, how="left").merge(kpis, how="left")
+    )
 
     return internos_agg, gps_agg, servicios, kpis_varios, lineas
 
@@ -399,7 +397,6 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     # Redondeo de valores
     all["transacciones"] = all["transacciones"].round(0)
     all["tot_pax"] = all["tot_pax"].round(0).fillna(0)
-    all["flota"] = all["flota"].round(0)
     all["serv_min_ts"] = all["serv_min_ts"].round(DECIMALES_KPI)
     all = all.round({col: DECIMALES_KPI for col in all.select_dtypes(include="float").columns})
 
@@ -473,7 +470,6 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "kmh_od",
             "cant_internos_en_gps",
             "cant_internos_en_trx",
-            "flota",
             "vehiculos_operativos",
             "velocidad_comercial_route",
             "velocidad_comercial_route_gps",
