@@ -13,6 +13,7 @@ from shapely.geometry import Point
 from urbantrips.carto.compute_distances import compute_od_distances
 
 # from urbantrips.carto.carto import compute_distances_osm
+from urbantrips.datamodel.gps_vehiculos import guardar_vehiculos_gps
 from urbantrips.geo import geo
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.schema.data import GPS_RAW_COLUMNS
@@ -1091,6 +1092,7 @@ def process_and_upload_gps_table(
                 continue
             gps_day = ctx.data.get_gps_prep_day(dia)
             gps_day = compute_distance_km_gps(gps_day, ctx)
+            guardar_vehiculos_gps(ctx, gps_day, dia, _velocidad_maxima_gps_kmh())
             gps_day = gps_day.reindex(columns=cols)
             gps_day = geo.referenciar_h3(
                 gps_day, res, "h3", lat="latitud", lon="longitud"

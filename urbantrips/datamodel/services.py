@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from urbantrips.datamodel.gps_vehiculos import buscar_en_no_validos, leer_gps_no_validos
 from urbantrips.utils import utils
 from urbantrips.utils.utils import duracion
 from urbantrips.storage.context import StorageContext
@@ -253,6 +254,14 @@ def process_services(ctx: StorageContext, line_ids=None):
             f"{len(counts):,}", f"{int(counts['n'].sum()):,}", len(batches),
         )
 
+        # Internos que no son un vehiculo (equipos secundarios de una formacion,
+        # trazas con dos vehiculos mezclados): sus servicios no miden oferta.
+        # Con `line_ids` se reclasifican todos los dias de esas lineas (ver
+        # `_gps_scope_sql`), no solo los de la corrida.
+        gps_no_validos = leer_gps_no_validos(
+            ctx, dias=run_days if line_ids is None else None
+        )
+
         # El GeoDataFrame de paradas no depende del lote: se arma una sola vez.
         all_stops_gdf = build_stops_gdf(ctx) if not configs["utilizar_servicios_gps"] else None
 
@@ -265,7 +274,8 @@ def process_services(ctx: StorageContext, line_ids=None):
             if gps_points is None or gps_points.empty:
                 continue
             gps_points.groupby("id_linea").apply(
-                process_line_services, stops=stops, ctx=ctx
+                process_line_services, stops=stops, ctx=ctx,
+                gps_no_validos=gps_no_validos,
             )
             del gps_points, stops
             gc.collect()
@@ -392,11 +402,14 @@ def get_stops_and_gps_data(
     return gps_points, stops
 
 
-def process_line_services(gps_points, stops, ctx: StorageContext):
+def process_line_services(gps_points, stops, ctx: StorageContext, gps_no_validos=None):
     """
     Takes gps points and stops for a given line,
     classifies each point into services and produces services tables
     and daily stats for that line.
+
+    `gps_no_validos` son las filas de `gps_vehiculos` con `gps_valido` = False:
+    los servicios de esos internos se guardan como no validos.
     """
     line_id = gps_points.id_linea.unique()[0]
 
@@ -438,6 +451,7 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
     ctx.data.append_raw(services_gps_points, "services_gps_points")
 
     line_services = create_line_services_table(gps_points_with_new_service_id)
+    line_services = invalidar_servicios_sin_vehiculo(line_services, gps_no_validos)
     ctx.data.save_services(line_services)
 
     stats = line_services.groupby(
@@ -523,6 +537,27 @@ def create_line_services_table(line_day_gps_points):
     )
 
     return line_services
+
+
+def invalidar_servicios_sin_vehiculo(line_services, gps_no_validos):
+    """Marca como no validos los servicios de los internos que no son un
+    vehiculo (ver datamodel/gps_vehiculos.py).
+
+    Sin esto cada equipo de una formacion (tranvia, tren) suma sus km y cuenta
+    como un vehiculo operativo. El motivo de `gps_vehiculos` reemplaza al que
+    tuviera el servicio: es la razon por la que no se cuenta aunque sea un
+    servicio bien formado.
+    """
+    if gps_no_validos is None:
+        return line_services
+    motivo = buscar_en_no_validos(line_services, gps_no_validos, "motivo")
+    sin_vehiculo = motivo.notna()
+    if not sin_vehiculo.any():
+        return line_services
+    out = line_services.copy()
+    out.loc[sin_vehiculo, "valid"] = False
+    out["motivo_no_valido"] = motivo.where(sin_vehiculo, out["motivo_no_valido"])
+    return out
 
 
 def infer_service_id_stops(line_gps_points, line_stops_gdf, debug=False):

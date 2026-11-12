@@ -7,6 +7,11 @@ import numpy as np
 import weightedstats as ws
 import h3
 from urbantrips.geo import geo
+from urbantrips.datamodel.gps_vehiculos import (
+    leer_gps_no_validos,
+    mapear_interno_a_vehiculo,
+    quitar_gps_no_validos,
+)
 from urbantrips.carto.routes import (
     get_route_geoms_with_sections_data,
     check_exists_route_section_points_table,
@@ -1015,27 +1020,39 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
         etapas_dia_filter = ""
         supply_dia_filter = ""
 
-    logger.debug("Leyendo demanda por servicios validos")
-
-    q_valid_services = f"""
+    # Una etapa se asigna a un servicio por el interno donde se valido. En una
+    # formacion con varios equipos (tranvia, tren) los servicios validos son solo
+    # los del interno principal del vehiculo: las etapas de los demas equipos se
+    # llevan a ese interno (ver datamodel/gps_vehiculos.py).
+    # Las dos consultas (etapas dentro de un servicio valido, y el resto) parten
+    # de la misma demanda y los mismos servicios.
+    ctes = f"""
         WITH demand AS (
-        SELECT
-            e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
-            epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
-            e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
-            tt.distance_route, tt.distance_route_gps
-        FROM etapas e
-        {etapas_dia_join}
-        LEFT JOIN travel_times_legs tt ON e.id = tt.id
-        WHERE e.od_validado = 1
+            SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal,
+                COALESCE(veh.interno_vehiculo, e.interno) AS interno,
+                epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
+                e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
+                tt.distance_route, tt.distance_route_gps
+            FROM etapas e
+            {etapas_dia_join}
+            LEFT JOIN gps_vehiculos veh
+                ON veh.dia = e.dia AND veh.id_linea = e.id_linea
+                AND veh.interno = e.interno AND NOT veh.es_principal
+            LEFT JOIN travel_times_legs tt ON e.id = tt.id
+            WHERE e.od_validado = 1
             {etapas_dia_filter}
             AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
         ),
         valid_services AS (
-        SELECT id_linea, dia, id_ramal, interno, service_id, min_ts, max_ts
-        FROM services
-        WHERE valid = 1
-        )
+            SELECT id_linea, dia, id_ramal, interno, service_id, min_ts, max_ts
+            FROM services
+            WHERE valid = 1
+        )"""
+
+    logger.debug("Leyendo demanda por servicios validos")
+
+    q_valid_services = f"""
+        {ctes}
         SELECT d.*, s.service_id
         FROM demand d
         JOIN valid_services s
@@ -1050,23 +1067,7 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
 
     logger.debug("Leyendo demanda por servicios invalidos")
     q_invalid_services = f"""
-        WITH demand AS (
-            SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal, e.interno,
-                epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
-                e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
-                tt.distance_route, tt.distance_route_gps
-            FROM etapas e
-            {etapas_dia_join}
-            LEFT JOIN travel_times_legs tt ON e.id = tt.id
-            WHERE od_validado = 1
-            {etapas_dia_filter}
-            AND EXISTS (SELECT 1 FROM gps g WHERE g.id_linea = e.id_linea)
-        ),
-        valid_services AS (
-            SELECT id_linea, dia, id_ramal, interno, service_id, min_ts, max_ts
-            FROM services
-            WHERE valid = 1
-        ),
+        {ctes},
         invalid_demand AS (
             SELECT d.*, s.service_id
             FROM demand d
@@ -1369,6 +1370,12 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     """
     gps_df = ctx.data.query(q)
 
+    # Internos que no son un vehiculo (equipos secundarios de una formacion,
+    # trazas con dos vehiculos mezclados): no aportan velocidad.
+    gps_df = quitar_gps_no_validos(
+        gps_df, leer_gps_no_validos(ctx, dias=dias if dia is None else [dia])
+    )
+
     # Tiempo desde el ping ANTERIOR del vehículo. distance_km de cada ping es la
     # distancia desde el ping anterior (compute_distance_km_gps la calcula contra
     # h3.shift(1)), así que el tiempo tiene que ser el del mismo intervalo. Antes
@@ -1484,6 +1491,13 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
 
     if len(legs) < 5:
         return None
+
+    # En una formacion con varios equipos (tranvia, tren) cada etapa lleva el
+    # interno del equipo donde se valido: se lleva al interno principal del
+    # vehiculo para contar vehiculos y no equipos, y para tomar su velocidad.
+    legs = mapear_interno_a_vehiculo(
+        legs, leer_gps_no_validos(ctx, dias=dias if dia is None else [dia])
+    )
 
     # Called for a single day, the orchestrator (compute_kpi) already deleted the
     # run days. Called from the dashboard (dias / all days), nobody did: each

@@ -27,6 +27,11 @@ from urbantrips.utils.utils import (
     RAMAL_SENTINEL,
 )
 from urbantrips.utils.parallel import cosechar
+from urbantrips.datamodel.gps_vehiculos import (
+    MOTIVO_SALTOS,
+    leer_gps_no_validos,
+    quitar_gps_no_validos,
+)
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.kpi.leg_direction import (
@@ -731,6 +736,13 @@ def _fetch_time_distance_inputs_dia(ctx, dia, next_dia):
         WHERE g.dia IN ({gps_str})
         ORDER BY dia, id_linea, id_ramal, interno, fecha
         """)
+    # Internos con dos vehiculos mezclados en una traza: el punto GPS de destino
+    # puede ser de otro vehiculo. Sus etapas se tratan como las de un vehiculo
+    # sin GPS (sin tiempo de viaje ni distancia por recorrido); conservan
+    # distance_od. Los equipos secundarios de una formacion no se tocan: su
+    # traza es buena.
+    no_validos = leer_gps_no_validos(ctx, dias=gps_dias)
+    gps = quitar_gps_no_validos(gps, no_validos[no_validos["motivo"] == MOTIVO_SALTOS])
     legs_to_gps_o = ctx.data.query(f"""
         SELECT lo.id_legs, lo.id_gps AS id_gps_o
         FROM legs_to_gps_origin lo
