@@ -1390,6 +1390,8 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
     # umbral, día por día, para sacar esos huecos: si no, suman tiempo sin
     # distancia y bajan la velocidad. Tiene que ser el umbral del sistema y no
     # el de la línea, porque es el que decidió qué distancias se anularon.
+    # El ingest también pone 0 en los saltos del GPS (velocidad imposible), pero
+    # esos tienen intervalos cortos y este filtro no los saca.
     umbral_hueco = (
         gps_df.delta_hr.fillna(0).groupby(gps_df.dia).transform(lambda s: s.quantile(0.995))
     )

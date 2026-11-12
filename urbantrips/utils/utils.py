@@ -214,6 +214,11 @@ _TUNING_DEFAULTS: dict = {
     # Speed (km/h) below which a GPS point counts as idling when validating
     # services. None → 2.0 (services.VELOCIDAD_DETENIDO_KMH).
     "services_velocidad_detenido_kmh": None,
+    # Max plausible speed (km/h) between two consecutive GPS points of a vehicle.
+    # Faster segments are zeroed (GPS jump) or replaced by the straight-line
+    # distance (road-network artifact). None → 100.0
+    # (transactions.VELOCIDAD_MAXIMA_GPS_KMH).
+    "gps_velocidad_maxima_kmh": None,
     # Hard override for the per-day RAM cost used by _parallel_day_workers.
     # None → estimated from the run's actual row counts
     # (legs._estimated_day_footprint_gb).
@@ -250,6 +255,21 @@ def leer_configs_tuning() -> dict:
     except Exception as e:
         logger.warning("Could not load configs/tuning.yaml: %s — using defaults", e)
         return copy.deepcopy(_TUNING_DEFAULTS)
+
+
+def leer_tuning_num(clave: str, default, tipo=float):
+    """Valor numerico de una clave de primer nivel de configs/tuning.yaml.
+
+    Devuelve `default` si la clave no esta, es nula o cero, o no se puede
+    convertir con `tipo`.
+    """
+    try:
+        val = leer_configs_tuning().get(clave)
+        if val:
+            return tipo(val)
+    except Exception as e:
+        logger.debug("%s ilegible: %s", clave, e)
+    return default
 
 
 def agrego_indicador(

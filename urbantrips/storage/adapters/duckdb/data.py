@@ -254,23 +254,9 @@ class DuckDBDataAdapter:
         # id_gps_o/id_gps_d agregadas a travel_times_legs para QA de la imputacion
         # de anclas GPS. CREATE TABLE IF NOT EXISTS no las agrega en DBs ya
         # existentes, asi que se migran aca si la tabla existe sin esas columnas.
-        table_exists = self._conn.execute(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_name = 'travel_times_legs'"
-        ).fetchone()
-        if table_exists:
-            existing_cols = {
-                r[0]
-                for r in self._conn.execute(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'travel_times_legs'"
-                ).fetchall()
-            }
-            for col in ("id_gps_o", "id_gps_d"):
-                if col not in existing_cols:
-                    self._conn.execute(
-                        f"ALTER TABLE travel_times_legs ADD COLUMN {col} INT"
-                    )
+        self._add_columns_if_missing(
+            "travel_times_legs", (("id_gps_o", "INT"), ("id_gps_d", "INT"))
+        )
 
         # Columnas muertas quitadas del esquema el 2026-07-27. CREATE TABLE IF NOT
         # EXISTS no las saca de una DB ya creada, así que se dropean acá. En DuckDB

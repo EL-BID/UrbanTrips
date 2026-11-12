@@ -1,5 +1,6 @@
 import gc
 import logging
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 from urbantrips.utils import utils
@@ -29,13 +30,9 @@ SERVICES_GPS_BATCH_ROWS = 5_000_000
 
 def _services_batch_rows() -> int:
     """Filas de gps por lote (tuning.yaml `services_gps_batch_rows`)."""
-    try:
-        val = utils.leer_configs_tuning().get("services_gps_batch_rows")
-        if val:
-            return max(1, int(val))
-    except Exception as e:
-        logger.debug("services_gps_batch_rows ilegible: %s", e)
-    return SERVICES_GPS_BATCH_ROWS
+    return max(
+        1, utils.leer_tuning_num("services_gps_batch_rows", SERVICES_GPS_BATCH_ROWS, int)
+    )
 
 
 # Un punto GPS se considera detenido si la velocidad desde el punto anterior del
@@ -53,13 +50,9 @@ MIN_PUNTOS_SERVICIO = 5
 
 def _velocidad_detenido_kmh() -> float:
     """Umbral de velocidad de punto detenido (tuning.yaml)."""
-    try:
-        val = utils.leer_configs_tuning().get("services_velocidad_detenido_kmh")
-        if val:
-            return float(val)
-    except Exception as e:
-        logger.debug("services_velocidad_detenido_kmh ilegible: %s", e)
-    return VELOCIDAD_DETENIDO_KMH
+    return utils.leer_tuning_num(
+        "services_velocidad_detenido_kmh", VELOCIDAD_DETENIDO_KMH
+    )
 
 
 def marcar_puntos_detenidos(gps_points, group_cols, velocidad_detenido_kmh=None):
@@ -78,7 +71,11 @@ def marcar_puntos_detenidos(gps_points, group_cols, velocidad_detenido_kmh=None)
         velocidad_detenido_kmh = _velocidad_detenido_kmh()
 
     sort_cols = [c for c in group_cols + ["fecha", "id"] if c in gps_points.columns]
-    orden = gps_points.reset_index(drop=True).sort_values(sort_cols, kind="stable")
+    orden = (
+        gps_points[sort_cols + ["distance_route"]]
+        .reset_index(drop=True)
+        .sort_values(sort_cols, kind="stable")
+    )
     distancia = pd.to_numeric(orden["distance_route"], errors="coerce")
     dt = pd.to_numeric(orden["fecha"], errors="coerce").groupby(
         [orden[c] for c in group_cols], sort=False, dropna=False
@@ -409,12 +406,16 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
         line_stops_gdf = None
 
     trust_service_type_gps = utils.leer_configs_generales(autogenerado=False)["utilizar_servicios_gps"]
+    # Se lee una vez por linea: sin servicios del GPS la clasificacion corre por
+    # vehiculo-dia y leer tuning.yaml en cada grupo son miles de lecturas.
+    velocidad_detenido_kmh = _velocidad_detenido_kmh()
 
     if trust_service_type_gps:
         gps_points_with_new_service_id = classify_line_gps_points_into_services(
             gps_points,
             line_stops_gdf=line_stops_gdf,
             trust_service_type_gps=trust_service_type_gps,
+            velocidad_detenido_kmh=velocidad_detenido_kmh,
         )
     else:
         gps_points_with_new_service_id = (
@@ -423,6 +424,7 @@ def process_line_services(gps_points, stops, ctx: StorageContext):
                 classify_line_gps_points_into_services,
                 line_stops_gdf=line_stops_gdf,
                 trust_service_type_gps=trust_service_type_gps,
+                velocidad_detenido_kmh=velocidad_detenido_kmh,
             )
             .droplevel(0)
         )
@@ -461,7 +463,9 @@ def create_line_services_table(line_day_gps_points):
     # Tiempo que representa cada punto: el intervalo desde el punto anterior DEL
     # MISMO SERVICIO. El primer punto de cada servicio pesa 0 (su intervalo
     # previo pertenece al servicio anterior o a un tiempo fuera de servicio).
-    puntos = line_day_gps_points.sort_values(claves + ["fecha"], kind="stable")
+    puntos = line_day_gps_points[
+        claves + ["fecha", "idling", "distance_route", "distance_route_gps"]
+    ].sort_values(claves + ["fecha"], kind="stable")
     dt = (
         pd.to_numeric(puntos["fecha"], errors="coerce")
         .groupby([puntos[c] for c in claves], sort=False, dropna=False)
@@ -730,6 +734,7 @@ def classify_line_gps_points_into_services(
     line_stops_gdf,
     debug=False,
     trust_service_type_gps=None,
+    velocidad_detenido_kmh=None,
     *args,
     **kwargs,
 ):
@@ -790,7 +795,9 @@ def classify_line_gps_points_into_services(
 
     # Classify idling points when there is no movement (por velocidad, no por
     # distancia entre puntos: ver marcar_puntos_detenidos)
-    line_gps_points["idling"] = marcar_puntos_detenidos(line_gps_points, group_cols)
+    line_gps_points["idling"] = marcar_puntos_detenidos(
+        line_gps_points, group_cols, velocidad_detenido_kmh
+    )
 
     # create a unique id from both old and new
     if trust_service_type_gps:
@@ -810,9 +817,6 @@ def classify_line_gps_points_into_services(
         )
 
     return line_gps_points
-
-
-import numpy as np
 
 
 def compute_new_services_stats(line_day_services):
@@ -836,9 +840,10 @@ def compute_new_services_stats(line_day_services):
         servicio_original_key=lambda x: (
             x["interno"].astype(str) + "_" + x["original_service_id"].astype(str)
         ),
-        servicio_corto=lambda x: x["total_points"] <= 5,
+        servicio_corto=lambda x: x["total_points"] <= MIN_PUNTOS_SERVICIO,
         servicio_corto_idling=lambda x: (
-            (x["prop_idling"] >= 0.5) & (x["total_points"] <= 5)
+            (x["prop_idling"] >= PROP_DETENIDO_MAXIMA)
+            & (x["total_points"] <= MIN_PUNTOS_SERVICIO)
         ),
     )
 
@@ -887,9 +892,10 @@ def compute_services_stats(line_services):
             servicio_original_key=lambda df: (
                 df["interno"].astype(str) + "_" + df["original_service_id"].astype(str)
             ),
-            servicio_corto=lambda df: df["total_points"] <= 5,
+            servicio_corto=lambda df: df["total_points"] <= MIN_PUNTOS_SERVICIO,
             servicio_corto_idling=lambda df: (
-                (df["prop_idling"] >= 0.5) & (df["total_points"] <= 5)
+                (df["prop_idling"] >= PROP_DETENIDO_MAXIMA)
+                & (df["total_points"] <= MIN_PUNTOS_SERVICIO)
             ),
             distancia_valida=lambda df: np.where(
                 df["valid"], df["distance_route"], 0

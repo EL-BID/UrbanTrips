@@ -246,7 +246,8 @@ def compute_section_supply_stats(gps, route_geoms):
 
         # El ingest anula distance_km en los intervalos más largos que el
         # percentil 99,5 del día (el vehículo estuvo apagado): se sacan también
-        # acá para que no sumen tiempo sin distancia.
+        # acá para que no sumen tiempo sin distancia. Los saltos del GPS, que
+        # el ingest también deja en 0, tienen intervalos cortos y no se sacan.
         if len(speed_gps) > 0:
             umbral_hueco = speed_gps.delta_hours.groupby(speed_gps.dia).transform(
                 lambda x: x.quantile(0.995)
