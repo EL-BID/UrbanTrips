@@ -10,6 +10,11 @@ from urbantrips.utils.dataframe import (
     leer_dia,
 )
 from urbantrips.utils.utils import duracion
+from urbantrips.kpi.cobertura import (
+    km_estimados,
+    pasajeros_del_universo,
+    vaciar_oferta_sin_cobertura,
+)
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
 
@@ -437,18 +442,34 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     # tot_veh sincronizado con vehiculos_operativos corregido
     all["tot_veh"] = all["vehiculos_operativos"]
 
+    # Cobertura GPS y pasajeros dentro de servicios validos: vienen de
+    # kpi_by_day_line / _branch. En una base anterior a esas columnas quedan
+    # nulas y los cocientes usan todos los pasajeros, como antes.
+    for col in ("cobertura_gps", "tot_pax_servicio"):
+        if col not in all.columns:
+            all[col] = np.nan
+        all[col] = pd.to_numeric(all[col], errors="coerce").astype("float64")
+    pax = pasajeros_del_universo(all["tot_pax"], all["tot_pax_servicio"], all["cobertura_gps"])
+    all["tot_km_route_estimado"] = km_estimados(
+        all["tot_km_route"], all["cobertura_gps"]
+    ).round(DECIMALES_KPI)
+
     # Recalcular ratios que dependen de tot_veh y tot_km_route
-    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["pvd"] = (pax / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
     all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
-    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["ipk_route"] = (pax / all["tot_km_route"].replace(0, pd.NA)).round(DECIMALES_KPI)
     # los mismos ratios sobre los km del odómetro, para que las dos familias de
     # recorrido sean simétricas y comparables
     all["kvd_route_gps"] = (
         all["tot_km_route_gps"] / all["tot_veh"].replace(0, pd.NA)
     ).round(DECIMALES_KPI)
     all["ipk_route_gps"] = (
-        all["tot_pax"] / all["tot_km_route_gps"].replace(0, pd.NA)
+        pax / all["tot_km_route_gps"].replace(0, pd.NA)
     ).round(DECIMALES_KPI)
+
+    # Con cobertura GPS menor al umbral la oferta medida describe una parte
+    # chica de la operacion: sus indicadores quedan sin calcular.
+    all = vaciar_oferta_sin_cobertura(all)
 
     # `id_ramal` solo aparece cuando se está agregando por ramal (cols lo trae)
     _id_cols = ["dia", "mes", "id_linea"]
@@ -499,6 +520,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "fo_median_od",
             "fo_median_route",
             "fo_median_route_gps",
+            "cobertura_gps",
+            "tot_km_route_estimado",
         ]
     ]
 

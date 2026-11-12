@@ -37,6 +37,7 @@ from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_corrida
 # importable (ejecuta `st.*` a nivel de módulo) y por lo tanto no se podía
 # cubrir con tests. Ver urbantrips/kpi/agregacion_indicadores.py.
 from urbantrips.kpi.agregacion_indicadores import (
+    COBERTURA_POR_ETAPAS,
     DEMO_COLS,
     NOMBRE_DIAS,
     TIPOS_DIA,
@@ -45,6 +46,7 @@ from urbantrips.kpi.agregacion_indicadores import (
     nota_capacidad_modos,
     preparar,
 )
+from urbantrips.kpi.cobertura import cobertura_gps_minima
 from urbantrips.utils.utils import leer_configs_generales
 
 # -----------------------------------------------------------------------------
@@ -207,6 +209,7 @@ LABELS = {
     "fo_mean_route": "Factor Ocupación (media)",
     "fo_median_route": "Factor Ocupación (mediana)",
     "tot_km_route": "Km recorridos",
+    "tot_km_route_estimado": "Km estimados (por cobertura)",
     "kvd_route": "Km / vehículo",
     "dmt_mean_route": "Distancia media Pax (km)",
     "dmt_median_route": "Distancia mediana Pax (km)",
@@ -284,8 +287,8 @@ FAMILIAS = {
         # existen cuando hay recorrido real.
         "filas": [
             ["velocidad_comercial_route", "dmt_mean_route", "dmt_median_route"],
-            ["tot_km_route", "distancia_media_veh_route", "ipk_route",
-             "fo_mean_route", "fo_median_route"],
+            ["tot_km_route", "tot_km_route_estimado", "distancia_media_veh_route",
+             "ipk_route", "fo_mean_route", "fo_median_route"],
         ],
         "probe": ["velocidad_comercial_route", "tot_km_route"],
     },
@@ -306,7 +309,8 @@ FAMILIAS = {
 }
 
 INT_DISPLAY_COLS = (
-    set(GENERAL_COLS + DEMO_COLS + ["tot_km_route", "tot_km_route_gps"])
+    set(GENERAL_COLS + DEMO_COLS
+        + ["tot_km_route", "tot_km_route_gps", "tot_km_route_estimado"])
     - {"cobertura_gps"}
 )
 PCT_DISPLAY_COLS = {"cobertura_gps"}
@@ -618,7 +622,28 @@ with st.expander("Indicadores", expanded=True):
             elif cob < 0.8:
                 st.caption(
                     f"⚠️ Cobertura GPS baja ({cob * 100:.1f} %): los indicadores de "
-                    "oferta describen solo la fracción de la flota que reporta GPS."
+                    "oferta describen solo la parte de la operación que tiene GPS."
+                )
+
+            if COBERTURA_POR_ETAPAS in df_sel.columns and df_sel[COBERTURA_POR_ETAPAS].any():
+                _minimo = cobertura_gps_minima()
+                _vacias = int(
+                    (df_sel[COBERTURA_POR_ETAPAS] & (df_sel["cobertura_gps"] < _minimo)).sum()
+                )
+                st.caption(
+                    "La **cobertura GPS** es la parte de las etapas que ocurre dentro "
+                    "de un servicio GPS válido de su vehículo. Pasajeros por km, "
+                    "factor de ocupación y pasajeros por vehículo comparan los "
+                    "pasajeros y la oferta de esos mismos servicios. Los **km "
+                    "estimados** son los km recorridos divididos por la cobertura: "
+                    "suponen que la operación sin GPS se parece a la que sí tiene."
+                    + (
+                        f"  \n⚠️ {_vacias} línea(s)-día de esta selección tienen "
+                        f"cobertura menor a {_minimo * 100:.0f} %: sus indicadores "
+                        "de oferta no se calculan y no entran en los valores de arriba."
+                        if _vacias
+                        else ""
+                    )
                 )
 
 
@@ -629,7 +654,9 @@ with st.expander("Indicadores", expanded=True):
 with st.expander("Base completa", expanded=False):
     # Solo días reales: las filas "Promedios" son un resumen por línea y, si se
     # suman junto con los días en una planilla, inflan los totales del período.
-    st.dataframe(kpis_dias, width="stretch", hide_index=True)
+    # la marca interna de cómo se midió la cobertura no es un dato de la base
+    kpis_tabla = kpis_dias.drop(columns=[COBERTURA_POR_ETAPAS], errors="ignore")
+    st.dataframe(kpis_tabla, width="stretch", hide_index=True)
     st.caption(
         "La tabla y el CSV completo incluyen sólo los días procesados. "
         "El resumen por línea se descarga por separado y no debe sumarse a los días."
@@ -638,11 +665,13 @@ with st.expander("Base completa", expanded=False):
     with col_desc_dias:
         st.download_button(
             label="Descargar CSV completo",
-            data=kpis_dias.to_csv(index=False).encode("utf-8"),
+            data=kpis_tabla.to_csv(index=False).encode("utf-8"),
             file_name="kpis_lineas_completo.csv",
             mime="text/csv",
         )
-    kpis_resumen = kpis_df[kpis_df["dia"] == "Promedios"]
+    kpis_resumen = kpis_df[kpis_df["dia"] == "Promedios"].drop(
+        columns=[COBERTURA_POR_ETAPAS], errors="ignore"
+    )
     if not kpis_resumen.empty:
         with col_desc_resumen:
             st.download_button(

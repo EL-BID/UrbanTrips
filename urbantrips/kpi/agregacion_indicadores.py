@@ -42,12 +42,15 @@ SUM_COLS = [
     "transacciones",
     "tot_km_route",
     "tot_km_route_gps",
+    "tot_km_route_estimado",
 ] + DEMO_COLS
 
 # Subconjunto acumulable sobre todo el período. Los conteos de vehículos quedan
 # fuera a propósito: sumarlos entre días da vehículo-día, no vehículos (un
 # interno que operó 28 días contaría 28 veces).
-PERIOD_SUM_COLS = ["transacciones", "tot_km_route", "tot_km_route_gps"] + DEMO_COLS
+PERIOD_SUM_COLS = [
+    "transacciones", "tot_km_route", "tot_km_route_gps", "tot_km_route_estimado",
+] + DEMO_COLS
 
 # --- columnas intensivas: (peso, modo de agregación) ------------------------
 # Oferta ponderada por oferta —km de su propia familia de distancia, o
@@ -85,6 +88,10 @@ RATIO_AGG = {
     "travel_time_min": ("transacciones", "wmean"),
     "kmh_od": ("transacciones", "wmean"),
 }
+
+# Marca, fila a fila, si `cobertura_gps` es la proporción de etapas dentro de
+# servicios válidos (bases nuevas) o la medida anterior por vehículos.
+COBERTURA_POR_ETAPAS = "_cobertura_por_etapas"
 
 TIPOS_DIA = ["Todos", "Día hábil", "Sábado", "Domingo"]
 # (singular, plural), para los títulos
@@ -171,9 +178,15 @@ def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
             _harmonic(d, col, peso) if modo_agg == "harmonic" else _wmean(d, col, peso)
         )
 
-    # cobertura: cociente de sumas, no suma de cocientes
-    gps, trx = out.get("vehiculos_operativos"), out.get("cant_internos_en_trx")
-    out["cobertura_gps"] = gps / trx if (pd.notna(gps) and trx) else float("nan")
+    if COBERTURA_POR_ETAPAS in d.columns and d[COBERTURA_POR_ETAPAS].any():
+        # proporcion de etapas dentro de servicios validos: se agrega ponderando
+        # por transacciones (equivale al cociente de sumas de etapas)
+        out["cobertura_gps"] = _wmean(d, "cobertura_gps", "transacciones")
+    else:
+        # bases anteriores: vehiculos con servicio valido sobre internos con
+        # transacciones. Cociente de sumas, no suma de cocientes.
+        gps, trx = out.get("vehiculos_operativos"), out.get("cant_internos_en_trx")
+        out["cobertura_gps"] = gps / trx if (pd.notna(gps) and trx) else float("nan")
     return pd.DataFrame([out])
 
 
@@ -183,13 +196,21 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     df = df.copy()
 
-    # Cobertura GPS: qué proporción de los vehículos que registraron
-    # transacciones llegó a tener un servicio GPS válido. Es calidad del dato,
-    # no operación: subte y tren no reportan GPS y ahí da NaN aunque el modo
-    # haya operado con normalidad.
-    df["cobertura_gps"] = df["vehiculos_operativos"] / df[
-        "cant_internos_en_trx"
-    ].replace(0, pd.NA)
+    # Cobertura GPS: qué proporción de las etapas ocurre dentro de un servicio
+    # GPS válido de su vehículo (ver kpi/cobertura.py). Es calidad del dato, no
+    # operación. Las bases anteriores a esa columna no la traen: ahí se usa la
+    # medida vieja, vehículos con servicio válido sobre internos con
+    # transacciones (subte y tren no reportan GPS y da NaN).
+    por_vehiculos = df["vehiculos_operativos"] / df["cant_internos_en_trx"].replace(
+        0, pd.NA
+    )
+    if "cobertura_gps" in df.columns:
+        por_etapas = pd.to_numeric(df["cobertura_gps"], errors="coerce")
+        df[COBERTURA_POR_ETAPAS] = por_etapas.notna()
+        df["cobertura_gps"] = por_etapas.fillna(pd.to_numeric(por_vehiculos, errors="coerce"))
+    else:
+        df[COBERTURA_POR_ETAPAS] = False
+        df["cobertura_gps"] = por_vehiculos
 
     # `tot_km_route_gps` se persiste desde 2026-08-20; para bases anteriores se
     # reconstruye como distancia media por vehículo × vehículos. Validado contra

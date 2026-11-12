@@ -344,7 +344,10 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line (
     fo_mean_route_gps     FLOAT,
     fo_median_od          FLOAT,
     fo_median_route       FLOAT,
-    fo_median_route_gps   FLOAT
+    fo_median_route_gps   FLOAT,
+    tot_pax_servicio      FLOAT,
+    cobertura_gps         FLOAT,
+    tot_km_route_estimado FLOAT
 )
 """
 
@@ -376,7 +379,10 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_branch (
     fo_mean_route_gps     FLOAT,
     fo_median_od          FLOAT,
     fo_median_route       FLOAT,
-    fo_median_route_gps   FLOAT
+    fo_median_route_gps   FLOAT,
+    tot_pax_servicio      FLOAT,
+    cobertura_gps         FLOAT,
+    tot_km_route_estimado FLOAT
 )
 """
 

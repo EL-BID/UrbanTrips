@@ -32,6 +32,14 @@ from urbantrips.utils.utils import (
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
 from urbantrips.kpi.kpi_lineas import DECIMALES_KPI
+from urbantrips.kpi.cobertura import (
+    EN_SERVICIO_VALIDO,
+    JOIN_VEHICULO,
+    km_estimados,
+    leer_cobertura_gps,
+    pasajeros_del_universo,
+    vaciar_oferta_sin_cobertura,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -709,9 +717,11 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
         SELECT e.dia, e.id_linea, e.id_ramal, e.interno, e.id_tarjeta, e.h3_o,
             e.h3_d, e.factor_expansion_linea,
             tt.travel_time_min, tt.distance_od, tt.distance_route,
-            tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps
+            tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
+            {EN_SERVICIO_VALIDO} AS en_servicio
         FROM etapas e
         {legs_join}
+        {JOIN_VEHICULO}
         LEFT JOIN travel_times_legs tt ON e.id = tt.id
         {legs_scope}
     """
@@ -732,6 +742,10 @@ def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
     oferta desde `services WHERE valid = 1`—, solo cambia el nivel de agregación,
     así que vive en una sola función para que las dos vistas no se desincronicen.
 
+    Además de `tot_pax` (toda la demanda) trae `tot_pax_servicio`, los pasajeros
+    que viajaron dentro de un servicio válido de su vehículo, y `cobertura_gps`
+    (ver kpi/cobertura.py).
+
     Devuelve None si no hay demanda válida.
     """
     claves = entidad + ["dia"]
@@ -747,6 +761,18 @@ def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
         .groupby(claves)
         .apply(demand_stats, include_groups=False)
         .reset_index()
+    )
+    en_servicio = legs_valid["en_servicio"].fillna(False).astype(bool)
+    pax_servicio = (
+        legs_valid["factor_expansion_linea"]
+        .where(en_servicio, 0.0)
+        .groupby([legs_valid[c] for c in claves])
+        .sum()
+        .rename("tot_pax_servicio")
+        .reset_index()
+    )
+    day_stats = day_stats.merge(pax_servicio, on=claves, how="left").merge(
+        leer_cobertura_gps(ctx, dias_in, entidad), on=claves, how="left"
     )
 
     # supply: read from services filtered to valid=1 (no expansion factor)
@@ -838,26 +864,35 @@ def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
     exactamente las mismas fórmulas. `capacidades` es el resultado de
     `capacidad_por_linea`; quienes lo reciben como None lo calculan (llamadas
     sueltas, fuera de `compute_kpi`, que lo calcula una vez por corrida).
+
+    Los cocientes de oferta (pvd, ipk, fo) usan los pasajeros que viajaron
+    dentro de servicios válidos, que es la misma operación que midieron los km
+    y los vehículos; `tot_pax` sigue siendo toda la demanda. Con cobertura GPS
+    menor al umbral los indicadores de oferta quedan sin calcular (ver
+    kpi/cobertura.py).
     """
     # Safe division: replace 0 with NaN in denominators
     tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
     tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
     tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
+    pax = pasajeros_del_universo(
+        day_stats.tot_pax, day_stats.tot_pax_servicio, day_stats.cobertura_gps
+    )
 
-    day_stats["pvd"] = day_stats.tot_pax / tot_veh_safe
+    day_stats["pvd"] = pax / tot_veh_safe
     day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
     day_stats["kvd_route_gps"] = day_stats.tot_km_route_gps / tot_veh_safe
 
-    day_stats["ipk_route"] = day_stats.tot_pax / tot_km_safe
-    day_stats["ipk_route_gps"] = day_stats.tot_pax / tot_km_gps_safe
+    day_stats["ipk_route"] = pax / tot_km_safe
+    day_stats["ipk_route_gps"] = pax / tot_km_gps_safe
 
     # EKD y FO para las tres distancias
-    day_stats["ekd_mean_od"] = day_stats.tot_pax * day_stats.dmt_mean_od
-    day_stats["ekd_mean_route"] = day_stats.tot_pax * day_stats.dmt_mean_route
-    day_stats["ekd_mean_route_gps"] = day_stats.tot_pax * day_stats.dmt_mean_route_gps
-    day_stats["ekd_median_od"] = day_stats.tot_pax * day_stats.dmt_median_od
-    day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
-    day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
+    day_stats["ekd_mean_od"] = pax * day_stats.dmt_mean_od
+    day_stats["ekd_mean_route"] = pax * day_stats.dmt_mean_route
+    day_stats["ekd_mean_route_gps"] = pax * day_stats.dmt_mean_route_gps
+    day_stats["ekd_median_od"] = pax * day_stats.dmt_median_od
+    day_stats["ekd_median_route"] = pax * day_stats.dmt_median_route
+    day_stats["ekd_median_route_gps"] = pax * day_stats.dmt_median_route_gps
 
     _agregar_espacios_km_ofrecidos(day_stats, capacidades)
 
@@ -876,18 +911,25 @@ def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
         "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
+        # al final: son columnas agregadas a tablas ya creadas
+        "tot_pax_servicio", "cobertura_gps", "tot_km_route_estimado",
     ]
+    day_stats["tot_km_route_estimado"] = km_estimados(
+        day_stats.tot_km_route, day_stats.cobertura_gps
+    )
     day_stats = day_stats.reindex(columns=cols)
 
     ratio_cols = [
         "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
+        "tot_km_route_estimado",
     ]
     for col in ratio_cols:
         day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(DECIMALES_KPI)
     day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
-    return day_stats
+    day_stats["tot_pax_servicio"] = day_stats["tot_pax_servicio"].round(0)
+    return vaciar_oferta_sin_cobertura(day_stats)
 
 
 @duracion

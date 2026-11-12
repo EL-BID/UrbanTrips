@@ -280,6 +280,17 @@ class DuckDBDataAdapter:
             if existe:
                 self._conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {col}")
 
+        # Cobertura GPS y universo comun de los cocientes (kpi/cobertura.py).
+        for tabla in ("kpi_by_day_line", "kpi_by_day_branch"):
+            self._add_columns_if_missing(
+                tabla,
+                (
+                    ("tot_pax_servicio", "FLOAT"),
+                    ("cobertura_gps", "FLOAT"),
+                    ("tot_km_route_estimado", "FLOAT"),
+                ),
+            )
+
         # horas_servicio y motivo_no_valido se agregaron a services junto con la
         # regla de validez por tiempo detenido. Quedan NULL en los servicios ya
         # guardados hasta que se reprocesen (--step legs).

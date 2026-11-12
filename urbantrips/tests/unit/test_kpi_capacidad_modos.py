@@ -50,6 +50,9 @@ def ratios():
             "tot_km_route": [1000.0, 1000.0, 1000.0],
             "tot_km_route_gps": [1000.0, 0.0, 1000.0],
             "tot_pax": [3000.0, 3000.0, 3000.0],
+            # cobertura GPS completa: todos los pasajeros viajan en servicios validos
+            "tot_pax_servicio": [3000.0, 3000.0, 3000.0],
+            "cobertura_gps": 1.0,
             "dmt_mean_od": 5.0, "dmt_mean_route": 6.0, "dmt_mean_route_gps": 6.0,
             "dmt_median_od": 4.0, "dmt_median_route": 5.0, "dmt_median_route_gps": 5.0,
         }

@@ -219,6 +219,10 @@ _TUNING_DEFAULTS: dict = {
     # distance (road-network artifact). None → 100.0
     # (transactions.VELOCIDAD_MAXIMA_GPS_KMH).
     "gps_velocidad_maxima_kmh": None,
+    # Minimum GPS coverage (share of legs that happen inside a valid service of
+    # their vehicle) for a line-day to get supply indicators. Below it they are
+    # left empty. None → 0.5 (kpi.cobertura.COBERTURA_GPS_MINIMA).
+    "kpi_cobertura_gps_minima": None,
     # Hard override for the per-day RAM cost used by _parallel_day_workers.
     # None → estimated from the run's actual row counts
     # (legs._estimated_day_footprint_gb).
