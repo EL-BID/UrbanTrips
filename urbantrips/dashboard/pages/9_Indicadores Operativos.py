@@ -44,6 +44,7 @@ from urbantrips.kpi.agregacion_indicadores import (
     agregar_sistema,
     etiqueta_dia,
     nota_capacidad_modos,
+    nota_cobertura,
     preparar,
 )
 from urbantrips.kpi.cobertura import cobertura_gps_minima
@@ -625,26 +626,9 @@ with st.expander("Indicadores", expanded=True):
                     "oferta describen solo la parte de la operación que tiene GPS."
                 )
 
-            if COBERTURA_POR_ETAPAS in df_sel.columns and df_sel[COBERTURA_POR_ETAPAS].any():
-                _minimo = cobertura_gps_minima()
-                _vacias = int(
-                    (df_sel[COBERTURA_POR_ETAPAS] & (df_sel["cobertura_gps"] < _minimo)).sum()
-                )
-                st.caption(
-                    "La **cobertura GPS** es la parte de las etapas que ocurre dentro "
-                    "de un servicio GPS válido de su vehículo. Pasajeros por km, "
-                    "factor de ocupación y pasajeros por vehículo comparan los "
-                    "pasajeros y la oferta de esos mismos servicios. Los **km "
-                    "estimados** son los km recorridos divididos por la cobertura: "
-                    "suponen que la operación sin GPS se parece a la que sí tiene."
-                    + (
-                        f"  \n⚠️ {_vacias} línea(s)-día de esta selección tienen "
-                        f"cobertura menor a {_minimo * 100:.0f} %: sus indicadores "
-                        "de oferta no se calculan y no entran en los valores de arriba."
-                        if _vacias
-                        else ""
-                    )
-                )
+            _nota_cobertura = nota_cobertura(df_sel, cobertura_gps_minima())
+            if _nota_cobertura:
+                st.caption(_nota_cobertura)
 
 
 # -----------------------------------------------------------------------------
@@ -655,7 +639,8 @@ with st.expander("Base completa", expanded=False):
     # Solo días reales: las filas "Promedios" son un resumen por línea y, si se
     # suman junto con los días en una planilla, inflan los totales del período.
     # la marca interna de cómo se midió la cobertura no es un dato de la base
-    kpis_tabla = kpis_dias.drop(columns=[COBERTURA_POR_ETAPAS], errors="ignore")
+    kpis_export = kpis_df.drop(columns=[COBERTURA_POR_ETAPAS], errors="ignore")
+    kpis_tabla = kpis_export[kpis_export["dia"] != "Promedios"]
     st.dataframe(kpis_tabla, width="stretch", hide_index=True)
     st.caption(
         "La tabla y el CSV completo incluyen sólo los días procesados. "
@@ -669,9 +654,7 @@ with st.expander("Base completa", expanded=False):
             file_name="kpis_lineas_completo.csv",
             mime="text/csv",
         )
-    kpis_resumen = kpis_df[kpis_df["dia"] == "Promedios"].drop(
-        columns=[COBERTURA_POR_ETAPAS], errors="ignore"
-    )
+    kpis_resumen = kpis_export[kpis_export["dia"] == "Promedios"]
     if not kpis_resumen.empty:
         with col_desc_resumen:
             st.download_button(

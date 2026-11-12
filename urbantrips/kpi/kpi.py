@@ -33,11 +33,13 @@ from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
 from urbantrips.kpi.kpi_lineas import DECIMALES_KPI
 from urbantrips.kpi.cobertura import (
-    EN_SERVICIO_VALIDO,
+    COCIENTES_DE_OFERTA,
     JOIN_VEHICULO,
-    km_estimados,
+    TS_DE_LA_ETAPA,
+    VEHICULO_DE_LA_ETAPA,
+    en_servicio_valido,
     leer_cobertura_gps,
-    pasajeros_del_universo,
+    universo_de_oferta,
     vaciar_oferta_sin_cobertura,
 )
 
@@ -701,10 +703,14 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
         gps_scope = f"WHERE g.dia = '{dia}'"
         legs_join = ""
         legs_scope = f"WHERE e.dia = '{dia}' AND e.od_validado = 1"
+        en_servicio = en_servicio_valido(f"AND s.dia = '{dia}'")
     else:
         gps_scope = "JOIN dias_ultima_corrida d ON g.dia = d.dia"
         legs_join = "JOIN dias_ultima_corrida d ON e.dia = d.dia"
         legs_scope = "WHERE e.od_validado = 1"
+        en_servicio = en_servicio_valido(
+            "AND s.dia IN (SELECT dia FROM dias_ultima_corrida)"
+        )
 
     q = f"""
     SELECT g.* FROM gps g
@@ -718,7 +724,7 @@ def read_data_for_daily_kpi(ctx: StorageContext, dia=None):
             e.h3_d, e.factor_expansion_linea,
             tt.travel_time_min, tt.distance_od, tt.distance_route,
             tt.distance_route_gps, tt.kmh_od, tt.kmh_route, tt.kmh_route_gps,
-            {EN_SERVICIO_VALIDO} AS en_servicio
+            {en_servicio} AS en_servicio
         FROM etapas e
         {legs_join}
         {JOIN_VEHICULO}
@@ -762,10 +768,9 @@ def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
         .apply(demand_stats, include_groups=False)
         .reset_index()
     )
-    en_servicio = legs_valid["en_servicio"].fillna(False).astype(bool)
     pax_servicio = (
         legs_valid["factor_expansion_linea"]
-        .where(en_servicio, 0.0)
+        .where(legs_valid["en_servicio"].fillna(False).astype(bool), 0.0)
         .groupby([legs_valid[c] for c in claves])
         .sum()
         .rename("tot_pax_servicio")
@@ -875,9 +880,7 @@ def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
     tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
     tot_km_safe = day_stats.tot_km_route.replace(0, np.nan)
     tot_km_gps_safe = day_stats.tot_km_route_gps.replace(0, np.nan)
-    pax = pasajeros_del_universo(
-        day_stats.tot_pax, day_stats.tot_pax_servicio, day_stats.cobertura_gps
-    )
+    pax, day_stats["tot_km_route_estimado"] = universo_de_oferta(day_stats)
 
     day_stats["pvd"] = pax / tot_veh_safe
     day_stats["kvd_route"] = day_stats.tot_km_route / tot_veh_safe
@@ -914,18 +917,9 @@ def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
         # al final: son columnas agregadas a tablas ya creadas
         "tot_pax_servicio", "cobertura_gps", "tot_km_route_estimado",
     ]
-    day_stats["tot_km_route_estimado"] = km_estimados(
-        day_stats.tot_km_route, day_stats.cobertura_gps
-    )
     day_stats = day_stats.reindex(columns=cols)
 
-    ratio_cols = [
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-        "tot_km_route_estimado",
-    ]
-    for col in ratio_cols:
+    for col in COCIENTES_DE_OFERTA + ["tot_km_route_estimado"]:
         day_stats[col] = day_stats[col].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(DECIMALES_KPI)
     day_stats["tot_pax"] = day_stats["tot_pax"].fillna(0).round(0).astype(int)
     day_stats["tot_pax_servicio"] = day_stats["tot_pax_servicio"].round(0)
@@ -1145,15 +1139,13 @@ def compute_kpi_by_service(
     ctes = f"""
         WITH demand AS (
             SELECT e.id_tarjeta, e.id, e.id_linea, e.dia, e.id_ramal,
-                COALESCE(veh.interno_vehiculo, e.interno) AS interno,
-                epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT AS ts,
+                {VEHICULO_DE_LA_ETAPA} AS interno,
+                {TS_DE_LA_ETAPA} AS ts,
                 e.tiempo, e.h3_o, e.h3_d, e.factor_expansion_linea,
                 tt.distance_route, tt.distance_route_gps
             FROM etapas e
             {etapas_dia_join}
-            LEFT JOIN gps_vehiculos veh
-                ON veh.dia = e.dia AND veh.id_linea = e.id_linea
-                AND veh.interno = e.interno AND NOT veh.es_principal
+            {JOIN_VEHICULO}
             LEFT JOIN travel_times_legs tt ON e.id = tt.id
             WHERE e.od_validado = 1
             {etapas_dia_filter}

@@ -18,7 +18,6 @@ El vehiculo de una etapa es el interno principal de su formacion (ver
 `datamodel/gps_vehiculos.py`).
 """
 
-import numpy as np
 import pandas as pd
 
 from urbantrips.utils.utils import leer_tuning_num
@@ -28,25 +27,23 @@ from urbantrips.utils.utils import leer_tuning_num
 # en configs/tuning.yaml.
 COBERTURA_GPS_MINIMA = 0.5
 
-# JOIN y condicion para saber, en una consulta sobre `etapas e`, si la etapa
-# ocurre dentro de un servicio valido de su vehiculo. Una etapa sin hora no se
-# puede ubicar en un servicio: la condicion da NULL.
+# Piezas para consultas sobre `etapas e`: el vehiculo de la etapa (el interno
+# principal de su formacion) y su hora en segundos, comparable con `min_ts` /
+# `max_ts` de `services`.
 JOIN_VEHICULO = (
     "LEFT JOIN gps_vehiculos veh ON veh.dia = e.dia AND veh.id_linea = e.id_linea"
     " AND veh.interno = e.interno AND NOT veh.es_principal"
 )
-EN_SERVICIO_VALIDO = """(
-        e.tiempo IS NOT NULL AND EXISTS (
-            SELECT 1 FROM services s
-            WHERE s.valid = 1 AND s.dia = e.dia AND s.id_linea = e.id_linea
-              AND s.interno = COALESCE(veh.interno_vehiculo, e.interno)
-              AND epoch(CAST((e.dia || ' ' || e.tiempo) AS TIMESTAMP))::BIGINT
-                  BETWEEN s.min_ts AND s.max_ts
-        )
-    )"""
+VEHICULO_DE_LA_ETAPA = "COALESCE(veh.interno_vehiculo, e.interno)"
+TS_DE_LA_ETAPA = "epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT"
 
-# Indicadores que describen la oferta medida con GPS, o que la usan de
-# denominador: son los que el umbral deja sin calcular.
+# Cocientes que tienen a la oferta medida con GPS como denominador.
+COCIENTES_DE_OFERTA = [
+    "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
+    "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
+    "fo_median_od", "fo_median_route", "fo_median_route_gps",
+]
+# Todo lo que el umbral deja sin calcular: esos cocientes y la oferta misma.
 COLUMNAS_DE_OFERTA = [
     "tot_veh", "vehiculos_operativos",
     "tot_km_route", "tot_km_route_gps", "tot_km_route_estimado",
@@ -54,15 +51,32 @@ COLUMNAS_DE_OFERTA = [
     "velocidad_comercial_am_route", "velocidad_comercial_am_route_gps",
     "velocidad_comercial_pm_route", "velocidad_comercial_pm_route_gps",
     "distancia_media_veh_route", "distancia_media_veh_route_gps",
-    "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-    "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-    "fo_median_od", "fo_median_route", "fo_median_route_gps",
-]
+] + COCIENTES_DE_OFERTA
 
 
 def cobertura_gps_minima() -> float:
     """Umbral de cobertura GPS (tuning.yaml)."""
     return leer_tuning_num("kpi_cobertura_gps_minima", COBERTURA_GPS_MINIMA)
+
+
+def en_servicio_valido(filtro_dias: str = "") -> str:
+    """Condicion SQL, para una consulta sobre `etapas e` con `JOIN_VEHICULO`:
+    la etapa ocurre dentro de un servicio valido de su vehiculo. Una etapa sin
+    hora no se puede ubicar en un servicio y da FALSE.
+
+    `filtro_dias` acota los servicios que se miran (p. ej. `AND s.dia IN
+    ('2025-10-29')`): `services` es acumulativa y sin el filtro se recorren los
+    de toda la base.
+    """
+    return f"""(
+        e.tiempo IS NOT NULL AND EXISTS (
+            SELECT 1 FROM services s
+            WHERE s.valid = 1 AND s.dia = e.dia AND s.id_linea = e.id_linea
+              AND s.interno = {VEHICULO_DE_LA_ETAPA}
+              AND {TS_DE_LA_ETAPA} BETWEEN s.min_ts AND s.max_ts
+              {filtro_dias}
+        )
+    )"""
 
 
 def leer_cobertura_gps(ctx, dias_in: str, entidad: list) -> pd.DataFrame:
@@ -74,39 +88,44 @@ def leer_cobertura_gps(ctx, dias_in: str, entidad: list) -> pd.DataFrame:
     se puede medir) y no se le aplica el umbral.
     """
     claves = ", ".join(f"e.{c}" for c in ["dia"] + entidad)
-    cobertura = ctx.data.query(f"""
+    en_servicio = en_servicio_valido(f"AND s.dia IN ({dias_in})")
+    return ctx.data.query(f"""
         SELECT {claves},
-            count(*) FILTER (WHERE e.tiempo IS NOT NULL) AS etapas_con_hora,
-            count(*) FILTER (WHERE {EN_SERVICIO_VALIDO}) AS etapas_en_servicio
+            round(
+                (count(*) FILTER (WHERE {en_servicio}))::DOUBLE
+                / nullif(count(*) FILTER (WHERE e.tiempo IS NOT NULL), 0),
+                4
+            ) AS cobertura_gps
         FROM etapas e
         {JOIN_VEHICULO}
         WHERE e.dia IN ({dias_in})
         GROUP BY {claves}
     """)
-    con_hora = cobertura["etapas_con_hora"].astype("float64")
-    cobertura["cobertura_gps"] = (
-        cobertura["etapas_en_servicio"].astype("float64") / con_hora.where(con_hora > 0)
-    ).round(4)
-    return cobertura[["dia"] + entidad + ["cobertura_gps"]]
 
 
-def pasajeros_del_universo(tot_pax, tot_pax_servicio, cobertura_gps):
-    """Pasajeros que entran a los cocientes de oferta: los que viajaron dentro
-    de servicios validos. Si la cobertura no se pudo medir (etapas sin hora, o
-    una base anterior a esta columna) se usan todos, como antes."""
-    return tot_pax_servicio.where(cobertura_gps.notna(), tot_pax)
+def universo_de_oferta(df):
+    """Devuelve `(pasajeros, km_estimados)` para las filas de `df`, que trae
+    `tot_pax`, `tot_pax_servicio`, `tot_km_route` y `cobertura_gps`. No
+    modifica `df`.
 
-
-def km_estimados(tot_km, cobertura_gps):
-    """Km de la linea estimados a partir de los observados: observados /
-    cobertura. Supone que la operacion sin GPS tiene los mismos pasajeros por km
-    que la operacion con GPS. Nulo si no hay cobertura medida."""
-    return tot_km / cobertura_gps.where(cobertura_gps > 0)
+    - Pasajeros que entran a los cocientes de oferta: los que viajaron dentro
+      de servicios validos. Si la cobertura no se pudo medir (etapas sin hora,
+      o una base anterior a estas columnas) se usan todos, como antes.
+    - Km estimados: observados / cobertura. Supone que la operacion sin GPS
+      tiene los mismos pasajeros por km que la operacion con GPS; nulo si no hay
+      cobertura medida.
+    """
+    cobertura = df["cobertura_gps"]
+    pasajeros = df["tot_pax_servicio"].where(cobertura.notna(), df["tot_pax"])
+    km_estimados = df["tot_km_route"] / cobertura.where(cobertura > 0)
+    return pasajeros, km_estimados
 
 
 def vaciar_oferta_sin_cobertura(df, minimo=None):
     """Deja sin calcular los indicadores de oferta de las filas con cobertura
-    GPS menor a `minimo`. Las filas sin cobertura medida no se tocan."""
+    GPS menor a `minimo` (por defecto, el de tuning.yaml). Las filas sin
+    cobertura medida no se tocan, y un `df` sin `cobertura_gps` o sin ninguna
+    fila bajo el umbral se devuelve tal cual."""
     if "cobertura_gps" not in df.columns:
         return df
     if minimo is None:
@@ -114,9 +133,12 @@ def vaciar_oferta_sin_cobertura(df, minimo=None):
     sin_cobertura = pd.to_numeric(df["cobertura_gps"], errors="coerce") < minimo
     if not sin_cobertura.any():
         return df
+    cols = df.columns.intersection(COLUMNAS_DE_OFERTA)
     df = df.copy()
-    for col in COLUMNAS_DE_OFERTA:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
-            df.loc[sin_cobertura, col] = np.nan
+    df[cols] = (
+        df[cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .astype("float64")
+        .mask(sin_cobertura, axis=0)
+    )
     return df

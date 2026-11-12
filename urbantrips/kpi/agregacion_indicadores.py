@@ -178,7 +178,7 @@ def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
             _harmonic(d, col, peso) if modo_agg == "harmonic" else _wmean(d, col, peso)
         )
 
-    if COBERTURA_POR_ETAPAS in d.columns and d[COBERTURA_POR_ETAPAS].any():
+    if mide_cobertura_por_etapas(d):
         # proporcion de etapas dentro de servicios validos: se agrega ponderando
         # por transacciones (equivale al cociente de sumas de etapas)
         out["cobertura_gps"] = _wmean(d, "cobertura_gps", "transacciones")
@@ -225,6 +225,36 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
 
     df["tipo_dia"] = tipo_de_dia(df["dia"])
     return df
+
+
+def mide_cobertura_por_etapas(df) -> bool:
+    """True si alguna fila de `df` (ya pasado por `preparar`) trae la cobertura
+    GPS medida con etapas; False en una base anterior a esa columna."""
+    return COBERTURA_POR_ETAPAS in df.columns and bool(df[COBERTURA_POR_ETAPAS].any())
+
+
+def nota_cobertura(df, minimo: float) -> str:
+    """Texto que explica la cobertura GPS de las líneas-día de `df` y avisa
+    cuántas quedaron sin indicadores de oferta por tener menos de `minimo`.
+    Vacío si `df` no trae la cobertura medida con etapas."""
+    if not mide_cobertura_por_etapas(df):
+        return ""
+    nota = (
+        "La **cobertura GPS** es la parte de las etapas que ocurre dentro "
+        "de un servicio GPS válido de su vehículo. Pasajeros por km, "
+        "factor de ocupación y pasajeros por vehículo comparan los "
+        "pasajeros y la oferta de esos mismos servicios. Los **km "
+        "estimados** son los km recorridos divididos por la cobertura: "
+        "suponen que la operación sin GPS se parece a la que sí tiene."
+    )
+    vacias = int((df[COBERTURA_POR_ETAPAS] & (df["cobertura_gps"] < minimo)).sum())
+    if vacias:
+        nota += (
+            f"  \n⚠️ {vacias} línea(s)-día de esta selección tienen "
+            f"cobertura menor a {minimo * 100:.0f} %: sus indicadores "
+            "de oferta no se calculan y no entran en los valores de arriba."
+        )
+    return nota
 
 
 def nota_capacidad_modos(modos, capacidad_modos) -> str:

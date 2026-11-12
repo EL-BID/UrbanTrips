@@ -10,11 +10,7 @@ from urbantrips.utils.dataframe import (
     leer_dia,
 )
 from urbantrips.utils.utils import duracion
-from urbantrips.kpi.cobertura import (
-    km_estimados,
-    pasajeros_del_universo,
-    vaciar_oferta_sin_cobertura,
-)
+from urbantrips.kpi.cobertura import universo_de_oferta, vaciar_oferta_sin_cobertura
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
 
@@ -449,10 +445,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         if col not in all.columns:
             all[col] = np.nan
         all[col] = pd.to_numeric(all[col], errors="coerce").astype("float64")
-    pax = pasajeros_del_universo(all["tot_pax"], all["tot_pax_servicio"], all["cobertura_gps"])
-    all["tot_km_route_estimado"] = km_estimados(
-        all["tot_km_route"], all["cobertura_gps"]
-    ).round(DECIMALES_KPI)
+    pax, km_estimados = universo_de_oferta(all)
+    all["tot_km_route_estimado"] = km_estimados.round(DECIMALES_KPI)
 
     # Recalcular ratios que dependen de tot_veh y tot_km_route
     all["pvd"] = (pax / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)

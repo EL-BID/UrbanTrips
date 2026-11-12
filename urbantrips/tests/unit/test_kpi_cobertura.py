@@ -16,6 +16,7 @@ from urbantrips.kpi import cobertura, kpi
 from urbantrips.kpi.agregacion_indicadores import (
     COBERTURA_POR_ETAPAS,
     agregar_sistema,
+    nota_cobertura,
     preparar,
 )
 
@@ -85,9 +86,10 @@ def test_cobertura_por_ramal(ctx):
     assert len(cob) == 2
 
 
-def test_las_etapas_traen_si_estan_en_un_servicio_valido(ctx):
+@pytest.mark.parametrize("filtro", ["", f"AND s.dia = '{DIA}'"])
+def test_las_etapas_traen_si_estan_en_un_servicio_valido(ctx, filtro):
     en_servicio = ctx.data.query(
-        f"select e.id, {cobertura.EN_SERVICIO_VALIDO} en_servicio from etapas e"
+        f"select e.id, {cobertura.en_servicio_valido(filtro)} en_servicio from etapas e"
         f" {cobertura.JOIN_VEHICULO} order by e.id"
     )["en_servicio"].tolist()
     assert en_servicio == [True, True, False, False, False, False, False, False]
@@ -189,3 +191,36 @@ def test_dashboard_con_una_base_anterior_usa_la_medida_por_vehiculos():
     agg = agregar_sistema(df, promedio_diario=False)
     # cociente de sumas: 15 vehiculos con servicio sobre 20 internos
     assert agg["cobertura_gps"].iloc[0] == pytest.approx(0.75)
+
+
+def test_nota_del_dashboard_avisa_las_lineas_bajo_el_umbral():
+    df = preparar(_kpis(cobertura_gps=[0.3, 1.0], tot_km_route_estimado=[np.nan, 300.0]))
+    nota = nota_cobertura(df, 0.5)
+    assert "cobertura GPS" in nota and "1 línea(s)-día" in nota and "50 %" in nota
+    assert "línea(s)-día" not in nota_cobertura(df, 0.2)
+    # una base anterior no trae la cobertura por etapas: no hay nota
+    assert nota_cobertura(preparar(_kpis()), 0.5) == ""
+
+
+def test_vaciar_oferta_devuelve_el_mismo_frame_si_no_hay_nada_que_vaciar():
+    sin_columna = pd.DataFrame({"tot_veh": [1]})
+    assert cobertura.vaciar_oferta_sin_cobertura(sin_columna, 0.5) is sin_columna
+    bien_cubierta = pd.DataFrame({"cobertura_gps": [0.9], "tot_veh": [3]})
+    out = cobertura.vaciar_oferta_sin_cobertura(bien_cubierta, 0.5)
+    assert out is bien_cubierta and out["tot_veh"].dtype.kind == "i"
+
+
+def test_universo_de_oferta_no_modifica_el_frame():
+    df = _day_stats(0.8, 2400.0)
+    columnas = list(df.columns)
+    pax, km_estimados = cobertura.universo_de_oferta(df)
+    assert list(df.columns) == columnas
+    assert pax.tolist() == [2400.0] and km_estimados.tolist() == [1250.0]
+
+
+def test_la_cobertura_no_depende_de_la_division_entera(ctx):
+    # con division entera en la conexion, 2 / 5 daria 0 y vaciaria toda la oferta
+    consulta = ctx.data.query
+    ctx.data.query = lambda q: consulta("SET integer_division = true; " + q)
+    cob = cobertura.leer_cobertura_gps(ctx, f"'{DIA}'", ["id_linea"]).set_index("id_linea")
+    assert cob.loc[100, "cobertura_gps"] == pytest.approx(0.4)
