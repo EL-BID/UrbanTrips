@@ -742,7 +742,14 @@ def _fetch_time_distance_inputs_dia(ctx, dia, next_dia):
     # distance_od. Los equipos secundarios de una formacion no se tocan: su
     # traza es buena.
     no_validos = leer_gps_no_validos(ctx, dias=gps_dias)
-    gps = quitar_gps_no_validos(gps, no_validos[no_validos["motivo"] == MOTIVO_SALTOS])
+    con_saltos = no_validos[no_validos["motivo"] == MOTIVO_SALTOS]
+    if next_dia:
+        # Las etapas de `dia` tampoco buscan destino en la madrugada siguiente
+        # del mismo interno, aunque ese dia su traza sea buena: quedarian con
+        # un viaje de horas.
+        hoy = con_saltos[con_saltos["dia"].astype(str) == str(dia)]
+        con_saltos = pd.concat([con_saltos, hoy.assign(dia=next_dia)])
+    gps = quitar_gps_no_validos(gps, con_saltos)
     legs_to_gps_o = ctx.data.query(f"""
         SELECT lo.id_legs, lo.id_gps AS id_gps_o
         FROM legs_to_gps_origin lo

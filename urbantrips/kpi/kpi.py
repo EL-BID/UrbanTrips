@@ -18,6 +18,7 @@ from urbantrips.carto.routes import (
     upload_route_section_points_table,
     get_route_section_id,
     build_leg_route_sections_df,
+    modos_por_linea,
 )
 from urbantrips.carto.carto import create_route_section_ids
 from urbantrips.utils.utils import (
@@ -26,6 +27,7 @@ from urbantrips.utils.utils import (
     check_date_type,
     create_line_ids_sql_filter,
     create_days_sql_filter,
+    leer_configs_generales,
 )
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
@@ -152,6 +154,7 @@ def compute_kpi(ctx: StorageContext):
     # (upsert por corrida) se hacen una vez antes de cada loop y las sub-funciones
     # appendean por día (clear_days=False).
     dias = sorted(ctx.data.get_run_days()["dia"].tolist())
+    capacidades = capacidad_por_linea(ctx)
 
     # --- KPI básicos (demanda), día por día ---
     # Upsert por corrida: se borran los run-days de las salidas ANTES del loop y
@@ -163,7 +166,7 @@ def compute_kpi(ctx: StorageContext):
         _delete_run_days_from(ctx, _t)
     for i, dia in enumerate(dias, 1):
         logger.info("[compute_kpi básicos] día %d/%d (%s)", i, len(dias), dia)
-        run_basic_kpi(ctx, dia=dia)
+        run_basic_kpi(ctx, dia=dia, capacidades=capacidades)
         gc.collect()
     # agregados por tipo de día, una sola vez (cross-day, sobre tablas agregadas)
     compute_basic_kpi_line_typeday(ctx)
@@ -201,9 +204,13 @@ def compute_kpi(ctx: StorageContext):
             legs, gps = read_data_for_daily_kpi(ctx, dia=dia)
             if (len(legs) > 0) & (len(gps) > 0):
                 # compute KPI per line and date (append only; el DELETE ya se hizo)
-                compute_kpi_by_line_day(legs=legs, gps=gps, ctx=ctx, clear_days=False)
+                compute_kpi_by_line_day(
+                    legs=legs, gps=gps, ctx=ctx, clear_days=False, capacidades=capacidades
+                )
                 if con_ramales:
-                    compute_kpi_by_branch_day(legs=legs, ctx=ctx, clear_days=False)
+                    compute_kpi_by_branch_day(
+                        legs=legs, ctx=ctx, clear_days=False, capacidades=capacidades
+                    )
                 any_line_day = True
             del legs, gps
             gc.collect()
@@ -229,7 +236,9 @@ def compute_kpi(ctx: StorageContext):
         for i, dia in enumerate(dias, 1):
             logger.info("[compute_kpi por servicio] día %d/%d (%s)", i, len(dias), dia)
             # compute KPI by service and day (append only; el DELETE ya se hizo)
-            compute_kpi_by_service(ctx, dia=dia, clear_days=False)
+            compute_kpi_by_service(
+                ctx, dia=dia, clear_days=False, capacidades=capacidades
+            )
 
             # compute amount of hourly services by line and day
             compute_dispatched_services_by_line_hour_day(ctx, dia=dia)
@@ -768,11 +777,67 @@ def _kpi_stats_por_claves(legs, ctx: StorageContext, dias_in, entidad):
     )
 
 
-def _kpi_ratios_y_orden(day_stats, entidad):
+def capacidad_por_linea(ctx: StorageContext):
+    """id_linea -> capacidad del vehiculo, segun el modo de la linea.
+
+    La capacidad de cada modo sale de `capacidad_modos` del config (vehiculo o
+    formacion completa, sentados y parados). Las lineas cuyo modo no tiene una
+    capacidad mayor a cero no estan en el resultado: su factor de ocupacion
+    queda sin calcular.
+    """
+    capacidad_modos = leer_configs_generales(autogenerado=False).get("capacidad_modos")
+    if not isinstance(capacidad_modos, dict):
+        logger.warning(
+            "El config no tiene `capacidad_modos` (se agrega al correr "
+            "check_config): el factor de ocupacion queda sin calcular"
+        )
+        return {}
+    por_modo = pd.to_numeric(pd.Series(capacidad_modos), errors="coerce")
+    por_modo = por_modo[por_modo > 0]
+    por_modo.index = por_modo.index.astype(str).str.lower()
+    modos = modos_por_linea(ctx)
+    capacidades = {
+        id_linea: float(por_modo[modo])
+        for id_linea, modo in modos.items()
+        if modo in por_modo.index
+    }
+    logger.info(
+        "Capacidad por vehiculo para el factor de ocupacion: %s",
+        ", ".join(f"{modo} {valor:g}" for modo, valor in por_modo.items()) or "ninguna",
+    )
+    sin_capacidad = pd.Series(
+        [modo for id_linea, modo in modos.items() if id_linea not in capacidades],
+        dtype="object",
+    )
+    if len(sin_capacidad) > 0:
+        logger.warning(
+            "%d lineas sin capacidad en `capacidad_modos` (factor de ocupacion "
+            "sin calcular); por modo: %s",
+            len(sin_capacidad), sin_capacidad.value_counts().to_dict(),
+        )
+    return capacidades
+
+
+def _capacidad_de(id_linea, capacidades):
+    """Capacidad de la linea de cada fila; NaN si la linea no tiene."""
+    return id_linea.map(capacidades).astype("float64")
+
+
+def _agregar_espacios_km_ofrecidos(stats, capacidades):
+    """Agrega `eko_route` y `eko_route_gps`: km recorridos por la capacidad del
+    vehiculo de la linea. Nulo si no hay km o la linea no tiene capacidad."""
+    capacidad = _capacidad_de(stats["id_linea"], capacidades)
+    stats["eko_route"] = (stats["tot_km_route"] * capacidad).replace(0, np.nan)
+    stats["eko_route_gps"] = (stats["tot_km_route_gps"] * capacidad).replace(0, np.nan)
+
+
+def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
     """Ratios derivados (pvd, kvd, ipk, fo) y proyección final ordenada.
 
     Compartido por el KPI por línea y por ramal para que las dos vistas usen
-    exactamente las mismas fórmulas.
+    exactamente las mismas fórmulas. `capacidades` es el resultado de
+    `capacidad_por_linea`; quienes lo reciben como None lo calculan (llamadas
+    sueltas, fuera de `compute_kpi`, que lo calcula una vez por corrida).
     """
     # Safe division: replace 0 with NaN in denominators
     tot_veh_safe = day_stats.tot_veh.replace(0, np.nan)
@@ -794,8 +859,7 @@ def _kpi_ratios_y_orden(day_stats, entidad):
     day_stats["ekd_median_route"] = day_stats.tot_pax * day_stats.dmt_median_route
     day_stats["ekd_median_route_gps"] = day_stats.tot_pax * day_stats.dmt_median_route_gps
 
-    day_stats["eko_route"] = (day_stats.tot_km_route * 60).replace(0, np.nan)
-    day_stats["eko_route_gps"] = (day_stats.tot_km_route_gps * 60).replace(0, np.nan)
+    _agregar_espacios_km_ofrecidos(day_stats, capacidades)
 
     day_stats["fo_mean_od"] = day_stats.ekd_mean_od / day_stats.eko_route
     day_stats["fo_mean_route"] = day_stats.ekd_mean_route / day_stats.eko_route
@@ -827,7 +891,9 @@ def _kpi_ratios_y_orden(day_stats, entidad):
 
 
 @duracion
-def compute_kpi_by_branch_day(legs, ctx: StorageContext, clear_days=True):
+def compute_kpi_by_branch_day(
+    legs, ctx: StorageContext, clear_days=True, capacidades=None
+):
     """KPI por línea, **ramal** y día, en la tabla `kpi_by_day_branch`.
 
     Misma demanda y misma oferta que `compute_kpi_by_line_day`, un nivel más
@@ -846,7 +912,9 @@ def compute_kpi_by_branch_day(legs, ctx: StorageContext, clear_days=True):
     if day_stats is None:
         return
 
-    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea", "id_ramal"])
+    if capacidades is None:
+        capacidades = capacidad_por_linea(ctx)
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea", "id_ramal"], capacidades)
 
     if clear_days:
         dias_ultima_corrida = ctx.data.get_run_days()
@@ -857,7 +925,9 @@ def compute_kpi_by_branch_day(legs, ctx: StorageContext, clear_days=True):
 
 
 @duracion
-def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
+def compute_kpi_by_line_day(
+    legs, gps, ctx: StorageContext, clear_days=True, capacidades=None
+):
     """
     Takes demand data and computes KPI at line level for each day.
     Supply metrics (tot_veh, tot_km_route, tot_km_route_gps) are read directly
@@ -900,7 +970,9 @@ def compute_kpi_by_line_day(legs, gps, ctx: StorageContext, clear_days=True):
     if day_stats is None:
         return
 
-    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea"])
+    if capacidades is None:
+        capacidades = capacidad_por_linea(ctx)
+    day_stats = _kpi_ratios_y_orden(day_stats, ["id_linea"], capacidades)
 
     # get last processed days
     if clear_days:
@@ -985,7 +1057,9 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
 
 
 @duracion
-def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
+def compute_kpi_by_service(
+    ctx: StorageContext, dia=None, clear_days=True, capacidades=None
+):
     """
     Reads supply and demand data and computes KPI at service level
     for each day
@@ -1159,8 +1233,9 @@ def compute_kpi_by_service(ctx: StorageContext, dia=None, clear_days=True):
     service_stats["ekd_median_route"] = service_stats["tot_pax"] * service_stats["dmt_median_route"]
     service_stats["ekd_median_route_gps"] = service_stats["tot_pax"] * service_stats["dmt_median_route_gps"]
 
-    service_stats["eko_route"] = (service_stats["tot_km_route"] * 60).replace(0, np.nan)
-    service_stats["eko_route_gps"] = (service_stats["tot_km_route_gps"] * 60).replace(0, np.nan)
+    if capacidades is None:
+        capacidades = capacidad_por_linea(ctx)
+    _agregar_espacios_km_ofrecidos(service_stats, capacidades)
 
     service_stats["fo_mean_od"] = service_stats["ekd_mean_od"] / service_stats["eko_route"]
     service_stats["fo_mean_route"] = service_stats["ekd_mean_route"] / service_stats["eko_route"]
@@ -1464,7 +1539,9 @@ def compute_speed_by_day_veh_hour(ctx: StorageContext, dia=None, dias=None):
 
 
 @duracion
-def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
+def run_basic_kpi(
+    ctx: StorageContext, id_linea=[], dia=None, dias=None, capacidades=None
+):
     # read data from legs. El upsert por corrida (DELETE run-days antes del loop en
     # compute_kpi) reemplaza el viejo guard `dia NOT IN(processed_days)`, que salteaba
     # días ya presentes (no re-procesable) y causaba O(n²) al re-leer la salida creciente.
@@ -1662,7 +1739,11 @@ def run_basic_kpi(ctx: StorageContext, id_linea=[], dia=None, dias=None):
     )
 
     # compute ocupation factor
-    kpi_by_veh["of"] = kpi_by_veh.eq_pax / 60 * 100
+    if capacidades is None:
+        capacidades = capacidad_por_linea(ctx)
+    kpi_by_veh["of"] = (
+        kpi_by_veh.eq_pax / _capacidad_de(kpi_by_veh["id_linea"], capacidades) * 100
+    )
 
     # remove outliers
     of_threshold = 120

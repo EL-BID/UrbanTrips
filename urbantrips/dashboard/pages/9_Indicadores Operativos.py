@@ -42,8 +42,10 @@ from urbantrips.kpi.agregacion_indicadores import (
     TIPOS_DIA,
     agregar_sistema,
     etiqueta_dia,
+    nota_capacidad_modos,
     preparar,
 )
+from urbantrips.utils.utils import leer_configs_generales
 
 # -----------------------------------------------------------------------------
 # Configuración global y estilo
@@ -592,6 +594,12 @@ with st.expander("Indicadores", expanded=True):
                 "El **factor de ocupación** aparece solo en las dos familias de "
                 "recorrido: su denominador son los km que efectivamente recorrió "
                 "el vehículo, así que no tiene una versión OD."
+            )
+            st.caption(
+                nota_capacidad_modos(
+                    df_sel["modo"] if "modo" in df_sel.columns else [],
+                    leer_configs_generales(autogenerado=False).get("capacidad_modos"),
+                )
             )
 
             cob = agg["cobertura_gps"].iloc[0]

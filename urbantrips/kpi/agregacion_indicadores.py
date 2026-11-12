@@ -204,3 +204,37 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
 
     df["tipo_dia"] = tipo_de_dia(df["dia"])
     return df
+
+
+def nota_capacidad_modos(modos, capacidad_modos) -> str:
+    """Texto que dice con que capacidad por vehiculo se calculo el factor de
+    ocupacion de los `modos` que se estan mirando.
+
+    `capacidad_modos` es el bloque del config de la corrida (modo -> capacidad).
+    Avisa de los modos sin capacidad cargada (sus lineas no tienen factor de
+    ocupacion) y de las corridas cuyo config no trae el bloque.
+    """
+    if not isinstance(capacidad_modos, dict):
+        return (
+            "⚠️ La configuración de esta corrida no tiene `capacidad_modos`: el "
+            "factor de ocupación no se puede interpretar con una capacidad conocida."
+        )
+    capacidades = pd.to_numeric(pd.Series(capacidad_modos), errors="coerce")
+    capacidades.index = capacidades.index.astype(str).str.lower()
+    modos = sorted({str(m).lower() for m in modos if pd.notna(m)})
+    con = [m for m in modos if capacidades.get(m, 0) > 0]
+    sin = [m for m in modos if m not in con]
+
+    partes = []
+    if con:
+        partes.append(
+            "Capacidad por vehículo usada para el factor de ocupación: "
+            + " · ".join(f"{m} {capacidades[m]:g}" for m in con)
+            + "."
+        )
+    if sin:
+        partes.append(
+            f"⚠️ Sin capacidad cargada para: {', '.join(sin)}. Sus líneas no "
+            "tienen factor de ocupación."
+        )
+    return "  \n".join(partes)
