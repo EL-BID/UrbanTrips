@@ -260,15 +260,24 @@ def leer_configs_tuning() -> dict:
 def leer_tuning_num(clave: str, default, tipo=float):
     """Valor numerico de una clave de primer nivel de configs/tuning.yaml.
 
-    Devuelve `default` si la clave no esta, es nula o cero, o no se puede
-    convertir con `tipo`.
+    Devuelve `default` si la clave no esta, o es nula o cero. Si el valor no se
+    puede convertir con `tipo`, o no es un numero finito mayor a cero, tambien
+    devuelve `default` y avisa en el log.
     """
+    val = leer_configs_tuning().get(clave)
+    if val is None or val == "" or (not isinstance(val, bool) and val == 0):
+        return default
     try:
-        val = leer_configs_tuning().get(clave)
-        if val:
-            return tipo(val)
+        if isinstance(val, bool):
+            raise ValueError("no es un numero")
+        num = float(val)
+        if not (math.isfinite(num) and num > 0):
+            raise ValueError("tiene que ser un numero finito mayor a cero")
+        return tipo(num)
     except Exception as e:
-        logger.debug("%s ilegible: %s", clave, e)
+        logger.warning(
+            "tuning.yaml: %s = %r no es valido (%s); se usa %s", clave, val, e, default
+        )
     return default
 
 

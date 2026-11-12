@@ -15,6 +15,7 @@ import pytest
 from urbantrips.datamodel import transactions
 from urbantrips.datamodel.transactions import corregir_distancias_implausibles
 from urbantrips.geo.geo import distancia_recta_km
+from urbantrips.utils.utils import leer_tuning_num
 
 
 def _corregir(distancia, recta, delta, tope=100.0):
@@ -59,11 +60,33 @@ def test_autopista_con_red_sobrestimada_usa_la_linea_recta():
     assert artefacto == [True]
 
 
-def test_sin_intervalo_o_sin_recta_no_se_toca():
+def test_intervalo_invalido_o_sin_recta_no_se_toca():
     corregida, salto, artefacto = _corregir(
-        [5.0, 5.0, 5.0, 5.0], [4.0, 4.0, np.nan, 4.0], [0, np.nan, 10, -3]
+        [5.0, 5.0, 5.0], [4.0, np.nan, 4.0], [np.nan, 10, -3]
     )
-    assert corregida == [5.0, 5.0, 5.0, 5.0]
+    assert corregida == [5.0, 5.0, 5.0]
+    assert not any(salto) and not any(artefacto)
+
+
+def test_mismo_segundo_con_salto_pasa_a_cero():
+    # dos puntos en el mismo segundo a 4 km en linea recta: se evalua con 1 s
+    corregida, salto, artefacto = _corregir([5.0], [4.0], [0])
+    assert corregida == [0.0]
+    assert salto == [True] and artefacto == [False]
+
+
+def test_mismo_segundo_con_artefacto_de_red_usa_la_linea_recta():
+    # 550 m por red y 10 m en linea recta (36 km/h en 1 s)
+    corregida, salto, artefacto = _corregir([0.55], [0.01], [0])
+    assert corregida == [0.01]
+    assert salto == [False] and artefacto == [True]
+
+
+def test_mismo_segundo_con_movimiento_posible_no_se_toca():
+    # 20 m por red y 15 m en linea recta: menos de 100 km/h en 1 s
+    # el primer punto de cada vehiculo llega asi: intervalo 0, sin recta, 0 km
+    corregida, salto, artefacto = _corregir([0.02, 0.0], [0.015, np.nan], [0, 0])
+    assert corregida == [0.02, 0.0]
     assert not any(salto) and not any(artefacto)
 
 
@@ -85,6 +108,36 @@ def test_tope_por_defecto_sale_de_tuning():
         return_value={"gps_velocidad_maxima_kmh": None},
     ):
         assert transactions._velocidad_maxima_gps_kmh() == 100.0
+
+
+@pytest.mark.parametrize("valor", [-50, float("nan"), float("inf"), "rapido", True])
+def test_tuning_invalido_usa_el_default_y_avisa(valor, caplog):
+    with patch(
+        "urbantrips.utils.utils.leer_configs_tuning",
+        return_value={"gps_velocidad_maxima_kmh": valor},
+    ), caplog.at_level("WARNING"):
+        assert leer_tuning_num("gps_velocidad_maxima_kmh", 100.0) == 100.0
+    assert "gps_velocidad_maxima_kmh" in caplog.text
+
+
+@pytest.mark.parametrize("valor", [None, 0, ""])
+def test_tuning_vacio_usa_el_default_sin_avisar(valor, caplog):
+    with patch(
+        "urbantrips.utils.utils.leer_configs_tuning",
+        return_value={"gps_velocidad_maxima_kmh": valor},
+    ), caplog.at_level("WARNING"):
+        assert leer_tuning_num("gps_velocidad_maxima_kmh", 100.0) == 100.0
+    assert caplog.text == ""
+
+
+def test_tuning_valido_se_convierte_al_tipo():
+    with patch(
+        "urbantrips.utils.utils.leer_configs_tuning",
+        return_value={"filas": "5e6", "tope": "80"},
+    ):
+        valor = leer_tuning_num("filas", 1, int)
+        assert valor == 5_000_000 and isinstance(valor, int)
+        assert leer_tuning_num("tope", 100.0) == 80.0
 
 
 def test_distancia_recta_km():

@@ -1145,6 +1145,9 @@ def get_veh_expansion_from_gps(gps):
 # Velocidad maxima plausible de un tramo entre dos puntos GPS consecutivos de un
 # vehiculo. Override: `gps_velocidad_maxima_kmh` en configs/tuning.yaml.
 VELOCIDAD_MAXIMA_GPS_KMH = 100.0
+# Resolucion de la fecha de los puntos GPS (segundos enteros). Intervalo con el
+# que se evaluan los tramos cuyos dos puntos caen en el mismo segundo.
+RESOLUCION_FECHA_GPS_SEG = 1.0
 
 
 def _velocidad_maxima_gps_kmh() -> float:
@@ -1166,8 +1169,12 @@ def corregir_distancias_implausibles(distancia_km, recta_km, delta_seg, tope_kmh
       sobrestimada (puntos cercanos asignados a nodos lejanos entre si, calles de
       mano unica, autopistas que el ruteo no toma) y se reemplaza por la recta.
 
-    Los tramos sin intervalo (`delta_seg` <= 0 o nulo) o sin distancia en linea
-    recta no se tocan: no se les puede calcular una velocidad.
+    Dos puntos en el mismo segundo (`delta_seg` = 0) se evaluan con un intervalo
+    de `RESOLUCION_FECHA_GPS_SEG`: la fecha esta en segundos enteros, asi que
+    entre los dos puntos paso menos de un segundo.
+
+    Los tramos con intervalo negativo o nulo, o sin distancia en linea recta, no
+    se tocan: no se les puede calcular una velocidad.
 
     Devuelve (distancia corregida, mascara de saltos, mascara de artefactos).
     """
@@ -1179,6 +1186,7 @@ def corregir_distancias_implausibles(distancia_km, recta_km, delta_seg, tope_kmh
     )
     recta = pd.to_numeric(pd.Series(recta_km), errors="coerce").to_numpy(dtype="float64")
     delta = pd.to_numeric(pd.Series(delta_seg), errors="coerce").to_numpy(dtype="float64")
+    delta = np.where(delta == 0, RESOLUCION_FECHA_GPS_SEG, delta)
 
     evaluable = (delta > 0) & ~np.isnan(recta) & ~np.isnan(distancia)
     horas = np.where(evaluable, delta, np.nan) / 3600.0
