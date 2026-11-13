@@ -10,7 +10,12 @@ from urbantrips.utils.dataframe import (
     leer_dia,
 )
 from urbantrips.utils.utils import duracion
-from urbantrips.kpi.cobertura import universo_de_oferta, vaciar_oferta_sin_cobertura
+from urbantrips.kpi.agregacion_indicadores import filas_promedios
+from urbantrips.kpi.cobertura import (
+    lineas_dia_sin_oferta,
+    universo_de_oferta,
+    vaciar_oferta_sin_cobertura,
+)
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
 
@@ -423,6 +428,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         veh_validos, on=cols, how="left"
     )
 
+    # El umbral de cobertura GPS se aplico al calcular kpi_by_day_line: ahi
+    # quedaron sin km las lineas-dia bajo el umbral. Se sigue esa decision (en
+    # vez de volver a leer tuning.yaml, que pudo cambiar entre los dos pasos)
+    # antes de que los km se reemplacen con los de los servicios.
+    if "cobertura_gps" in all.columns and "tot_km_route" in all.columns:
+        sin_oferta = lineas_dia_sin_oferta(all) & all["serv_distance_route"].notna()
+    else:
+        sin_oferta = pd.Series(False, index=all.index)
+
     # tot_km_route: solo km de servicios con valid=1
     all["tot_km_route"] = all["serv_distance_route"]
     # idem para la familia _route_gps (odómetro). Si el insumo no lo trae, la
@@ -463,7 +477,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
 
     # Con cobertura GPS menor al umbral la oferta medida describe una parte
     # chica de la operacion: sus indicadores quedan sin calcular.
-    all = vaciar_oferta_sin_cobertura(all)
+    all = vaciar_oferta_sin_cobertura(all, filas=sin_oferta)
 
     # `id_ramal` solo aparece cuando se está agregando por ramal (cols lo trae)
     _id_cols = ["dia", "mes", "id_linea"]
@@ -574,13 +588,9 @@ def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     ctx.general.append_raw(kpis, "kpis_lineas")
 
     df = ctx.general.get_raw("kpis_lineas")
-    tot = (
-        df.drop(["dia", "mes"], axis=1)
-        .groupby(["id_linea", "nombre_linea", "empresa", "modo"], as_index=False)
-        .mean()
+    tot = filas_promedios(
+        df, ["id_linea", "nombre_linea", "empresa", "modo"], decimales=DECIMALES_KPI
     )
-    tot["dia"] = "Promedios"
-    tot["mes"] = ""
     df = pd.concat([df, tot], ignore_index=True)
 
     # replace the whole table including the new averages row
@@ -646,9 +656,7 @@ def calculo_kpi_ramales(ctx: StorageContext):
     df = ctx.general.get_raw("kpis_ramales")
     _claves = [c for c in ["id_linea", "id_ramal", "nombre_linea", "nombre_ramal",
                            "empresa", "modo"] if c in df.columns]
-    tot = df.drop(["dia", "mes"], axis=1).groupby(_claves, as_index=False).mean()
-    tot["dia"] = "Promedios"
-    tot["mes"] = ""
+    tot = filas_promedios(df, _claves, decimales=DECIMALES_KPI)
     df = pd.concat([df, tot], ignore_index=True)
 
     all_dias = df.dia.unique().tolist()

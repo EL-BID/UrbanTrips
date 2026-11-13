@@ -47,7 +47,6 @@ from urbantrips.kpi.agregacion_indicadores import (
     nota_cobertura,
     preparar,
 )
-from urbantrips.kpi.cobertura import cobertura_gps_minima
 from urbantrips.utils.utils import leer_configs_generales
 
 # -----------------------------------------------------------------------------
@@ -626,7 +625,7 @@ with st.expander("Indicadores", expanded=True):
                     "oferta describen solo la parte de la operación que tiene GPS."
                 )
 
-            _nota_cobertura = nota_cobertura(df_sel, cobertura_gps_minima())
+            _nota_cobertura = nota_cobertura(df_sel)
             if _nota_cobertura:
                 st.caption(_nota_cobertura)
 

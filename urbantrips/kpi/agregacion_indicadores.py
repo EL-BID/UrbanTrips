@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from urbantrips.kpi.cobertura import lineas_dia_sin_oferta, solo_dias_con_oferta
+
 # --- columnas extensivas: se suman entre líneas -----------------------------
 GENDER_COLS = ["Masculino", "Femenino", "No informado"]
 TARIFA_COLS = ["sin_descuento", "tarifa_social", "educacion_jubilacion"]
@@ -124,24 +126,41 @@ def etiqueta_dia(dia: str) -> str:
     return f"{dia} ({DIAS_SEMANA[ts.dayofweek]})"
 
 
+def media_por_grupo(d, col, peso, grupos, armonica=False):
+    """Media de `col` ponderada por `peso` en cada grupo de `grupos` (lista de
+    series alineadas con `d`), ignorando las filas sin valor o sin peso.
+
+    Con `armonica` es Σpeso / Σ(peso/col): con `peso` en km y `col` en km/h
+    equivale a Σkm / Σhoras, la velocidad media real del conjunto. Devuelve una
+    serie indexada por grupo; vacía si falta `col` o `peso`, y NaN en los
+    grupos sin ninguna fila utilizable.
+    """
+    if col not in d.columns or peso not in d.columns:
+        return pd.Series(dtype="float64")
+    m = d[col].notna() & d[peso].notna() & (d[peso] > 0)
+    if armonica:
+        m &= d[col] > 0
+    w = d[peso].where(m)
+    num, den = (w, w / d[col]) if armonica else (d[col] * w, w)
+    num = num.groupby(grupos).sum(min_count=1)
+    den = den.groupby(grupos).sum(min_count=1)
+    return num / den
+
+
+def _un_grupo(d, col, peso, armonica=False) -> float:
+    """`media_por_grupo` sobre todo `d` como un solo grupo."""
+    m = media_por_grupo(d, col, peso, [pd.Series(0, index=d.index)], armonica)
+    return float(m.iloc[0]) if len(m) else float("nan")
+
+
 def _wmean(d: pd.DataFrame, col: str, peso: str) -> float:
     """Promedio de `col` ponderado por `peso`, ignorando filas sin ninguno."""
-    if col not in d.columns or peso not in d.columns:
-        return float("nan")
-    m = d[col].notna() & d[peso].notna() & (d[peso] > 0)
-    w = d.loc[m, peso]
-    return (d.loc[m, col] * w).sum() / w.sum() if w.sum() else float("nan")
+    return _un_grupo(d, col, peso)
 
 
 def _harmonic(d: pd.DataFrame, col: str, peso: str) -> float:
-    """Σpeso / Σ(peso/col). Con `peso` en km y `col` en km/h equivale a
-    Σkm / Σhoras, la velocidad media real del conjunto."""
-    if col not in d.columns or peso not in d.columns:
-        return float("nan")
-    m = d[col].notna() & d[peso].notna() & (d[peso] > 0) & (d[col] > 0)
-    if not m.any():
-        return float("nan")
-    return d.loc[m, peso].sum() / (d.loc[m, peso] / d.loc[m, col]).sum()
+    """Σpeso / Σ(peso/col): la velocidad media real del conjunto."""
+    return _un_grupo(d, col, peso, armonica=True)
 
 
 def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
@@ -168,7 +187,9 @@ def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
             # operó" en vez de "no hay dato"
             out[col] = float("nan")
             continue
-        por_dia = d.groupby("dia")[col].sum()
+        # min_count=1: un dia en que todas las lineas estan sin dato (p. ej. por
+        # cobertura GPS bajo el umbral) es "sin dato", no un dia de 0 km
+        por_dia = d.groupby("dia")[col].sum(min_count=1)
         out[col] = por_dia.mean() if promedio_diario else por_dia.sum()
 
     for col, (peso, modo_agg) in RATIO_AGG.items():
@@ -188,6 +209,57 @@ def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
         gps, trx = out.get("vehiculos_operativos"), out.get("cant_internos_en_trx")
         out["cobertura_gps"] = gps / trx if (pd.notna(gps) and trx) else float("nan")
     return pd.DataFrame([out])
+
+
+def filas_promedios(df: pd.DataFrame, claves: list, decimales: int | None = None):
+    """Fila `dia = "Promedios"` de cada entidad (`claves`), a partir de sus filas
+    diarias.
+
+    Es el mismo criterio que usa el dashboard para agregar (`agregar_sistema`):
+    los totales son el promedio de los totales diarios y los cocientes salen de
+    los totales del periodo (ponderados por su denominador), no de promediar los
+    cocientes de cada dia. Se promedian los mismos dias en toda la fila: los
+    dias en que la entidad quedo sin indicadores de oferta (cobertura GPS bajo el
+    umbral) no entran, y una entidad que nunca tiene oferta (un modo sin GPS)
+    promedia todos sus dias. Las columnas numericas que `agregar_sistema` no
+    agrega (velocidades por franja horaria, internos en GPS, columnas externas
+    que se hayan unido a la tabla) quedan como media simple de esos mismos dias.
+
+    `df` puede traer filas `dia = "Promedios"` previas: se ignoran. Devuelve una
+    fila por entidad, con `dia = "Promedios"`.
+    """
+    df = df[df["dia"] != "Promedios"]
+    if df.empty:
+        return pd.DataFrame(columns=list(claves) + ["dia", "mes"])
+    df = solo_dias_con_oferta(df, claves)
+
+    # Con una fila por entidad y dia, el total diario de una entidad es el valor
+    # de la fila: promediar los totales diarios es la media simple.
+    base = df.drop(columns=["dia", "mes"], errors="ignore").groupby(claves).mean(
+        numeric_only=True
+    )
+    prep = preparar(df)
+    grupos = [prep[c] for c in claves]
+    for col, (peso, modo_agg) in RATIO_AGG.items():
+        if col in base.columns:
+            base[col] = media_por_grupo(prep, col, peso, grupos, modo_agg == "harmonic")
+    if "cobertura_gps" in base.columns:
+        # misma regla que `agregar_sistema`
+        por_etapas = prep[COBERTURA_POR_ETAPAS].groupby(grupos).any()
+        por_etapas_cob = media_por_grupo(prep, "cobertura_gps", "transacciones", grupos)
+        por_vehiculos = base["vehiculos_operativos"] / base[
+            "cant_internos_en_trx"
+        ].replace(0, float("nan"))
+        base["cobertura_gps"] = por_etapas_cob.reindex(base.index).where(
+            por_etapas.reindex(base.index), por_vehiculos
+        )
+    if decimales is not None:
+        # round() alcanza tambien a las columnas numericas anulables (Float64)
+        base = base.round(decimales)
+    base = base.reset_index()
+    base["dia"] = "Promedios"
+    base["mes"] = ""
+    return base
 
 
 def preparar(df: pd.DataFrame) -> pd.DataFrame:
@@ -233,10 +305,15 @@ def mide_cobertura_por_etapas(df) -> bool:
     return COBERTURA_POR_ETAPAS in df.columns and bool(df[COBERTURA_POR_ETAPAS].any())
 
 
-def nota_cobertura(df, minimo: float) -> str:
+def nota_cobertura(df) -> str:
     """Texto que explica la cobertura GPS de las líneas-día de `df` y avisa
-    cuántas quedaron sin indicadores de oferta por tener menos de `minimo`.
-    Vacío si `df` no trae la cobertura medida con etapas."""
+    cuántas quedaron sin indicadores de oferta por tener poca cobertura.
+    Vacío si `df` no trae la cobertura medida con etapas.
+
+    Las líneas-día sin oferta se cuentan de los datos (cobertura medida y km
+    vacíos), no de un umbral: el umbral con el que se calcularon es el de
+    tuning.yaml *de ese momento*, que pudo cambiar después.
+    """
     if not mide_cobertura_por_etapas(df):
         return ""
     nota = (
@@ -247,11 +324,12 @@ def nota_cobertura(df, minimo: float) -> str:
         "estimados** son los km recorridos divididos por la cobertura: "
         "suponen que la operación sin GPS se parece a la que sí tiene."
     )
-    vacias = int((df[COBERTURA_POR_ETAPAS] & (df["cobertura_gps"] < minimo)).sum())
+    vacias = int((df[COBERTURA_POR_ETAPAS] & lineas_dia_sin_oferta(df)).sum())
     if vacias:
         nota += (
             f"  \n⚠️ {vacias} línea(s)-día de esta selección tienen "
-            f"cobertura menor a {minimo * 100:.0f} %: sus indicadores "
+            "cobertura menor al mínimo configurado "
+            "(`kpi_cobertura_gps_minima`): sus indicadores "
             "de oferta no se calculan y no entran en los valores de arriba."
         )
     return nota

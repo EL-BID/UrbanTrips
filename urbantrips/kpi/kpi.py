@@ -32,6 +32,7 @@ from urbantrips.utils.utils import (
 from urbantrips.carto.compute_distances import compute_od_distances
 from urbantrips.storage.context import StorageContext
 from urbantrips.kpi.kpi_lineas import DECIMALES_KPI
+from urbantrips.kpi.agregacion_indicadores import media_por_grupo
 from urbantrips.kpi.cobertura import (
     COCIENTES_DE_OFERTA,
     JOIN_VEHICULO,
@@ -39,6 +40,7 @@ from urbantrips.kpi.cobertura import (
     VEHICULO_DE_LA_ETAPA,
     en_servicio_valido,
     leer_cobertura_gps,
+    solo_dias_con_oferta,
     universo_de_oferta,
     vaciar_oferta_sin_cobertura,
 )
@@ -227,7 +229,7 @@ def compute_kpi(ctx: StorageContext):
 
         # compute KPI per line and type of day (una vez, cross-day)
         if any_line_day:
-            compute_kpi_by_line_typeday(ctx)
+            compute_kpi_by_line_typeday(ctx, capacidades=capacidades)
 
     # Run KPI at service level
     try:
@@ -1022,25 +1024,35 @@ def compute_kpi_by_line_day(
 
 
 @duracion
-def compute_kpi_by_line_typeday(ctx: StorageContext):
+def compute_kpi_by_line_typeday(ctx: StorageContext, capacidades=None):
     """
-    Reads daily KPI data from kpi_by_day_line and computes average KPI
-    at line level for weekday and weekend.
+    Lee los indicadores diarios de kpi_by_day_line y calcula, por linea, los de
+    los tipos de dia weekday y weekend.
 
-    Totals (tot_veh, tot_km_route, tot_km_route_gps, tot_pax) and distance metrics
-    (dmt_mean_*, dmt_median_*) are averaged across days. Ratios (ipk, pvd,
-    kvd_route, fo) are then recomputed from those averaged totals to avoid the
-    statistical bias of averaging ratios directly.
+    Los totales (tot_veh, tot_km_route, tot_km_route_gps, tot_pax,
+    tot_pax_servicio) son el promedio de los totales diarios. Las distancias
+    medias (dmt_*) y la cobertura GPS se promedian ponderadas por pasajeros. Los
+    cocientes (pvd, kvd, ipk, fo) se recalculan con `_kpi_ratios_y_orden`, la
+    misma funcion del calculo diario, sobre esos promedios: no se promedian
+    cocientes.
+
+    Todo se promedia sobre los mismos dias. Un dia en que la linea quedo sin
+    indicadores de oferta (cobertura GPS bajo el umbral) no entra, ni en la
+    oferta ni en la demanda, porque con la demanda de ese dia y sin su oferta el
+    cociente mezclaria universos. Una linea que nunca tiene oferta (por ejemplo
+    un modo sin GPS) promedia todos sus dias.
 
     Parameters
     ----------
     ctx : StorageContext
+    capacidades : dict, optional
+        Resultado de `capacidad_por_linea`; si no viene se calcula.
 
     Returns
     -------
     type_of_day_stats : pandas.DataFrame
-        DataFrame with averaged KPI by line and type of day (weekday/weekend),
-        uploaded to kpi_by_day_line table.
+        Indicadores por linea y tipo de dia (weekday/weekend), subidos a la
+        tabla kpi_by_day_line.
     """
     # delete old data
     ctx.data.execute("DELETE FROM kpi_by_day_line WHERE dia IN ('weekday','weekend')")
@@ -1049,38 +1061,42 @@ def compute_kpi_by_line_typeday(ctx: StorageContext):
     daily_data = ctx.data.query("SELECT * FROM kpi_by_day_line")
 
     weekend = pd.to_datetime(daily_data["dia"].copy()).dt.dayofweek > 4
-    daily_data.loc[:, ["dia"]] = "weekday"
-    daily_data.loc[weekend, ["dia"]] = "weekend"
+    daily_data["dia"] = np.where(weekend, "weekend", "weekday")
+    for col in ("tot_pax_servicio", "cobertura_gps"):
+        if col not in daily_data.columns:
+            daily_data[col] = np.nan
 
-    # average totals by type of day — ratios are recomputed from these
-    totals_cols = [
-        "id_linea", "dia",
-        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
-        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
-        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-    ]
-    type_of_day_stats = daily_data[totals_cols].groupby(
-        ["id_linea", "dia"], as_index=False
-    ).mean()
+    # solo los dias con oferta, salvo en las lineas que nunca la tienen
+    claves = ["id_linea", "dia"]
+    daily_data = solo_dias_con_oferta(daily_data, claves)
+
+    totales = (
+        daily_data[claves + [
+            "tot_veh", "tot_km_route", "tot_km_route_gps",
+            "tot_pax", "tot_pax_servicio",
+        ]]
+        .groupby(claves)
+        .mean()
+    )
+    grupos = [daily_data[c] for c in claves]
+    ponderadas = pd.DataFrame({
+        col: media_por_grupo(daily_data, col, "tot_pax", grupos)
+        for col in ["dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
+                    "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
+                    "cobertura_gps"]
+    })
+    type_of_day_stats = totales.join(ponderadas).reset_index()
+
+    if capacidades is None:
+        capacidades = capacidad_por_linea(ctx)
+    type_of_day_stats = _kpi_ratios_y_orden(
+        type_of_day_stats, ["id_linea"], capacidades
+    )
 
     logger.info("Subiendo indicadores por linea a la db")
 
-    cols = [
-        "id_linea", "dia",
-        "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax",
-        "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
-        "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
-        "pvd", "kvd_route", "kvd_route_gps", "ipk_route", "ipk_route_gps",
-        "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
-        "fo_median_od", "fo_median_route", "fo_median_route_gps",
-    ]
-    type_of_day_stats = type_of_day_stats.reindex(columns=cols)
-    
     cols_float = ['tot_veh', 'tot_km_route', 'tot_km_route_gps', 'dmt_mean_od', 'dmt_mean_route', 'dmt_mean_route_gps', 'dmt_median_od',
-       'dmt_median_route', 'dmt_median_route_gps', 'pvd', 'kvd_route', 'kvd_route_gps',
-       'ipk_route', 'ipk_route_gps', 'fo_mean_od', 'fo_mean_route',
-       'fo_mean_route_gps', 'fo_median_od', 'fo_median_route', 
-       'fo_median_route_gps']
+       'dmt_median_route', 'dmt_median_route_gps']
     for i in cols_float:
         type_of_day_stats[i] = type_of_day_stats[i].replace([np.inf, -np.inf], np.nan).infer_objects(copy=False).round(DECIMALES_KPI)
 

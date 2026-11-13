@@ -2407,6 +2407,14 @@ def plot_basic_kpi(
         how="left",
     )
 
+    # Sin factor de ocupacion (modo sin capacidad cargada, o linea sin oferta
+    # medida) igual se dibujan la oferta y la demanda; solo faltan las barras.
+    hay_factor_ocupacion = kpi_stats_line_plot.of.notna().any()
+    if standarize_supply_demand and not hay_factor_ocupacion:
+        # el eje a igualar es el del factor de ocupacion: sin el, no hay a que
+        # estandarizar y se muestra la distribucion porcentual
+        standarize_supply_demand = False
+
     if standarize_supply_demand:
         supply_factor = kpi_stats_line_plot.of.max() / kpi_stats_line_plot.veh.max()
         demand_factor = kpi_stats_line_plot.of.max() / kpi_stats_line_plot.pax.max()
@@ -2433,7 +2441,6 @@ def plot_basic_kpi(
     missing_data = (
         (kpi_stats_line_plot.pax.isna().all())
         | (kpi_stats_line_plot.dmt.isna().all())
-        | (kpi_stats_line_plot.of.isna().all())
     )
 
     if missing_data:
@@ -2444,14 +2451,15 @@ def plot_basic_kpi(
 
         f, ax = plt.subplots(figsize=(8, 6))
 
-        sns.barplot(
-            data=kpi_stats_line_plot,
-            x="hora",
-            y="of",
-            color="silver",
-            ax=ax,
-            label="Factor de ocupación",
-        )
+        if hay_factor_ocupacion:
+            sns.barplot(
+                data=kpi_stats_line_plot,
+                x="hora",
+                y="of",
+                color="silver",
+                ax=ax,
+                label="Factor de ocupación",
+            )
 
         sns.lineplot(
             data=kpi_stats_line_plot,
@@ -2510,6 +2518,9 @@ def plot_basic_kpi(
         kpi_stats_line_plot["dia"] = day
         kpi_stats_line_plot["yr_mo"] = kpi_stats_line_plot.yr_mo.dropna().unique()[0]
         kpi_stats_line_plot = kpi_stats_line_plot.fillna(0)
+        if not hay_factor_ocupacion:
+            # sin factor de ocupacion queda vacio, no en 0
+            kpi_stats_line_plot["of"] = np.nan
 
         kpi_stats_line_plot = kpi_stats_line_plot.reindex(
             columns=[

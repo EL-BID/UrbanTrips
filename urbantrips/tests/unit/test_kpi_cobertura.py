@@ -194,12 +194,20 @@ def test_dashboard_con_una_base_anterior_usa_la_medida_por_vehiculos():
 
 
 def test_nota_del_dashboard_avisa_las_lineas_bajo_el_umbral():
-    df = preparar(_kpis(cobertura_gps=[0.3, 1.0], tot_km_route_estimado=[np.nan, 300.0]))
-    nota = nota_cobertura(df, 0.5)
-    assert "cobertura GPS" in nota and "1 línea(s)-día" in nota and "50 %" in nota
-    assert "línea(s)-día" not in nota_cobertura(df, 0.2)
+    df = preparar(
+        _kpis(
+            cobertura_gps=[0.3, 1.0], tot_km_route=[np.nan, 300.0],
+            tot_km_route_estimado=[np.nan, 300.0],
+        )
+    )
+    nota = nota_cobertura(df)
+    assert "cobertura GPS" in nota and "1 línea(s)-día" in nota
+    # una linea con km no esta vacia aunque su cobertura sea baja: el umbral con
+    # el que se calculo pudo ser otro
+    con_km = preparar(_kpis(cobertura_gps=[0.3, 1.0], tot_km_route_estimado=[333.0, 300.0]))
+    assert "línea(s)-día" not in nota_cobertura(con_km)
     # una base anterior no trae la cobertura por etapas: no hay nota
-    assert nota_cobertura(preparar(_kpis()), 0.5) == ""
+    assert nota_cobertura(preparar(_kpis())) == ""
 
 
 def test_vaciar_oferta_devuelve_el_mismo_frame_si_no_hay_nada_que_vaciar():
@@ -224,3 +232,81 @@ def test_la_cobertura_no_depende_de_la_division_entera(ctx):
     ctx.data.query = lambda q: consulta("SET integer_division = true; " + q)
     cob = cobertura.leer_cobertura_gps(ctx, f"'{DIA}'", ["id_linea"]).set_index("id_linea")
     assert cob.loc[100, "cobertura_gps"] == pytest.approx(0.4)
+
+
+def test_vaciar_oferta_sigue_las_filas_dadas_y_no_el_umbral():
+    df = pd.DataFrame(
+        {"cobertura_gps": [0.9, 0.2], "tot_veh": [3.0, 4.0], "tot_pax": [10, 20]}
+    )
+    # por umbral se vacia la segunda; con `filas` se vacia la que se indique
+    por_filas = cobertura.vaciar_oferta_sin_cobertura(
+        df, filas=pd.Series([True, False])
+    )
+    assert por_filas["tot_veh"].isna().tolist() == [True, False]
+    assert por_filas["tot_pax"].tolist() == [10, 20]
+    sin_filas = cobertura.vaciar_oferta_sin_cobertura(df, filas=pd.Series([False, False]))
+    assert sin_filas is df
+
+
+def _diario(**columnas):
+    """Indicadores diarios de kpi_by_day_line: todo vacio salvo lo que se dé."""
+    n = len(columnas["dia"])
+    base = {
+        c: [np.nan] * n for c in (
+            "tot_veh", "tot_km_route", "tot_km_route_gps", "tot_pax_servicio",
+            "cobertura_gps", "dmt_mean_od", "dmt_mean_route", "dmt_mean_route_gps",
+            "dmt_median_od", "dmt_median_route", "dmt_median_route_gps",
+        )
+    }
+    base.update(columnas)
+    return pd.DataFrame(base)
+
+
+def _ctx_con_dias(diario):
+    """Contexto falso: `query` devuelve los indicadores diarios y `append_raw`
+    guarda lo que se sube."""
+    subido = {}
+    data = SimpleNamespace(
+        execute=lambda q: None,
+        query=lambda q: diario.copy(),
+        append_raw=lambda df, tabla: subido.update(df=df.copy(), tabla=tabla),
+    )
+    return SimpleNamespace(data=data), subido
+
+
+def test_promedio_por_tipo_de_dia_recalcula_los_cocientes_con_un_solo_universo():
+    # una linea: lunes y martes con oferta; el miercoles quedo sin oferta
+    # (cobertura bajo el umbral) pero con 5000 pasajeros
+    diario = _diario(
+        id_linea=[1, 1, 1], dia=["2024-01-01", "2024-01-02", "2024-01-03"],
+        tot_veh=[10.0, 10.0, np.nan], tot_km_route=[1000.0, 1000.0, np.nan],
+        tot_pax=[4000, 2000, 5000], tot_pax_servicio=[4000.0, 2000.0, 1000.0],
+        cobertura_gps=[1.0, 1.0, 0.2],
+        dmt_mean_od=[4.0, 4.0, 9.0], dmt_mean_route=[5.0, 5.0, 9.0],
+        dmt_median_od=[4.0, 4.0, 9.0], dmt_median_route=[5.0, 5.0, 9.0],
+    )
+    ctx, subido = _ctx_con_dias(diario)
+    out = kpi.compute_kpi_by_line_typeday(ctx, capacidades={1: 60.0})
+    fila = out.set_index("dia").loc["weekday"]
+    assert subido["tabla"] == "kpi_by_day_line"
+    # el miercoles sin oferta no entra ni en la demanda ni en la oferta
+    assert fila["tot_pax"] == 3000 and fila["tot_km_route"] == 1000.0
+    assert fila["ipk_route"] == pytest.approx(3.0)
+    assert fila["pvd"] == pytest.approx(300.0)
+    assert fila["cobertura_gps"] == pytest.approx(1.0)
+    # el factor de ocupacion sale de los mismos totales: 3000 * 5 km / (1000 * 60)
+    assert fila["fo_mean_route"] == pytest.approx(0.25)
+
+
+def test_promedio_por_tipo_de_dia_de_una_linea_que_nunca_tiene_oferta():
+    diario = _diario(
+        id_linea=[2, 2], dia=["2024-01-01", "2024-01-02"], tot_pax=[100, 300],
+        tot_pax_servicio=[0.0, 0.0], cobertura_gps=[0.0, 0.0],
+        dmt_mean_od=[2.0, 4.0], dmt_median_od=[2.0, 4.0],
+    )
+    ctx, _ = _ctx_con_dias(diario)
+    fila = kpi.compute_kpi_by_line_typeday(ctx, capacidades={}).iloc[0]
+    # sin oferta: promedia la demanda de todos sus dias, ponderando la distancia
+    assert fila["tot_pax"] == 200
+    assert fila["dmt_mean_od"] == pytest.approx((2 * 100 + 4 * 300) / 400)
+    assert pd.isna(fila["ipk_route"]) and pd.isna(fila["fo_mean_route"])

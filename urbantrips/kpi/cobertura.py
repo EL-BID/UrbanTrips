@@ -121,16 +121,50 @@ def universo_de_oferta(df):
     return pasajeros, km_estimados
 
 
-def vaciar_oferta_sin_cobertura(df, minimo=None):
+def solo_dias_con_oferta(df, claves):
+    """Filas de `df` (indicadores diarios con `tot_km_route`) de los dias en que
+    cada entidad (`claves`) tiene oferta. Los dias sin oferta (cobertura GPS bajo
+    el umbral) no entran en un promedio, para no mezclar su demanda con la
+    oferta de otros dias; una entidad que nunca tiene oferta (un modo sin GPS)
+    conserva todos sus dias."""
+    if "tot_km_route" not in df.columns:
+        return df
+    con_oferta = df["tot_km_route"].notna()
+    # dropna=False: una entidad con una clave vacia (p. ej. sin empresa) tambien
+    # se evalua; con el default sus filas darian NaN y `~` fallaria
+    entidad_con_oferta = con_oferta.groupby(
+        [df[c] for c in claves], dropna=False
+    ).transform("any")
+    return df[con_oferta | ~entidad_con_oferta]
+
+
+def lineas_dia_sin_oferta(df):
+    """Serie booleana: filas con cobertura GPS medida pero sin km, o sea
+    las que quedaron sin indicadores de oferta por el umbral con el que se
+    calcularon (que pudo ser otro que el de tuning.yaml de ahora)."""
+    if "cobertura_gps" not in df.columns or "tot_km_route" not in df.columns:
+        return pd.Series(False, index=df.index)
+    return df["cobertura_gps"].notna() & df["tot_km_route"].isna()
+
+
+def vaciar_oferta_sin_cobertura(df, minimo=None, filas=None):
     """Deja sin calcular los indicadores de oferta de las filas con cobertura
     GPS menor a `minimo` (por defecto, el de tuning.yaml). Las filas sin
     cobertura medida no se tocan, y un `df` sin `cobertura_gps` o sin ninguna
-    fila bajo el umbral se devuelve tal cual."""
-    if "cobertura_gps" not in df.columns:
-        return df
-    if minimo is None:
-        minimo = cobertura_gps_minima()
-    sin_cobertura = pd.to_numeric(df["cobertura_gps"], errors="coerce") < minimo
+    fila bajo el umbral se devuelve tal cual.
+
+    `filas` (serie booleana alineada con `df`) reemplaza al umbral: vacia
+    exactamente esas filas. Sirve para seguir una decision ya tomada, en vez de
+    volver a evaluar el umbral con el valor que tenga tuning.yaml ahora.
+    """
+    if filas is not None:
+        sin_cobertura = filas.fillna(False).astype(bool)
+    else:
+        if "cobertura_gps" not in df.columns:
+            return df
+        if minimo is None:
+            minimo = cobertura_gps_minima()
+        sin_cobertura = pd.to_numeric(df["cobertura_gps"], errors="coerce") < minimo
     if not sin_cobertura.any():
         return df
     cols = df.columns.intersection(COLUMNAS_DE_OFERTA)
