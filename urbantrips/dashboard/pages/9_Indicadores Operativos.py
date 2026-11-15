@@ -38,8 +38,9 @@ from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_corrida
 # cubrir con tests. Ver urbantrips/kpi/agregacion_indicadores.py.
 from urbantrips.kpi.agregacion_indicadores import (
     COBERTURA_POR_ETAPAS,
-    DEMO_COLS,
+    GENDER_COLS,
     NOMBRE_DIAS,
+    TARIFA_COLS,
     TIPOS_DIA,
     agregar_sistema,
     etiqueta_dia,
@@ -153,7 +154,7 @@ def load_kpis() -> pd.DataFrame:
 def load_kpis_ramales() -> pd.DataFrame:
     """`kpis_ramales` existe solo si la corrida tuvo lineas_contienen_ramales=True."""
     try:
-        df = levanto_tabla_sql("kpis_ramales", "general")
+        df = levanto_tabla_sql("kpis_ramales", "general", tabla_opcional=True)
     except Exception:
         return pd.DataFrame()
     return df if df is not None else pd.DataFrame()
@@ -268,8 +269,11 @@ FAMILIAS = {
         # `distancia_media_pax` también se omite: es la misma media ponderada de
         # `distance_od` que `dmt_mean_od` por otro camino (369 de 402 líneas
         # idénticas, el resto difiere ±0,1 km por redondeo).
-        "ayuda": "Distancia en camino mínimo entre el origen y el destino de la "
-                 "etapa, sobre la grilla H3. Mide el desplazamiento del "
+        "nota": "Distancia media Pax: camino mínimo sobre la red vial entre el "
+                "origen y el destino de la etapa (no el recorrido del vehículo).",
+        "ayuda": "Distancia en camino mínimo sobre la red vial entre el origen y "
+                 "el destino de la etapa, ubicados en hexágonos H3. Mide el "
+                 "desplazamiento del "
                  "pasajero, no el recorrido del vehículo: por eso no tiene "
                  "velocidad comercial, ni IPK, ni km de oferta, ni factor de "
                  "ocupación.",
@@ -309,7 +313,7 @@ FAMILIAS = {
 }
 
 INT_DISPLAY_COLS = (
-    set(GENERAL_COLS + DEMO_COLS
+    set(GENERAL_COLS + GENDER_COLS + TARIFA_COLS
         + ["tot_km_route", "tot_km_route_gps", "tot_km_route_estimado"])
     - {"cobertura_gps"}
 )
@@ -348,6 +352,30 @@ def fmt(val, col):
     ):
         return f"{int(round(val)):,}"
     return f"{val:,.2f}"
+
+
+def bloques_demo_con_datos(df: pd.DataFrame) -> list[list[str]]:
+    """Filas de género y/o tarifa que realmente tienen dato en la selección.
+
+    Sin dato de género todo cae en "No informado" (Masculino y Femenino en 0);
+    sin dato de tarifa todo cae en "sin_descuento". Mostrar eso como si fuera
+    una distribución real engaña, así que ese bloque se omite.
+    """
+
+    def _suma(cols):
+        vals = [
+            pd.to_numeric(df[c].iloc[0], errors="coerce")
+            for c in cols
+            if c in df.columns
+        ]
+        return pd.Series(vals, dtype="float64").sum(min_count=1)
+
+    bloques = []
+    if _suma(["Masculino", "Femenino"]) > 0:
+        bloques.append(GENDER_COLS)
+    if _suma(["tarifa_social", "educacion_jubilacion"]) > 0:
+        bloques.append(TARIFA_COLS)
+    return bloques
 
 
 def metric_row(df: pd.DataFrame, cols: list[str], *, pct=False):
@@ -411,6 +439,8 @@ def bloque_familias(fila: pd.DataFrame) -> None:
         )
         for f in spec["filas"]:
             metric_row(datos, f)
+        if spec.get("nota") and not vacia:
+            st.caption(spec["nota"])
 
 
 # -----------------------------------------------------------------------------
@@ -561,9 +591,19 @@ with st.expander("Indicadores", expanded=True):
                 )
             st.divider()
 
-            st.markdown("#### Género y tipo de tarifa")
-            metric_row(agg, DEMO_COLS, pct=True)
-            st.divider()
+            _bloques_demo = bloques_demo_con_datos(agg)
+            if _bloques_demo:
+                st.markdown("#### Género y tipo de tarifa")
+                for _cols_demo in _bloques_demo:
+                    metric_row(agg, _cols_demo, pct=True)
+                if promedio_diario and n_dias > 1:
+                    st.caption(
+                        f"Promedio diario de transacciones ({n_dias} días); el "
+                        "porcentaje es sobre las transacciones del mismo promedio."
+                    )
+                elif not promedio_diario:
+                    st.caption(f"Transacciones del día {dia_sel}.")
+                st.divider()
 
             # Acumulado del período: solo tiene sentido con varios días y solo
             # para lo que se puede sumar. Los conteos de vehículos quedan fuera
@@ -575,7 +615,8 @@ with st.expander("Indicadores", expanded=True):
                 metric_row(
                     acum, ["transacciones", "tot_km_route", "tot_km_route_gps"]
                 )
-                metric_row(acum, DEMO_COLS, pct=True)
+                for _cols_demo in bloques_demo_con_datos(acum):
+                    metric_row(acum, _cols_demo, pct=True)
                 st.caption(
                     "Suma de los días seleccionados. Solo se acumulan las "
                     "variables aditivas: transacciones, km y su apertura por "

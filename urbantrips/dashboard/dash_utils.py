@@ -155,7 +155,8 @@ def iniciar_conexion_db(tipo="data", alias_db="", read_only=None):
     return sqlite3.connect(db_path, timeout=10)
 
 
-def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
+def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None,
+                    tabla_opcional=False):
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
@@ -178,7 +179,10 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
     except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
         error_message = str(e).lower()
         if "no such table" in error_message or "does not exist" in error_message:
-            logger.warning("La tabla '%s' no existe.", tabla_sql)
+            # Tablas opcionales (p.ej. kpis_ramales) no existen en corridas sin
+            # esa salida: es esperable, no merece un warning.
+            log = logger.debug if tabla_opcional else logger.warning
+            log("La tabla '%s' no existe.", tabla_sql)
             tabla = pd.DataFrame([])
         else:
             raise
@@ -215,8 +219,10 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
     return tabla
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="",
+                      tabla_opcional=False):
+    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query,
+                           alias_db=alias_db, tabla_opcional=tabla_opcional)
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
