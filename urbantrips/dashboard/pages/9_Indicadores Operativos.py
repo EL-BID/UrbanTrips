@@ -186,7 +186,7 @@ kpis_dias = kpis_df[kpis_df["dia"] != "Promedios"].copy()
 
 LABELS = {
     "vehiculos_operativos": "Vehículos operativos (GPS)",
-    "cant_internos_en_trx": "Internos con transacciones",
+    "cant_internos_en_trx": "Vehículos con transacciones",
     "cobertura_gps": "Cobertura GPS",
     "transacciones": "Transacciones",
     "Masculino": "Masculino",
