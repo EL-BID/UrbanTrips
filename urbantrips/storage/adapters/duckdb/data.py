@@ -288,6 +288,8 @@ class DuckDBDataAdapter:
                     ("tot_pax_servicio", "FLOAT"),
                     ("cobertura_gps", "FLOAT"),
                     ("tot_km_route_estimado", "FLOAT"),
+                    # capacidad del vehiculo con la que se calculo el FO
+                    ("capacidad", "FLOAT"),
                 ),
             )
 

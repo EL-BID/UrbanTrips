@@ -503,7 +503,9 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     # Cobertura GPS y pasajeros dentro de servicios validos: vienen de
     # kpi_by_day_line / _branch. En una base anterior a esas columnas quedan
     # nulas y los cocientes usan todos los pasajeros, como antes.
-    for col in ("cobertura_gps", "tot_pax_servicio"):
+    # `capacidad` (la del factor de ocupacion) tambien viene de ahi; en una base
+    # anterior queda nula y los promedios del FO se ponderan solo por km.
+    for col in ("cobertura_gps", "tot_pax_servicio", "capacidad"):
         if col not in all.columns:
             all[col] = np.nan
         all[col] = pd.to_numeric(all[col], errors="coerce").astype("float64")
@@ -570,14 +572,13 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "kvd_route_gps",
             "ipk_route",
             "ipk_route_gps",
-            "fo_mean_od",
             "fo_mean_route",
             "fo_mean_route_gps",
-            "fo_median_od",
             "fo_median_route",
             "fo_median_route_gps",
             "cobertura_gps",
             "tot_km_route_estimado",
+            "capacidad",
         ]
     ]
 

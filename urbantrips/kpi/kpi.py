@@ -860,6 +860,10 @@ def _agregar_espacios_km_ofrecidos(stats, capacidades):
     """Agrega `eko_route` y `eko_route_gps`: km recorridos por la capacidad del
     vehiculo de la linea. Nulo si no hay km o la linea no tiene capacidad."""
     capacidad = _capacidad_de(stats["id_linea"], capacidades)
+    # Se guarda con los indicadores: el factor de ocupacion de un conjunto de
+    # lineas de modos distintos se pondera por km x capacidad (lugares-km), y la
+    # capacidad tiene que ser la misma con la que se calculo el de cada linea.
+    stats["capacidad"] = capacidad
     stats["eko_route"] = (stats["tot_km_route"] * capacidad).replace(0, np.nan)
     stats["eko_route_gps"] = (stats["tot_km_route_gps"] * capacidad).replace(0, np.nan)
 
@@ -917,7 +921,7 @@ def _kpi_ratios_y_orden(day_stats, entidad, capacidades):
         "fo_mean_od", "fo_mean_route", "fo_mean_route_gps",
         "fo_median_od", "fo_median_route", "fo_median_route_gps",
         # al final: son columnas agregadas a tablas ya creadas
-        "tot_pax_servicio", "cobertura_gps", "tot_km_route_estimado",
+        "tot_pax_servicio", "cobertura_gps", "tot_km_route_estimado", "capacidad",
     ]
     day_stats = day_stats.reindex(columns=cols)
 

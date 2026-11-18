@@ -14,6 +14,8 @@ from urbantrips.kpi.agregacion_indicadores import (
     filas_promedios,
     NOMBRE_DIAS,
     PERIOD_SUM_COLS,
+    LUGARES_KM_ROUTE,
+    LUGARES_KM_ROUTE_GPS,
     RATIO_AGG,
     _harmonic,
     _wmean,
@@ -169,7 +171,8 @@ def test_los_indicadores_de_oferta_se_ponderan_por_oferta():
     for col in ("velocidad_comercial_route", "ipk_route", "fo_mean_route",
                 "kvd_route", "pvd", "distancia_media_veh_route"):
         peso, _ = RATIO_AGG[col]
-        assert peso in ("tot_km_route", "tot_km_route_gps", "vehiculos_operativos"), (
+        assert peso in ("tot_km_route", "tot_km_route_gps", "vehiculos_operativos",
+                        LUGARES_KM_ROUTE, LUGARES_KM_ROUTE_GPS), (
             f"{col} se pondera por {peso}, que no es una magnitud de oferta"
         )
 
@@ -368,3 +371,25 @@ def test_filas_promedios_redondea_tambien_las_columnas_anulables():
     df = _dias_de_una_linea(transacciones=pd.array([1000, 101], dtype="Int64"))
     out = filas_promedios(df, CLAVES, decimales=1)
     assert out["transacciones"].iloc[0] == pytest.approx(550.5)
+
+
+def test_fo_entre_modos_se_pondera_por_lugares_km():
+    """El FO del conjunto es pasajeros-km / lugares-km: un tranvia de 200
+    lugares pesa mas que un colectivo de 60 con los mismos km."""
+    df = pd.DataFrame([
+        _linea("2026-03-09", 1, km=1000) | {"fo_mean_route": 0.30, "capacidad": 60},
+        _linea("2026-03-09", 2, km=1000) | {"fo_mean_route": 0.10, "capacidad": 200},
+    ])
+    agg = agregar_sistema(preparar(df), promedio_diario=True)
+    # pasajeros-km: 0,30*60*1000 + 0,10*200*1000; lugares-km: 260*1000
+    assert agg["fo_mean_route"].iloc[0] == pytest.approx((18 + 20) / 260)
+
+
+def test_fo_sin_capacidad_se_pondera_por_km():
+    """Base anterior a la columna capacidad: se pondera por km, como antes."""
+    df = pd.DataFrame([
+        _linea("2026-03-09", 1, km=1000) | {"fo_mean_route": 0.30},
+        _linea("2026-03-09", 2, km=3000) | {"fo_mean_route": 0.10},
+    ])
+    agg = agregar_sistema(df, promedio_diario=True)
+    assert agg["fo_mean_route"].iloc[0] == pytest.approx((300 + 300) / 4000)

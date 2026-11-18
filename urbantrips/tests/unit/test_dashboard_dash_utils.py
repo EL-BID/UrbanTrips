@@ -169,3 +169,39 @@ def test_zonas_con_viajes_cuenta_origen_transferencias_y_destino(
     result = dash_utils._zonas_con_viajes()
 
     assert sorted(result["id"]) == ["a", "b", "c", "d"]
+
+
+def test_get_logo_con_raiz_sin_docs_usa_el_logo_del_repo(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(dash_utils, "get_paths", lambda: SimpleNamespace(base=tmp_path))
+
+    def _sin_red(*a, **k):
+        raise AssertionError("no deberia descargar")
+
+    monkeypatch.setattr(dash_utils.requests, "get", _sin_red)
+
+    logo = dash_utils.get_logo.__wrapped__()
+
+    assert logo.size[0] > 1
+
+
+def test_get_logo_sin_logo_ni_red_no_falla(monkeypatch, tmp_path):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(dash_utils, "get_paths", lambda: SimpleNamespace(base=tmp_path))
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    def _sin_red(*a, **k):
+        raise OSError("sin conexion")
+
+    monkeypatch.setattr(dash_utils.requests, "get", _sin_red)
+
+    logo = dash_utils.get_logo.__wrapped__()
+
+    assert logo.size == (1, 1)

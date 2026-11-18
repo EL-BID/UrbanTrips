@@ -1567,7 +1567,7 @@ def resumen_x_linea(ctx: StorageContext):
         "cant_internos_en_trx", "cant_internos_en_gps",
         "tot_veh", "tot_km_route", "tot_pax",
         "dmt_mean_od", "dmt_median_od",
-        "pvd", "kvd_route", "ipk_route", "fo_mean_od", "fo_median_od",
+        "pvd", "kvd_route", "ipk_route",
         # sin ella no se sabe por que la oferta de una linea esta vacia
         "cobertura_gps",
     ]

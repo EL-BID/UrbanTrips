@@ -54,6 +54,10 @@ PERIOD_SUM_COLS = [
     "transacciones", "tot_km_route", "tot_km_route_gps", "tot_km_route_estimado",
 ] + DEMO_COLS
 
+# Pesos derivados que arma `preparar`
+LUGARES_KM_ROUTE = "_lugares_km_route"
+LUGARES_KM_ROUTE_GPS = "_lugares_km_route_gps"
+
 # --- columnas intensivas: (peso, modo de agregación) ------------------------
 # Oferta ponderada por oferta —km de su propia familia de distancia, o
 # vehículos—, nunca por demanda; demanda por transacciones.
@@ -69,17 +73,15 @@ RATIO_AGG = {
     "distancia_media_veh_route_gps": ("vehiculos_operativos", "wmean"),
     "ipk_route": ("tot_km_route", "wmean"),
     "ipk_route_gps": ("tot_km_route_gps", "wmean"),
-    "fo_mean_route": ("tot_km_route", "wmean"),
-    "fo_median_route": ("tot_km_route", "wmean"),
-    "fo_mean_route_gps": ("tot_km_route_gps", "wmean"),
-    "fo_median_route_gps": ("tot_km_route_gps", "wmean"),
+    # El FO es pasajeros-km / lugares-km: entre modos de capacidad distinta se
+    # pondera por lugares-km (km x capacidad), no solo por km (ver `preparar`)
+    "fo_mean_route": (LUGARES_KM_ROUTE, "wmean"),
+    "fo_median_route": (LUGARES_KM_ROUTE, "wmean"),
+    "fo_mean_route_gps": (LUGARES_KM_ROUTE_GPS, "wmean"),
+    "fo_median_route_gps": (LUGARES_KM_ROUTE_GPS, "wmean"),
     "kvd_route": ("vehiculos_operativos", "wmean"),
     "kvd_route_gps": ("vehiculos_operativos", "wmean"),
     "pvd": ("vehiculos_operativos", "wmean"),
-    # la familia _od no tiene km de oferta asociados: su factor de ocupación
-    # también se pondera por transacciones
-    "fo_mean_od": ("transacciones", "wmean"),
-    "fo_median_od": ("transacciones", "wmean"),
     "dmt_mean_od": ("transacciones", "wmean"),
     "dmt_median_od": ("transacciones", "wmean"),
     "dmt_mean_route": ("transacciones", "wmean"),
@@ -178,6 +180,9 @@ def agregar_sistema(d: pd.DataFrame, *, promedio_diario: bool) -> pd.DataFrame:
         ponderadas sobre las filas recibidas.
     """
     out: dict = {}
+    if LUGARES_KM_ROUTE not in d.columns:
+        d = d.copy()
+        _agregar_lugares_km(d)
 
     for col in SUM_COLS:
         if col not in d.columns:
@@ -295,8 +300,21 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
             df["distancia_media_veh_route_gps"] * df["vehiculos_operativos"]
         )
 
+    _agregar_lugares_km(df)
     df["tipo_dia"] = tipo_de_dia(df["dia"])
     return df
+
+
+def _agregar_lugares_km(df: pd.DataFrame) -> None:
+    """Agrega a `df` los lugares-km ofrecidos (km x capacidad), peso del factor
+    de ocupacion. Con `capacidad` nula en todas las filas (base anterior a esa
+    columna) el peso es el km, como antes; si falta solo en algunas filas, esas
+    no tienen factor de ocupacion y no pesan."""
+    tiene_capacidad = "capacidad" in df.columns and df["capacidad"].notna().any()
+    for peso, km in ((LUGARES_KM_ROUTE, "tot_km_route"),
+                     (LUGARES_KM_ROUTE_GPS, "tot_km_route_gps")):
+        if km in df.columns:
+            df[peso] = df[km] * df["capacidad"] if tiene_capacidad else df[km]
 
 
 def mide_cobertura_por_etapas(df) -> bool:

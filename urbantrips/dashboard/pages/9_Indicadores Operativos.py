@@ -200,8 +200,6 @@ LABELS = {
     "distancia_media_pax": "Dist. media Pax etapa (km)",
     "pvd": "Pasajeros / vehículo",
     # familia _od (distancia origen-destino sobre H3)
-    "fo_mean_od": "Factor Ocupación (media)",
-    "fo_median_od": "Factor Ocupación (mediana)",
     "dmt_mean_od": "Distancia media Pax (km)",
     "dmt_median_od": "Distancia mediana Pax (km)",
     # familia _route (recorrido reconstruido ping a ping)
@@ -225,6 +223,70 @@ LABELS = {
     "dmt_median_route_gps": "Distancia mediana Pax (km)",
     "ipk_route_gps": "IPK",
 }
+
+# Ayuda breve de cada indicador: se muestra con el "?" junto al nombre. Las
+# familias _route y _route_gps comparten texto (ver `ayuda_de`).
+AYUDAS = {
+    "vehiculos_operativos": "Vehículos (línea + interno) con al menos un servicio "
+                            "GPS válido. Las validadoras de una formación cuentan "
+                            "como un vehículo.",
+    "cant_internos_en_trx": "Vehículos (línea + interno) con al menos una "
+                            "validación. Las validadoras de una formación cuentan "
+                            "una vez; en tren, metro y tranvía no cuentan los "
+                            "equipos de estación (sin GPS).",
+    "cobertura_gps": "Parte de las etapas que ocurre dentro de un servicio GPS "
+                     "válido de su vehículo. Con cobertura baja (umbral en "
+                     "tuning.yaml) los indicadores de oferta quedan vacíos.",
+    "transacciones": "Validaciones de la línea (etapas expandidas al total de "
+                     "transacciones).",
+    "travel_time_min": "Tiempo medio de la etapa, desde la validación hasta el "
+                       "destino estimado.",
+    "kmh_od": "Distancia origen-destino ÷ tiempo de la etapa. Se descartan las "
+              "etapas de 80 km/h o más.",
+    "pvd": "Pasajeros de los servicios GPS válidos ÷ vehículos operativos.",
+    "dmt_mean_od": "Promedio de la distancia del pasajero en camino mínimo por la "
+                   "red vial, entre origen y destino.",
+    "dmt_median_od": "Mediana de la distancia del pasajero en camino mínimo por "
+                     "la red vial, entre origen y destino.",
+    "velocidad_comercial": "Km recorridos ÷ duración, en los servicios GPS "
+                           "válidos.",
+    "dmt_mean": "Promedio de la distancia que recorre el pasajero sobre el "
+                "recorrido del vehículo, entre subida y bajada.",
+    "dmt_median": "Mediana de la distancia que recorre el pasajero sobre el "
+                  "recorrido del vehículo, entre subida y bajada.",
+    "tot_km": "Km recorridos por los servicios GPS válidos.",
+    "tot_km_route_estimado": "Km recorridos ÷ cobertura GPS: estimación de los km "
+                             "totales si la operación sin GPS se parece a la "
+                             "medida.",
+    "distancia_media_veh": "Km recorridos por cada vehículo, promediados entre "
+                           "vehículos.",
+    "kvd": "Km recorridos ÷ vehículos operativos.",
+    "ipk": "Pasajeros de los servicios GPS válidos ÷ km de esos servicios.",
+    "fo_mean": "Parte de los lugares ofrecidos que va ocupada: pasajeros × "
+               "distancia media ÷ (km × capacidad del vehículo del modo).",
+    "fo_median": "Como el factor de ocupación medio, con la distancia mediana del "
+                 "pasajero.",
+}
+for _c in GENDER_COLS:
+    AYUDAS[_c] = "Transacciones según el género informado en la tarjeta, y su % del total."
+for _c in TARIFA_COLS:
+    AYUDAS[_c] = "Transacciones según el tipo de tarifa de la tarjeta, y su % del total."
+_SUFIJOS_FAMILIA = ("_route_gps", "_route")
+
+
+def ayuda_de(col: str) -> str | None:
+    """Ayuda de `col`: la propia o la de su nombre sin sufijo de familia. En la
+    familia del odómetro se aclara de dónde sale la distancia."""
+    if col in AYUDAS:
+        return AYUDAS[col]
+    for sufijo in _SUFIJOS_FAMILIA:
+        if col.endswith(sufijo) and col[: -len(sufijo)] in AYUDAS:
+            texto = AYUDAS[col[: -len(sufijo)]]
+            if sufijo == "_route_gps":
+                texto += " Distancias del odómetro del GPS."
+            return texto
+    return None
+
 
 GENERAL_COLS = [
     "vehiculos_operativos",
@@ -258,13 +320,13 @@ SIN_DISTANCIA = ["travel_time_min", "pvd"]
 FAMILIAS = {
     "od": {
         "label": "OD (origen–destino)",
-        # Acá NO va el factor de ocupación. En kpi.py se calcula como
-        #     fo_*_od = (tot_pax · dmt_*_od) / (tot_km_route · 60)
-        # o sea con el numerador en distancia OD pero el denominador en km de
-        # recorrido real: la oferta solo existe en kilómetros recorridos. Es un
-        # híbrido, no un indicador de esta familia, y mostrarlo acá hacía
-        # pensar que la ocupación se mide sobre la distancia OD. Queda en las
-        # dos familias de recorrido, donde numerador y denominador coinciden.
+        # Acá NO va el factor de ocupación. En kpi.py se calcula
+        #     fo_*_od = (tot_pax · dmt_*_od) / (tot_km_route · capacidad)
+        # con el numerador en distancia OD y el denominador en km de recorrido
+        # real: un híbrido que subestima la ocupación (el pasajero viaja más que
+        # el camino mínimo). Desde 2026-11 tampoco se guarda en kpis_lineas:
+        # queda solo en kpi_by_day_line. El FO está en las dos familias de
+        # recorrido, donde numerador y denominador miden lo mismo.
         #
         # `distancia_media_pax` también se omite: es la misma media ponderada de
         # `distance_od` que `dmt_mean_od` por otro camino (369 de 402 líneas
@@ -278,7 +340,7 @@ FAMILIAS = {
                  "velocidad comercial, ni IPK, ni km de oferta, ni factor de "
                  "ocupación.",
         "filas": [["kmh_od", "dmt_mean_od", "dmt_median_od"]],
-        "probe": ["dmt_mean_od", "fo_mean_od"],
+        "probe": ["dmt_mean_od"],
     },
     "route": {
         "label": "Recorrido (ping a ping)",
@@ -392,7 +454,7 @@ def metric_row(df: pd.DataFrame, cols: list[str], *, pct=False):
         text = fmt(val, col)
         if pct and total and total > 0:
             text += f" ({val / total * 100:.1f} %)"
-        st_cols[idx].metric(LABELS.get(col, col), text)
+        st_cols[idx].metric(LABELS.get(col, col), text, help=ayuda_de(col))
 
 
 

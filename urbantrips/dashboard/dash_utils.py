@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import os
@@ -1206,20 +1207,43 @@ def etiqueta_linea(nombre_linea, id_linea):
     return f"{nombre_linea} (id_linea: {id_linea})"
 
 
+_URL_LOGO = (
+    "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
+)
+
+
 @st.cache_data
 def get_logo():
-    file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")
-    if not os.path.isfile(file_logo):
-        # URL of the image file on Github
-        url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
+    """Logo del dashboard. Nunca hace fallar la página: si no está en el
+    proyecto ni en el repo y no se puede bajar, devuelve una imagen vacía.
 
-        # Send a request to get the content of the image file
-        response = requests.get(url)
+    La raíz del proyecto sale del config con que se lanzó el dashboard, y un
+    config fuera del repo (p. ej. el de una corrida de prueba) apunta a una
+    raíz sin `docs/`; por eso también se busca junto al código.
+    """
+    candidatos = [
+        get_paths().base / "docs" / "urbantrips_logo.jpg",
+        Path(__file__).resolve().parents[2] / "docs" / "urbantrips_logo.jpg",
+    ]
+    for archivo in candidatos:
+        if archivo.is_file():
+            return Image.open(archivo)
 
-        # Save the content to a local file
-        with open(file_logo, "wb") as f:
-            f.write(response.content)
-    image = Image.open(file_logo)
+    try:
+        response = requests.get(_URL_LOGO, timeout=10)
+        response.raise_for_status()
+        image = Image.open(io.BytesIO(response.content))
+        image.load()
+    except Exception as e:
+        logger.warning("No se pudo obtener el logo (%s): sigo sin logo.", e)
+        return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+
+    # Se guarda para no volver a bajarlo; si no se puede, no importa.
+    try:
+        candidatos[0].parent.mkdir(parents=True, exist_ok=True)
+        candidatos[0].write_bytes(response.content)
+    except OSError as e:
+        logger.debug("No se pudo guardar el logo en %s: %s", candidatos[0], e)
     return image
 
 

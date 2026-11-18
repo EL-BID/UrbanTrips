@@ -6,6 +6,8 @@ por día. Es la propiedad que había que preservar al sacar el `sort_values` del
 entero, que era lo que se llevaba la RAM en una corrida de un mes en un solo archivo.
 """
 
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 from unittest.mock import patch
@@ -52,7 +54,14 @@ def ctx_y_csv(tmp_path):
 
     adapter = DuckDBDataAdapter(tmp_path / "data.duckdb")
     adapter.save_run_days(pd.DataFrame({"dia": ["2026-07-01", "2026-07-02"]}))
-    ctx = StorageContext(data=adapter, insumos=None, dash=None, general=None)
+    # La ingesta consulta el modo de cada linea para agrupar los equipos de una
+    # formacion (gps_vehiculos); con colectivos no agrupa nada.
+    insumos = SimpleNamespace(
+        get_metadata_lineas=lambda: pd.DataFrame(
+            {"id_linea": [10, 20], "modo": ["autobus", "autobus"]}
+        )
+    )
+    ctx = StorageContext(data=adapter, insumos=insumos, dash=None, general=None)
     return ctx, csv
 
 
