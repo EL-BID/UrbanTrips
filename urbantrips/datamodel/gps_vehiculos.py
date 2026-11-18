@@ -308,7 +308,7 @@ def leer_gps_no_validos(ctx, dias=None):
     return no_validos
 
 
-def _clave(df):
+def clave_interno(df):
     """Clave (dia, id_linea, interno) con tipos normalizados, para cruzar tablas
     que guardan esas columnas con tipos distintos."""
     return pd.MultiIndex.from_arrays(
@@ -332,9 +332,9 @@ def buscar_en_no_validos(df, no_validos, columna):
         return resultado
     candidatas = df["interno"].isin(no_validos["interno"]).to_numpy()
     if candidatas.any():
-        valores = pd.Series(no_validos[columna].to_numpy(), index=_clave(no_validos))
+        valores = pd.Series(no_validos[columna].to_numpy(), index=clave_interno(no_validos))
         valores = valores[~valores.index.duplicated()]
-        resultado[candidatas] = valores.reindex(_clave(df.loc[candidatas])).to_numpy()
+        resultado[candidatas] = valores.reindex(clave_interno(df.loc[candidatas])).to_numpy()
     return resultado
 
 

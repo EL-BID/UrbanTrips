@@ -16,6 +16,12 @@ from urbantrips.kpi.cobertura import (
     universo_de_oferta,
     vaciar_oferta_sin_cobertura,
 )
+from urbantrips.datamodel.gps_vehiculos import (
+    MODOS_CON_FORMACIONES,
+    clave_interno,
+    leer_gps_no_validos,
+    mapear_interno_a_vehiculo,
+)
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
 
@@ -181,6 +187,31 @@ def cal_velocidad_comercial(servicios, entidad=None):
     return vel_comercial_linea
 
 
+def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos):
+    """Deja en `trx` un `interno` que identifica al vehiculo, para contar
+    vehiculos con transacciones en vez de equipos de validacion.
+
+    - Los equipos de una misma formacion (`gps_vehiculos`) pasan al interno
+      principal de su vehiculo: un tranvia con seis validadoras es un vehiculo.
+    - En los modos guiados (tren, metro, tranvia) se sacan los internos sin GPS
+      ese dia: son validadoras de estacion o molinetes, que no son vehiculos (o
+      alguna validadora a bordo sin GPS, cuyo vehiculo ya cuenta por las otras).
+      Con los datos no se distinguen de un vehiculo sin GPS, y en esos modos lo
+      habitual es lo primero.
+    - En el resto de los modos un interno sin GPS sigue siendo un vehiculo.
+
+    El vehiculo se identifica por (linea, interno): el mismo numero en dos
+    lineas son dos vehiculos.
+    """
+    if len(trx) == 0:
+        return trx
+    guiada = trx["id_linea"].isin(lineas_guiadas)
+    if guiada.any():
+        tiene_gps = clave_interno(trx).isin(clave_interno(con_gps))
+        trx = trx.loc[~guiada.to_numpy() | tiene_gps]
+    return mapear_interno_a_vehiculo(trx, no_validos)
+
+
 def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=None):
     """Insumos para `agrego_lineas`, agregados al nivel de `entidad`.
 
@@ -209,9 +240,8 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
 
     _where = dias_where_clause(dias)
 
-    lineas = ctx.insumos.get_metadata_lineas()[
-        ["id_linea", "nombre_linea", "empresa"]
-    ].drop_duplicates()
+    meta = ctx.insumos.get_metadata_lineas()
+    lineas = meta[["id_linea", "nombre_linea", "empresa"]].drop_duplicates()
 
     _tabla_kpi = "kpi_by_day_branch" if por_ramal else "kpi_by_day_line"
     try:
@@ -243,14 +273,32 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     gps_agg = combinar_conteo_distintos(
         gps_parc, cols, "cant_internos_en_gps", observed=False
     )
+    # internos con GPS de cada dia y linea, para contar los vehiculos con
+    # transacciones
+    con_gps = (
+        pd.concat(gps_parc, ignore_index=True)[["dia", "id_linea", "interno"]]
+        .drop_duplicates()
+        if gps_parc
+        else pd.DataFrame(columns=["dia", "id_linea", "interno"])
+    )
     del gps_parc
 
-    # Procesamiento de transacciones
+    # Procesamiento de transacciones: se cuentan vehiculos, no equipos (ver
+    # `vehiculos_de_transacciones`)
+    lineas_guiadas = meta.loc[
+        meta["modo"].astype(str).str.strip().str.lower().isin(MODOS_CON_FORMACIONES),
+        "id_linea",
+    ]
+    no_validos = leer_gps_no_validos(ctx, dias)
+
     internos_parc = []
     for dia in dias_para_leer_por_dia(ctx.data.query, "transacciones", dias):
         dia_trx = leer_dia(
             ctx.data.query, "transacciones",
             ["dia", "id_linea", "id_ramal", "interno"], dia,
+        )
+        dia_trx = vehiculos_de_transacciones(
+            dia_trx, con_gps, lineas_guiadas, no_validos
         )
         internos_parc.append(dia_trx.groupby(cols + ["interno"], as_index=False).size())
         del dia_trx

@@ -1903,6 +1903,11 @@ def traigo_lista_zonas(tipo="etapas"):
     Replaces the old lookup over agg_etapas / poly_etapas (removed): zones
     now come straight from the zoning layers used to build
     equivalencias_zonas.
+
+    With ``tipo="etapas"`` (zone filters of Líneas de Deseo) only zones that
+    some chain touches (origin, transfers or destination) are listed: an H3
+    layer covers the whole bounding area and most cells have no trips, so
+    picking one just showed "No hay datos para mostrar".
     """
     zonas_values = levanto_tabla_sql(
         "zonificaciones",
@@ -1920,7 +1925,40 @@ def traigo_lista_zonas(tipo="etapas"):
         .rename(columns={"id": "Nombre"})
     )
 
+    if tipo == "etapas":
+        con_viajes = _zonas_con_viajes()
+        # Sin chains_norm o sin equivalencias no se puede saber: lista completa.
+        if len(con_viajes) > 0:
+            claves = set(zip(con_viajes["zona"], con_viajes["id"].astype(str)))
+            tiene = [
+                (z, str(n)) in claves
+                for z, n in zip(zonas_values["zona"], zonas_values["Nombre"])
+            ]
+            zonas_values = zonas_values[tiene]
+
     return zonas_values[["zona", "Nombre"]]
+
+
+def _zonas_con_viajes():
+    """(zona, id) pairs whose H3 cells hold some point of a chain in
+    chains_norm: the same four points the "OD y Transferencias" filter uses."""
+    if not asegurar_equivalencias_dash():
+        return pd.DataFrame(columns=["zona", "id"])
+    return levanto_tabla_sql(
+        "equivalencias_zonas",
+        "dash",
+        query="""
+            WITH h AS (
+                SELECT h3_inicio_norm AS h3 FROM chains_norm
+                UNION SELECT h3_transfer1_norm FROM chains_norm
+                UNION SELECT h3_transfer2_norm FROM chains_norm
+                UNION SELECT h3_fin_norm FROM chains_norm
+            )
+            SELECT DISTINCT e.zona, e.id
+            FROM equivalencias_zonas e
+            WHERE e.h3 IN (SELECT h3 FROM h)
+        """,
+    )
 
 
 # Claves de session_state que SOBREVIVEN al cambio de corrida. Todo lo demás se
