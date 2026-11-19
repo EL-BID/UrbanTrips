@@ -9,6 +9,7 @@ import h3
 from urbantrips.geo import geo
 from urbantrips.datamodel.gps_vehiculos import (
     leer_gps_no_validos,
+    leer_vehiculos_de_trx,
     mapear_interno_a_vehiculo,
     quitar_gps_no_validos,
 )
@@ -1626,8 +1627,10 @@ def run_basic_kpi(
     # En una formacion con varios equipos (tranvia, tren) cada etapa lleva el
     # interno del equipo donde se valido: se lleva al interno principal del
     # vehiculo para contar vehiculos y no equipos, y para tomar su velocidad.
+    _dias_veh = dias if dia is None else [dia]
     legs = mapear_interno_a_vehiculo(
-        legs, leer_gps_no_validos(ctx, dias=dias if dia is None else [dia])
+        legs, leer_gps_no_validos(ctx, dias=_dias_veh),
+        leer_vehiculos_de_trx(ctx, dias=_dias_veh),
     )
 
     # Called for a single day, the orchestrator (compute_kpi) already deleted the

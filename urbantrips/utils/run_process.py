@@ -131,7 +131,7 @@ def inicializo_ambiente(ctx: StorageContext, reprocesar: list[str] | None = None
 
 def procesar_transacciones(ctx: StorageContext, corrida: str):
     from urbantrips.carto import carto, routes
-    from urbantrips.datamodel import legs, services, trips
+    from urbantrips.datamodel import legs, trips
     from urbantrips.datamodel import transactions as trx
     from urbantrips.datamodel.misc import persist_indicators
     from urbantrips.destinations import destinations as dest
@@ -181,8 +181,7 @@ def procesar_transacciones(ctx: StorageContext, corrida: str):
     dest.infer_destinations(ctx)
 
     if nombre_archivo_gps is not None:
-        services.process_services(ctx, line_ids=None)
-        legs.assign_gps_origin(ctx)
+        _servicios_y_vehiculos(ctx)
 
     trips.rearrange_trip_id_same_od(ctx)
     legs.assign_time_distances(ctx)
@@ -745,10 +744,24 @@ def _clear_current_run_travel_times(ctx: StorageContext) -> None:
             pass  # Table doesn't exist yet; will be created by assign_time_distances
 
 
+def _servicios_y_vehiculos(ctx: StorageContext) -> None:
+    """Pasos que dependen del GPS, en los dias de la corrida: servicios,
+    vehiculo de cada transaccion de los equipos con dos vehiculos mezclados
+    (tranvia, tren, metro; usa los servicios validos, ver
+    datamodel/gps_vehiculos.py) y origen de las etapas sobre el GPS."""
+    from urbantrips.datamodel import legs, services
+    from urbantrips.datamodel.gps_vehiculos import guardar_vehiculos_de_transacciones
+
+    services.process_services(ctx, line_ids=None)
+    dias = sorted(ctx.data.get_run_days()["dia"].astype(str).tolist())
+    guardar_vehiculos_de_transacciones(ctx, dias)
+    legs.assign_gps_origin(ctx)
+
+
 def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
     """Run shared leg enrichment once after all batch legs have been created."""
     from urbantrips.carto import carto
-    from urbantrips.datamodel import legs, services, trips
+    from urbantrips.datamodel import legs, trips
     from urbantrips.destinations import destinations as dest
     from urbantrips.geo import geo
 
@@ -764,8 +777,7 @@ def _enrich_all_legs(ctx: StorageContext, configs: dict, batches=None) -> None:
         or configs.get("nombre_archivo_gps") is not None
     )
     if usa_archivo_gps:
-        services.process_services(ctx, line_ids=None)
-        legs.assign_gps_origin(ctx)
+        _servicios_y_vehiculos(ctx)
 
     tiempos_viaje_estaciones = configs.get("tiempos_viaje_estaciones")
 

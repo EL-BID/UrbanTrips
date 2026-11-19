@@ -44,6 +44,10 @@ def ctx():
         "create table etapas (id int, dia text, id_linea bigint, id_ramal bigint,"
         " interno int, tiempo text)"
     )
+    con.execute(
+        "create table trx_vehiculos (dia text, id bigint, id_linea bigint,"
+        " interno int, interno_vehiculo int)"
+    )
     # el interno 1 es el principal de la formacion y tiene un servicio valido de
     # 8 a 10; su servicio de la tarde no es valido
     con.execute(
@@ -84,6 +88,24 @@ def test_cobertura_por_ramal(ctx):
     cob = cobertura.leer_cobertura_gps(ctx, f"'{DIA}'", ["id_linea", "id_ramal"])
     assert set(cob.columns) == {"dia", "id_linea", "id_ramal", "cobertura_gps"}
     assert len(cob) == 2
+
+
+def test_etapa_de_un_equipo_mezclado_usa_el_vehiculo_de_su_transaccion(ctx):
+    # el interno 7 tiene dos vehiculos mezclados: sus etapas no tienen vehiculo
+    # salvo que la transaccion se haya asignado a uno (trx_vehiculos)
+    ctx.data.query(
+        f"insert into etapas values (9, '{DIA}', 100, 100, 7, '08:45:00'),"
+        f" (10, '{DIA}', 100, 100, 7, '09:15:00')"
+    )
+    ctx.data.query(f"insert into trx_vehiculos values ('{DIA}', 9, 100, 7, 1)")
+    en_servicio = ctx.data.query(
+        f"select e.id, {cobertura.en_servicio_valido()} en_servicio from etapas e"
+        f" {cobertura.JOIN_VEHICULO} where e.id in (9, 10) order by e.id"
+    )["en_servicio"].tolist()
+    assert en_servicio == [True, False]
+    cob = cobertura.leer_cobertura_gps(ctx, f"'{DIA}'", ["id_linea"]).set_index("id_linea")
+    # 3 de 7 etapas con hora
+    assert cob.loc[100, "cobertura_gps"] == pytest.approx(3 / 7, abs=1e-4)
 
 
 @pytest.mark.parametrize("filtro", ["", f"AND s.dia = '{DIA}'"])

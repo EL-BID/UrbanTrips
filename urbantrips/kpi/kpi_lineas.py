@@ -17,9 +17,11 @@ from urbantrips.kpi.cobertura import (
     vaciar_oferta_sin_cobertura,
 )
 from urbantrips.datamodel.gps_vehiculos import (
-    MODOS_CON_FORMACIONES,
     clave_interno,
+    equipos_mezclados,
     leer_gps_no_validos,
+    leer_vehiculos_de_trx,
+    lineas_de_formaciones,
     mapear_interno_a_vehiculo,
 )
 from urbantrips.storage.context import StorageContext
@@ -187,7 +189,8 @@ def cal_velocidad_comercial(servicios, entidad=None):
     return vel_comercial_linea
 
 
-def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos):
+def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos,
+                                trx_vehiculos=None):
     """Deja en `trx` un `interno` que identifica al vehiculo, para contar
     vehiculos con transacciones en vez de equipos de validacion.
 
@@ -198,6 +201,10 @@ def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos):
       alguna validadora a bordo sin GPS, cuyo vehiculo ya cuenta por las otras).
       Con los datos no se distinguen de un vehiculo sin GPS, y en esos modos lo
       habitual es lo primero.
+    - En esos mismos modos, un equipo con dos vehiculos mezclados
+      (`gps_con_saltos`) son validadoras que van en formaciones distintas: sus
+      transacciones pasan al vehiculo asignado en `trx_vehiculos` y el equipo no
+      cuenta como vehiculo (tampoco por las que no se pudieron asignar).
     - En el resto de los modos un interno sin GPS sigue siendo un vehiculo.
 
     El vehiculo se identifica por (linea, interno): el mismo numero en dos
@@ -209,7 +216,37 @@ def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos):
     if guiada.any():
         tiene_gps = clave_interno(trx).isin(clave_interno(con_gps))
         trx = trx.loc[~guiada.to_numpy() | tiene_gps]
-    return mapear_interno_a_vehiculo(trx, no_validos)
+    trx = mapear_interno_a_vehiculo(trx, no_validos, trx_vehiculos)
+    mezclados = equipos_mezclados(no_validos, lineas_guiadas)
+    if len(trx) and len(mezclados):
+        # la clave completa se arma solo para las filas candidatas
+        candidatas = trx["interno"].isin(mezclados["interno"]).to_numpy()
+        if candidatas.any():
+            quitar = clave_interno(trx.loc[candidatas]).isin(clave_interno(mezclados))
+            idx = trx.index[candidatas][quitar]
+            trx = trx.drop(index=idx)
+    return trx
+
+
+def _avisar_si_falta_reprocesar(no_validos, lineas_guiadas, trx_vehiculos_por_dia):
+    """Aviso si hay dias con equipos mezclados en lineas con formaciones pero
+    sin transacciones reasignadas en `trx_vehiculos`: casi siempre es una base
+    procesada antes de esa tabla. Sus transacciones no pasan a ningun vehiculo
+    y `cant_internos_en_trx` queda por debajo hasta reprocesar."""
+    mezclados = equipos_mezclados(no_validos, lineas_guiadas)
+    if len(mezclados) == 0:
+        return
+    sin_asignar = sorted(
+        set(mezclados["dia"].astype(str)) - set(trx_vehiculos_por_dia)
+    )
+    if sin_asignar:
+        logger.warning(
+            "Hay equipos con vehiculos mezclados (tranvia, tren, metro) sin "
+            "transacciones reasignadas en trx_vehiculos en %s: si la base se "
+            "proceso antes de esa tabla, reprocesar la corrida. Mientras tanto "
+            "'vehiculos con transacciones' puede quedar por debajo en esas lineas.",
+            ", ".join(sin_asignar),
+        )
 
 
 def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=None):
@@ -285,20 +322,25 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
 
     # Procesamiento de transacciones: se cuentan vehiculos, no equipos (ver
     # `vehiculos_de_transacciones`)
-    lineas_guiadas = meta.loc[
-        meta["modo"].astype(str).str.strip().str.lower().isin(MODOS_CON_FORMACIONES),
-        "id_linea",
-    ]
+    lineas_guiadas = list(lineas_de_formaciones(dict(zip(meta["id_linea"], meta["modo"]))))
     no_validos = leer_gps_no_validos(ctx, dias)
+    trx_vehiculos = leer_vehiculos_de_trx(ctx, dias)
+    trx_vehiculos_por_dia = dict(tuple(trx_vehiculos.groupby(trx_vehiculos["dia"].astype(str))))
+    _avisar_si_falta_reprocesar(no_validos, lineas_guiadas, trx_vehiculos_por_dia)
 
     internos_parc = []
     for dia in dias_para_leer_por_dia(ctx.data.query, "transacciones", dias):
+        # `id` solo hace falta (y solo se lee) si el dia tiene transacciones
+        # reasignadas en trx_vehiculos
+        trx_veh_dia = trx_vehiculos_por_dia.get(str(dia))
         dia_trx = leer_dia(
             ctx.data.query, "transacciones",
-            ["dia", "id_linea", "id_ramal", "interno"], dia,
+            ["dia", "id_linea", "id_ramal", "interno"]
+            + (["id"] if trx_veh_dia is not None else []),
+            dia,
         )
         dia_trx = vehiculos_de_transacciones(
-            dia_trx, con_gps, lineas_guiadas, no_validos
+            dia_trx, con_gps, lineas_guiadas, no_validos, trx_veh_dia
         )
         internos_parc.append(dia_trx.groupby(cols + ["interno"], as_index=False).size())
         del dia_trx

@@ -29,6 +29,8 @@ Mejora de presentación (jul‑2025)
 * Tamaño de fuente reducido en `st.metric`.
 """
 
+import re
+
 import streamlit as st
 import pandas as pd
 from dash_utils import levanto_tabla_sql, get_logo, configurar_selector_corrida
@@ -144,9 +146,47 @@ except Exception:
 # -----------------------------------------------------------------------------
 
 
+COLS_FILTRO_METADATA = ["grupo", "empresa"]
+
+
+def _limpiar_texto(serie: pd.Series) -> pd.Series:
+    """Texto sin espacios de borde; vacío, "nan" o "none" quedan nulos."""
+    limpio = serie.astype("string").str.strip()
+    return limpio.mask(limpio.fillna("").str.lower().isin(["", "nan", "none"]))
+
+
+@st.cache_data(show_spinner=False)
+def load_grupos() -> pd.DataFrame:
+    """`grupo` de cada línea, desde `metadata_lineas`. Se lee en vivo (no
+    viene en `kpis_lineas`) para que cambiar el agrupamiento no obligue a
+    recalcular los indicadores. Vacío si la base no tiene la columna."""
+    try:
+        meta = levanto_tabla_sql("metadata_lineas", "insumos", tabla_opcional=True)
+    except Exception:
+        return pd.DataFrame()
+    if meta is None or meta.empty or "grupo" not in meta.columns:
+        return pd.DataFrame()
+    return meta[["id_linea", "grupo"]].drop_duplicates("id_linea")
+
+
 @st.cache_data(show_spinner=False)
 def load_kpis() -> pd.DataFrame:
+    """`kpis_lineas` con el `grupo` de cada línea y las columnas de los
+    filtros de metadata ya limpias, para filtrar con una comparación directa."""
     df = levanto_tabla_sql("kpis_lineas", "general")
+    grupos = load_grupos()
+    if not df.empty and not grupos.empty:
+        # id_linea puede llegar como texto, entero o float según la tabla
+        # ("12", 12, 12.0): se cruza como número
+        por_id = pd.Series(
+            grupos["grupo"].to_numpy(),
+            index=pd.to_numeric(grupos["id_linea"], errors="coerce"),
+        )
+        por_id = por_id[por_id.index.notna()]
+        df["grupo"] = pd.to_numeric(df["id_linea"], errors="coerce").map(por_id)
+    for col in COLS_FILTRO_METADATA:
+        if col in df.columns:
+            df[col] = _limpiar_texto(df[col])
     return df
 
 
@@ -157,13 +197,44 @@ def load_kpis_ramales() -> pd.DataFrame:
         df = levanto_tabla_sql("kpis_ramales", "general", tabla_opcional=True)
     except Exception:
         return pd.DataFrame()
-    return df if df is not None else pd.DataFrame()
+    if df is None:
+        return pd.DataFrame()
+    for col in COLS_FILTRO_METADATA:
+        if col in df.columns:
+            df[col] = _limpiar_texto(df[col])
+    return df
+
+
+def valores_filtro(df: pd.DataFrame, col: str) -> list:
+    """Valores no vacíos de `col` en `df` (ya limpia, ver `load_kpis`), en
+    orden natural: "Grupo 200" antes que "Grupo 1800"."""
+    if df.empty or col not in df.columns:
+        return []
+    return sorted(
+        df[col].dropna().unique(),
+        key=lambda v: [int(t) if t.isdigit() else t.casefold()
+                       for t in re.split(r"(\d+)", v)],
+    )
+
+
+def filtro_metadata(etiqueta: str, col: str, base: pd.DataFrame):
+    """Selector de `col` (grupo, empresa) sobre las líneas de `base`. Devuelve
+    (valor elegido, `base` filtrada). Se muestra siempre: si la metadata no
+    trae la columna, queda deshabilitado en "Todos" y el "?" dice por qué."""
+    disp = valores_filtro(base, col)
+    if not disp:
+        st.selectbox(
+            etiqueta, ["Todos"], index=0, disabled=True, key=f"filtro_{col}_vacio",
+            help=f"La metadata de líneas no trae `{col}` para esta selección "
+                 "(columna opcional del csv de líneas).",
+        )
+        return "Todos", base
+    sel = st.selectbox(etiqueta, ["Todos"] + disp, index=0, key=f"filtro_{col}")
+    return sel, base if sel == "Todos" else base[base[col] == sel]
 
 
 kpis_df = load_kpis()
 kpis_ram_df = load_kpis_ramales()
-
-
 
 kpis_df = preparar(kpis_df)
 kpis_ram_df = preparar(kpis_ram_df)
@@ -185,7 +256,7 @@ kpis_dias = kpis_df[kpis_df["dia"] != "Promedios"].copy()
 # -----------------------------------------------------------------------------
 
 LABELS = {
-    "vehiculos_operativos": "Vehículos operativos (GPS)",
+    "vehiculos_operativos": "Vehículos operativos",
     "cant_internos_en_trx": "Vehículos con transacciones",
     "cobertura_gps": "Cobertura GPS",
     "transacciones": "Transacciones",
@@ -243,7 +314,10 @@ AYUDAS = {
                        "destino estimado.",
     "kmh_od": "Distancia origen-destino ÷ tiempo de la etapa. Se descartan las "
               "etapas de 80 km/h o más.",
-    "pvd": "Pasajeros de los servicios GPS válidos ÷ vehículos operativos.",
+    "pvd": "Pasajeros que viajaron dentro de un servicio GPS válido ÷ vehículos "
+           "operativos (con servicio válido). No usa todas las transacciones: "
+           "las etapas fuera de un servicio válido quedan afuera del numerador, "
+           "igual que su vehículo del denominador.",
     "dmt_mean_od": "Promedio de la distancia del pasajero en camino mínimo por la "
                    "red vial, entre origen y destino.",
     "dmt_median_od": "Mediana de la distancia del pasajero en camino mínimo por "
@@ -314,7 +388,8 @@ GENERAL_COLS = [
 # Indicadores que NO dependen de qué distancia se use: van primero, fuera de
 # los bloques por familia, para no sugerir que pertenecen a alguno.
 #   travel_time_min  tiempo de viaje del pasajero, en minutos
-#   pvd              pasajeros por vehículo = tot_pax / tot_veh
+#   pvd              pasajeros por vehículo = pasajeros dentro de servicios
+#                    válidos / vehículos con servicio válido (kpi/cobertura.py)
 SIN_DISTANCIA = ["travel_time_min", "pvd"]
 
 FAMILIAS = {
@@ -374,9 +449,14 @@ FAMILIAS = {
     },
 }
 
+# `pvd` es un cociente, pero con decimales sugiere una precisión que el dato no
+# tiene: se muestra entero (el valor guardado no se redondea). Por debajo de 10
+# (ramal o línea con muy poca demanda) lleva un decimal, para que 0,4 no se lea
+# como 0 ni 1,4 como 1.
+DECIMAL_BAJO_10_COLS = {"pvd"}
 INT_DISPLAY_COLS = (
     set(GENERAL_COLS + GENDER_COLS + TARIFA_COLS
-        + ["tot_km_route", "tot_km_route_gps", "tot_km_route_estimado"])
+        + ["tot_km_route", "tot_km_route_gps", "tot_km_route_estimado", "pvd"])
     - {"cobertura_gps"}
 )
 PCT_DISPLAY_COLS = {"cobertura_gps"}
@@ -409,6 +489,8 @@ def fmt(val, col):
         return "–"
     if col in PCT_DISPLAY_COLS:
         return f"{val * 100:.1f} %"
+    if col in DECIMAL_BAJO_10_COLS and abs(val) < 10:
+        return f"{val:,.1f}"
     if col in INT_DISPLAY_COLS or (
         isinstance(val, (int, float)) and float(val).is_integer()
     ):
@@ -440,8 +522,10 @@ def bloques_demo_con_datos(df: pd.DataFrame) -> list[list[str]]:
     return bloques
 
 
-def metric_row(df: pd.DataFrame, cols: list[str], *, pct=False):
-    """Muestra métricas en una fila de TOTAL_SLOTS columnas fijas."""
+def metric_row(df: pd.DataFrame, cols: list[str], *, pct=False, labels=None):
+    """Muestra métricas en una fila de TOTAL_SLOTS columnas fijas. `labels`
+    reemplaza la etiqueta de LABELS para las columnas que trae."""
+    labels = {**LABELS, **(labels or {})}
     st_cols = st.columns(TOTAL_SLOTS)
     total = df["transacciones"].iloc[0] if "transacciones" in df.columns else None
     # Rellenar la lista a TOTAL_SLOTS con None
@@ -454,7 +538,7 @@ def metric_row(df: pd.DataFrame, cols: list[str], *, pct=False):
         text = fmt(val, col)
         if pct and total and total > 0:
             text += f" ({val / total * 100:.1f} %)"
-        st_cols[idx].metric(LABELS.get(col, col), text, help=ayuda_de(col))
+        st_cols[idx].metric(labels.get(col, col), text, help=ayuda_de(col))
 
 
 
@@ -543,11 +627,16 @@ with st.expander("Indicadores", expanded=True):
         modo_options = ["Todos"] + sorted(kpis_dias["modo"].dropna().unique())
         modo_sel = st.selectbox("Modo", modo_options, index=0)
 
-        # las líneas ofrecidas dependen del modo, para no listar 400 cuando ya
-        # se filtró a uno solo
+        # las líneas ofrecidas dependen del modo (y del grupo y la empresa),
+        # para no listar 400 cuando ya se filtró
         _base_lineas = (
             kpis_dias if modo_sel == "Todos" else kpis_dias[kpis_dias["modo"] == modo_sel]
         )
+
+        # Grupo y empresa salen de la metadata de líneas; cada uno acota las
+        # opciones del siguiente.
+        grupo_sel, _base_lineas = filtro_metadata("Grupo", "grupo", _base_lineas)
+        empresa_sel, _base_lineas = filtro_metadata("Empresa", "empresa", _base_lineas)
         # "Nombre (id)" y ordenado por nombre: se busca por cómo se llama la
         # línea, no por su número interno
         lineas = _base_lineas[["id_linea", "nombre_linea"]].drop_duplicates()
@@ -624,32 +713,77 @@ with st.expander("Indicadores", expanded=True):
                 _cuando = f"Día {dia_sel}"
             if linea_sel != "Todas":
                 _que = linea_sel + (f"  ·  ramal {ramal_sel}" if por_ramal else "")
-            elif modo_sel != "Todos":
-                _que = f"{modo_sel} · {n_lineas} líneas"
             else:
-                _que = f"todos los modos · {n_lineas} líneas"
+                _partes = [modo_sel if modo_sel != "Todos" else "todos los modos"]
+                if grupo_sel != "Todos":
+                    _partes.append(grupo_sel)
+                if empresa_sel != "Todos":
+                    _partes.append(empresa_sel)
+                _partes.append(f"{n_lineas} líneas")
+                _que = " · ".join(_partes)
             st.markdown(f"### {_cuando} — {_que}")
 
             # con una línea elegida se muestra su empresa, que viene de la
             # metadata de líneas. Puede haber más de una si la línea cambió de
             # operador entre los días seleccionados.
-            if linea_sel != "Todas" and "empresa" in df_sel.columns:
-                _emps = sorted(
-                    {e.strip() for e in df_sel["empresa"].dropna().astype(str)
-                     if e.strip() and e.strip().lower() != "nan"}
-                )
+            if linea_sel != "Todas":
+                _emps = valores_filtro(df_sel, "empresa")
                 if _emps:
                     _etq = "Empresa" if len(_emps) == 1 else "Empresas"
                     # encabezado y no caption: identifica de quién son los
                     # números, así que se lee al mismo nivel que el título
                     st.markdown(f"##### {_etq}: {' · '.join(_emps)}")
 
-            metric_row(agg, GENERAL_COLS)
-            if promedio_diario and n_dias > 1:
+            # con varios días los conteos de vehículos son el promedio de los
+            # conteos diarios (por eso pueden tener decimales); con uno solo
+            # son el conteo de ese día
+            _varios_dias = promedio_diario and n_dias > 1
+            _sufijo = " (promedio)" if _varios_dias else ""
+            metric_row(agg, GENERAL_COLS, labels={
+                c: LABELS[c] + _sufijo
+                for c in ("vehiculos_operativos", "cant_internos_en_trx")
+            })
+            if _varios_dias:
                 st.caption(
                     "Los conteos son el **promedio de los totales de cada día** "
                     f"({n_dias} días), no la suma del período. Elegí un día "
                     "concreto para ver su total, o mirá el acumulado más abajo."
+                )
+
+            # Qué líneas entran en lo que se muestra: con los filtros de modo,
+            # grupo y empresa no siempre es obvio. Una fila por línea, y la
+            # descarga de las filas diarias de esa selección.
+            # Una fila por línea aunque haya cambiado de empresa (o de grupo)
+            # entre los días: esas columnas juntan los valores distintos.
+            _cols_lista = [c for c in ["id_linea", "nombre_linea", "modo"]
+                           if c in df_sel.columns]
+            _juntar = [c for c in ["grupo", "empresa"] if c in df_sel.columns]
+            _lista = (
+                df_sel.groupby(_cols_lista, dropna=False, as_index=False)
+                .agg(
+                    **{c: (c, lambda s: " · ".join(valores_filtro(s.to_frame(), s.name)))
+                       for c in _juntar},
+                    dias=("dia", "nunique"),
+                    transacciones=("transacciones", "sum"),
+                )
+                .sort_values("nombre_linea", key=lambda x: x.astype(str).str.casefold())
+            )
+            _lista["transacciones"] = _lista["transacciones"].round().astype("Int64")
+            with st.expander(f"Líneas en la selección ({len(_lista)})", expanded=False):
+                st.dataframe(
+                    _lista.rename(columns={
+                        "id_linea": "Id", "nombre_linea": "Línea", "modo": "Modo",
+                        "grupo": "Grupo", "empresa": "Empresa", "dias": "Días",
+                        "transacciones": "Transacciones (suma de los días)",
+                    }),
+                    width="stretch", hide_index=True,
+                )
+                st.download_button(
+                    label="Descargar indicadores diarios de esta selección (CSV)",
+                    data=df_sel.drop(columns=[COBERTURA_POR_ETAPAS], errors="ignore")
+                    .to_csv(index=False).encode("utf-8"),
+                    file_name="kpis_lineas_seleccion.csv",
+                    mime="text/csv",
                 )
             st.divider()
 
@@ -658,7 +792,7 @@ with st.expander("Indicadores", expanded=True):
                 st.markdown("#### Género y tipo de tarifa")
                 for _cols_demo in _bloques_demo:
                     metric_row(agg, _cols_demo, pct=True)
-                if promedio_diario and n_dias > 1:
+                if _varios_dias:
                     st.caption(
                         f"Promedio diario de transacciones ({n_dias} días); el "
                         "porcentaje es sobre las transacciones del mismo promedio."
@@ -670,7 +804,7 @@ with st.expander("Indicadores", expanded=True):
             # Acumulado del período: solo tiene sentido con varios días y solo
             # para lo que se puede sumar. Los conteos de vehículos quedan fuera
             # (ver PERIOD_SUM_COLS) porque sumarlos daría vehículo-día.
-            if promedio_diario and n_dias > 1:
+            if _varios_dias:
                 acum = agregar_sistema(df_sel, promedio_diario=False)
                 st.markdown(f"#### Acumulado del período · {n_dias} días")
                 # los km de las dos familias de recorrido, para poder comparar
@@ -687,7 +821,9 @@ with st.expander("Indicadores", expanded=True):
                 )
                 st.divider()
 
-            st.markdown("#### Operativos")
+            # con varios días los indicadores operativos son el promedio del
+            # período (ratios ponderados), no los de un día
+            st.markdown("#### Operativos" + (" (promedio)" if _varios_dias else ""))
             bloque_familias(agg)
             st.caption(
                 "Los indicadores operativos son **ratios**: no se suman, se agregan "

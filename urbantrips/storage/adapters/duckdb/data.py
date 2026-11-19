@@ -120,6 +120,7 @@ def ensure_global_duckdb() -> None:
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
     "transacciones", "etapas", "viajes", "usuarios", "gps", "gps_vehiculos",
+    "trx_vehiculos",
     "legs_to_gps_origin", "legs_to_gps_destination",
     "legs_to_station_origin", "legs_to_station_destination",
     "travel_times_stations",

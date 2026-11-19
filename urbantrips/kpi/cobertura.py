@@ -30,11 +30,15 @@ COBERTURA_GPS_MINIMA = 0.5
 # Piezas para consultas sobre `etapas e`: el vehiculo de la etapa (el interno
 # principal de su formacion) y su hora en segundos, comparable con `min_ts` /
 # `max_ts` de `services`.
+# Las transacciones de un equipo con dos vehiculos mezclados se asignan una por
+# una (`trx_vehiculos`, por el id de la transaccion, que la etapa conserva) y
+# eso tiene prioridad sobre el vehiculo del equipo.
 JOIN_VEHICULO = (
     "LEFT JOIN gps_vehiculos veh ON veh.dia = e.dia AND veh.id_linea = e.id_linea"
     " AND veh.interno = e.interno AND NOT veh.es_principal"
+    " LEFT JOIN trx_vehiculos tveh ON tveh.id = e.id"
 )
-VEHICULO_DE_LA_ETAPA = "COALESCE(veh.interno_vehiculo, e.interno)"
+VEHICULO_DE_LA_ETAPA = "COALESCE(tveh.interno_vehiculo, veh.interno_vehiculo, e.interno)"
 TS_DE_LA_ETAPA = "epoch(CAST((e.dia||' '||e.tiempo) AS TIMESTAMP))::BIGINT"
 
 # Cocientes que tienen a la oferta medida con GPS como denominador.

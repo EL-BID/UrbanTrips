@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS metadata_lineas (
     nombre_linea_agg TEXT,
     modo             TEXT,
     empresa          TEXT,
-    descripcion      TEXT
+    descripcion      TEXT,
+    -- agrupamiento libre de lineas (opcional en el csv de lineas); el
+    -- dashboard lo ofrece como filtro cuando trae algun valor
+    grupo            TEXT
 )
 """
 

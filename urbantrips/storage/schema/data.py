@@ -144,6 +144,19 @@ CREATE TABLE IF NOT EXISTS gps_vehiculos (
 )
 """
 
+# Vehiculo de cada transaccion validada en un equipo con dos vehiculos
+# mezclados (ver datamodel/gps_vehiculos.py, asignar_transacciones_mezcladas).
+# `id` es el de `transacciones`; las etapas lo conservan.
+TRX_VEHICULOS = """
+CREATE TABLE IF NOT EXISTS trx_vehiculos (
+    dia              TEXT,
+    id               BIGINT,
+    id_linea         BIGINT,
+    interno          INT,
+    interno_vehiculo INT
+)
+"""
+
 VEHICLE_EXPANSION_FACTORS = """
 CREATE TABLE IF NOT EXISTS vehicle_expansion_factors (
     id_linea        BIGINT,
@@ -566,7 +579,7 @@ ALL_INDEXES: list = []
 
 ALL_TABLES = [
     TRANSACCIONES, TRANSACCIONES_RAW, DIAS_ULTIMA_CORRIDA, ETAPAS, VIAJES, USUARIOS,
-    GPS, GPS_RAW, GPS_VEHICULOS, VEHICLE_EXPANSION_FACTORS,
+    GPS, GPS_RAW, GPS_VEHICULOS, TRX_VEHICULOS, VEHICLE_EXPANSION_FACTORS,
     LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
     TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,

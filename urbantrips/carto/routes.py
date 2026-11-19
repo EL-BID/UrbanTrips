@@ -1084,6 +1084,7 @@ def process_routes_metadata(ctx: StorageContext):
         "modo",
         "empresa",
         "descripcion",
+        "grupo",
     ]
 
     assert pd.Series(info.modo.unique()).isin(modos_homologados.keys()).all()

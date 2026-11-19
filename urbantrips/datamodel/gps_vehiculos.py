@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from urbantrips.geo.geo import distancia_recta_km
+from urbantrips.utils.dataframe import leer_dia
 from urbantrips.utils.sql import create_days_sql_filter
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,11 @@ COLUMNAS = [
     "dia", "id_linea", "interno", "interno_vehiculo", "es_principal",
     "n_equipos", "n_puntos", "km", "prop_saltos", "gps_valido", "motivo",
 ]
+
+# Vehiculo de cada transaccion de un equipo con dos vehiculos mezclados (ver
+# `asignar_transacciones_mezcladas`). `id` es el de `transacciones`, que las
+# etapas conservan.
+COLUMNAS_TRX = ["dia", "id", "id_linea", "interno", "interno_vehiculo"]
 
 
 def _resumen_por_interno(gps, tope_kmh):
@@ -260,6 +266,181 @@ def detectar_vehiculos_gps(gps, tope_kmh, lineas_con_formaciones=None):
     return out.reindex(columns=COLUMNAS).reset_index(drop=True)
 
 
+def lineas_de_formaciones(modos):
+    """Lineas de `modos` ({id_linea: modo}) cuyo modo lleva formaciones."""
+    return {
+        l for l, modo in modos.items()
+        if str(modo).strip().lower() in MODOS_CON_FORMACIONES
+    }
+
+
+def equipos_mezclados(vehiculos, lineas_con_formaciones=None):
+    """Filas de `vehiculos` (de `gps_vehiculos`) de los equipos con dos vehiculos
+    mezclados (`gps_con_saltos`), solo de `lineas_con_formaciones` (None: de
+    todas las lineas)."""
+    mezclados = vehiculos[vehiculos["motivo"] == MOTIVO_SALTOS]
+    if lineas_con_formaciones is not None:
+        mezclados = mezclados[mezclados["id_linea"].isin(list(lineas_con_formaciones))]
+    return mezclados
+
+
+def asignar_transacciones_mezcladas(trx, gps, vehiculos, lineas_con_formaciones=None,
+                                    servicios=None):
+    """Vehiculo de cada transaccion validada en un equipo con dos vehiculos
+    mezclados (`gps_con_saltos`), en las lineas con formaciones de un dia.
+
+    `trx` trae `dia`, `id`, `id_linea`, `interno`, `fecha` (segundos, la misma
+    base que `fecha` del GPS), `latitud` y `longitud`; `gps`, los puntos del dia;
+    `vehiculos`, la salida de `detectar_vehiculos_gps` para ese dia. Devuelve
+    una fila por transaccion asignada, con las columnas de COLUMNAS_TRX.
+
+    Bajo el interno de esos equipos reportan dos (o mas) validadoras que van en
+    formaciones distintas, asi que el equipo no se puede agrupar entero con
+    ninguna. Cada transaccion, en cambio, tiene su propia hora y posicion: se
+    asigna al vehiculo valido (interno principal con GPS valido de la misma
+    linea) que en ese instante esta mas cerca, si esta a menos de
+    DISTANCIA_JUNTOS_KM. La que no tiene ningun vehiculo cerca (posicion rota o
+    vehiculo sin GPS) no se asigna y sigue con su interno.
+
+    Solo se asignan las de `lineas_con_formaciones` (None: todas). En un
+    colectivo un equipo mezclado son dos vehiculos que reportan como uno, sin
+    interno propio: asignar sus transacciones al colectivo mas cercano las
+    llevaria a un vehiculo que no es.
+
+    `servicios` (`id_linea`, `interno`, `min_ts`, `max_ts` de los servicios
+    validos) limita los candidatos a los vehiculos que estan operando en ese
+    instante. Sin ese filtro una transaccion en una terminal o cerca del
+    deposito cae en una formacion estacionada, que pasa a contar como vehiculo
+    con transacciones por una o dos validaciones. None: sin filtro.
+    """
+    vacio = pd.DataFrame(columns=COLUMNAS_TRX)
+    if len(trx) == 0 or len(gps) == 0 or len(vehiculos) == 0:
+        return vacio
+    mezclados = equipos_mezclados(vehiculos, lineas_con_formaciones)
+    validos = vehiculos[vehiculos["es_principal"] & vehiculos["gps_valido"]]
+    if len(mezclados) == 0 or len(validos) == 0:
+        return vacio
+
+    trx = trx.dropna(subset=["fecha", "latitud", "longitud"])
+    gps = gps[["id_linea", "interno", "fecha", "latitud", "longitud"]].dropna()
+    gps = gps.sort_values(["id_linea", "interno", "fecha"], kind="stable")
+    trx_por_linea = dict(tuple(trx.groupby("id_linea")))
+    gps_por_linea = dict(tuple(gps.groupby("id_linea")))
+    partes = []
+    for id_linea, internos in mezclados.groupby("id_linea")["interno"]:
+        sel = trx_por_linea.get(id_linea, trx.iloc[:0])
+        sel = sel[sel["interno"].isin(set(internos))]
+        candidatos = set(validos.loc[validos["id_linea"] == id_linea, "interno"])
+        if len(sel) == 0 or not candidatos:
+            continue
+        linea = gps_por_linea.get(id_linea, gps.iloc[:0])
+        otros, lat, lon = _posiciones_en_grilla(
+            linea[linea["interno"].isin(candidatos)],
+            sel["fecha"].to_numpy(dtype="float64"),
+        )
+        if not otros:
+            continue
+        with np.errstate(invalid="ignore"):
+            d2 = _km2_plano(
+                sel["latitud"].to_numpy(dtype="float64")[None, :],
+                sel["longitud"].to_numpy(dtype="float64")[None, :],
+                lat, lon,
+            )
+        d2 = np.where(np.isnan(d2), np.inf, d2)
+        if servicios is not None:
+            d2 = np.where(
+                _en_servicio(servicios, id_linea, otros, sel["fecha"].to_numpy()),
+                d2, np.inf,
+            )
+        cerca = d2.min(axis=0) < DISTANCIA_JUNTOS_KM**2
+        if not cerca.any():
+            continue
+        asignadas = sel.loc[cerca, ["dia", "id", "id_linea", "interno"]].copy()
+        asignadas["interno_vehiculo"] = np.asarray(otros)[d2.argmin(axis=0)][cerca]
+        partes.append(asignadas)
+    if not partes:
+        return vacio
+    return pd.concat(partes, ignore_index=True).reindex(columns=COLUMNAS_TRX)
+
+
+def _en_servicio(servicios, id_linea, internos, ts):
+    """Matriz (internos x ts): el interno tiene un servicio valido de la linea
+    que cubre ese instante."""
+    serv = dict(tuple(servicios[servicios["id_linea"] == id_linea].groupby("interno")))
+    out = np.zeros((len(internos), len(ts)), dtype=bool)
+    for k, interno in enumerate(internos):
+        propios = serv.get(interno)
+        if propios is None:
+            continue
+        for ini, fin in zip(propios["min_ts"].to_numpy(), propios["max_ts"].to_numpy()):
+            out[k] |= (ts >= ini) & (ts <= fin)
+    return out
+
+
+def guardar_vehiculos_de_transacciones(ctx, dias):
+    """Asigna a un vehiculo las transacciones de los equipos con dos vehiculos
+    mezclados (`asignar_transacciones_mezcladas`) y reemplaza sus filas en
+    `trx_vehiculos`, un dia por vez. Necesita `gps_vehiculos`, `gps`,
+    `transacciones` y `services` de esos dias. Solo en las lineas de
+    `MODOS_CON_FORMACIONES`."""
+    from urbantrips.carto.routes import modos_por_linea
+
+    lineas_con_formaciones = lineas_de_formaciones(modos_por_linea(ctx))
+    for dia in dias:
+        ctx.data.execute(f"DELETE FROM trx_vehiculos WHERE dia = '{dia}'")
+        vehiculos = leer_dia(ctx.data.query, "gps_vehiculos", ["*"], dia)
+        mezclados = equipos_mezclados(vehiculos, lineas_con_formaciones)
+        if len(mezclados) == 0:
+            continue
+        validos = vehiculos[vehiculos["es_principal"] & vehiculos["gps_valido"]]
+        lineas = _lista_sql(mezclados["id_linea"])
+        # se leen solo los equipos mezclados y los vehiculos candidatos; el
+        # cruce exacto (linea, interno) lo hace asignar_transacciones_mezcladas
+        trx = leer_dia(
+            ctx.data.query, "transacciones",
+            ["dia", "id", "id_linea", "interno", "fecha", "latitud", "longitud"], dia,
+            extra_where=f"id_linea IN ({lineas})"
+                        f" AND interno IN ({_lista_sql(mezclados['interno'])})",
+        )
+        candidatos = f"id_linea IN ({lineas})"
+        if len(validos):
+            candidatos += f" AND interno IN ({_lista_sql(validos['interno'])})"
+        gps = leer_dia(
+            ctx.data.query, "gps",
+            ["id_linea", "interno", "fecha", "latitud", "longitud"], dia,
+            extra_where=candidatos,
+        )
+        servicios = leer_dia(
+            ctx.data.query, "services", ["id_linea", "interno", "min_ts", "max_ts"],
+            dia, extra_where=f"valid = 1 AND id_linea IN ({lineas})",
+        )
+        asignadas = asignar_transacciones_mezcladas(
+            trx, gps, vehiculos, lineas_con_formaciones, servicios
+        )
+        if len(asignadas):
+            ctx.data.append_raw(asignadas, "trx_vehiculos")
+        logger.info(
+            "Transacciones de equipos con vehiculos mezclados (%s): %s asignadas "
+            "a un vehiculo", dia, f"{len(asignadas):,}",
+        )
+
+
+def _lista_sql(valores):
+    """Valores enteros distintos, listos para un `IN (...)`."""
+    return ", ".join(str(int(v)) for v in pd.unique(valores))
+
+
+def leer_vehiculos_de_trx(ctx, dias=None):
+    """Filas de `trx_vehiculos` (vehiculo de cada transaccion reasignada).
+    Vacio si la tabla no existe (base anterior a esta tabla)."""
+    q = "SELECT * FROM trx_vehiculos WHERE TRUE" + create_days_sql_filter(dias)
+    try:
+        return ctx.data.query(q)
+    except (duckdb.CatalogException, NotImplementedError) as e:
+        logger.debug("trx_vehiculos no disponible: %s", e)
+        return pd.DataFrame(columns=COLUMNAS_TRX)
+
+
 def guardar_vehiculos_gps(ctx, gps, dia, tope_kmh):
     """Detecta los vehiculos del GPS de un dia y reemplaza sus filas en
     `gps_vehiculos`. Los internos que se mueven juntos se agrupan solo en las
@@ -267,11 +448,7 @@ def guardar_vehiculos_gps(ctx, gps, dia, tope_kmh):
     # import diferido: carto.routes es pesado y no hace falta para la deteccion
     from urbantrips.carto.routes import modos_por_linea
 
-    lineas_con_formaciones = {
-        id_linea
-        for id_linea, modo in modos_por_linea(ctx).items()
-        if modo in MODOS_CON_FORMACIONES
-    }
+    lineas_con_formaciones = lineas_de_formaciones(modos_por_linea(ctx))
     vehiculos = detectar_vehiculos_gps(gps, tope_kmh, lineas_con_formaciones)
     ctx.data.execute(f"DELETE FROM gps_vehiculos WHERE dia = '{dia}'")
     if len(vehiculos) == 0:
@@ -338,19 +515,38 @@ def buscar_en_no_validos(df, no_validos, columna):
     return resultado
 
 
-def mapear_interno_a_vehiculo(df, no_validos):
+def mapear_interno_a_vehiculo(df, no_validos, trx_vehiculos=None):
     """Reemplaza `interno` por el interno principal de su vehiculo.
 
     Las etapas llevan el interno del equipo donde se valido; para cruzarlas con
     la oferta del vehiculo (servicios, velocidad) tienen que llevar el interno
     principal. Los internos que no estan en `no_validos` quedan igual.
+
+    `trx_vehiculos` (de `leer_vehiculos_de_trx`) asigna transaccion por
+    transaccion las de los equipos con dos vehiculos mezclados, que no tienen un
+    vehiculo unico. Se cruza por `id` (el de `transacciones`, que las etapas
+    conservan) y tiene prioridad; requiere que `df` traiga `id`.
     """
     principal = buscar_en_no_validos(df, no_validos, "interno_vehiculo")
+    if trx_vehiculos is not None and len(trx_vehiculos) and "id" in df.columns:
+        # como en buscar_en_no_validos: solo se buscan las filas de los equipos
+        # con transacciones reasignadas, una fraccion minima de `df`
+        candidatas = df["interno"].isin(trx_vehiculos["interno"]).to_numpy()
+        if candidatas.any():
+            unicas = trx_vehiculos.drop_duplicates("id")
+            por_id = pd.Series(
+                unicas["interno_vehiculo"].to_numpy(),
+                index=pd.to_numeric(unicas["id"], errors="coerce"),
+            )
+            asignado = pd.to_numeric(df.loc[candidatas, "id"], errors="coerce").map(por_id)
+            principal[candidatas] = asignado.fillna(principal[candidatas]).to_numpy()
     cambia = principal.notna()
     if not cambia.any():
         return df
     df = df.copy(deep=False)
-    df["interno"] = df["interno"].where(~cambia, principal).astype(df["interno"].dtype)
+    interno = df["interno"].copy()
+    interno[cambia] = pd.to_numeric(principal[cambia]).astype(interno.dtype)
+    df["interno"] = interno
     return df
 
 
