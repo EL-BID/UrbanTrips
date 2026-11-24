@@ -533,45 +533,62 @@ with st.expander("Partición modal", True):
 
     col1, col2, col3, col4 = st.columns([1, 5, 1.5, 1.5])
     particion_modal = levanto_tabla_sql("datos_particion_modal")
-    
-    desc_dia = col1.selectbox(
-        "Día", options=particion_modal.dia.unique(), key="desc_dia"
+    dist_values = levanto_tabla_sql("distribucion")
+    viajes_hora = levanto_tabla_sql("viajes_hora")
+    socio_indicadores = levanto_tabla_sql("socio_indicadores")
+
+    # El selector de día lo usan todas las secciones. Sale de la partición modal;
+    # si esa tabla falta (corrida incompleta), de los días de las demás, para no
+    # esconder datos que sí existen.
+    hay_particion = not particion_modal.empty and {"dia", "genero_agregado"} <= set(
+        particion_modal.columns
     )
+    if hay_particion:
+        dias = particion_modal.dia.unique().tolist()
+    else:
+        dias = sorted(set().union(*(
+            df[col].dropna().unique()
+            for df, col in [
+                (dist_values, "Día"), (viajes_hora, "Día"), (socio_indicadores, "dia")
+            ]
+            if not df.empty and col in df.columns
+        )))
+    desc_dia = col1.selectbox("Día", options=dias, key="desc_dia") if dias else None
 
-    list_genero = particion_modal.genero_agregado.unique().tolist()
-    list_genero.insert(0, "Todos")
-    # list_genero = ["Todos" if item == "-" else item for item in list_genero]
+    if not hay_particion:
+        col2.info("Esta corrida no tiene datos de partición modal.")
+    else:
+        list_genero = particion_modal.genero_agregado.unique().tolist()
+        list_genero.insert(0, "Todos")
+        # list_genero = ["Todos" if item == "-" else item for item in list_genero]
 
-    desc_genero = col1.selectbox("Genero", options=list_genero, key="desc_genero")
+        desc_genero = col1.selectbox("Genero", options=list_genero, key="desc_genero")
 
-    query = f"select * from datos_particion_modal where dia='{desc_dia}'"
-    if desc_genero != "Todos":
-        query += f"and genero_agregado = '{desc_genero}'"
+        query = f"select * from datos_particion_modal where dia='{desc_dia}'"
+        if desc_genero != "Todos":
+            query += f"and genero_agregado = '{desc_genero}'"
 
-    etapas_modos = levanto_tabla_sql("datos_particion_modal", query=query)
+        etapas_modos = levanto_tabla_sql("datos_particion_modal", query=query)
 
-    fig, modal_etapas, modal_viajes = plot_venn_diagram(etapas_modos)
-    col2.pyplot(fig)
-    
-    col3.write("Etapas")
-    modal_etapas = formatear_columnas_numericas(modal_etapas, ['Cantidad'], True)
-    modal_etapas = formatear_columnas_numericas(modal_etapas, ['%'], False)
-    col3.dataframe(modal_etapas.set_index("Modo"), height=400, width=300)
-    
-    col4.write("Viajes")
-    modal_viajes = formatear_columnas_numericas(modal_viajes, ['Cantidad'], True)
-    modal_viajes = formatear_columnas_numericas(modal_viajes, ['%'], False)
+        fig, modal_etapas, modal_viajes = plot_venn_diagram(etapas_modos)
+        col2.pyplot(fig)
 
-    col4.dataframe(modal_viajes.set_index("Modo"), height=400, width=300)
+        col3.write("Etapas")
+        modal_etapas = formatear_columnas_numericas(modal_etapas, ['Cantidad'], True)
+        modal_etapas = formatear_columnas_numericas(modal_etapas, ['%'], False)
+        col3.dataframe(modal_etapas.set_index("Modo"), height=400, width=300)
+
+        col4.write("Viajes")
+        modal_viajes = formatear_columnas_numericas(modal_viajes, ['Cantidad'], True)
+        modal_viajes = formatear_columnas_numericas(modal_viajes, ['%'], False)
+
+        col4.dataframe(modal_viajes.set_index("Modo"), height=400, width=300)
 
 with st.expander("Distancias de viajes"):
 
     col1, col2 = st.columns([1, 4])
 
-    dist_values = levanto_tabla_sql("distribucion")
-
-
-    if len(dist_values) > 0:
+    if len(dist_values) > 0 and desc_dia is not None:
 
         modoD = col1.selectbox(
             "Modo", options=['Todos']+dist_values[dist_values.Modo!='Todos'].Modo.unique().tolist(), key="ModoD"
@@ -612,140 +629,146 @@ with st.expander("Viajes por hora"):
 
     col1, col2 = st.columns([1, 4])
 
-    viajes_hora = levanto_tabla_sql("viajes_hora")
 
-    modo_h = col1.selectbox("Modo", options=["Todos", "Por modos"], key="modo_h")
-
-    if modo_h == "Todos":
-        viajes_hora = viajes_hora[
-            (viajes_hora.Día == desc_dia)            
-            & (viajes_hora.Modo == "Todos")
-        ]
+    if viajes_hora.empty or desc_dia is None:
+        col2.write("No hay datos para mostrar")
     else:
-        viajes_hora = viajes_hora[
-            (viajes_hora.Día == desc_dia)
-            & (viajes_hora.Modo != "Todos")
-        ]
 
-    col1.write(f"Día: {desc_dia}")
+        modo_h = col1.selectbox("Modo", options=["Todos", "Por modos"], key="modo_h")
 
-    viajes_hora = viajes_hora.sort_values("Hora")
-    
-    if col2.checkbox("Ver datos: viajes por hora"):
-        col2.write(viajes_hora)
+        if modo_h == "Todos":
+            viajes_hora = viajes_hora[
+                (viajes_hora.Día == desc_dia)            
+                & (viajes_hora.Modo == "Todos")
+            ]
+        else:
+            viajes_hora = viajes_hora[
+                (viajes_hora.Día == desc_dia)
+                & (viajes_hora.Modo != "Todos")
+            ]
 
-    fig_horas = px.line(viajes_hora, x="Hora", y="Viajes", color="Modo", symbol="Modo")
+        col1.write(f"Día: {desc_dia}")
 
-    fig_horas.update_xaxes(type="category")
-    # fig_horas.update_layout()
+        viajes_hora = viajes_hora.sort_values("Hora")
 
-    col2.plotly_chart(fig_horas)
+        if col2.checkbox("Ver datos: viajes por hora"):
+            col2.write(viajes_hora)
+
+        fig_horas = px.line(viajes_hora, x="Hora", y="Viajes", color="Modo", symbol="Modo")
+
+        fig_horas.update_xaxes(type="category")
+        # fig_horas.update_layout()
+
+        col2.plotly_chart(fig_horas)
 
 
 with st.expander("Género y tarifas"):
     col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
-    socio_indicadores = levanto_tabla_sql("socio_indicadores")
 
-    col1.write(f"Día: {desc_dia}")
-    # col1.write(f"Tipo de día: {desc_tipo_dia}")
-
-    if desc_dia != "Todos":
-        st.session_state.socio_indicadores_ = socio_indicadores[
-            (socio_indicadores.dia == desc_dia)
-        ].copy()
-
-    else:
-        desc_tipo_dia = col1.selectbox(
-            "Tipo de día",
-            options=socio_indicadores.tipo_dia.dropna().unique(),
-            key="desc_tipo_dia",
-        )
-        st.session_state.socio_indicadores_ = socio_indicadores[
-            (socio_indicadores.tipo_dia == desc_tipo_dia)
-        ].copy()
-
-    (
-        totals,
-        totals_porc,
-        avg_distances,
-        avg_times,
-        avg_velocity,
-        modos_genero_abs,
-        modos_genero_porc,
-        modos_tarifa_abs,
-        modos_tarifa_porc,
-        avg_viajes,
-        avg_etapas,
-        avg_tiempo_entre_viajes,
-    ) = traigo_socio_indicadores(st.session_state.socio_indicadores_)
-
-    if totals is not None:
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(totals)
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(totals_porc.round(2).astype(str))
-
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(avg_viajes.round(2).astype(str))
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(avg_etapas.round(2).astype(str))
-
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(modos_genero_abs)
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(modos_genero_porc.round(2).astype(str))
-
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(modos_tarifa_abs)
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(modos_tarifa_porc.round(2).astype(str))
-
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(avg_distances.round(2).astype(str))
-
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(avg_times.round(2).astype(str))
-
-        col2.markdown(
-            "<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>",
-            unsafe_allow_html=True,
-        )
-        col2.table(avg_velocity.round(2).astype(str))
-
-        col3.markdown(
-            "<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>",
-            unsafe_allow_html=True,
-        )
-        col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
-    else:
+    if socio_indicadores.empty or desc_dia is None:
         col2.write("No hay datos para mostrar")
+    else:
+
+        col1.write(f"Día: {desc_dia}")
+        # col1.write(f"Tipo de día: {desc_tipo_dia}")
+
+        if desc_dia != "Todos":
+            st.session_state.socio_indicadores_ = socio_indicadores[
+                (socio_indicadores.dia == desc_dia)
+            ].copy()
+
+        else:
+            desc_tipo_dia = col1.selectbox(
+                "Tipo de día",
+                options=socio_indicadores.tipo_dia.dropna().unique(),
+                key="desc_tipo_dia",
+            )
+            st.session_state.socio_indicadores_ = socio_indicadores[
+                (socio_indicadores.tipo_dia == desc_tipo_dia)
+            ].copy()
+
+        (
+            totals,
+            totals_porc,
+            avg_distances,
+            avg_times,
+            avg_velocity,
+            modos_genero_abs,
+            modos_genero_porc,
+            modos_tarifa_abs,
+            modos_tarifa_porc,
+            avg_viajes,
+            avg_etapas,
+            avg_tiempo_entre_viajes,
+        ) = traigo_socio_indicadores(st.session_state.socio_indicadores_)
+
+        if totals is not None:
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Total de viajes por género y tarifa</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(totals)
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Porcentaje de viajes por género y tarifa</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(totals_porc.round(2).astype(str))
+
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Cantidad promedio de viajes por género y tarifa</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(avg_viajes.round(2).astype(str))
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Cantidad promedio de etapas por género y tarifa</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(avg_etapas.round(2).astype(str))
+
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Total de etapas por género y modo</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(modos_genero_abs)
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Porcentaje de etapas por género y modo</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(modos_genero_porc.round(2).astype(str))
+
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Total de etapas por tarifa y modo</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(modos_tarifa_abs)
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Porcentaje de etapas por tarifa y modo</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(modos_tarifa_porc.round(2).astype(str))
+
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Distancias promedio (kms)</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(avg_distances.round(2).astype(str))
+
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Tiempos promedio (minutos)</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(avg_times.round(2).astype(str))
+
+            col2.markdown(
+                "<h4 style='font-size:16px;'>Velocidades promedio (kms/hora)</h4>",
+                unsafe_allow_html=True,
+            )
+            col2.table(avg_velocity.round(2).astype(str))
+
+            col3.markdown(
+                "<h4 style='font-size:16px;'>Tiempos promedio entre viajes (minutos)</h4>",
+                unsafe_allow_html=True,
+            )
+            col3.table(avg_tiempo_entre_viajes.round(2).astype(str))
+        else:
+            col2.write("No hay datos para mostrar")

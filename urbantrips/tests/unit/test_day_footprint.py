@@ -282,13 +282,52 @@ def test_main_extra_se_descuenta_del_presupuesto(monkeypatch, tmp_path):
     assert legs_module._parallel_day_workers(7, per_day_gb=10.0, main_extra_gb=25.0) == 1
 
 
-def test_el_override_no_suma_reserva_del_main(monkeypatch):
-    """Si el operador fuerza parallel_day_gb, se hace cargo: no se le suma nada."""
+@pytest.mark.parametrize("factor", [legs_module._PANDAS_COPY_AMPLIFICATION, 4.0])
+def test_el_override_no_suma_reserva_del_main(monkeypatch, factor):
+    """Si el operador fuerza parallel_day_gb, se hace cargo: no se le suma nada,
+    ni se le aplica el factor de la etapa."""
     monkeypatch.setattr(
         "urbantrips.utils.utils.leer_configs_tuning",
         lambda: {"parallel_day_gb": 20},
     )
     modelo = legs_module._day_memory_model(
-        MagicMock(), DIAS, [legs_module._tabla("etapas")]
+        MagicMock(), DIAS, [legs_module._tabla("etapas")], factor=factor
     )
     assert modelo == (20.0, 0.0)
+
+
+def test_el_factor_propio_escala_el_por_dia(sin_override):
+    """Cada etapa puede pasar su multiplicador; sin pasarlo se usa el de destinos/tiempos."""
+    dtypes = {"etapas": ["object"] * 8 + ["int64"] * 16}
+    ctx = _ctx({"etapas": 10_000_000}, dtypes)
+    tablas = [legs_module._tabla("etapas")]
+    default = legs_module._day_memory_model(ctx, DIAS, tablas)
+    propio = legs_module._day_memory_model(ctx, DIAS, tablas, factor=4.0)
+    assert propio.por_dia == pytest.approx(
+        default.por_dia * 4.0 / legs_module._PANDAS_COPY_AMPLIFICATION
+    )
+    # el factor es del cómputo en el worker: lo que retiene el main no cambia
+    assert propio.main_extra == pytest.approx(default.main_extra)
+
+
+def test_chains_pasa_su_propio_factor(monkeypatch):
+    """chains genera mucho más que sus insumos: con el 2.0 de destinos/tiempos, en
+    AMBA estimaba 7 GB/día, largaba 3 días y se quedaba sin RAM (2026-11-24)."""
+    from urbantrips.preparo_dashboard import chains
+
+    capturado = {}
+
+    def fake_day_workers_for(ctx, dias, tables, *, factor):
+        capturado["factor"] = factor
+        return 1
+
+    monkeypatch.setattr(legs_module, "_day_workers_for", fake_day_workers_for)
+    monkeypatch.setattr(chains, "_fetch_chains_inputs_dia", lambda ctx, dia, lineas: None)
+
+    ctx = MagicMock()
+    ctx.data.query.return_value = pd.DataFrame({"dia": ["2026-03-09"]})
+    ctx.insumos.query.return_value = pd.DataFrame({"id_linea": [], "nombre_linea": []})
+
+    chains.procesar_pipeline_por_dia(guardar=True, verbose=False, ctx=ctx)
+
+    assert capturado["factor"] == chains._CHAINS_COPY_AMPLIFICATION

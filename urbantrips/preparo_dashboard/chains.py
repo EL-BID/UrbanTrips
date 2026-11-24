@@ -437,6 +437,32 @@ def guardar_chains_norm(chains_norm, ctx: StorageContext):
     ctx.dash.upsert_chains_norm(chains_norm, dias)
 
 
+# Factor de copias de chains para el autotune de días en paralelo: genera mucho más
+# que lo que lee (h3 como texto, filtros, cadenas). Medido con
+# `tools/medir_footprint_dia.py marzo_2026 --etapa chains` (AMBA, día más grande,
+# 6,6 M etapas): insumos 3,49 GB, pico del worker 12,50 GB → 3,58 (igual en otro
+# día de 6,4 M); 4.0 deja ~12% de margen.
+_CHAINS_COPY_AMPLIFICATION = 4.0
+
+
+def _chains_tablas_footprint():
+    """Lo que lee `_fetch_chains_inputs_dia`, descripto para `_day_memory_model`:
+    proyecciones acotadas a od_validado. Lo usan el autotune y
+    tools/medir_footprint_dia.py, para que el factor se mida contra la misma base."""
+    from urbantrips.datamodel.legs import _tabla
+
+    return [
+        _tabla("etapas", [
+            "id", "dia", "id_tarjeta", "id_viaje", "id_etapa", "latitud",
+            "longitud", "hora", "modo", "id_linea", "tarifa", "genero",
+            "factor_expansion_linea",
+        ], where="od_validado = 1"),
+        _tabla("viajes", [
+            "dia", "id_tarjeta", "id_viaje", "hora", "tiempo", "cant_etapas",
+        ], where="od_validado = 1"),
+    ]
+
+
 def _fetch_chains_inputs_dia(ctx, dia, lineas):
     """Lee (en el MAIN) las etapas y viajes de un día para el pipeline de chains.
     Separado del cómputo para poder despachar el cómputo a workers (DuckDB no es
@@ -533,18 +559,10 @@ def procesar_pipeline_por_dia(
 
         import gc as _gc
         from concurrent.futures import ProcessPoolExecutor, as_completed
-        from urbantrips.datamodel.legs import _day_workers_for, _tabla
-        # lo que lee _fetch_chains_inputs_dia: proyecciones acotadas a od_validado
-        n_workers = _day_workers_for(ctx, dias, [
-            _tabla("etapas", [
-                "id", "dia", "id_tarjeta", "id_viaje", "id_etapa", "latitud",
-                "longitud", "hora", "modo", "id_linea", "tarifa", "genero",
-                "factor_expansion_linea",
-            ], where="od_validado = 1"),
-            _tabla("viajes", [
-                "dia", "id_tarjeta", "id_viaje", "hora", "tiempo", "cant_etapas",
-            ], where="od_validado = 1"),
-        ])
+        from urbantrips.datamodel.legs import _day_workers_for
+        n_workers = _day_workers_for(
+            ctx, dias, _chains_tablas_footprint(), factor=_CHAINS_COPY_AMPLIFICATION
+        )
 
         def _emit(dia, chains_dia, n_et):
             # guardar=True: cada día se persiste al dash (single-writer, en el main).
