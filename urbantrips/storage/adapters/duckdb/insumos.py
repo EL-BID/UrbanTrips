@@ -48,6 +48,17 @@ class DuckDBInsumoAdapter:
         # acá porque CREATE TABLE IF NOT EXISTS no borra tablas ya creadas.
         self._conn.execute("DROP TABLE IF EXISTS distancias")
 
+        # `grupo` se agregó a metadata_lineas el 2026-11-19: CREATE TABLE IF NOT
+        # EXISTS no la suma a una base ya creada. Si la tabla todavía no
+        # existe la crea completa el DDL.
+        existe = self._conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'metadata_lineas'"
+        ).fetchone()
+        if existe:
+            self._conn.execute(
+                "ALTER TABLE metadata_lineas ADD COLUMN IF NOT EXISTS grupo TEXT"
+            )
+
     # ── geometry helpers ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -222,7 +233,8 @@ class DuckDBInsumoAdapter:
         self._conn.execute("DELETE FROM metadata_lineas")
         self._conn.register("_df", df)
         try:
-            self._conn.execute("INSERT INTO metadata_lineas SELECT * FROM _df")
+            # BY NAME: las columnas se emparejan por nombre y no por posición
+            self._conn.execute("INSERT INTO metadata_lineas BY NAME SELECT * FROM _df")
         finally:
             self._conn.unregister("_df")
 

@@ -125,6 +125,38 @@ CREATE TABLE IF NOT EXISTS gps (
 )
 """
 
+# Que vehiculo es cada interno del GPS, por dia y linea (ver
+# datamodel/gps_vehiculos.py). `interno_vehiculo` es el interno principal del
+# vehiculo; `gps_valido` = FALSE si la traza no se usa para medir oferta.
+GPS_VEHICULOS = """
+CREATE TABLE IF NOT EXISTS gps_vehiculos (
+    dia              TEXT,
+    id_linea         BIGINT,
+    interno          INT,
+    interno_vehiculo INT,
+    es_principal     BOOLEAN,
+    n_equipos        INT,
+    n_puntos         INT,
+    km               FLOAT,
+    prop_saltos      FLOAT,
+    gps_valido       BOOLEAN,
+    motivo           TEXT
+)
+"""
+
+# Vehiculo de cada transaccion validada en un equipo con dos vehiculos
+# mezclados (ver datamodel/gps_vehiculos.py, asignar_transacciones_mezcladas).
+# `id` es el de `transacciones`; las etapas lo conservan.
+TRX_VEHICULOS = """
+CREATE TABLE IF NOT EXISTS trx_vehiculos (
+    dia              TEXT,
+    id               BIGINT,
+    id_linea         BIGINT,
+    interno          INT,
+    interno_vehiculo INT
+)
+"""
+
 VEHICLE_EXPANSION_FACTORS = """
 CREATE TABLE IF NOT EXISTS vehicle_expansion_factors (
     id_linea        BIGINT,
@@ -295,7 +327,9 @@ CREATE TABLE IF NOT EXISTS services (
     min_datetime        TEXT,
     max_datetime        TEXT,
     prop_idling         FLOAT,
-    valid               INT
+    valid               INT,
+    horas_servicio      FLOAT,
+    motivo_no_valido    TEXT
 )
 """
 
@@ -323,7 +357,11 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_line (
     fo_mean_route_gps     FLOAT,
     fo_median_od          FLOAT,
     fo_median_route       FLOAT,
-    fo_median_route_gps   FLOAT
+    fo_median_route_gps   FLOAT,
+    tot_pax_servicio      FLOAT,
+    cobertura_gps         FLOAT,
+    tot_km_route_estimado FLOAT,
+    capacidad             FLOAT
 )
 """
 
@@ -355,7 +393,11 @@ CREATE TABLE IF NOT EXISTS kpi_by_day_branch (
     fo_mean_route_gps     FLOAT,
     fo_median_od          FLOAT,
     fo_median_route       FLOAT,
-    fo_median_route_gps   FLOAT
+    fo_median_route_gps   FLOAT,
+    tot_pax_servicio      FLOAT,
+    cobertura_gps         FLOAT,
+    tot_km_route_estimado FLOAT,
+    capacidad             FLOAT
 )
 """
 
@@ -537,7 +579,7 @@ ALL_INDEXES: list = []
 
 ALL_TABLES = [
     TRANSACCIONES, TRANSACCIONES_RAW, DIAS_ULTIMA_CORRIDA, ETAPAS, VIAJES, USUARIOS,
-    GPS, GPS_RAW, VEHICLE_EXPANSION_FACTORS,
+    GPS, GPS_RAW, GPS_VEHICULOS, TRX_VEHICULOS, VEHICLE_EXPANSION_FACTORS,
     LEGS_TO_GPS_ORIGIN, LEGS_TO_GPS_DESTINATION,
     LEGS_TO_STATION_ORIGIN, LEGS_TO_STATION_DESTINATION,
     TRAVEL_TIMES_STATIONS, TRAVEL_TIMES_LEGS, TRAVEL_TIMES_TRIPS,

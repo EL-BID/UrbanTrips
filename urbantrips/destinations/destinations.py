@@ -542,7 +542,9 @@ def infer_destinations(ctx: StorageContext):
         # propio parquet, sin contención con la DB). Sin stage se mantiene serial.
         import gc as _gc
         from concurrent.futures import ProcessPoolExecutor
-        from urbantrips.datamodel.legs import _plan_paralelo, _tabla
+        from urbantrips.datamodel.legs import (
+            _PANDAS_COPY_AMPLIFICATION, _plan_paralelo, _tabla,
+        )
         from urbantrips.utils.parallel import cosechar
         # La matriz de validacion NO es day-scoped pero viaja pickleada a cada worker
         # en cada submit, y en el camino min_distancia es lo que mas pesa: medido
@@ -565,7 +567,7 @@ def infer_destinations(ctx: StorageContext):
                     "modo", "id_linea", "id_ramal", "h3_o", "etapa_validada",
                 ]),
                 matriz_tabla,
-            ])
+            ], factor=_PANDAS_COPY_AMPLIFICATION)
         else:
             n_workers, modelo = 1, None
 

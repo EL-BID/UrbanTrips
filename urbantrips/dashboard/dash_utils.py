@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import os
@@ -49,6 +50,46 @@ from urbantrips.dashboard.dash_storage import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _SalidaTolerante:
+    """Envuelve stdout/stderr para que escribir en una consola cerrada no rompa la página.
+
+    Si el servidor del dashboard se lanza en segundo plano y se cierra la terminal
+    que lo inició, cualquier ``print`` (propio o de las funciones del procesamiento
+    que el dashboard reutiliza) levanta ``OSError: [Errno 5] Input/output error``.
+    Los mensajes de consola no son necesarios para el dashboard, así que se descartan.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, texto):
+        try:
+            return self._stream.write(texto)
+        except (OSError, ValueError):
+            return len(texto)
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except (OSError, ValueError):
+            pass
+
+    def __getattr__(self, nombre):
+        return getattr(self._stream, nombre)
+
+
+def _proteger_salida_consola():
+    import sys
+
+    for nombre in ("stdout", "stderr"):
+        stream = getattr(sys, nombre)
+        if stream is not None and not isinstance(stream, _SalidaTolerante):
+            setattr(sys, nombre, _SalidaTolerante(stream))
+
+
+_proteger_salida_consola()
 
 
 def leer_alias(tipo="dash"):
@@ -115,7 +156,8 @@ def iniciar_conexion_db(tipo="data", alias_db="", read_only=None):
     return sqlite3.connect(db_path, timeout=10)
 
 
-def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None):
+def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=None,
+                    tabla_opcional=False):
     if alias_db and not alias_db.endswith("_"):
         alias_db += "_"
 
@@ -138,7 +180,10 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
     except (sqlite3.OperationalError, duckdb.Error, pd.io.sql.DatabaseError) as e:
         error_message = str(e).lower()
         if "no such table" in error_message or "does not exist" in error_message:
-            logger.warning("La tabla '%s' no existe.", tabla_sql)
+            # Tablas opcionales (p.ej. kpis_ramales) no existen en corridas sin
+            # esa salida: es esperable, no merece un warning.
+            log = logger.debug if tabla_opcional else logger.warning
+            log("La tabla '%s' no existe.", tabla_sql)
             tabla = pd.DataFrame([])
         else:
             raise
@@ -175,8 +220,10 @@ def _load_table_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="", params=
     return tabla
 
 @st.cache_data
-def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
-    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query, alias_db=alias_db)
+def levanto_tabla_sql(tabla_sql, tabla_tipo="dash", query="", alias_db="",
+                      tabla_opcional=False):
+    return _load_table_sql(tabla_sql, tabla_tipo=tabla_tipo, query=query,
+                           alias_db=alias_db, tabla_opcional=tabla_opcional)
 
 
 def levanto_tabla_sql_local(tabla_sql, tabla_tipo="dash", query="", alias_db=""):
@@ -1160,20 +1207,43 @@ def etiqueta_linea(nombre_linea, id_linea):
     return f"{nombre_linea} (id_linea: {id_linea})"
 
 
+_URL_LOGO = (
+    "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
+)
+
+
 @st.cache_data
 def get_logo():
-    file_logo = str(get_paths().base / "docs" / "urbantrips_logo.jpg")
-    if not os.path.isfile(file_logo):
-        # URL of the image file on Github
-        url = "https://raw.githubusercontent.com/EL-BID/UrbanTrips/main/docs/urbantrips_logo.jpg"
+    """Logo del dashboard. Nunca hace fallar la página: si no está en el
+    proyecto ni en el repo y no se puede bajar, devuelve una imagen vacía.
 
-        # Send a request to get the content of the image file
-        response = requests.get(url)
+    La raíz del proyecto sale del config con que se lanzó el dashboard, y un
+    config fuera del repo (p. ej. el de una corrida de prueba) apunta a una
+    raíz sin `docs/`; por eso también se busca junto al código.
+    """
+    candidatos = [
+        get_paths().base / "docs" / "urbantrips_logo.jpg",
+        Path(__file__).resolve().parents[2] / "docs" / "urbantrips_logo.jpg",
+    ]
+    for archivo in candidatos:
+        if archivo.is_file():
+            return Image.open(archivo)
 
-        # Save the content to a local file
-        with open(file_logo, "wb") as f:
-            f.write(response.content)
-    image = Image.open(file_logo)
+    try:
+        response = requests.get(_URL_LOGO, timeout=10)
+        response.raise_for_status()
+        image = Image.open(io.BytesIO(response.content))
+        image.load()
+    except Exception as e:
+        logger.warning("No se pudo obtener el logo (%s): sigo sin logo.", e)
+        return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+
+    # Se guarda para no volver a bajarlo; si no se puede, no importa.
+    try:
+        candidatos[0].parent.mkdir(parents=True, exist_ok=True)
+        candidatos[0].write_bytes(response.content)
+    except OSError as e:
+        logger.debug("No se pudo guardar el logo en %s: %s", candidatos[0], e)
     return image
 
 
@@ -1857,6 +1927,11 @@ def traigo_lista_zonas(tipo="etapas"):
     Replaces the old lookup over agg_etapas / poly_etapas (removed): zones
     now come straight from the zoning layers used to build
     equivalencias_zonas.
+
+    With ``tipo="etapas"`` (zone filters of Líneas de Deseo) only zones that
+    some chain touches (origin, transfers or destination) are listed: an H3
+    layer covers the whole bounding area and most cells have no trips, so
+    picking one just showed "No hay datos para mostrar".
     """
     zonas_values = levanto_tabla_sql(
         "zonificaciones",
@@ -1874,7 +1949,40 @@ def traigo_lista_zonas(tipo="etapas"):
         .rename(columns={"id": "Nombre"})
     )
 
+    if tipo == "etapas":
+        con_viajes = _zonas_con_viajes()
+        # Sin chains_norm o sin equivalencias no se puede saber: lista completa.
+        if len(con_viajes) > 0:
+            claves = set(zip(con_viajes["zona"], con_viajes["id"].astype(str)))
+            tiene = [
+                (z, str(n)) in claves
+                for z, n in zip(zonas_values["zona"], zonas_values["Nombre"])
+            ]
+            zonas_values = zonas_values[tiene]
+
     return zonas_values[["zona", "Nombre"]]
+
+
+def _zonas_con_viajes():
+    """(zona, id) pairs whose H3 cells hold some point of a chain in
+    chains_norm: the same four points the "OD y Transferencias" filter uses."""
+    if not asegurar_equivalencias_dash():
+        return pd.DataFrame(columns=["zona", "id"])
+    return levanto_tabla_sql(
+        "equivalencias_zonas",
+        "dash",
+        query="""
+            WITH h AS (
+                SELECT h3_inicio_norm AS h3 FROM chains_norm
+                UNION SELECT h3_transfer1_norm FROM chains_norm
+                UNION SELECT h3_transfer2_norm FROM chains_norm
+                UNION SELECT h3_fin_norm FROM chains_norm
+            )
+            SELECT DISTINCT e.zona, e.id
+            FROM equivalencias_zonas e
+            WHERE e.h3 IN (SELECT h3 FROM h)
+        """,
+    )
 
 
 # Claves de session_state que SOBREVIVEN al cambio de corrida. Todo lo demás se

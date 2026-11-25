@@ -75,3 +75,133 @@ def test_dash_utils_load_table_sql_missing_table_returns_empty(monkeypatch, tmp_
     assert isinstance(result, pd.DataFrame)
     assert result.empty
 
+
+
+def _zonificaciones_fake():
+    return pd.DataFrame(
+        {
+            "zona": ["res_7", "res_7", "res_7", "depto"],
+            "id": ["a", "b", "c", "1"],
+        }
+    )
+
+
+def test_traigo_lista_zonas_etapas_solo_zonas_con_viajes(monkeypatch):
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(
+        dash_utils, "levanto_tabla_sql", lambda *a, **k: _zonificaciones_fake()
+    )
+    # ids numericos en una capa y texto en la otra: se comparan como texto
+    monkeypatch.setattr(
+        dash_utils,
+        "_zonas_con_viajes",
+        lambda: pd.DataFrame({"zona": ["res_7", "depto"], "id": ["b", 1]}),
+    )
+
+    result = dash_utils.traigo_lista_zonas.__wrapped__("etapas")
+
+    assert list(zip(result.zona, result.Nombre)) == [("depto", "1"), ("res_7", "b")]
+
+
+def test_traigo_lista_zonas_sin_datos_de_viajes_lista_todo(monkeypatch):
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(
+        dash_utils, "levanto_tabla_sql", lambda *a, **k: _zonificaciones_fake()
+    )
+    monkeypatch.setattr(
+        dash_utils, "_zonas_con_viajes", lambda: pd.DataFrame(columns=["zona", "id"])
+    )
+
+    assert len(dash_utils.traigo_lista_zonas.__wrapped__("etapas")) == 4
+
+
+def test_traigo_lista_zonas_poligonos_no_filtra(monkeypatch):
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(
+        dash_utils, "levanto_tabla_sql", lambda *a, **k: _zonificaciones_fake()
+    )
+
+    def _no_llamar():
+        raise AssertionError("no deberia consultar viajes")
+
+    monkeypatch.setattr(dash_utils, "_zonas_con_viajes", _no_llamar)
+
+    assert len(dash_utils.traigo_lista_zonas.__wrapped__("poligonos")) == 4
+
+
+def test_zonas_con_viajes_cuenta_origen_transferencias_y_destino(
+    monkeypatch, tmp_path
+):
+    from urbantrips.dashboard import dash_utils
+
+    db_path = tmp_path / "dash.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE equivalencias_zonas AS
+            SELECT * FROM (VALUES
+                ('h_o', 'res_7', 'a'), ('h_t1', 'res_7', 'b'),
+                ('h_t2', 'res_7', 'c'), ('h_d', 'res_7', 'd'),
+                ('h_x', 'res_7', 'sin_viajes')
+            ) t(h3, zona, id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE chains_norm AS
+            SELECT 'h_o' AS h3_inicio_norm, 'h_t1' AS h3_transfer1_norm,
+                   'h_t2' AS h3_transfer2_norm, 'h_d' AS h3_fin_norm
+            UNION ALL
+            SELECT 'h_o', NULL, NULL, 'h_d'
+            """
+        )
+
+    monkeypatch.setattr(
+        dash_utils,
+        "iniciar_conexion_db",
+        lambda tipo="dash", alias_db="": duckdb.connect(str(db_path)),
+    )
+    monkeypatch.setattr(dash_utils, "asegurar_equivalencias_dash", lambda: True)
+
+    result = dash_utils._zonas_con_viajes()
+
+    assert sorted(result["id"]) == ["a", "b", "c", "d"]
+
+
+def test_get_logo_con_raiz_sin_docs_usa_el_logo_del_repo(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(dash_utils, "get_paths", lambda: SimpleNamespace(base=tmp_path))
+
+    def _sin_red(*a, **k):
+        raise AssertionError("no deberia descargar")
+
+    monkeypatch.setattr(dash_utils.requests, "get", _sin_red)
+
+    logo = dash_utils.get_logo.__wrapped__()
+
+    assert logo.size[0] > 1
+
+
+def test_get_logo_sin_logo_ni_red_no_falla(monkeypatch, tmp_path):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from urbantrips.dashboard import dash_utils
+
+    monkeypatch.setattr(dash_utils, "get_paths", lambda: SimpleNamespace(base=tmp_path))
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    def _sin_red(*a, **k):
+        raise OSError("sin conexion")
+
+    monkeypatch.setattr(dash_utils.requests, "get", _sin_red)
+
+    logo = dash_utils.get_logo.__wrapped__()
+
+    assert logo.size == (1, 1)

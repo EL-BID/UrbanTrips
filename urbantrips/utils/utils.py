@@ -211,6 +211,18 @@ _TUNING_DEFAULTS: dict = {
     # Rows of `gps` read per batch of lines in process_services.
     # None → 5_000_000 (services.SERVICES_GPS_BATCH_ROWS).
     "services_gps_batch_rows": None,
+    # Speed (km/h) below which a GPS point counts as idling when validating
+    # services. None → 2.0 (services.VELOCIDAD_DETENIDO_KMH).
+    "services_velocidad_detenido_kmh": None,
+    # Max plausible speed (km/h) between two consecutive GPS points of a vehicle.
+    # Faster segments are zeroed (GPS jump) or replaced by the straight-line
+    # distance (road-network artifact). None → 100.0
+    # (transactions.VELOCIDAD_MAXIMA_GPS_KMH).
+    "gps_velocidad_maxima_kmh": None,
+    # Minimum GPS coverage (share of legs that happen inside a valid service of
+    # their vehicle) for a line-day to get supply indicators. Below it they are
+    # left empty. None → 0.5 (kpi.cobertura.COBERTURA_GPS_MINIMA).
+    "kpi_cobertura_gps_minima": None,
     # Hard override for the per-day RAM cost used by _parallel_day_workers.
     # None → estimated from the run's actual row counts
     # (legs._estimated_day_footprint_gb).
@@ -247,6 +259,30 @@ def leer_configs_tuning() -> dict:
     except Exception as e:
         logger.warning("Could not load configs/tuning.yaml: %s — using defaults", e)
         return copy.deepcopy(_TUNING_DEFAULTS)
+
+
+def leer_tuning_num(clave: str, default, tipo=float):
+    """Valor numerico de una clave de primer nivel de configs/tuning.yaml.
+
+    Devuelve `default` si la clave no esta, o es nula o cero. Si el valor no se
+    puede convertir con `tipo`, o no es un numero finito mayor a cero, tambien
+    devuelve `default` y avisa en el log.
+    """
+    val = leer_configs_tuning().get(clave)
+    if val is None or val == "" or (not isinstance(val, bool) and val == 0):
+        return default
+    try:
+        if isinstance(val, bool):
+            raise ValueError("no es un numero")
+        num = float(val)
+        if not (math.isfinite(num) and num > 0):
+            raise ValueError("tiene que ser un numero finito mayor a cero")
+        return tipo(num)
+    except Exception as e:
+        logger.warning(
+            "tuning.yaml: %s = %r no es valido (%s); se usa %s", clave, val, e, default
+        )
+    return default
 
 
 def agrego_indicador(

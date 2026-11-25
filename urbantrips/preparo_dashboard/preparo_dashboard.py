@@ -163,22 +163,19 @@ def load_and_process_data(ctx: StorageContext):
     etapas[["kmh_od"]] = np.nan
     viajes[["kmh_od"]] = np.nan
 
-    etapas["travel_time_min"] = (
-        pd.to_numeric(etapas["travel_time_min"], errors="coerce").fillna(0).astype(int)
+    # Etapas y viajes con el mismo criterio: tiempo con decimales (truncarlo a
+    # minutos enteros duplicaba la velocidad de un tramo de 1,9 min) y tope de
+    # velocidad. Espejo de _TTM_*/_KMH_* en sql_queries.py.
+    etapas["travel_time_min"] = pd.to_numeric(
+        etapas["travel_time_min"], errors="coerce"
     )
-
-    etapas["kmh_od"] = np.where(
-        etapas["travel_time_min"] > 0,
-        (etapas["distance_od"] / (etapas["travel_time_min"] / 60)).round(1),
-        np.nan,
-    )
-
-    viajes["kmh_od"] = np.where(
-        viajes["travel_time_min"] > 0,
-        (viajes["distance_od"] / (viajes["travel_time_min"] / 60)).round(1),
-        np.nan,
-    )
-    viajes.loc[viajes["kmh_od"] >= VELOCIDAD_MAXIMA_KMH, "kmh_od"] = np.nan
+    for df in (etapas, viajes):
+        df["kmh_od"] = np.where(
+            df["travel_time_min"] > 0,
+            (df["distance_od"] / (df["travel_time_min"] / 60)).round(1),
+            np.nan,
+        )
+        df.loc[df["kmh_od"] >= VELOCIDAD_MAXIMA_KMH, "kmh_od"] = np.nan
 
     # ── 3. datetime window columns (stay in pandas) ────────────────
     logger.info("load_and_process_data: construyendo columnas de ventana temporal")
@@ -1570,7 +1567,9 @@ def resumen_x_linea(ctx: StorageContext):
         "cant_internos_en_trx", "cant_internos_en_gps",
         "tot_veh", "tot_km_route", "tot_pax",
         "dmt_mean_od", "dmt_median_od",
-        "pvd", "kvd_route", "ipk_route", "fo_mean_od", "fo_median_od",
+        "pvd", "kvd_route", "ipk_route",
+        # sin ella no se sabe por que la oferta de una linea esta vacia
+        "cobertura_gps",
     ]
 
     # Resumen por línea

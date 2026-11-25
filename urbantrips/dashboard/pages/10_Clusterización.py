@@ -8,10 +8,10 @@ from dash_utils import (
     get_logo,
     configurar_selector_corrida,
 )
-import numpy as np
 
 from clusters_utils import correr_clusters, normalizar_id_linea
 from urbantrips.storage.access import write_access
+from urbantrips.kpi.agregacion_indicadores import filas_promedios
 
 
 st.set_page_config(page_title="Indicadores Operativos por Línea", layout="wide")
@@ -96,15 +96,10 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
                         
                         kpis = st.session_state["tabla_mergeada"].copy()
 
-                        cols_excluir = ["dia", "mes"]
-                        cols_incluir = [
-                                c for c in kpis.select_dtypes(include=[np.number]).columns
-                                if c not in cols_excluir
-                            ]
-                        cols_incluir = ['id_linea', 'nombre_linea', 'empresa', 'modo'] + cols_incluir
-
-                        promedios = kpis.loc[kpis.dia!='Promedios', cols_incluir].groupby(['id_linea', 'nombre_linea', 'empresa', 'modo'], as_index=False).mean().copy()
-                        promedios['dia'] = 'Promedios'
+                        # mismo criterio que la fila Promedios de kpis_lineas
+                        promedios = filas_promedios(
+                            kpis, ['id_linea', 'nombre_linea', 'empresa', 'modo']
+                        )
                         promedios['mes'] = 'Promedios'
 
                         kpis_merged = kpis[kpis.dia!='Promedios']
@@ -133,15 +128,10 @@ with st.expander("🔗 Subir tabla externa y hacer merge"):
 
                         kpis = st.session_state["tabla_mergeada"].copy()
 
-                        cols_excluir = ["dia", "mes"]
-                        cols_incluir = [
-                                c for c in kpis.select_dtypes(include=[np.number]).columns
-                                if c not in cols_excluir
-                            ]
-                        cols_incluir = ['id_linea', 'nombre_linea', 'empresa', 'modo'] + cols_incluir
-
-                        promedios = kpis.loc[kpis.dia!='Promedios', cols_incluir].groupby(['id_linea', 'nombre_linea', 'empresa', 'modo'], as_index=False).mean().copy()
-                        promedios['dia'] = 'Promedios'
+                        # mismo criterio que la fila Promedios de kpis_lineas
+                        promedios = filas_promedios(
+                            kpis, ['id_linea', 'nombre_linea', 'empresa', 'modo']
+                        )
                         promedios['mes'] = 'Promedios'
 
                         kpis_merged = kpis[kpis.dia!='Promedios']

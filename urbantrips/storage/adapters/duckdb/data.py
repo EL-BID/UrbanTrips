@@ -119,7 +119,8 @@ def ensure_global_duckdb() -> None:
 
 # Tables with a 'dia' column, purged on delete_run_days
 _TABLES_WITH_DIA = [
-    "transacciones", "etapas", "viajes", "usuarios", "gps",
+    "transacciones", "etapas", "viajes", "usuarios", "gps", "gps_vehiculos",
+    "trx_vehiculos",
     "legs_to_gps_origin", "legs_to_gps_destination",
     "legs_to_station_origin", "legs_to_station_destination",
     "travel_times_stations",
@@ -254,23 +255,9 @@ class DuckDBDataAdapter:
         # id_gps_o/id_gps_d agregadas a travel_times_legs para QA de la imputacion
         # de anclas GPS. CREATE TABLE IF NOT EXISTS no las agrega en DBs ya
         # existentes, asi que se migran aca si la tabla existe sin esas columnas.
-        table_exists = self._conn.execute(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_name = 'travel_times_legs'"
-        ).fetchone()
-        if table_exists:
-            existing_cols = {
-                r[0]
-                for r in self._conn.execute(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'travel_times_legs'"
-                ).fetchall()
-            }
-            for col in ("id_gps_o", "id_gps_d"):
-                if col not in existing_cols:
-                    self._conn.execute(
-                        f"ALTER TABLE travel_times_legs ADD COLUMN {col} INT"
-                    )
+        self._add_columns_if_missing(
+            "travel_times_legs", (("id_gps_o", "INT"), ("id_gps_d", "INT"))
+        )
 
         # Columnas muertas quitadas del esquema el 2026-07-27. CREATE TABLE IF NOT
         # EXISTS no las saca de una DB ya creada, así que se dropean acá. En DuckDB
@@ -294,8 +281,49 @@ class DuckDBDataAdapter:
             if existe:
                 self._conn.execute(f"ALTER TABLE {tabla} DROP COLUMN {col}")
 
+        # Cobertura GPS y universo comun de los cocientes (kpi/cobertura.py).
+        for tabla in ("kpi_by_day_line", "kpi_by_day_branch"):
+            self._add_columns_if_missing(
+                tabla,
+                (
+                    ("tot_pax_servicio", "FLOAT"),
+                    ("cobertura_gps", "FLOAT"),
+                    ("tot_km_route_estimado", "FLOAT"),
+                    # capacidad del vehiculo con la que se calculo el FO
+                    ("capacidad", "FLOAT"),
+                ),
+            )
+
+        # horas_servicio y motivo_no_valido se agregaron a services junto con la
+        # regla de validez por tiempo detenido. Quedan NULL en los servicios ya
+        # guardados hasta que se reprocesen (--step legs).
+        self._add_columns_if_missing(
+            "services",
+            (("horas_servicio", "FLOAT"), ("motivo_no_valido", "TEXT")),
+        )
+
         # travel_times_gps se eliminó: nunca tuvo escritor tras el refactor.
         self._conn.execute("DROP TABLE IF EXISTS travel_times_gps")
+
+    def _add_columns_if_missing(self, tabla: str, columnas) -> None:
+        """ALTER TABLE ... ADD COLUMN para las columnas que la tabla no tenga.
+
+        CREATE TABLE IF NOT EXISTS no agrega columnas a una tabla ya creada. Si
+        la tabla todavía no existe no hace nada: la crea el DDL completo.
+        """
+        existentes = {
+            r[0]
+            for r in self._conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = ?",
+                [tabla],
+            ).fetchall()
+        }
+        if not existentes:
+            return
+        for col, tipo in columnas:
+            if col not in existentes:
+                self._conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {col} {tipo}")
 
     # ── batch helpers ─────────────────────────────────────────────────────────
 
@@ -1225,7 +1253,9 @@ class DuckDBDataAdapter:
     def save_services(self, df: pd.DataFrame) -> None:
         self._conn.register("_svc_df", df)
         try:
-            self._conn.execute("INSERT INTO services SELECT * FROM _svc_df")
+            # BY NAME: el insert por posición se rompe en silencio si el orden de
+            # columnas del df y el de la tabla dejan de coincidir.
+            self._conn.execute("INSERT INTO services BY NAME SELECT * FROM _svc_df")
         finally:
             self._conn.unregister("_svc_df")
 

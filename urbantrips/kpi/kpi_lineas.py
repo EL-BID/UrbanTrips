@@ -6,15 +6,34 @@ from pathlib import Path
 from urbantrips.utils import utils
 from urbantrips.utils.dataframe import (
     combinar_conteo_distintos,
-    combinar_suma,
     dias_para_leer_por_dia,
     leer_dia,
 )
 from urbantrips.utils.utils import duracion
+from urbantrips.kpi.agregacion_indicadores import filas_promedios
+from urbantrips.kpi.cobertura import (
+    lineas_dia_sin_oferta,
+    universo_de_oferta,
+    vaciar_oferta_sin_cobertura,
+)
+from urbantrips.datamodel.gps_vehiculos import (
+    clave_interno,
+    equipos_mezclados,
+    leer_gps_no_validos,
+    leer_vehiculos_de_trx,
+    lineas_de_formaciones,
+    mapear_interno_a_vehiculo,
+)
 from urbantrips.storage.context import StorageContext
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Precisión con la que se guardan los indicadores no enteros de kpis_lineas y
+# kpis_ramales. Se redondea una sola vez y con margen: redondear a 1 decimal antes
+# de agregar perdía información (un FO de 0,14 quedaba en 0,1) y el error se
+# arrastraba a los promedios. El redondeo para mostrar lo hace el dashboard.
+DECIMALES_KPI = 3
 
 
 def _sql_in_values(values):
@@ -116,7 +135,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
     vel_comercial_linea_all = (
         servicios.groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
     )
 
     # Velocidad comercial AM
@@ -124,7 +143,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
         servicios[filtro_pico_am]
         .groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
         .rename(columns={
             "velocidad_comercial_route": "velocidad_comercial_am_route",
             "velocidad_comercial_route_gps": "velocidad_comercial_am_route_gps",
@@ -139,7 +158,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
         servicios[filtro_pico_pm]
         .groupby(_g, as_index=False)[_vc_cols]
         .mean()
-        .round(1)
+        .round(DECIMALES_KPI)
         .rename(columns={
             "velocidad_comercial_route": "velocidad_comercial_pm_route",
             "velocidad_comercial_route_gps": "velocidad_comercial_pm_route_gps",
@@ -162,7 +181,7 @@ def cal_velocidad_comercial(servicios, entidad=None):
             "distance_route": "distancia_media_veh_route",
             "distance_route_gps": "distancia_media_veh_route_gps",
         })
-        .round(1)
+        .round(DECIMALES_KPI)
     )
 
     vel_comercial_linea = vel_comercial_linea.merge(km_recorridos_linea, how="left")
@@ -170,11 +189,71 @@ def cal_velocidad_comercial(servicios, entidad=None):
     return vel_comercial_linea
 
 
+def vehiculos_de_transacciones(trx, con_gps, lineas_guiadas, no_validos,
+                                trx_vehiculos=None):
+    """Deja en `trx` un `interno` que identifica al vehiculo, para contar
+    vehiculos con transacciones en vez de equipos de validacion.
+
+    - Los equipos de una misma formacion (`gps_vehiculos`) pasan al interno
+      principal de su vehiculo: un tranvia con seis validadoras es un vehiculo.
+    - En los modos guiados (tren, metro, tranvia) se sacan los internos sin GPS
+      ese dia: son validadoras de estacion o molinetes, que no son vehiculos (o
+      alguna validadora a bordo sin GPS, cuyo vehiculo ya cuenta por las otras).
+      Con los datos no se distinguen de un vehiculo sin GPS, y en esos modos lo
+      habitual es lo primero.
+    - En esos mismos modos, un equipo con dos vehiculos mezclados
+      (`gps_con_saltos`) son validadoras que van en formaciones distintas: sus
+      transacciones pasan al vehiculo asignado en `trx_vehiculos` y el equipo no
+      cuenta como vehiculo (tampoco por las que no se pudieron asignar).
+    - En el resto de los modos un interno sin GPS sigue siendo un vehiculo.
+
+    El vehiculo se identifica por (linea, interno): el mismo numero en dos
+    lineas son dos vehiculos.
+    """
+    if len(trx) == 0:
+        return trx
+    guiada = trx["id_linea"].isin(lineas_guiadas)
+    if guiada.any():
+        tiene_gps = clave_interno(trx).isin(clave_interno(con_gps))
+        trx = trx.loc[~guiada.to_numpy() | tiene_gps]
+    trx = mapear_interno_a_vehiculo(trx, no_validos, trx_vehiculos)
+    mezclados = equipos_mezclados(no_validos, lineas_guiadas)
+    if len(trx) and len(mezclados):
+        # la clave completa se arma solo para las filas candidatas
+        candidatas = trx["interno"].isin(mezclados["interno"]).to_numpy()
+        if candidatas.any():
+            quitar = clave_interno(trx.loc[candidatas]).isin(clave_interno(mezclados))
+            idx = trx.index[candidatas][quitar]
+            trx = trx.drop(index=idx)
+    return trx
+
+
+def _avisar_si_falta_reprocesar(no_validos, lineas_guiadas, trx_vehiculos_por_dia):
+    """Aviso si hay dias con equipos mezclados en lineas con formaciones pero
+    sin transacciones reasignadas en `trx_vehiculos`: casi siempre es una base
+    procesada antes de esa tabla. Sus transacciones no pasan a ningun vehiculo
+    y `cant_internos_en_trx` queda por debajo hasta reprocesar."""
+    mezclados = equipos_mezclados(no_validos, lineas_guiadas)
+    if len(mezclados) == 0:
+        return
+    sin_asignar = sorted(
+        set(mezclados["dia"].astype(str)) - set(trx_vehiculos_por_dia)
+    )
+    if sin_asignar:
+        logger.warning(
+            "Hay equipos con vehiculos mezclados (tranvia, tren, metro) sin "
+            "transacciones reasignadas en trx_vehiculos en %s: si la base se "
+            "proceso antes de esa tabla, reprocesar la corrida. Mientras tanto "
+            "'vehiculos con transacciones' puede quedar por debajo en esas lineas.",
+            ", ".join(sin_asignar),
+        )
+
+
 def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=None):
     """Insumos para `agrego_lineas`, agregados al nivel de `entidad`.
 
     `entidad` es `["id_linea"]` (default) o `["id_linea", "id_ramal"]`. En el
-    segundo caso la flota, la velocidad comercial y los KPI de demanda se leen
+    segundo caso la velocidad comercial y los KPI de demanda se leen
     y agregan por ramal: los KPI vienen de `kpi_by_day_branch`, que escribe
     `compute_kpi_by_branch_day` cuando `lineas_contienen_ramales` es True.
 
@@ -188,9 +267,9 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     # `gps` y `transacciones` son las dos tablas mas grandes de la corrida.
     # Materializarlas enteras cuesta ~20 GB y ~10 GB a escala de un mes (mas la
     # columna `dia` que se deriva de `fecha`, otros 62 B/fila) y no entran en la
-    # maquina del cliente. Lo unico que se les pide son tres agregados que
-    # llevan `dia` en la clave -- la flota, los internos con GPS y los internos
-    # con transacciones -- asi que se leen de a un dia y se combinan los
+    # maquina del cliente. Lo unico que se les pide son dos agregados que
+    # llevan `dia` en la clave -- los internos con GPS y los internos con
+    # transacciones -- asi que se leen de a un dia y se combinan los
     # parciales. `dias` acota las lecturas (tablas acumulativas) a los dias del
     # proc-mat: las filas de salida de agrego_lineas se anclan en el mat, leer
     # mas dias es descarte.
@@ -198,9 +277,8 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
 
     _where = dias_where_clause(dias)
 
-    lineas = ctx.insumos.get_metadata_lineas()[
-        ["id_linea", "nombre_linea", "empresa"]
-    ].drop_duplicates()
+    meta = ctx.insumos.get_metadata_lineas()
+    lineas = meta[["id_linea", "nombre_linea", "empresa"]].drop_duplicates()
 
     _tabla_kpi = "kpi_by_day_branch" if por_ramal else "kpi_by_day_line"
     try:
@@ -216,34 +294,53 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
 
     cols = ["dia"] + entidad
 
-    # Procesamiento de GPS y calculo de flota. El `dia` se deriva de `fecha`
-    # (no es la columna `dia` de la tabla, por la que se chunkea), asi que un
-    # grupo puede quedar partido entre dos chunks: combinar_* lo vuelve a unir.
-    flota_parc, gps_parc = [], []
+    # Procesamiento de GPS. El `dia` se deriva de `fecha` (no es la columna
+    # `dia` de la tabla, por la que se chunkea), asi que un grupo puede quedar
+    # partido entre dos chunks: combinar_* lo vuelve a unir.
+    gps_parc = []
     for dia in dias_para_leer_por_dia(ctx.data.query, "gps", dias):
         dia_gps = leer_dia(
             ctx.data.query, "gps", ["fecha", "id_linea", "id_ramal", "interno"], dia,
         )
         dia_gps["fecha"] = pd.to_datetime(dia_gps["fecha"], unit="s")
         dia_gps["dia"] = dia_gps["fecha"].dt.strftime("%Y-%m-%d")
-        flota_parc.append(dia_gps.groupby(cols, as_index=False).size())
         gps_parc.append(dia_gps.groupby(cols + ["interno"], as_index=False).size())
         del dia_gps
 
-    flota = combinar_suma(flota_parc, cols, "size", observed=False).rename(
-        columns={"size": "flota"}
-    )
     gps_agg = combinar_conteo_distintos(
         gps_parc, cols, "cant_internos_en_gps", observed=False
     )
-    del flota_parc, gps_parc
+    # internos con GPS de cada dia y linea, para contar los vehiculos con
+    # transacciones
+    con_gps = (
+        pd.concat(gps_parc, ignore_index=True)[["dia", "id_linea", "interno"]]
+        .drop_duplicates()
+        if gps_parc
+        else pd.DataFrame(columns=["dia", "id_linea", "interno"])
+    )
+    del gps_parc
 
-    # Procesamiento de transacciones
+    # Procesamiento de transacciones: se cuentan vehiculos, no equipos (ver
+    # `vehiculos_de_transacciones`)
+    lineas_guiadas = list(lineas_de_formaciones(dict(zip(meta["id_linea"], meta["modo"]))))
+    no_validos = leer_gps_no_validos(ctx, dias)
+    trx_vehiculos = leer_vehiculos_de_trx(ctx, dias)
+    trx_vehiculos_por_dia = dict(tuple(trx_vehiculos.groupby(trx_vehiculos["dia"].astype(str))))
+    _avisar_si_falta_reprocesar(no_validos, lineas_guiadas, trx_vehiculos_por_dia)
+
     internos_parc = []
     for dia in dias_para_leer_por_dia(ctx.data.query, "transacciones", dias):
+        # `id` solo hace falta (y solo se lee) si el dia tiene transacciones
+        # reasignadas en trx_vehiculos
+        trx_veh_dia = trx_vehiculos_por_dia.get(str(dia))
         dia_trx = leer_dia(
             ctx.data.query, "transacciones",
-            ["dia", "id_linea", "id_ramal", "interno"], dia,
+            ["dia", "id_linea", "id_ramal", "interno"]
+            + (["id"] if trx_veh_dia is not None else []),
+            dia,
+        )
+        dia_trx = vehiculos_de_transacciones(
+            dia_trx, con_gps, lineas_guiadas, no_validos, trx_veh_dia
         )
         internos_parc.append(dia_trx.groupby(cols + ["interno"], as_index=False).size())
         del dia_trx
@@ -256,7 +353,10 @@ def levanto_data(ctx: StorageContext, etapas=[], viajes=[], dias=None, entidad=N
     # Calculo de velocidad comercial
     vel_comercial_linea = cal_velocidad_comercial(servicios, entidad=entidad)
 
-    kpis_varios = flota.merge(vel_comercial_linea, how="left").merge(kpis, how="left")
+    # Una fila por cada linea (o ramal) y dia con GPS, tenga o no servicios.
+    kpis_varios = (
+        gps_agg[cols].merge(vel_comercial_linea, how="left").merge(kpis, how="left")
+    )
 
     return internos_agg, gps_agg, servicios, kpis_varios, lineas
 
@@ -320,7 +420,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             source=etapas_source,
             cte_prefix=etapas_cte_prefix,
         )
-        .round(2)
+        .round(DECIMALES_KPI)
         .rename(columns={"distance_od": "distancia_media_pax"})
     )
 
@@ -393,9 +493,8 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     # Redondeo de valores
     all["transacciones"] = all["transacciones"].round(0)
     all["tot_pax"] = all["tot_pax"].round(0).fillna(0)
-    all["flota"] = all["flota"].round(0)
-    all["serv_min_ts"] = all["serv_min_ts"].round(2)
-    all = all.round({col: 2 for col in all.select_dtypes(include="float").columns})
+    all["serv_min_ts"] = all["serv_min_ts"].round(DECIMALES_KPI)
+    all = all.round({col: DECIMALES_KPI for col in all.select_dtypes(include="float").columns})
 
     for i in [
         "Femenino",
@@ -419,6 +518,15 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
         veh_validos, on=cols, how="left"
     )
 
+    # El umbral de cobertura GPS se aplico al calcular kpi_by_day_line: ahi
+    # quedaron sin km las lineas-dia bajo el umbral. Se sigue esa decision (en
+    # vez de volver a leer tuning.yaml, que pudo cambiar entre los dos pasos)
+    # antes de que los km se reemplacen con los de los servicios.
+    if "cobertura_gps" in all.columns and "tot_km_route" in all.columns:
+        sin_oferta = lineas_dia_sin_oferta(all) & all["serv_distance_route"].notna()
+    else:
+        sin_oferta = pd.Series(False, index=all.index)
+
     # tot_km_route: solo km de servicios con valid=1
     all["tot_km_route"] = all["serv_distance_route"]
     # idem para la familia _route_gps (odómetro). Si el insumo no lo trae, la
@@ -434,18 +542,34 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
     # tot_veh sincronizado con vehiculos_operativos corregido
     all["tot_veh"] = all["vehiculos_operativos"]
 
+    # Cobertura GPS y pasajeros dentro de servicios validos: vienen de
+    # kpi_by_day_line / _branch. En una base anterior a esas columnas quedan
+    # nulas y los cocientes usan todos los pasajeros, como antes.
+    # `capacidad` (la del factor de ocupacion) tambien viene de ahi; en una base
+    # anterior queda nula y los promedios del FO se ponderan solo por km.
+    for col in ("cobertura_gps", "tot_pax_servicio", "capacidad"):
+        if col not in all.columns:
+            all[col] = np.nan
+        all[col] = pd.to_numeric(all[col], errors="coerce").astype("float64")
+    pax, km_estimados = universo_de_oferta(all)
+    all["tot_km_route_estimado"] = km_estimados.round(DECIMALES_KPI)
+
     # Recalcular ratios que dependen de tot_veh y tot_km_route
-    all["pvd"] = (all["tot_pax"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(1)
-    all["ipk_route"] = (all["tot_pax"] / all["tot_km_route"].replace(0, pd.NA)).round(1)
+    all["pvd"] = (pax / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["kvd_route"] = (all["tot_km_route"] / all["tot_veh"].replace(0, pd.NA)).round(DECIMALES_KPI)
+    all["ipk_route"] = (pax / all["tot_km_route"].replace(0, pd.NA)).round(DECIMALES_KPI)
     # los mismos ratios sobre los km del odómetro, para que las dos familias de
     # recorrido sean simétricas y comparables
     all["kvd_route_gps"] = (
         all["tot_km_route_gps"] / all["tot_veh"].replace(0, pd.NA)
-    ).round(1)
+    ).round(DECIMALES_KPI)
     all["ipk_route_gps"] = (
-        all["tot_pax"] / all["tot_km_route_gps"].replace(0, pd.NA)
-    ).round(1)
+        pax / all["tot_km_route_gps"].replace(0, pd.NA)
+    ).round(DECIMALES_KPI)
+
+    # Con cobertura GPS menor al umbral la oferta medida describe una parte
+    # chica de la operacion: sus indicadores quedan sin calcular.
+    all = vaciar_oferta_sin_cobertura(all, filas=sin_oferta)
 
     # `id_ramal` solo aparece cuando se está agregando por ramal (cols lo trae)
     _id_cols = ["dia", "mes", "id_linea"]
@@ -467,7 +591,6 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "kmh_od",
             "cant_internos_en_gps",
             "cant_internos_en_trx",
-            "flota",
             "vehiculos_operativos",
             "velocidad_comercial_route",
             "velocidad_comercial_route_gps",
@@ -491,12 +614,13 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             "kvd_route_gps",
             "ipk_route",
             "ipk_route_gps",
-            "fo_mean_od",
             "fo_mean_route",
             "fo_mean_route_gps",
-            "fo_median_od",
             "fo_median_route",
             "fo_median_route_gps",
+            "cobertura_gps",
+            "tot_km_route_estimado",
+            "capacidad",
         ]
     ]
 
@@ -523,7 +647,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis_varios, lineas,
             # to_numeric y no astype(float): una columna que quedó entera en
             # nulos (p. ej. la familia _route_gps cuando el insumo no trae
             # odómetro) llega con dtype object y NAType, y astype(float) falla
-            all[i] = pd.to_numeric(all[i], errors="coerce").astype(float).round(1)
+            all[i] = pd.to_numeric(all[i], errors="coerce").astype(float).round(DECIMALES_KPI)
 
     return all
 
@@ -555,13 +679,9 @@ def calculo_kpi_lineas(ctx: StorageContext, etapas=[], viajes=[]):
     ctx.general.append_raw(kpis, "kpis_lineas")
 
     df = ctx.general.get_raw("kpis_lineas")
-    tot = (
-        df.drop(["dia", "mes"], axis=1)
-        .groupby(["id_linea", "nombre_linea", "empresa", "modo"], as_index=False)
-        .mean()
+    tot = filas_promedios(
+        df, ["id_linea", "nombre_linea", "empresa", "modo"], decimales=DECIMALES_KPI
     )
-    tot["dia"] = "Promedios"
-    tot["mes"] = ""
     df = pd.concat([df, tot], ignore_index=True)
 
     # replace the whole table including the new averages row
@@ -627,9 +747,7 @@ def calculo_kpi_ramales(ctx: StorageContext):
     df = ctx.general.get_raw("kpis_ramales")
     _claves = [c for c in ["id_linea", "id_ramal", "nombre_linea", "nombre_ramal",
                            "empresa", "modo"] if c in df.columns]
-    tot = df.drop(["dia", "mes"], axis=1).groupby(_claves, as_index=False).mean()
-    tot["dia"] = "Promedios"
-    tot["mes"] = ""
+    tot = filas_promedios(df, _claves, decimales=DECIMALES_KPI)
     df = pd.concat([df, tot], ignore_index=True)
 
     all_dias = df.dia.unique().tolist()

@@ -15,6 +15,22 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
+RADIO_TIERRA_KM = 6371.0088
+
+
+def distancia_recta_km(lat1, lon1, lat2, lon2):
+    """Distancia en linea recta (haversine) en km. Acepta arrays; NaN si falta
+    alguna coordenada."""
+    lat1, lon1, lat2, lon2 = (
+        np.radians(np.asarray(x, dtype="float64")) for x in (lat1, lon1, lat2, lon2)
+    )
+    a = (
+        np.sin((lat2 - lat1) / 2) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
+    )
+    return 2 * RADIO_TIERRA_KM * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
+
+
 def find_closest_h3_neighbor(h3_cell, neighbors):
     """
     Finds the closest h3 neighbor to a given h3 cell from a list of neighbors.

@@ -18,6 +18,7 @@ from urbantrips.utils.utils import (
     is_date_string,
 )
 from urbantrips.storage.context import StorageContext
+from urbantrips.datamodel.gps_vehiculos import leer_gps_no_validos, quitar_gps_no_validos
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +247,8 @@ def compute_section_supply_stats(gps, route_geoms):
 
         # El ingest anula distance_km en los intervalos más largos que el
         # percentil 99,5 del día (el vehículo estuvo apagado): se sacan también
-        # acá para que no sumen tiempo sin distancia.
+        # acá para que no sumen tiempo sin distancia. Los saltos del GPS, que
+        # el ingest también deja en 0, tienen intervalos cortos y no se sacan.
         if len(speed_gps) > 0:
             umbral_hueco = speed_gps.delta_hours.groupby(speed_gps.dia).transform(
                 lambda x: x.quantile(0.995)
@@ -352,6 +354,14 @@ def read_gps_data_by_line_hours_and_day(
 
     gps = ctx.data.query(q_main)
 
+    if len(gps) == 0:
+        return None
+
+    # Internos que no son un vehiculo (equipos secundarios de una formacion,
+    # trazas con dos vehiculos mezclados): no cuentan como oferta.
+    gps = quitar_gps_no_validos(
+        gps, leer_gps_no_validos(ctx, dias=[day_type] if day_type_is_a_date else dias)
+    )
     if len(gps) == 0:
         return None
 

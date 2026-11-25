@@ -27,6 +27,11 @@ from urbantrips.utils.utils import (
     RAMAL_SENTINEL,
 )
 from urbantrips.utils.parallel import cosechar
+from urbantrips.datamodel.gps_vehiculos import (
+    MOTIVO_SALTOS,
+    leer_gps_no_validos,
+    quitar_gps_no_validos,
+)
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.ports import BatchSpec
 from urbantrips.kpi.leg_direction import (
@@ -674,7 +679,8 @@ def assign_gps_origin(ctx: StorageContext):
         # las mismas proyecciones flacas que lee _fetch_origin_inputs
         _tabla("etapas", ["dia", "id_linea", "id_ramal", "interno", "tiempo", "id"]),
         _tabla("gps", ["dia", "id_linea", "id_ramal", "interno", "fecha", "id"]),
-    ])
+    # sin medicion propia: un merge_asof sobre 6 columnas flacas, el 2.0 alcanza
+    ], factor=_PANDAS_COPY_AMPLIFICATION)
 
     if n_workers <= 1:
         # ── Camino serial (comportamiento previo, mismos resultados) ──
@@ -731,6 +737,20 @@ def _fetch_time_distance_inputs_dia(ctx, dia, next_dia):
         WHERE g.dia IN ({gps_str})
         ORDER BY dia, id_linea, id_ramal, interno, fecha
         """)
+    # Internos con dos vehiculos mezclados en una traza: el punto GPS de destino
+    # puede ser de otro vehiculo. Sus etapas se tratan como las de un vehiculo
+    # sin GPS (sin tiempo de viaje ni distancia por recorrido); conservan
+    # distance_od. Los equipos secundarios de una formacion no se tocan: su
+    # traza es buena.
+    no_validos = leer_gps_no_validos(ctx, dias=gps_dias)
+    con_saltos = no_validos[no_validos["motivo"] == MOTIVO_SALTOS]
+    if next_dia:
+        # Las etapas de `dia` tampoco buscan destino en la madrugada siguiente
+        # del mismo interno, aunque ese dia su traza sea buena: quedarian con
+        # un viaje de horas.
+        hoy = con_saltos[con_saltos["dia"].astype(str) == str(dia)]
+        con_saltos = pd.concat([con_saltos, hoy.assign(dia=next_dia)])
+    gps = quitar_gps_no_validos(gps, con_saltos)
     legs_to_gps_o = ctx.data.query(f"""
         SELECT lo.id_legs, lo.id_gps AS id_gps_o
         FROM legs_to_gps_origin lo
@@ -1046,6 +1066,8 @@ _OBJECT_COL_BYTES = 70.0
 # Las columnas leidas son el PISO del consumo del dia: el computo arma copias
 # intermedias (merge con la matriz, reindex, groupbys) y, al despachar a un worker,
 # el frame vive a la vez en el main, en el buffer de pickle y en el worker.
+# Es el factor de infer_destinations y assign_time_distances (assign_gps_origin lo
+# usa sin medicion propia); chains tiene el suyo (_CHAINS_COPY_AMPLIFICATION).
 # Calibrado contra dos picos observados a escala AMBA, ambos ~18-22 GB por dia con
 # ~10 GB de insumos leidos: nuestra corrida del 2026-08-12 (2 workers, 64 GB, al
 # limite) y la del cliente del 2026-08-23 (2 workers, 61 GB, OOM).
@@ -1139,32 +1161,16 @@ def _estimated_day_footprint_gb(ctx, dias, tables) -> float:
     return _day_memory_model(ctx, dias, tables).por_dia
 
 
-def _day_memory_model(ctx, dias, tables) -> _ModeloRam:
-    """GB que consume procesar UN dia, estimados de los datos de la corrida.
+def _insumos_bytes(ctx, dias, tables):
+    """Bytes en pandas de lo que la etapa lee para un dia, sin factor ni piso.
 
-    `_parallel_day_workers` resuelve el PRESUPUESTO con la RAM libre real, pero el
-    divisor era la constante 12 GB: el presupuesto se adaptaba a la maquina y la
-    demanda no se adaptaba a los datos. Por eso a 7,5 M etapas/dia (AMBA) elegia 2
-    workers cuando el pico real por dia era 18-22 GB, y el cliente se comio un
-    BrokenProcessPool por OOM el 2026-08-23.
+    Es la base contra la que se multiplica el factor de copias. La usa tambien
+    tools/medir_footprint_dia.py, asi el factor se calibra contra la misma cuenta.
 
-    `tables` describe lo que la etapa sostiene por dia. Se arma con el helper `_tabla`,
-    que refleja la lectura REAL de esa etapa: sus columnas, cuantos dias lee y con que
-    filtro. Importa que sea fiel — medido sobre AMBA, cobrar `etapas` entera cuando la
-    etapa lee 12 de sus 24 columnas sobreestima 1,7x y tira paralelismo a la basura.
-
-    Override duro: `parallel_day_gb` en configs/tuning.yaml (si lo forzas, sos vos
-    quien garantiza que entra en RAM).
+    Returns
+    -------
+    (fijas_bytes, dia_bytes, detalle)
     """
-    try:
-        from urbantrips.utils.utils import leer_configs_tuning
-        override = leer_configs_tuning().get("parallel_day_gb")
-        if override:
-            # Forzado: el operador se hace cargo, no se le suma nada.
-            return _ModeloRam(max(0.1, float(override)), 0.0)
-    except Exception as e:
-        logger.debug("[day_footprint] override ilegible: %s", e)
-
     fijas_bytes = 0.0
     dia_bytes = 0.0
     detalle = []
@@ -1186,9 +1192,44 @@ def _day_memory_model(ctx, dias, tables) -> _ModeloRam:
         else:
             fijas_bytes += table_bytes
         detalle.append(f"{table} {rows:,} filas = {table_bytes / 2**30:.1f} GB")
+    return fijas_bytes, dia_bytes, detalle
+
+
+def _day_memory_model(
+    ctx, dias, tables, factor=_PANDAS_COPY_AMPLIFICATION
+) -> _ModeloRam:
+    """GB que consume procesar UN dia, estimados de los datos de la corrida.
+
+    `_parallel_day_workers` resuelve el PRESUPUESTO con la RAM libre real, pero el
+    divisor era la constante 12 GB: el presupuesto se adaptaba a la maquina y la
+    demanda no se adaptaba a los datos. Por eso a 7,5 M etapas/dia (AMBA) elegia 2
+    workers cuando el pico real por dia era 18-22 GB, y el cliente se comio un
+    BrokenProcessPool por OOM el 2026-08-23.
+
+    `tables` describe lo que la etapa sostiene por dia. Se arma con el helper `_tabla`,
+    que refleja la lectura REAL de esa etapa: sus columnas, cuantos dias lee y con que
+    filtro. Importa que sea fiel — medido sobre AMBA, cobrar `etapas` entera cuando la
+    etapa lee 12 de sus 24 columnas sobreestima 1,7x y tira paralelismo a la basura.
+
+    `factor` es el multiplicador de copias intermedias de ESA etapa (cada etapa lo
+    declara en su call site; ver `_plan_paralelo`).
+
+    Override duro: `parallel_day_gb` en configs/tuning.yaml (si lo forzas, sos vos
+    quien garantiza que entra en RAM).
+    """
+    try:
+        from urbantrips.utils.utils import leer_configs_tuning
+        override = leer_configs_tuning().get("parallel_day_gb")
+        if override:
+            # Forzado: el operador se hace cargo, no se le suma nada.
+            return _ModeloRam(max(0.1, float(override)), 0.0)
+    except Exception as e:
+        logger.debug("[day_footprint] override ilegible: %s", e)
+
+    fijas_bytes, dia_bytes, detalle = _insumos_bytes(ctx, dias, tables)
 
     insumos_gb = (fijas_bytes + dia_bytes) / 2**30
-    por_dia = max(insumos_gb * _PANDAS_COPY_AMPLIFICATION, _MIN_DAY_FOOTPRINT_GB)
+    por_dia = max(insumos_gb * factor, _MIN_DAY_FOOTPRINT_GB)
 
     # Lo que el MAIN sostiene ademas del buffer de DuckDB, y que `reserva_main` (que
     # es solo el memory_limit) ignoraba: los insumos fijos, que se cargan una vez y
@@ -1200,33 +1241,36 @@ def _day_memory_model(ctx, dias, tables) -> _ModeloRam:
     logger.info(
         "[day_footprint] %.1f GB por dia (insumos %.1f GB x%.1f copias) "
         "+ %.1f GB que retiene el main — %s",
-        por_dia, insumos_gb, _PANDAS_COPY_AMPLIFICATION, main_extra,
+        por_dia, insumos_gb, factor, main_extra,
         "; ".join(detalle) or "sin tablas",
     )
     return _ModeloRam(por_dia, main_extra)
 
 
-def _plan_paralelo(ctx, dias, tables):
+def _plan_paralelo(ctx, dias, tables, *, factor):
     """Como `_day_workers_for`, pero devuelve TAMBIEN el modelo que lo decidio.
 
     `_day_workers_for` computaba el `_ModeloRam` y lo tiraba. Cuando el pool muere,
     el diagnostico necesita el `por_dia` estimado para poder sugerir un
     `parallel_day_gb` concreto en vez de mandar al operador a adivinar.
 
+    `factor` es obligatorio: cada etapa declara el suyo, para que ninguna herede en
+    silencio uno medido sobre otra (chains heredaba el 2.0 y se quedaba sin RAM).
+
     Returns
     -------
     (int, _ModeloRam)
     """
-    modelo = _day_memory_model(ctx, dias, tables)
+    modelo = _day_memory_model(ctx, dias, tables, factor=factor)
     n_workers = _parallel_day_workers(
         len(dias), per_day_gb=modelo.por_dia, main_extra_gb=modelo.main_extra
     )
     return n_workers, modelo
 
 
-def _day_workers_for(ctx, dias, tables) -> int:
+def _day_workers_for(ctx, dias, tables, *, factor) -> int:
     """Atajo: mide el dia y decide cuantos workers entran. Lo que usan los call sites."""
-    return _plan_paralelo(ctx, dias, tables)[0]
+    return _plan_paralelo(ctx, dias, tables, factor=factor)[0]
 
 
 def _parallel_day_workers(
@@ -1455,7 +1499,7 @@ def assign_time_distances(ctx: StorageContext):
             # _fetch_time_distance_inputs_dia lee el gps del dia Y del siguiente
             _tabla("gps", None, dias=2),
             _tabla("legs_to_gps_origin", ["id_legs", "id_gps"]),
-        ])
+        ], factor=_PANDAS_COPY_AMPLIFICATION)
     else:
         n_workers, modelo = 1, None
 

@@ -7,10 +7,11 @@ match — column for column — those built by load_and_process_data() in pandas
 
 Parity notes (each one reproduces a specific pandas transform; do not "fix"
 without re-running the proc-CTE parity probe):
-- viajes.kmh_od is capped at VELOCIDAD_MAXIMA_KMH (>= cap -> NULL) then 0-filled.
-  etapas.kmh_od is NOT capped, only 0-filled.
-- etapas.travel_time_min is truncated to int (pandas .astype(int)); viajes keeps
-  the fractional value. Both are 0-filled.
+- kmh_od (etapas and viajes) is capped at VELOCIDAD_MAXIMA_KMH (>= cap -> NULL)
+  then 0-filled.
+- travel_time_min (etapas and viajes) keeps the fractional value, 0-filled.
+  Etapas used to truncate it to whole minutes and skip the cap: a 1.9-min leg
+  counted as 1 min and its speed doubled (Mendoza saw lines at 275 km/h).
 - distancia_agregada uses the *singular* viaje labels emitted by
   clasificar_distancia_agregada(nivel="viaje").
 """
@@ -62,7 +63,7 @@ def _fmt(expr: str, col: str) -> str:
 
 # ── travel_time_min / kmh_od expressions (parity-critical) ───────────────────
 #
-# viajes: fractional ttm, 0-filled; kmh from fractional ttm, capped >= cap, 0-filled.
+# fractional ttm, 0-filled; kmh from fractional ttm, capped >= cap, 0-filled.
 _TTM_VIAJE = "COALESCE(CAST(tt.travel_time_min AS DOUBLE), 0)"
 # round_even == numpy/pandas half-to-even; plain ROUND would diverge on x.x5 ties.
 # Compute the ratio in REAL (float32) to mirror pandas' float32 arithmetic, else
@@ -81,17 +82,9 @@ _KMH_VIAJE = f"""
         END, 0)
 """
 
-# etapas: ttm truncated to int (pandas .astype(int)) then 0-filled; kmh from the
-# truncated ttm, NOT capped, 0-filled.
-_TTM_ETAPA = "TRUNC(COALESCE(CAST(tt.travel_time_min AS DOUBLE), 0))"
-_KMH_ETAPA = f"""
-    COALESCE(
-        CASE
-            WHEN {_TTM_ETAPA} > 0 THEN
-                round_even(CAST(tt.distance_od AS DOUBLE) / ({_TTM_ETAPA} / 60.0), 1)
-            ELSE NULL
-        END, 0)
-"""
+# etapas: same expressions as viajes (both read `tt` = travel_times_legs/trips).
+_TTM_ETAPA = _TTM_VIAJE
+_KMH_ETAPA = _KMH_VIAJE
 
 
 # ── viajes CTE ────────────────────────────────────────────────────────────────

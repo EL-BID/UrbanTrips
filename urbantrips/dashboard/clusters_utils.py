@@ -9,9 +9,12 @@ from sklearn.cluster import AgglomerativeClustering
 import scipy.cluster.hierarchy as sch
 import folium
 import os
+import logging
 
 
 from urbantrips.utils.utils import levanto_tabla_sql
+
+logger = logging.getLogger(__name__)
 
 
 def normalizar_id_linea(col):
@@ -60,20 +63,16 @@ def correlation_analysis(
     # Guardar el gráfico como PNG
     if len(nombre_archivo) > 0:
         archivo_guardado = output_path / nombre_archivo
-        print(f"Guardando el archivo en: {archivo_guardado}")
+        logger.debug("Guardando el archivo en: %s", archivo_guardado)
         plt.savefig(archivo_guardado, dpi=300, bbox_inches="tight", pad_inches=0.1)
 
     # Mostrar el gráfico
     plt.show()
 
-    print("\nInterpretación de la Matriz de Correlación:")
-    print("- Valores cercanos a 1 o -1 indican alta correlación positiva o negativa.")
-    print("- Variables altamente correlacionadas pueden redundar información.")
-    print(corr_matrix)
+    logger.debug("Matriz de correlación:\n%s", corr_matrix)
 
     if len(nombre_archivo) > 0:
         nombre_archivo = nombre_archivo.replace(".png", ".xlsx")
-        print(nombre_archivo)
         corr_matrix.to_excel(output_path / nombre_archivo, index=False)
     return corr_matrix
 
@@ -111,7 +110,6 @@ def cluster_profile(
 
     cluster_summary = cluster_sum.merge(cluster_summary)
 
-    print(f"\nPerfil de clusters basado en variables de evaluación:")
 
     guardar_tabla_como_png(
         cluster_summary,
@@ -347,7 +345,7 @@ def hierarchical_clustering(
     # Si no se especifica número de clusters, sugerimos inspeccionar el dendrograma
     if n_clusters is None:
         # raise ValueError("Debes definir 'n_clusters' o visualizar el dendrograma para seleccionar un valor adecuado.")
-        print(
+        logger.warning(
             "Hay que definir el número de clusters. Visualizar el dendrograma para seleccionar un valor adecuado."
         )
     else:
@@ -423,7 +421,7 @@ def correr_clusters(data):
     clusters_result = pd.DataFrame([])
 
     for n in range(0, len(n_clusters)):
-        print("Escenario", n + 1, cluster_vars[n])
+        logger.debug("Escenario %s: %s", n + 1, cluster_vars[n])
 
         lineas_new = data[
             ["dia", "mes", "id_linea", "nombre_linea", "empresa", "modo"]

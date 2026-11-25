@@ -13,6 +13,7 @@ from shapely.geometry import Point
 from urbantrips.carto.compute_distances import compute_od_distances
 
 # from urbantrips.carto.carto import compute_distances_osm
+from urbantrips.datamodel.gps_vehiculos import guardar_vehiculos_gps
 from urbantrips.geo import geo
 from urbantrips.storage.context import StorageContext
 from urbantrips.storage.schema.data import GPS_RAW_COLUMNS
@@ -20,6 +21,7 @@ from urbantrips.utils.utils import (
     agrego_indicador,
     duracion,
     leer_configs_generales,
+    leer_tuning_num,
 )
 from urbantrips.utils.paths import get_paths
 
@@ -1090,6 +1092,7 @@ def process_and_upload_gps_table(
                 continue
             gps_day = ctx.data.get_gps_prep_day(dia)
             gps_day = compute_distance_km_gps(gps_day, ctx)
+            guardar_vehiculos_gps(ctx, gps_day, dia, _velocidad_maxima_gps_kmh())
             gps_day = gps_day.reindex(columns=cols)
             gps_day = geo.referenciar_h3(
                 gps_day, res, "h3", lat="latitud", lon="longitud"
@@ -1139,6 +1142,67 @@ def get_veh_expansion_from_gps(gps):
     vehicles_with_gps_broken.loc[vehicles_with_gps_broken.veh_exp > 2, "veh_exp"] = 2
 
     return vehicles_with_gps_broken
+
+
+# Velocidad maxima plausible de un tramo entre dos puntos GPS consecutivos de un
+# vehiculo. Override: `gps_velocidad_maxima_kmh` en configs/tuning.yaml.
+VELOCIDAD_MAXIMA_GPS_KMH = 100.0
+# Resolucion de la fecha de los puntos GPS (segundos enteros). Intervalo con el
+# que se evaluan los tramos cuyos dos puntos caen en el mismo segundo.
+RESOLUCION_FECHA_GPS_SEG = 1.0
+
+
+def _velocidad_maxima_gps_kmh() -> float:
+    """Tope de velocidad de un tramo GPS (tuning.yaml)."""
+    return leer_tuning_num("gps_velocidad_maxima_kmh", VELOCIDAD_MAXIMA_GPS_KMH)
+
+
+def corregir_distancias_implausibles(distancia_km, recta_km, delta_seg, tope_kmh=None):
+    """Corrige la distancia de los tramos GPS que implican una velocidad imposible.
+
+    Cada tramo va de un punto GPS al siguiente del mismo vehiculo. `distancia_km`
+    es la distancia por la red vial, `recta_km` la distancia en linea recta y
+    `delta_seg` el tiempo entre los dos puntos. Si la velocidad por red supera
+    `tope_kmh` hay dos casos:
+
+    - salto del GPS: en linea recta tambien supera el tope. El vehiculo no pudo
+      recorrer esa distancia: el tramo pasa a 0 km.
+    - artefacto de la red: en linea recta no lo supera. La distancia por red esta
+      sobrestimada (puntos cercanos asignados a nodos lejanos entre si, calles de
+      mano unica, autopistas que el ruteo no toma) y se reemplaza por la recta.
+
+    Dos puntos en el mismo segundo (`delta_seg` = 0) se evaluan con un intervalo
+    de `RESOLUCION_FECHA_GPS_SEG`: la fecha esta en segundos enteros, asi que
+    entre los dos puntos paso menos de un segundo.
+
+    Los tramos con intervalo negativo o nulo, o sin distancia en linea recta, no
+    se tocan: no se les puede calcular una velocidad.
+
+    Devuelve (distancia corregida, mascara de saltos, mascara de artefactos).
+    """
+    if tope_kmh is None:
+        tope_kmh = _velocidad_maxima_gps_kmh()
+
+    distancia = pd.to_numeric(pd.Series(distancia_km), errors="coerce").to_numpy(
+        dtype="float64"
+    )
+    recta = pd.to_numeric(pd.Series(recta_km), errors="coerce").to_numpy(dtype="float64")
+    delta = pd.to_numeric(pd.Series(delta_seg), errors="coerce").to_numpy(dtype="float64")
+    delta = np.where(delta == 0, RESOLUCION_FECHA_GPS_SEG, delta)
+
+    evaluable = (delta > 0) & ~np.isnan(recta) & ~np.isnan(distancia)
+    horas = np.where(evaluable, delta, np.nan) / 3600.0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        supera_red = evaluable & (distancia / horas > tope_kmh)
+        supera_recta = evaluable & (recta / horas > tope_kmh)
+
+    salto = supera_red & supera_recta
+    artefacto = supera_red & ~supera_recta
+
+    corregida = distancia.copy()
+    corregida[salto] = 0.0
+    corregida[artefacto] = np.round(recta[artefacto], 3)
+    return corregida, salto, artefacto
 
 
 @duracion
@@ -1191,6 +1255,13 @@ def compute_distance_km_gps(gps, ctx):
     gps["delta_fecha"] = (
         gps.reindex(columns=order_cols).groupby(order_cols[:-1]).diff().fillna(0)
     )
+    # Distancia en linea recta desde el punto anterior del mismo vehiculo, para
+    # detectar tramos con velocidad imposible (corregir_distancias_implausibles).
+    previo = gps.groupby(order_cols[:-1])[["latitud", "longitud"]].shift(1)
+    gps["_recta_km"] = geo.distancia_recta_km(
+        previo["latitud"], previo["longitud"], gps["latitud"], gps["longitud"]
+    )
+    del previo
 
     gps = compute_od_distances(
         od_df=gps,
@@ -1208,8 +1279,22 @@ def compute_distance_km_gps(gps, ctx):
     percentile_99 = gps["delta_fecha"].quantile(0.995)
     gps.loc[gps.delta_fecha > percentile_99, "distance_km"] = 0
 
+    # Tramos con velocidad imposible: saltos del GPS a 0, artefactos de la red a
+    # distancia en linea recta.
+    km_antes = float(pd.to_numeric(gps["distance_km"], errors="coerce").sum())
+    corregida, salto, artefacto = corregir_distancias_implausibles(
+        gps["distance_km"], gps["_recta_km"], gps["delta_fecha"]
+    )
+    gps["distance_km"] = corregida
+    logger.info(
+        "Tramos GPS con velocidad imposible: %s saltos y %s artefactos de red "
+        "corregidos; km %s -> %s",
+        f"{int(salto.sum()):,}", f"{int(artefacto.sum()):,}",
+        f"{km_antes:,.0f}", f"{float(np.nansum(corregida)):,.0f}",
+    )
+
     # remove h3_lag
-    gps = gps.drop(["h3_lag", "delta_fecha"], axis=1)
+    gps = gps.drop(["h3_lag", "delta_fecha", "_recta_km"], axis=1)
 
     return gps
 

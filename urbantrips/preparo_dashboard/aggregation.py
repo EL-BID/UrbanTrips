@@ -387,7 +387,7 @@ def agrego_lineas(cols, trx, etapas, gps, servicios, kpis, lineas,
             "distancia_media", "travel_time_min", "kmh_od",
             "cant_internos_en_trx", "cant_internos_en_gps",
             "tot_veh", "tot_km_route", "tot_pax", "dmt_mean_od", "dmt_median_od",
-            "pvd", "kvd_route", "ipk_route", "fo_mean_od", "fo_median_od",
+            "pvd", "kvd_route", "ipk_route",
         ]
     ]
     all["transacciones"] = all["transacciones"].round(0)

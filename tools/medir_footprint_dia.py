@@ -17,6 +17,11 @@ el parquet del worker de destinos va a un temp que se borra.
 Uso:
     python tools/medir_footprint_dia.py marzo_mes_completo_2026_fix
     python tools/medir_footprint_dia.py <alias> --etapa tiempos --dia 2026-04-01
+    python tools/medir_footprint_dia.py <alias> --etapa chains
+
+`--etapa chains` calibra `_CHAINS_COPY_AMPLIFICATION` (preparo_dashboard/chains.py),
+que es aparte: chains genera mucho más que lo que lee. Ahí los insumos de la tabla
+son los que ESTIMA el autotune (no los de pandas), así el factor se usa tal cual.
 """
 import argparse
 import logging
@@ -27,6 +32,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -55,6 +61,19 @@ def _dia_mas_grande(data):
     return df["dia"].iloc[0], int(df["n"].iloc[0])
 
 
+def _dia_mas_grande_chains(data):
+    """El día que dimensiona el autotune de chains: el de más etapas od_validado
+    dentro de dias_ultima_corrida (lo que lee _fetch_chains_inputs_dia)."""
+    df = data.query(
+        "SELECT e.dia, count(*) AS n FROM etapas e "
+        "JOIN dias_ultima_corrida d ON e.dia = d.dia "
+        "WHERE e.od_validado = 1 GROUP BY 1 ORDER BY n DESC LIMIT 1"
+    )
+    if df.empty:
+        raise SystemExit("chains: no hay etapas od_validado en dias_ultima_corrida")
+    return df["dia"].iloc[0], int(df["n"].iloc[0])
+
+
 def _mem_gb(*frames):
     return sum(f.memory_usage(deep=True).sum() for f in frames if f is not None) / GB
 
@@ -71,6 +90,13 @@ def _hijo_destinos(dia, min_dist, etapas, metadata_lineas, matriz_val, modos_ram
         q.put("ok")
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _hijo_chains(etapas, viajes, res, max_etapas, q):
+    from urbantrips.preparo_dashboard.chains import _compute_chains_dia
+
+    _compute_chains_dia(etapas, viajes, res, max_etapas, False)
+    q.put("ok")
 
 
 def _hijo_tiempos(args_tuple, q):
@@ -110,7 +136,7 @@ def _correr_midiendo(target, args, etiqueta):
         etiqueta, pico, base or 0.0, dur / 60,
         "" if p.exitcode == 0 else f" — EXITCODE {p.exitcode}",
     )
-    return pico, dur
+    return pico, dur, p.exitcode
 
 
 # ── armado de insumos (en el padre, igual que el pipeline) ──────────────────────
@@ -120,11 +146,7 @@ def medir_destinos(data, insumos, dia):
     )
     from urbantrips.utils.utils import leer_configs_generales, modos_con_ramal
 
-    class _Ctx:
-        pass
-
-    ctx = _Ctx()
-    ctx.data, ctx.insumos = data, insumos
+    ctx = SimpleNamespace(data=data, insumos=insumos)
 
     configs = leer_configs_generales(autogenerado=False)
     # El camino min_distancia pasa una matriz con `parada` y hace la busqueda de
@@ -143,11 +165,11 @@ def medir_destinos(data, insumos, dia):
         "(imputar_destinos_min_distancia=%s)",
         dia, f"{len(etapas):,}", ins, min_dist,
     )
-    pico, _ = _correr_midiendo(
+    pico, _, exitcode = _correr_midiendo(
         _hijo_destinos, (dia, min_dist, etapas, metadata_lineas, matriz_val, modos_ramal),
         "infer_destinations",
     )
-    return ins, pico
+    return ins, pico, exitcode
 
 
 def medir_tiempos(data, insumos, dia, next_dia):
@@ -197,20 +219,59 @@ def medir_tiempos(data, insumos, dia, next_dia):
         "assign_time_distances — insumos del %s: %s etapas + %s gps, %.2f GB en pandas",
         dia, f"{len(legs_all):,}", f"{len(gps):,}", ins,
     )
-    pico, _ = _correr_midiendo(
+    pico, _, exitcode = _correr_midiendo(
         _hijo_tiempos,
         ((dia, next_dia, legs_all, gps, legs_to_gps_o, metadata_lineas, matriz,
           modos_con_ramal(configs), legs_h3_res),),
         "assign_time_distances",
     )
-    return ins, pico
+    return ins, pico, exitcode
+
+
+def medir_chains(data, insumos, dia):
+    from urbantrips.datamodel.legs import _insumos_bytes
+    from urbantrips.preparo_dashboard.chains import (
+        RES_CHAINS_NORM, _CHAINS_COPY_AMPLIFICATION, _chains_tablas_footprint,
+        _fetch_chains_inputs_dia,
+    )
+
+    ctx = SimpleNamespace(data=data, insumos=insumos)
+
+    # mismos argumentos que preparo_dashboard: res=RES_CHAINS_NORM, max_etapas=3
+    lineas = insumos.query("SELECT id_linea, nombre_linea FROM metadata_lineas")
+    inp = _fetch_chains_inputs_dia(ctx, dia, lineas)
+    if inp is None:
+        raise SystemExit(f"chains: el día {dia} no tiene etapas od_validado en dias_ultima_corrida")
+    etapas, viajes = inp
+
+    # la misma base que multiplica el autotune (sin factor, piso ni override)
+    fijas, del_dia, _ = _insumos_bytes(ctx, [dia], _chains_tablas_footprint())
+    estimados = (fijas + del_dia) / GB
+    logger.info(
+        "chains — insumos del %s: %s etapas + %s viajes, %.2f GB en pandas, "
+        "%.2f GB según el autotune (factor actual %.1f)",
+        dia, f"{len(etapas):,}", f"{len(viajes):,}", _mem_gb(etapas, viajes),
+        estimados, _CHAINS_COPY_AMPLIFICATION,
+    )
+    pico, _, exitcode = _correr_midiendo(
+        _hijo_chains, (etapas, viajes, RES_CHAINS_NORM, 3), "chains"
+    )
+    return estimados, pico, exitcode
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("alias", help="alias de la base (se abre READ ONLY)")
-    ap.add_argument("--dia", help="día a medir (default: el de más etapas)")
-    ap.add_argument("--etapa", choices=["destinos", "tiempos", "ambas"], default="ambas")
+    ap.add_argument(
+        "--dia",
+        help="día a medir (default: el de más etapas; en chains, el de más etapas "
+             "od_validado de la última corrida)",
+    )
+    ap.add_argument(
+        "--etapa", choices=["destinos", "tiempos", "chains", "ambas"], default="ambas",
+        help="'ambas' = destinos + tiempos (comparten _PANDAS_COPY_AMPLIFICATION); "
+             "chains tiene su propio factor y se mide aparte",
+    )
     args = ap.parse_args()
 
     data, insumos = _abrir(args.alias)
@@ -220,6 +281,8 @@ def main():
             n = int(data.query(
                 f"SELECT count(*) AS n FROM etapas WHERE dia = '{dia}'"
             )["n"].iloc[0])
+        elif args.etapa == "chains":
+            dia, n = _dia_mas_grande_chains(data)
         else:
             dia, n = _dia_mas_grande(data)
         siguientes = data.query(
@@ -233,18 +296,36 @@ def main():
             filas.append(("infer_destinations",) + medir_destinos(data, insumos, dia))
         if args.etapa in ("tiempos", "ambas"):
             filas.append(("assign_time_distances",) + medir_tiempos(data, insumos, dia, next_dia))
+        if args.etapa == "chains":
+            filas.append(("chains",) + medir_chains(data, insumos, dia))
     finally:
         data.close()
         insumos.close()
 
     print()
     print(f"{'etapa':26s} {'insumos GB':>11s} {'pico worker GB':>15s} {'factor':>8s}")
-    for nombre, ins, pico in filas:
-        print(f"{nombre:26s} {ins:11.2f} {pico:15.2f} {pico / max(ins, 1e-9):8.2f}")
+    invalidas = False
+    for nombre, ins, pico, exitcode in filas:
+        if exitcode == 0:
+            factor = f"{pico / max(ins, 1e-9):8.2f}"
+        else:
+            # el hijo murió (p.ej. sin RAM): el pico es parcial y el factor no sirve
+            factor = f"{'INVÁLIDO':>8s}"
+            invalidas = True
+        print(f"{nombre:26s} {ins:11.2f} {pico:15.2f} {factor}")
     print()
-    print("El factor es lo que hay que poner en _PANDAS_COPY_AMPLIFICATION")
-    print("(legs.py). Tomar el MAYOR de las etapas medidas: el autotune usa un solo")
-    print("multiplicador para todas.")
+    if invalidas:
+        print("Alguna medición no terminó (EXITCODE != 0, ver log): su pico es parcial.")
+        print("No usar ese factor; liberar RAM y volver a medir.")
+        print()
+    if args.etapa == "chains":
+        print("El factor es lo que hay que poner en _CHAINS_COPY_AMPLIFICATION")
+        print("(preparo_dashboard/chains.py). Los insumos son los que estima el")
+        print("autotune, así que el factor se aplica tal cual. Dejar algo de margen.")
+    else:
+        print("El factor es lo que hay que poner en _PANDAS_COPY_AMPLIFICATION")
+        print("(legs.py). Tomar el MAYOR de destinos y tiempos: comparten ese")
+        print("multiplicador. chains tiene el suyo (--etapa chains).")
 
 
 if __name__ == "__main__":

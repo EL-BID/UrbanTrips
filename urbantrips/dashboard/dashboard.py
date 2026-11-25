@@ -48,6 +48,12 @@ if multiprocessing.current_process().name == "MainProcess":
 else:
     indicadores = pd.DataFrame()
 
+# Una corrida a medio terminar deja `indicadores` con pocas filas y sin la
+# columna `porcentaje` (la agrega un paso posterior): se completa vacía para
+# que la página muestre lo que haya en vez de romperse.
+if len(indicadores) > 0 and "porcentaje" not in indicadores.columns:
+    indicadores["porcentaje"] = float("nan")
+
 
 def _valor(df, tabla, detalle_contains):
     """Devuelve el valor numérico de un indicador puntual, o None si no existe."""
@@ -197,3 +203,5 @@ if len(indicadores) > 0:
         (indicadores.tabla == "avg") & (indicadores.detalle.str.contains("mediana"))
     ]
     _mostrar(col3, "Medianas", med, entero=False)
+else:
+    col2.info("Esta corrida no tiene indicadores calculados.")
